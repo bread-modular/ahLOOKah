@@ -14,7 +14,7 @@ export default (audio) => (p) => {
     return {
       x: p.random(p.width),
       y: p.random(p.height),
-      baseSize: p.random(40, 150),
+      baseSize: p.random(20, 80),
       speedX: p.random(-0.5, 0.5),
       speedY: p.random(-0.5, -2),
       brightness: p.random(150, 255),
