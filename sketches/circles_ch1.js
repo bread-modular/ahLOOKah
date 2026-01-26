@@ -55,27 +55,7 @@ export default (audio) => (p) => {
     const freqs = audio.getFrequencies();
     if (!freqs) return;
 
-    const bands1 = analyzeBands(freqs.left);  // Ch 1
-    const bands2 = analyzeBands(freqs.right); // Ch 2
-
-    const noiseIntensity = (bands2.mid + bands2.high) * 0.5;
-    const glitchAmount = p.map(noiseIntensity, 0, 0.5, 0, 60);
-
-    p.push();
-    // Global glitch translation
-    if (glitchAmount > 5) {
-      p.translate(p.random(-glitchAmount, glitchAmount), p.random(-glitchAmount, glitchAmount));
-
-      // Random inverted flashes
-      if (p.random() < noiseIntensity * 0.15) {
-        p.filter(p.INVERT);
-      }
-
-      // Random background brightness sparks
-      if (p.random() < noiseIntensity * 0.2) {
-        p.background(p.random(50, 100));
-      }
-    }
+    const bands1 = analyzeBands(freqs.left);  // Ch 1 Only
 
     // Spawn tiny circles (hats)
     if (bands1.high > 0.15) {
@@ -98,13 +78,8 @@ export default (audio) => (p) => {
       }
 
       p.strokeWeight(p.map(bands1.sub, 0, 0.5, 1, 12));
-
-      // Jitter circles based on Ch 2 noise
-      const jx = p.random(-glitchAmount / 2, glitchAmount / 2);
-      const jy = p.random(-glitchAmount / 2, glitchAmount / 2);
-
       p.stroke(255, p.map(c.brightness, 150, 255, 180, 255));
-      p.circle(c.x + jx, c.y + jy, currentSize);
+      p.circle(c.x, c.y, currentSize);
 
       c.x += c.speedX * (1 + bands1.sub * 12);
       c.y += c.speedY * (1 + bands1.sub * 12);
@@ -120,11 +95,7 @@ export default (audio) => (p) => {
     for (let i = hats.length - 1; i >= 0; i--) {
       const h = hats[i];
       p.fill(255, h.life);
-
-      const hjx = p.random(-glitchAmount, glitchAmount);
-      const hjy = p.random(-glitchAmount, glitchAmount);
-
-      p.circle(h.x + hjx, h.y + hjy, h.size);
+      p.circle(h.x, h.y, h.size);
 
       h.x += h.speedX;
       h.y += h.speedY;
@@ -132,26 +103,6 @@ export default (audio) => (p) => {
 
       if (h.life <= 0 || h.y < -20) {
         hats.splice(i, 1);
-      }
-    }
-    p.pop();
-
-    // Noise sweep scanlines and slices
-    if (noiseIntensity > 0.15) {
-      // Scanlines
-      p.stroke(255, p.map(noiseIntensity, 0.15, 0.5, 20, 100));
-      p.strokeWeight(1);
-      for (let i = 0; i < 5; i++) {
-        let ly = p.random(p.height);
-        p.line(0, ly, p.width, ly);
-      }
-
-      // Random screen slices (copying areas)
-      if (noiseIntensity > 0.3 && p.frameCount % 2 === 0) {
-        let sy = p.random(p.height);
-        let sh = p.random(10, 50);
-        let sx = p.random(-glitchAmount * 2, glitchAmount * 2);
-        p.copy(0, sy, p.width, sh, sx, sy, p.width, sh);
       }
     }
   };

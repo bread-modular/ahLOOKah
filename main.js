@@ -5,12 +5,14 @@ import { AudioManager } from './audio-manager.js';
 
 // Import available sketches
 import circles from './sketches/circles.js';
+import circlesCh1 from './sketches/circles_ch1.js';
 import bars from './sketches/bars.js';
 
 // Sketch Registry (up to 10)
 const sketches = [
-  circles,  // 1
-  bars,     // 2
+  circles,    // 1 (Ch1 + Ch2 Glitch)
+  circlesCh1, // 2 (Ch1 only)
+  bars,       // 3
   // Add more here (up to 10)
 ];
 
