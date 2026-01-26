@@ -8,13 +8,15 @@ import circles from './sketches/circles.js';
 import circlesCh1 from './sketches/circles_ch1.js';
 import bars from './sketches/bars.js';
 import techno3d from './sketches/techno3d.js';
+import character3d from './sketches/character3d.js';
 
 // Sketch Registry (up to 10)
 const sketches = [
-  circles,      // 1 (Ch1 + Ch2 Glitch)
-  circlesCh1,   // 2 (Ch1 only)
+  circles,      // 1
+  circlesCh1,   // 2
   bars,         // 3
   techno3d,     // 4
+  character3d,  // 5
 ];
 
 const audio = new AudioManager();
