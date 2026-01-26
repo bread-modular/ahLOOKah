@@ -1,7 +1,9 @@
 export class ConfigPanel {
-  constructor({ onDeviceChange }) {
-    this.onDeviceChange = onDeviceChange;
+  constructor({ onAudioChange, onVideoChange }) {
+    this.onAudioChange = onAudioChange;
+    this.onVideoChange = onVideoChange;
     this.audioKey = 'viz2_audio_device_id';
+    this.videoKey = 'viz2_video_device_id';
     this.container = null;
     this.panel = null;
 
@@ -9,24 +11,20 @@ export class ConfigPanel {
   }
 
   async init() {
-    // Main Container (The invisible trigger area)
     this.container = document.createElement('div');
     this.container.id = 'config-container';
     document.body.appendChild(this.container);
 
-    // Panel
     this.panel = document.createElement('div');
     this.panel.id = 'config-panel';
     this.container.appendChild(this.panel);
 
-    // Auto-detection logic
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
-      const audioInputs = devices.filter(d => d.kind === 'audioinput');
-      const hasPermissions = audioInputs.some(d => d.label !== '');
+      const hasPermissions = devices.some(d => d.label !== '');
 
       if (hasPermissions) {
-        this.renderDeviceSelector(audioInputs);
+        this.renderSelectors(devices);
       } else {
         this.renderStartButton();
       }
@@ -38,53 +36,72 @@ export class ConfigPanel {
 
   renderStartButton() {
     this.panel.innerHTML = `
-      <h3>Audio Setup</h3>
+      <h3>System Setup</h3>
       <div class="config-group">
-        <p>Permissions needed for audio input selection.</p>
-        <button id="setup-audio-btn">Initialize</button>
+        <p>Permissions needed for audio & camera selection.</p>
+        <button id="setup-all-btn">Initialize</button>
       </div>
     `;
 
-    this.panel.querySelector('#setup-audio-btn').onclick = () => this.requestPermissions();
+    this.panel.querySelector('#setup-all-btn').onclick = () => this.requestPermissions();
   }
 
-  renderDeviceSelector(devices) {
+  renderSelectors(devices) {
+    const audioInputs = devices.filter(d => d.kind === 'audioinput');
+    const videoInputs = devices.filter(d => d.kind === 'videoinput');
+
     this.panel.innerHTML = `
-      <h3>Input</h3>
+      <h3>Audio Input</h3>
       <div class="config-group">
-        <select id="device-select">
-          <option value="">Select...</option>
+        <select id="audio-select">
+          <option value="">Select Audio...</option>
         </select>
-        <button id="refresh-devices-btn">Refresh</button>
+      </div>
+      <h3>Camera Input</h3>
+      <div class="config-group">
+        <select id="video-select">
+          <option value="">Select Camera...</option>
+        </select>
+      </div>
+      <div class="config-group" style="margin-top: 10px;">
+        <button id="refresh-devices-btn">Refresh Devices</button>
       </div>
     `;
 
-    const select = this.panel.querySelector('#device-select');
-    const savedId = localStorage.getItem(this.audioKey);
-    let foundSaved = false;
+    const audioSelect = this.panel.querySelector('#audio-select');
+    const videoSelect = this.panel.querySelector('#video-select');
 
-    devices.forEach(d => {
+    const savedAudioId = localStorage.getItem(this.audioKey);
+    const savedVideoId = localStorage.getItem(this.videoKey);
+
+    audioInputs.forEach(d => {
       const opt = document.createElement('option');
       opt.value = d.deviceId;
-      opt.text = d.label || `Device ${d.deviceId.slice(0, 5)}...`;
-      select.appendChild(opt);
-      if (savedId && d.deviceId === savedId) {
-        opt.selected = true;
-        foundSaved = true;
-      }
+      opt.text = d.label || `Audio ${d.deviceId.slice(0, 5)}`;
+      audioSelect.appendChild(opt);
+      if (savedAudioId && d.deviceId === savedAudioId) opt.selected = true;
     });
 
-    select.onchange = (e) => this.handleDeviceChange(e.target.value);
+    videoInputs.forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d.deviceId;
+      opt.text = d.label || `Camera ${d.deviceId.slice(0, 5)}`;
+      videoSelect.appendChild(opt);
+      if (savedVideoId && d.deviceId === savedVideoId) opt.selected = true;
+    });
+
+    audioSelect.onchange = (e) => this.handleAudioChange(e.target.value);
+    videoSelect.onchange = (e) => this.handleVideoChange(e.target.value);
     this.panel.querySelector('#refresh-devices-btn').onclick = () => this.refreshDevices();
 
-    if (foundSaved && savedId) {
-      this.handleDeviceChange(savedId);
-    }
+    // Trigger initial callbacks if saved
+    if (savedAudioId) this.onAudioChange(savedAudioId);
+    if (savedVideoId) this.onVideoChange(savedVideoId);
   }
 
   async requestPermissions() {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
       stream.getTracks().forEach(t => t.stop());
       this.refreshDevices();
     } catch (e) {
@@ -94,15 +111,18 @@ export class ConfigPanel {
 
   async refreshDevices() {
     const devices = await navigator.mediaDevices.enumerateDevices();
-    const audioInputs = devices.filter(d => d.kind === 'audioinput');
-    this.renderDeviceSelector(audioInputs);
+    this.renderSelectors(devices);
   }
 
-  handleDeviceChange(deviceId) {
-    if (!deviceId) return;
-    localStorage.setItem(this.audioKey, deviceId);
-    if (this.onDeviceChange) {
-      this.onDeviceChange(deviceId);
-    }
+  handleAudioChange(id) {
+    if (!id) return;
+    localStorage.setItem(this.audioKey, id);
+    if (this.onAudioChange) this.onAudioChange(id);
+  }
+
+  handleVideoChange(id) {
+    if (!id) return;
+    localStorage.setItem(this.videoKey, id);
+    if (this.onVideoChange) this.onVideoChange(id);
   }
 }
