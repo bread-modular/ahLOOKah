@@ -2,7 +2,9 @@ export default (audio) => (p) => {
   let rotation = 0;
   let groove = 0;
   let bgLines = [];
-  const numBgLines = 50;
+  let stars = [];
+  const numBgLines = 150;
+  const numStars = 100;
 
   // Anatomy constants
   const TORSO_W = 60, TORSO_H = 80, TORSO_D = 30;
@@ -17,13 +19,23 @@ export default (audio) => (p) => {
   p.setup = () => {
     p.createCanvas(p.windowWidth, p.windowHeight, p.WEBGL);
 
-    // Initialize background digital rain/lines
+    // Initialize background digital rain
     for (let i = 0; i < numBgLines; i++) {
       bgLines.push({
+        x: p.random(-1000, 1000),
+        y: p.random(-800, 800),
+        z: p.random(-3000, 500),
+        speed: p.random(2, 12)
+      });
+    }
+
+    // Initialize floating "dust" particles
+    for (let i = 0; i < numStars; i++) {
+      stars.push({
         x: p.random(-800, 800),
-        y: p.random(-600, 600),
-        z: p.random(-2000, 500),
-        speed: p.random(5, 15)
+        y: p.random(-800, 800),
+        z: p.random(-1500, 0),
+        size: p.random(1, 3)
       });
     }
   };
@@ -70,146 +82,149 @@ export default (audio) => (p) => {
     p.translate(0, -50, 0);
     p.rotateY(rotation);
 
-    // Minimal Techno Lighting
+    // Lighting
     p.ambientLight(20);
-    p.pointLight(255, 255, 255, 200, -200, 200);
-    p.pointLight(100, 100, 100, -200, 200, 200);
+    p.pointLight(255, 255, 255, 0, -300, 300);
 
-    // 1. BACKGROUND DYNAMIC ELEMENTS
+    // 1. DYNAMIC BACKGROUND
+
+    // Stars/Particles (Floating dust)
     p.push();
-    p.stroke(255, 60); // Dimmer, thinner background
-    p.strokeWeight(0.5 + b.high);
-    bgLines.forEach(line => {
-      // Move towards camera, speed boosts with sub-bass and noise
-      line.z += line.speed + b.sub * 100 + noiseLevel * 40;
-      if (line.z > 500) line.z = -2000;
-
+    p.noStroke();
+    p.fill(255, 120);
+    stars.forEach(s => {
+      s.z += 1 + b.sub * 10;
+      if (s.z > 500) s.z = -1500;
       p.push();
-      p.translate(line.x, line.y, line.z);
-      // Length reacts to high end
-      const l = 40 + b.high * 400;
-      p.line(0, 0, 0, 0, 0, l);
+      p.translate(s.x, s.y, s.z);
+      p.sphere(s.size, 4, 4);
       p.pop();
     });
     p.pop();
 
-    // Glitch artifacts from Channel 2
-    if (noiseLevel > 0.35) {
+    // Digital Rain (Lines)
+    p.push();
+    p.stroke(255, 60 + b.high * 100);
+    p.strokeWeight(0.5 + b.high * 2);
+    bgLines.forEach((line, i) => {
+      // Line density and speed increase with audio levels
+      const activeNum = p.map(b.mid + b.sub, 0, 1, numBgLines * 0.3, numBgLines);
+      if (i < activeNum) {
+        line.z += line.speed + b.sub * 150 + noiseLevel * 80;
+        if (line.z > 500) line.z = -3000;
+
+        p.push();
+        p.translate(line.x, line.y, line.z);
+        const l = 40 + b.high * 600;
+        p.line(0, 0, 0, 0, 0, l);
+        p.pop();
+      }
+    });
+    p.pop();
+
+    // Background Geometry (Cubes appearing on mid-peaks)
+    if (b.mid > 0.45) {
       p.push();
-      p.stroke(255, 150);
+      p.noFill();
+      p.stroke(255, 80);
       p.strokeWeight(1);
-      for (let i = 0; i < 4; i++) {
-        p.rotateZ(p.random(p.TWO_PI));
-        p.line(-1000, p.random(-500, 500), 1000, p.random(-500, 500));
+      for (let i = 0; i < 3; i++) {
+        p.push();
+        p.translate(p.random(-800, 800), p.random(-800, 800), p.random(-1500, -500));
+        p.box(100 * b.mid);
+        p.pop();
       }
       p.pop();
     }
 
     // 2. CHARACTER HIERARCHY
     p.push();
-    p.scale(1.6); // Make the person bigger
+    p.scale(1.6);
     p.noFill();
     p.stroke(255);
-    p.strokeWeight((1.2 + b.sub * 2.0) / 1.6); // Twice the previous width + sub-bass pulse
+    p.strokeWeight((1.2 + b.sub * 2.0) / 1.6);
 
-    // Core (Pelvis) - Bounces on sub-bass
     const bounce = b.sub * 30;
     p.translate(0, bounce, 0);
 
-    // PELVIS BOX
-    p.box(50, 20, 30);
+    p.box(50, 20, 30); // Pelvis
 
-    // TORSO & UPPER BODY
     p.push();
     p.translate(0, -10, 0);
     p.rotateX(p.sin(groove) * 0.15);
     p.rotateZ(p.cos(groove * 0.5) * 0.05);
 
     p.push();
-    p.translate(0, -TORSO_H, 0); // Position cursor at top of torso
+    p.translate(0, -TORSO_H, 0);
     drawBox(TORSO_W, TORSO_H, TORSO_D);
 
-    // NECK - sit on top of torso
+    // Neck & Head
     p.push();
-    p.translate(0, -NECK_H / 2, 0); // Move up half neck height to center the neck box
+    p.translate(0, -NECK_H / 2, 0);
     p.box(10, NECK_H, 10);
-
-    // HEAD - sit on top of neck
-    p.translate(0, -NECK_H / 2 - HEAD_SIZE, 0); // Move up remaining neck and head radius
+    p.translate(0, -NECK_H / 2 - HEAD_SIZE, 0);
     p.rotateX(p.sin(groove * 2) * 0.2 + b.sub * 0.2);
     p.sphere(HEAD_SIZE, 8, 8);
     p.pop();
     p.pop();
 
-    // ARMS
+    // Arms
     const upperArmRotation = p.PI / 8 + p.sin(groove * 0.8) * 0.2;
     const forearmRotation = p.PI / 3 + b.mid * p.PI / 2;
 
-    // Left Arm
     p.push();
-    p.translate(-TORSO_W / 2 - 2, -TORSO_H + 10, 0); // Shoulder joint
+    p.translate(-TORSO_W / 2 - 2, -TORSO_H + 10, 0);
     p.rotateZ(upperArmRotation + b.mid * 0.5);
     p.rotateX(p.sin(groove * 0.5) * 0.2);
-    drawBox(LIMB_W - 2, ARM_L, LIMB_W - 2); // Upper arm
-
-    p.translate(0, ARM_L, 0); // Move to elbow
-    p.rotateX(-forearmRotation); // Bend elbow forward
-    drawBox(LIMB_W - 3, ARM_L, LIMB_W - 3); // Forearm
-
-    p.translate(0, ARM_L, 0); // Move to hand
-    p.box(12, 12, 12); // Hand
+    drawBox(LIMB_W - 2, ARM_L, LIMB_W - 2);
+    p.translate(0, ARM_L, 0);
+    p.rotateX(-forearmRotation);
+    drawBox(LIMB_W - 3, ARM_L, LIMB_W - 3);
+    p.translate(0, ARM_L, 0);
+    p.box(12, 12, 12);
     p.pop();
 
-    // Right Arm
     p.push();
-    p.translate(TORSO_W / 2 + 2, -TORSO_H + 10, 0); // Shoulder joint
+    p.translate(TORSO_W / 2 + 2, -TORSO_H + 10, 0);
     p.rotateZ(-upperArmRotation - b.mid * 0.5);
     p.rotateX(p.sin(groove * 0.5 + p.PI) * 0.2);
-    drawBox(LIMB_W - 2, ARM_L, LIMB_W - 2); // Upper arm
-
-    p.translate(0, ARM_L, 0); // Move to elbow
-    p.rotateX(-forearmRotation); // Bend elbow forward
-    drawBox(LIMB_W - 3, ARM_L, LIMB_W - 3); // Forearm
-
-    p.translate(0, ARM_L, 0); // Move to hand
-    p.box(12, 12, 12); // Hand
+    drawBox(LIMB_W - 2, ARM_L, LIMB_W - 2);
+    p.translate(0, ARM_L, 0);
+    p.rotateX(-forearmRotation);
+    drawBox(LIMB_W - 3, ARM_L, LIMB_W - 3);
+    p.translate(0, ARM_L, 0);
+    p.box(12, 12, 12);
     p.pop();
 
-    p.pop(); // End Upper Body
+    p.pop(); // End torso chain
 
-    // LEGS
-    // Left Leg
+    // Legs
     p.push();
     p.translate(-15, 10, 0);
     const lStep = p.sin(groove) * 0.4;
     p.rotateX(lStep + b.sub * 0.2);
     drawBox(LIMB_W, THIGH_L, LIMB_W);
-
     p.translate(0, THIGH_L, 0);
     p.rotateX(p.min(0, -lStep * 2));
     drawBox(LIMB_W, SHIN_L, LIMB_W);
-
     p.translate(0, SHIN_L, 0);
     p.box(15, FOOT_H, 25);
     p.pop();
 
-    // Right Leg
     p.push();
     p.translate(15, 10, 0);
     const rStep = p.sin(groove + p.PI) * 0.4;
     p.rotateX(rStep + b.sub * 0.2);
     drawBox(LIMB_W, THIGH_L, LIMB_W);
-
     p.translate(0, THIGH_L, 0);
     p.rotateX(p.min(0, -rStep * 2));
     drawBox(LIMB_W, SHIN_L, LIMB_W);
-
     p.translate(0, SHIN_L, 0);
     p.box(15, FOOT_H, 25);
     p.pop();
 
     p.pop(); // End Hierarchy
-    p.pop(); // End Camera Context
+    p.pop(); // End Context
   };
 
   p.windowResized = () => {
