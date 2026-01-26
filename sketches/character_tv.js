@@ -189,10 +189,10 @@ export default (audio, videoDeviceId) => (p) => {
     p.box(HEAD_SIZE * 1.0, 5, 8);
     p.pop();
 
-    p.pop();
-    p.pop();
+    p.pop(); // head
+    p.pop(); // torso box
 
-    // Arms
+    // Arms (inside torso rotation context)
     const upperArmRotation = p.PI / 8 + p.sin(groove * 0.8) * 0.2;
     const forearmRotation = p.PI / 3 + b.mid * p.PI / 2;
 
@@ -220,7 +220,7 @@ export default (audio, videoDeviceId) => (p) => {
     p.box(12, 12, 12);
     p.pop();
 
-    p.pop(); // torso chain
+    p.pop(); // torso rotation context
 
     // Legs
     p.push();
@@ -231,7 +231,7 @@ export default (audio, videoDeviceId) => (p) => {
     p.translate(0, THIGH_L, 0);
     p.rotateX(p.min(0, -lStep * 2));
     drawBox(LIMB_W, SHIN_L, LIMB_W);
-    p.translate(0, SHIN_L, 5);
+    p.translate(0, SHIN_L, 5); // Shift feet slightly forward (Z+)
     p.box(15, FOOT_H, 30);
     p.pop();
 
@@ -243,10 +243,11 @@ export default (audio, videoDeviceId) => (p) => {
     p.translate(0, THIGH_L, 0);
     p.rotateX(p.min(0, -rStep * 2));
     drawBox(LIMB_W, SHIN_L, LIMB_W);
-    p.translate(0, SHIN_L, 5);
+    p.translate(0, SHIN_L, 5); // Shift feet slightly forward (Z+)
     p.box(15, FOOT_H, 30);
     p.pop();
 
+    p.pop(); // hierarchy
     p.pop(); // character root
   }
 
