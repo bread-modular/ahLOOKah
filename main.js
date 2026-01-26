@@ -11,11 +11,10 @@ import techno3d from './sketches/techno3d.js';
 
 // Sketch Registry (up to 10)
 const sketches = [
-  circles,    // 1 (Ch1 + Ch2 Glitch)
-  circlesCh1, // 2 (Ch1 only)
-  bars,       // 3
-  techno3d,   // 4
-  // Add more here (up to 10)
+  circles,      // 1 (Ch1 + Ch2 Glitch)
+  circlesCh1,   // 2 (Ch1 only)
+  bars,         // 3
+  techno3d,     // 4
 ];
 
 const audio = new AudioManager();
@@ -49,13 +48,12 @@ loadSketch(0);
 
 // Global Key Commands for Switching
 window.addEventListener('keydown', (e) => {
-  // Listen for '1' (code 49) through '9' (code 57) and '0' (code 48)
   const key = e.key;
 
   if (key >= '1' && key <= '9') {
     const nextIndex = parseInt(key) - 1;
     loadSketch(nextIndex);
   } else if (key === '0') {
-    loadSketch(9); // 0 maps to 10th sketch
+    loadSketch(9);
   }
 });
