@@ -10,15 +10,21 @@ import bars from './sketches/bars.js';
 import techno3d from './sketches/techno3d.js';
 import character3d from './sketches/character3d.js';
 import webcam from './sketches/webcam.js';
+import webcamShader from './sketches/webcam_shader.js';
+import webcamHighContrast from './sketches/webcam_high_contrast.js';
+import video3d from './sketches/video3d.js';
 
 // Sketch Registry
 const sketches = [
-  circles,      // 1
-  circlesCh1,   // 2
-  bars,         // 3
-  techno3d,     // 4
-  character3d,  // 5
-  webcam,       // 6
+  circles,            // 1
+  circlesCh1,         // 2
+  bars,               // 3
+  techno3d,           // 4
+  character3d,        // 5
+  webcam,             // 6
+  webcamShader,       // 7
+  webcamHighContrast, // 8
+  video3d,            // 9
 ];
 
 const audio = new AudioManager();
@@ -47,9 +53,9 @@ new ConfigPanel({
   onAudioChange: (deviceId) => audio.startStream(deviceId),
   onVideoChange: (deviceId) => {
     currentVideoDeviceId = deviceId;
-    // Reload current sketch if it's the webcam one
-    if (currentIndex === 5) {
-      loadSketch(5);
+    // Reload current sketch if it's a webcam-dependent one (slots 6-9)
+    if (currentIndex >= 5 && currentIndex <= 8) {
+      loadSketch(currentIndex);
     }
   }
 });
@@ -64,6 +70,7 @@ window.addEventListener('keydown', (e) => {
     const nextIndex = parseInt(key) - 1;
     loadSketch(nextIndex);
   } else if (key === '0') {
+    // If we ever add a 10th sketch:
     loadSketch(9);
   }
 });
