@@ -1,101 +1,33 @@
 import p5 from 'p5';
 import './style.css';
 import { ConfigPanel } from './config-panel.js';
+import { AudioManager } from './audio-manager.js';
 
 const sketch = (p) => {
-  let audioContext;
-  let source;
-  let splitter;
-  let analyserL, analyserR;
-  let dataArrayL, dataArrayR;
-  let isAudioStarted = false;
+  let audio;
 
   p.setup = () => {
     p.createCanvas(p.windowWidth, p.windowHeight);
 
+    audio = new AudioManager();
+
     new ConfigPanel({
-      onDeviceChange: (deviceId) => startStream(deviceId)
+      onDeviceChange: (deviceId) => audio.startStream(deviceId)
     });
   };
 
-  const startStream = async (deviceId) => {
-    if (audioContext) {
-      await audioContext.close();
-    }
-
-    const constraints = {
-      audio: {
-        deviceId: { exact: deviceId },
-        echoCancellation: false,
-        autoGainControl: false,
-        noiseSuppression: false,
-        channelCount: 2
-      }
-    };
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      source = audioContext.createMediaStreamSource(stream);
-
-      splitter = audioContext.createChannelSplitter(2);
-      analyserL = audioContext.createAnalyser();
-      analyserR = audioContext.createAnalyser();
-
-      analyserL.fftSize = 2048;
-      analyserR.fftSize = 2048;
-
-      source.connect(splitter);
-      splitter.connect(analyserL, 0);
-      splitter.connect(analyserR, 1);
-
-      const bufferLength = analyserL.frequencyBinCount;
-      dataArrayL = new Uint8Array(bufferLength);
-      dataArrayR = new Uint8Array(bufferLength);
-
-      isAudioStarted = true;
-    } catch (err) {
-      console.error('Error starting audio stream:', err);
-    }
-  };
-
-  const getAmplitudes = () => {
-    if (!isAudioStarted) return { left: 0, right: 0 };
-
-    analyserL.getByteTimeDomainData(dataArrayL);
-    analyserR.getByteTimeDomainData(dataArrayR);
-
-    let sumL = 0;
-    let sumR = 0;
-    const len = dataArrayL.length;
-
-    for (let i = 0; i < len; i++) {
-      const valL = (dataArrayL[i] - 128) / 128.0;
-      const valR = (dataArrayR[i] - 128) / 128.0;
-      sumL += valL * valL;
-      sumR += valR * valR;
-    }
-
-    return {
-      left: Math.sqrt(sumL / len),
-      right: Math.sqrt(sumR / len)
-    };
-  };
-
   p.mousePressed = () => {
-    if (audioContext && audioContext.state === 'suspended') {
-      audioContext.resume();
-    }
+    if (audio) audio.resume();
   };
 
   p.draw = () => {
     p.background(0);
 
-    if (!isAudioStarted) {
+    if (!audio || !audio.isStarted) {
       return;
     }
 
-    if (audioContext && audioContext.state === 'suspended') {
+    if (audio.getState() === 'suspended') {
       p.textAlign(p.CENTER, p.CENTER);
       p.fill(255);
       p.noStroke();
@@ -103,7 +35,10 @@ const sketch = (p) => {
       return;
     }
 
-    const amps = getAmplitudes();
+    const waveforms = audio.getWaveforms();
+    const amps = audio.getAmplitudes();
+
+    if (!waveforms) return;
 
     // Minimal Gray Visualization
     const barWidth = 2;
@@ -123,19 +58,21 @@ const sketch = (p) => {
     p.strokeWeight(1);
 
     // Left
+    const dataL = waveforms.left;
     p.beginShape();
-    for (let i = 0; i < dataArrayL.length; i += 8) {
-      const x = p.map(i, 0, dataArrayL.length, 0, p.width);
-      const y = p.map(dataArrayL[i], 0, 255, 0, p.height / 2);
+    for (let i = 0; i < dataL.length; i += 8) {
+      const x = p.map(i, 0, dataL.length, 0, p.width);
+      const y = p.map(dataL[i], 0, 255, 0, p.height / 2);
       p.vertex(x, y);
     }
     p.endShape();
 
     // Right
+    const dataR = waveforms.right;
     p.beginShape();
-    for (let i = 0; i < dataArrayR.length; i += 8) {
-      const x = p.map(i, 0, dataArrayR.length, 0, p.width);
-      const y = p.map(dataArrayR[i], 0, 255, p.height / 2, p.height);
+    for (let i = 0; i < dataR.length; i += 8) {
+      const x = p.map(i, 0, dataR.length, 0, p.width);
+      const y = p.map(dataR[i], 0, 255, p.height / 2, p.height);
       p.vertex(x, y);
     }
     p.endShape();
