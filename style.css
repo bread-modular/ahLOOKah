@@ -1,11 +1,115 @@
+:root {
+  --bg-dark: #000000;
+  --panel-bg: rgba(20, 20, 20, 0.9);
+  --border-gray: rgba(255, 255, 255, 0.1);
+  --text-main: #ffffff;
+  --text-dim: #888888;
+  --transition-speed: 0.2s;
+}
+
 html,
 body {
   margin: 0;
   padding: 0;
   overflow: hidden;
-  background: #000;
+  background: var(--bg-dark);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  width: 100vw;
+  height: 100vh;
 }
 
 canvas {
   display: block;
+  position: fixed;
+  top: 0;
+  left: 0;
+}
+
+/* Invisible Hover Area in Top Right */
+#config-container {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 100px;
+  height: 100px;
+  z-index: 1000;
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start;
+}
+
+/* The Panel Content */
+#config-panel {
+  margin: 20px;
+  background: var(--panel-bg);
+  border: 1px solid var(--border-gray);
+  padding: 16px;
+  border-radius: 4px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+
+  opacity: 0;
+  transform: translateY(-5px);
+  pointer-events: none;
+  transition: all var(--transition-speed) ease-out;
+
+  width: 250px;
+}
+
+/* Reveal when hovering the container area */
+#config-container:hover #config-panel {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: all;
+}
+
+#config-panel h3 {
+  margin: 0 0 12px 0;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05rem;
+}
+
+.config-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+#config-panel select,
+#config-panel button {
+  background: #111;
+  border: 1px solid var(--border-gray);
+  color: var(--text-main);
+  padding: 8px;
+  border-radius: 2px;
+  font-size: 0.8rem;
+  outline: none;
+  width: 100%;
+}
+
+#config-panel select:hover,
+#config-panel button:hover {
+  background: #222;
+  border-color: #444;
+}
+
+#config-panel select option {
+  background: #000;
+  color: #fff;
+}
+
+#config-panel button {
+  cursor: pointer;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+#config-panel p {
+  margin: 0;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  line-height: 1.4;
 }

@@ -3,27 +3,21 @@ export class ConfigPanel {
     this.onDeviceChange = onDeviceChange;
     this.audioKey = 'viz2_audio_device_id';
     this.container = null;
-    this.select = null;
-    this.startButton = null;
+    this.panel = null;
 
     this.init();
   }
 
   async init() {
-    // Create container
+    // Main Container (The invisible trigger area)
     this.container = document.createElement('div');
-    this.container.id = 'config-panel';
-    this.container.style.position = 'absolute';
-    this.container.style.top = '10px';
-    this.container.style.left = '10px';
-    this.container.style.zIndex = '1000';
-    this.container.style.background = 'rgba(0, 0, 0, 0.5)';
-    this.container.style.padding = '10px';
-    this.container.style.borderRadius = '8px';
-    this.container.style.color = 'white';
-    this.container.style.fontFamily = 'sans-serif';
-
+    this.container.id = 'config-container';
     document.body.appendChild(this.container);
+
+    // Panel
+    this.panel = document.createElement('div');
+    this.panel.id = 'config-panel';
+    this.container.appendChild(this.panel);
 
     // Auto-detection logic
     try {
@@ -43,50 +37,46 @@ export class ConfigPanel {
   }
 
   renderStartButton() {
-    this.container.innerHTML = '';
-    const btn = document.createElement('button');
-    btn.textContent = 'Setup Audio';
-    btn.style.padding = '8px 16px';
-    btn.style.cursor = 'pointer';
-    btn.onclick = () => this.requestPermissions();
-    this.container.appendChild(btn);
+    this.panel.innerHTML = `
+      <h3>Audio Setup</h3>
+      <div class="config-group">
+        <p>Permissions needed for audio input selection.</p>
+        <button id="setup-audio-btn">Initialize</button>
+      </div>
+    `;
+
+    this.panel.querySelector('#setup-audio-btn').onclick = () => this.requestPermissions();
   }
 
   renderDeviceSelector(devices) {
-    this.container.innerHTML = '';
+    this.panel.innerHTML = `
+      <h3>Input</h3>
+      <div class="config-group">
+        <select id="device-select">
+          <option value="">Select...</option>
+        </select>
+        <button id="refresh-devices-btn">Refresh</button>
+      </div>
+    `;
 
-    const label = document.createElement('label');
-    label.textContent = 'Audio Input: ';
-    label.style.marginRight = '10px';
-    this.container.appendChild(label);
-
-    this.select = document.createElement('select');
-    this.select.style.padding = '5px';
-
-    // Add default option
-    const defaultOpt = document.createElement('option');
-    defaultOpt.value = '';
-    defaultOpt.text = 'Select Device...';
-    this.select.appendChild(defaultOpt);
-
-    let foundSaved = false;
+    const select = this.panel.querySelector('#device-select');
     const savedId = localStorage.getItem(this.audioKey);
+    let foundSaved = false;
 
     devices.forEach(d => {
       const opt = document.createElement('option');
       opt.value = d.deviceId;
       opt.text = d.label || `Device ${d.deviceId.slice(0, 5)}...`;
-      this.select.appendChild(opt);
+      select.appendChild(opt);
       if (savedId && d.deviceId === savedId) {
         opt.selected = true;
         foundSaved = true;
       }
     });
 
-    this.select.onchange = (e) => this.handleDeviceChange(e.target.value);
-    this.container.appendChild(this.select);
+    select.onchange = (e) => this.handleDeviceChange(e.target.value);
+    this.panel.querySelector('#refresh-devices-btn').onclick = () => this.refreshDevices();
 
-    // If we found the saved device, trigger it immediately
     if (foundSaved && savedId) {
       this.handleDeviceChange(savedId);
     }
@@ -95,11 +85,10 @@ export class ConfigPanel {
   async requestPermissions() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach(t => t.stop()); // Just getting permission
+      stream.getTracks().forEach(t => t.stop());
       this.refreshDevices();
     } catch (e) {
       console.error(e);
-      alert('Could not get audio permissions');
     }
   }
 
