@@ -7,6 +7,8 @@ export class AudioManager {
     this.analyserR = null;
     this.dataArrayL = null;
     this.dataArrayR = null;
+    this.freqDataL = null;
+    this.freqDataR = null;
     this.isStarted = false;
     this.fftSize = 2048;
   }
@@ -45,6 +47,8 @@ export class AudioManager {
       const bufferLength = this.analyserL.frequencyBinCount;
       this.dataArrayL = new Uint8Array(bufferLength);
       this.dataArrayR = new Uint8Array(bufferLength);
+      this.freqDataL = new Uint8Array(bufferLength);
+      this.freqDataR = new Uint8Array(bufferLength);
 
       this.isStarted = true;
       return true;
@@ -66,14 +70,16 @@ export class AudioManager {
 
   getWaveforms() {
     if (!this.isStarted) return null;
-
     this.analyserL.getByteTimeDomainData(this.dataArrayL);
     this.analyserR.getByteTimeDomainData(this.dataArrayR);
+    return { left: this.dataArrayL, right: this.dataArrayR };
+  }
 
-    return {
-      left: this.dataArrayL,
-      right: this.dataArrayR
-    };
+  getFrequencies() {
+    if (!this.isStarted) return null;
+    this.analyserL.getByteFrequencyData(this.freqDataL);
+    this.analyserR.getByteFrequencyData(this.freqDataR);
+    return { left: this.freqDataL, right: this.freqDataR };
   }
 
   getAmplitudes() {

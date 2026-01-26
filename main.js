@@ -4,15 +4,13 @@ import { ConfigPanel } from './config-panel.js';
 import { AudioManager } from './audio-manager.js';
 
 // Import available sketches
-import waveform from './sketches/waveform.js';
 import circles from './sketches/circles.js';
 import bars from './sketches/bars.js';
 
 // Sketch Registry (up to 10)
 const sketches = [
-  waveform, // 1
-  circles,  // 2
-  bars,     // 3
+  circles,  // 1
+  bars,     // 2
   // Add more here (up to 10)
 ];
 
