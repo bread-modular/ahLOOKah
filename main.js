@@ -13,6 +13,7 @@ import webcam from './sketches/webcam.js';
 import webcamShader from './sketches/webcam_shader.js';
 import webcamHighContrast from './sketches/webcam_high_contrast.js';
 import video3d from './sketches/video3d.js';
+import characterTv from './sketches/character_tv.js';
 
 // Sketch Registry
 const sketches = [
@@ -25,6 +26,7 @@ const sketches = [
   webcamShader,       // 7
   webcamHighContrast, // 8
   video3d,            // 9
+  characterTv,        // 0 (10)
 ];
 
 const audio = new AudioManager();
@@ -53,8 +55,8 @@ new ConfigPanel({
   onAudioChange: (deviceId) => audio.startStream(deviceId),
   onVideoChange: (deviceId) => {
     currentVideoDeviceId = deviceId;
-    // Reload current sketch if it's a webcam-dependent one (slots 6-9)
-    if (currentIndex >= 5 && currentIndex <= 8) {
+    // Reload current sketch if it's a webcam-dependent one (slots 6-10)
+    if (currentIndex >= 5 && currentIndex <= 9) {
       loadSketch(currentIndex);
     }
   }
