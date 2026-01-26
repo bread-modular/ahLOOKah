@@ -126,17 +126,19 @@ export default (audio) => (p) => {
     p.rotateZ(p.cos(groove * 0.5) * 0.05);
 
     p.push();
-    p.translate(0, -TORSO_H, 0);
+    p.translate(0, -TORSO_H, 0); // Position cursor at top of torso
     drawBox(TORSO_W, TORSO_H, TORSO_D);
 
-    // NECK
-    p.translate(0, -NECK_H, 0);
+    // NECK - sit on top of torso
+    p.push();
+    p.translate(0, -NECK_H / 2, 0); // Move up half neck height to center the neck box
     p.box(10, NECK_H, 10);
 
-    // HEAD
-    p.translate(0, -HEAD_SIZE, 0);
+    // HEAD - sit on top of neck
+    p.translate(0, -NECK_H / 2 - HEAD_SIZE, 0); // Move up remaining neck and head radius
     p.rotateX(p.sin(groove * 2) * 0.2 + b.sub * 0.2);
     p.sphere(HEAD_SIZE, 8, 8);
+    p.pop();
     p.pop();
 
     // ARMS
