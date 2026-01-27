@@ -22,8 +22,8 @@ export default (audio, videoDeviceId) => (p) => {
   const ARM_L = 50;
 
   // Screen dimensions
-  const SCREEN_W = 500;
-  const SCREEN_H = 375;
+  const SCREEN_W = 700;
+  const SCREEN_H = 525;
 
   p.setup = () => {
     p.createCanvas(p.windowWidth, p.windowHeight, p.WEBGL);
@@ -116,11 +116,6 @@ export default (audio, videoDeviceId) => (p) => {
     videoTexture.image(capture, 0, 0, 640, 480);
     videoTexture.filter(p.GRAY);
     videoTexture.pop();
-
-    // Apply contrast boost based on audio
-    if (b.sub > 0.3) {
-      videoTexture.filter(p.POSTERIZE, Math.floor(p.map(b.sub, 0.3, 1, 8, 3)));
-    }
 
     // Draw the video texture on a plane
     p.push();

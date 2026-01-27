@@ -34,8 +34,13 @@ export default (audio, videoDeviceId) => (p) => {
       // Flip UVs for correct webcam orientation
       vec2 uv = vec2(1.0 - vTexCoord.x, 1.0 - vTexCoord.y);
       
+      // Subtle horizontal displacement on sub-bass hits
+      float blockY = floor(uv.y * 15.0);
+      float displace = step(0.5, uSub) * step(0.85, random(vec2(blockY, floor(uTime)))) * 0.03;
+      uv.x += displace;
+      
       // Dot grid spacing - denser with higher mids
-      float dotSpacing = mix(8.0, 3.0, uMid);
+      float dotSpacing = mix(12.0, 5.0, uMid);
       
       // Calculate grid cell
       vec2 gridPos = floor(uv * uResolution / dotSpacing);
@@ -50,14 +55,14 @@ export default (audio, videoDeviceId) => (p) => {
       float dist = length(cellUV - 0.5);
       
       // Dot size based on brightness and sub-bass
-      float baseSize = brightness * 0.45;
+      float baseSize = brightness * 0.55;
       float dotSize = baseSize * (1.0 + uSub * 1.5);
       
       // Draw dot
       float dot = smoothstep(dotSize + 0.05, dotSize - 0.05, dist);
       
       // Glitchy rectangles on high frequencies
-      float glitch = step(0.4, uHigh) * step(0.9, random(gridPos + floor(uTime)));
+      float glitch = step(0.5, uHigh) * step(0.92, random(gridPos + floor(uTime)));
       if (glitch > 0.5) {
         float rect = step(abs(cellUV.y - 0.5), 0.1) * step(abs(cellUV.x - 0.5), 0.4);
         dot = max(dot, rect);
@@ -68,13 +73,21 @@ export default (audio, videoDeviceId) => (p) => {
       
       // Alpha varies with brightness  
       float alpha = mix(0.4, 1.0, brightness);
-      vec3 color = vec3(dot * alpha);
       
-      // Scanline noise on mid peaks
-      if (uMid > 0.3) {
-        float noise = step(0.97, random(vec2(uv.x, floor(uv.y * 80.0) + uTime)));
-        color += noise * 0.2;
+      // Mild RGB shift on highs
+      vec3 color;
+      if (uHigh > 0.4) {
+        float shift = 0.04;
+        float dotR = smoothstep(dotSize + 0.05, dotSize - 0.05, length(cellUV - vec2(0.5 - shift, 0.5)));
+        float dotB = smoothstep(dotSize + 0.05, dotSize - 0.05, length(cellUV - vec2(0.5 + shift, 0.5)));
+        color = vec3(dotR, dot, dotB) * alpha;
+      } else {
+        color = vec3(dot * alpha);
       }
+      
+      // Occasional scanline on mids
+      float scanline = step(0.4, uMid) * step(0.98, random(vec2(0.0, floor(uv.y * 50.0) + uTime)));
+      color += scanline * 0.15;
       
       gl_FragColor = vec4(color, 1.0);
     }
@@ -127,12 +140,18 @@ export default (audio, videoDeviceId) => (p) => {
     const freqs = audio.getFrequencies();
     const b = analyzeBands(freqs ? freqs.left : null);
 
+    // Debug: log audio values every 60 frames
+    if (p.frameCount % 60 === 0) {
+      console.log('Audio:', { sub: b.sub.toFixed(2), mid: b.mid.toFixed(2), high: b.high.toFixed(2) });
+    }
+
     p.shader(theShader);
     theShader.setUniform('uTex', capture);
     theShader.setUniform('uTime', p.frameCount * 0.05);
-    theShader.setUniform('uSub', b.sub);
-    theShader.setUniform('uMid', b.mid);
-    theShader.setUniform('uHigh', b.high);
+    // Boost the values a bit to make effects more visible
+    theShader.setUniform('uSub', b.sub * 2.0);
+    theShader.setUniform('uMid', b.mid * 2.0);
+    theShader.setUniform('uHigh', b.high * 2.0);
     theShader.setUniform('uResolution', [p.width, p.height]);
 
     p.rect(0, 0, p.width, p.height);
