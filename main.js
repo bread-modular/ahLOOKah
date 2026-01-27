@@ -9,7 +9,7 @@ import circlesCh1 from './sketches/circles_ch1.js';
 import bars from './sketches/bars.js';
 import techno3d from './sketches/techno3d.js';
 import character3d from './sketches/character3d.js';
-import webcam from './sketches/webcam.js';
+import webcamDotsGpu from './sketches/webcam_dots_gpu.js';
 import webcamShader from './sketches/webcam_shader.js';
 import webcamHighContrast from './sketches/webcam_high_contrast.js';
 import video3d from './sketches/video3d.js';
@@ -22,7 +22,7 @@ const sketches = [
   bars,               // 3
   techno3d,           // 4
   character3d,        // 5
-  webcam,             // 6
+  webcamDotsGpu,      // 6
   webcamShader,       // 7
   webcamHighContrast, // 8
   video3d,            // 9
