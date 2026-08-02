@@ -50,6 +50,12 @@ import mandelbulbDrift from './sketches/mandelbulb_drift.js';
 import stormSurge from './sketches/storm_surge.js';
 import inkDispersion from './sketches/ink_dispersion.js';
 import infinityMirror from './sketches/infinity_mirror.js';
+// Additional cinematic FX from the patterns drop.
+import ionTempest from './sketches/ion_tempest.js';
+import crystalReliquary from './sketches/crystal_reliquary.js';
+import neuralCascade from './sketches/neural_cascade.js';
+import auroraReactor from './sketches/aurora_reactor.js';
+import warpLoom from './sketches/warp_loom.js';
 
 // Shared "responsiveness" triple used by many effects (0..2, default 1)
 const BAND_RESPONSIVENESS = [
@@ -419,6 +425,66 @@ export const SKETCHES = [
       { key: 'depth', label: 'Reflection Depth', min: 0.4, max: 2, step: 0.05, default: 1 },
     ],
   }, // 32
+  {
+    id: 'ion-tempest',
+    name: 'Ion Tempest',
+    factory: ionTempest,
+    params: [
+      ...PREMIUM_AUDIO_RESPONSIVENESS,
+      { key: 'storm', label: 'Storm Density', min: 0.3, max: 2, step: 0.05, default: 1 },
+      { key: 'branch', label: 'Bolt Branching', min: 0.2, max: 2, step: 0.05, default: 1 },
+      { key: 'speed', label: 'Storm Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
+      { key: 'glow', label: 'Plasma Glow', min: 0.3, max: 2, step: 0.05, default: 1 },
+    ],
+  }, // 33
+  {
+    id: 'crystal-reliquary',
+    name: 'Crystal Reliquary',
+    factory: crystalReliquary,
+    params: [
+      ...PREMIUM_AUDIO_RESPONSIVENESS,
+      { key: 'scale', label: 'Crystal Scale', min: 0.45, max: 1.8, step: 0.05, default: 1 },
+      { key: 'facet', label: 'Facet Detail', min: 0.2, max: 2, step: 0.05, default: 1 },
+      { key: 'spin', label: 'Orbit Spin', min: 0, max: 2.5, step: 0.05, default: 1 },
+      { key: 'caustic', label: 'Spectral Caustics', min: 0.2, max: 2, step: 0.05, default: 1 },
+    ],
+  }, // 34
+  {
+    id: 'neural-cascade',
+    name: 'Neural Cascade',
+    factory: neuralCascade,
+    params: [
+      ...PREMIUM_AUDIO_RESPONSIVENESS,
+      { key: 'nodes', label: 'Synapse Density', min: 0.35, max: 2, step: 0.05, default: 1 },
+      { key: 'links', label: 'Axon Strength', min: 0.2, max: 2, step: 0.05, default: 1 },
+      { key: 'pulse', label: 'Activation Pulse', min: 0.2, max: 2, step: 0.05, default: 1 },
+      { key: 'speed', label: 'Cascade Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
+    ],
+  }, // 35
+  {
+    id: 'aurora-reactor',
+    name: 'Aurora Reactor',
+    factory: auroraReactor,
+    params: [
+      ...PREMIUM_AUDIO_RESPONSIVENESS,
+      { key: 'field', label: 'Magnetic Field', min: 0.25, max: 2, step: 0.05, default: 1 },
+      { key: 'curtain', label: 'Aurora Curtains', min: 0.25, max: 2, step: 0.05, default: 1 },
+      { key: 'core', label: 'Reactor Core', min: 0.35, max: 2, step: 0.05, default: 1 },
+      { key: 'speed', label: 'Field Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
+    ],
+  }, // 36
+  {
+    id: 'warp-loom',
+    name: 'Warp Loom',
+    factory: warpLoom,
+    params: [
+      ...PREMIUM_AUDIO_RESPONSIVENESS,
+      { key: 'threads', label: 'Thread Count', min: 0.35, max: 2, step: 0.05, default: 1 },
+      { key: 'twist', label: 'Spacetime Twist', min: 0.2, max: 2, step: 0.05, default: 1 },
+      { key: 'speed', label: 'Warp Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
+      { key: 'bloom', label: 'Fiber Bloom', min: 0.3, max: 2, step: 0.05, default: 1 },
+    ],
+  }, // 37
 ];
 
 // Number of effects that get keyboard shortcuts (1-9, 0 = 10th)
