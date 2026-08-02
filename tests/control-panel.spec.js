@@ -45,7 +45,7 @@ test.describe('control panel window', () => {
     await control.goto(CONTROL_URL);
 
     await expect(control.locator('body')).toHaveClass(/is-control/);
-    await expect(control.locator('#pattern-grid .pattern-btn')).toHaveCount(12);
+    await expect(control.locator('#pattern-grid .pattern-btn')).toHaveCount(22);
     await expect(control.locator('#status-line .badge-control')).toBeVisible();
     await expect(control.locator('canvas')).toHaveCount(0);
   });
@@ -247,7 +247,7 @@ test.describe('effect ordering (drag & drop)', () => {
     await control.goto(CONTROL_URL);
 
     const btns = control.locator('#pattern-grid .pattern-btn');
-    await expect(btns).toHaveCount(12);
+    await expect(btns).toHaveCount(22);
 
     // Only the first 10 positions carry a number key badge
     await expect(btns.nth(0).locator('.pattern-key')).toHaveText('1');
@@ -260,17 +260,17 @@ test.describe('effect ordering (drag & drop)', () => {
     await btns.nth(2).click();
     await page.waitForFunction(() => window.__viz.pattern === 2);
 
-    await btns.nth(0).dragTo(btns.nth(11));
+    await btns.nth(0).dragTo(btns.nth(21));
 
     // New order is persisted: 'circles' moved to the last position
     await control.waitForFunction(() => {
       const order = JSON.parse(localStorage.getItem('viz2_effect_order') || '[]');
-      return order.length === 12 && order[0] === 'circles-ch1' && order[11] === 'circles';
+      return order.length === 22 && order[0] === 'circles-ch1' && order[21] === 'circles';
     });
 
     // Grid re-rendered in the new order
     await expect(control.locator('.pattern-btn[data-index="0"]')).toHaveAttribute('data-id', 'circles-ch1');
-    await expect(control.locator('.pattern-btn[data-index="11"]')).toHaveAttribute('data-id', 'circles');
+    await expect(control.locator('.pattern-btn[data-index="21"]')).toHaveAttribute('data-id', 'circles');
 
     // Active selection followed Bars to its new position (index 1)
     await expect(control.locator('.pattern-btn.active')).toHaveAttribute('data-id', 'bars');
@@ -287,13 +287,13 @@ test.describe('effect ordering (drag & drop)', () => {
     await control.goto(CONTROL_URL);
 
     const btns = control.locator('#pattern-grid .pattern-btn');
-    await btns.nth(0).dragTo(btns.nth(11));
+    await btns.nth(0).dragTo(btns.nth(21));
 
     await control.reload();
     const after = control.locator('#pattern-grid .pattern-btn');
-    await expect(after).toHaveCount(12);
+    await expect(after).toHaveCount(22);
     await expect(after.nth(0)).toHaveAttribute('data-id', 'circles-ch1');
-    await expect(after.nth(11)).toHaveAttribute('data-id', 'circles');
+    await expect(after.nth(21)).toHaveAttribute('data-id', 'circles');
   });
 });
 
