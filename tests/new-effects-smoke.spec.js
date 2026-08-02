@@ -17,6 +17,11 @@ const NEW_IDS = [
   'laser-cathedral',
   'cymatic-bloom',
   'holo-swarm',
+  'ion-tempest',
+  'crystal-reliquary',
+  'neural-cascade',
+  'aurora-reactor',
+  'warp-loom',
 ];
 
 test.describe('new effects smoke test', () => {
