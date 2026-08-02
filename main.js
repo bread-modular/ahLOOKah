@@ -1,6 +1,12 @@
 import p5 from 'p5';
 import './style.css';
-import { SKETCHES, defaultParamValues, indexFromKey } from './sketch-registry.js';
+import {
+  getOrderedSketches,
+  SKETCHES,
+  defaultParamValues,
+  indexFromKey,
+  saveEffectOrder,
+} from './sketch-registry.js';
 import { ConfigPanel } from './config-panel.js';
 import { AudioManager } from './audio-manager.js';
 
@@ -21,6 +27,8 @@ const audio = new AudioManager();
 
 let currentP5 = null;
 let currentIndex = 0;
+// Stable id of the currently loaded sketch — survives reorders
+let activeSketchId = null;
 let currentVideoDeviceId = null;
 let currentAudioDeviceId = null;
 let screenOnline = myRole === 'screen';
@@ -35,8 +43,8 @@ const STORAGE = {
 // ---------------------------------------------------------------------------
 // Effect parameters
 // Each sketch can expose a set of live-adjustable params (see sketch-registry).
-// `paramValues` is a per-index map of { key: value }. The same object that is
-// handed to a sketch factory is mutated in place on 'params' messages, so
+// `paramValues` is a per-sketch-id map of { key: value }. The same object that
+// is handed to a sketch factory is mutated in place on 'params' messages, so
 // running sketches pick up slider changes immediately.
 // ---------------------------------------------------------------------------
 
@@ -52,26 +60,47 @@ const paramRawValues = { ...paramValues };
 let devReadLog = null;
 
 function loadParamValues() {
+  let raw = {};
   try {
-    return JSON.parse(localStorage.getItem(STORAGE.params)) || {};
+    raw = JSON.parse(localStorage.getItem(STORAGE.params)) || {};
   } catch {
-    return {};
+    raw = {};
   }
+  if (typeof raw !== 'object' || raw === null) raw = {};
+
+  const out = {};
+  const knownIds = new Set(SKETCHES.map((s) => s.id));
+
+  for (const [key, value] of Object.entries(raw)) {
+    if (knownIds.has(key)) out[key] = value;
+  }
+
+  // Migrate legacy numeric (position-keyed) entries to sketch ids so an
+  // existing param store survives the upgrade (best effort — assumes the
+  // default order, since the old format had no ids to resolve against).
+  for (const [key, value] of Object.entries(raw)) {
+    const n = parseInt(key, 10);
+    if (!Number.isNaN(n) && SKETCHES[n] && !out[SKETCHES[n].id]) {
+      out[SKETCHES[n].id] = value;
+    }
+  }
+
+  return out;
 }
 
 function saveParamValues() {
   localStorage.setItem(STORAGE.params, JSON.stringify(paramRawValues));
 }
 
-// Returns the live param object for a sketch index (creating it from defaults).
+// Returns the live param object for a sketch id (creating it from defaults).
 // In DEV builds the object is wrapped in a Proxy that records property reads,
 // so tests can prove the running sketch re-reads params every frame.
-function getParams(index) {
-  let v = paramValues[index];
+function getParams(id) {
+  let v = paramValues[id];
   if (!v) {
-    v = defaultParamValues(index);
-    paramValues[index] = v;
-    paramRawValues[index] = v;
+    v = defaultParamValues(id);
+    paramValues[id] = v;
+    paramRawValues[id] = v;
   }
 
   if (import.meta.env.DEV && !v.__vizProxied) {
@@ -89,11 +118,11 @@ function getParams(index) {
         return true;
       },
     });
-    paramValues[index] = proxy;
-    paramRawValues[index] = v;
+    paramValues[id] = proxy;
+    paramRawValues[id] = v;
   }
 
-  return paramValues[index];
+  return paramValues[id];
 }
 
 // ---------------------------------------------------------------------------
@@ -101,20 +130,30 @@ function getParams(index) {
 // ---------------------------------------------------------------------------
 
 function loadSketch(index) {
-  if (index < 0 || index >= SKETCHES.length) return;
+  const ordered = getOrderedSketches();
+  if (index < 0 || index >= ordered.length) return;
 
   if (currentP5) {
     currentP5.remove();
   }
 
   currentIndex = index;
-  const sketchFactory = SKETCHES[index].factory;
+  const sketch = ordered[index];
+  activeSketchId = sketch.id;
 
   // Inject audio, current video device ID, and the LIVE params object so the
   // sketch reads updated param values every frame.
-  currentP5 = new p5(sketchFactory(audio, currentVideoDeviceId, getParams(index)));
+  currentP5 = new p5(sketch.factory(audio, currentVideoDeviceId, getParams(sketch.id)));
 
-  console.log(`Loaded sketch ${index + 1} (${SKETCHES[index].name})`);
+  console.log(`Loaded sketch ${index + 1} (${sketch.name})`);
+}
+
+// Keep activeSketchId in sync for ALL windows (the screen sets it in loadSketch;
+// control windows derive it from the current ordered list). Reorders shift
+// positions, so the id is what survives an order change.
+function updateActiveSketchId() {
+  const ordered = getOrderedSketches();
+  if (ordered[currentIndex]) activeSketchId = ordered[currentIndex].id;
 }
 
 function startAudio() {
@@ -137,8 +176,9 @@ function applyDevices() {
 
   if (savedVideoId && savedVideoId !== currentVideoDeviceId) {
     currentVideoDeviceId = savedVideoId;
-    // Reload current sketch if it's a webcam-dependent one (slots 6-10)
-    if (currentIndex >= 5 && currentIndex <= 9) {
+    // Reload current sketch only if it's a webcam-dependent one
+    const sketch = getOrderedSketches()[currentIndex];
+    if (sketch && sketch.camera) {
       loadSketch(currentIndex);
     }
   }
@@ -210,12 +250,16 @@ function handleMessage(msg) {
       break;
 
     case 'state':
-      if (typeof msg.pattern === 'number') currentIndex = msg.pattern;
+      if (typeof msg.pattern === 'number') {
+        currentIndex = msg.pattern;
+        updateActiveSketchId();
+      }
       screenOnline = true;
       break;
 
     case 'pattern':
       currentIndex = msg.index;
+      updateActiveSketchId();
       if (myRole === 'screen') {
         loadSketch(msg.index);
         broadcast({ type: 'state', pattern: currentIndex });
@@ -230,10 +274,20 @@ function handleMessage(msg) {
     case 'params':
       // A param slider moved somewhere — merge into the live store (both
       // windows keep the same store, so the running sketch updates in place).
-      if (typeof msg.index === 'number' && msg.values) {
-        Object.assign(getParams(msg.index), msg.values);
+      if (typeof msg.id === 'string' && msg.values) {
+        Object.assign(getParams(msg.id), msg.values);
         saveParamValues();
-        if (myRole === 'control' && panel) panel.applyParam(msg.index, msg.values);
+        if (myRole === 'control' && panel) panel.applyParam(msg.id, msg.values);
+      }
+      break;
+
+    case 'reorder':
+      // The effect order changed in some window. Positions shift, so keep the
+      // currently playing sketch selected and re-render the control panel.
+      if (Array.isArray(msg.order) && msg.order.length) {
+        const idx = msg.order.indexOf(activeSketchId);
+        if (idx >= 0) currentIndex = idx;
+        if (myRole === 'control' && panel) panel.setOrder();
       }
       break;
 
@@ -272,7 +326,8 @@ window.addEventListener('keydown', (e) => {
   }
 
   const index = indexFromKey(e.key);
-  if (index >= 0) {
+  // Only the first 10 positions have shortcuts (1-9, 0)
+  if (index >= 0 && index < getOrderedSketches().length) {
     broadcast({ type: 'pattern', index });
   }
 });
@@ -298,9 +353,14 @@ function ensurePanel() {
     onDevicesChange: () => broadcast({ type: 'devices' }),
     onTakeover: () => broadcast({ type: 'role', role: 'screen' }),
     onOpenControl: () => openControlWindow(),
-    onParamChange: (index, key, value) => {
+    onParamChange: (id, key, value) => {
       // Local dispatch (via broadcast) updates the store + saves + syncs UI
-      broadcast({ type: 'params', index, values: { [key]: value } });
+      broadcast({ type: 'params', id, values: { [key]: value } });
+    },
+    onReorder: (order) => {
+      // Persist + sync the new order to every window
+      saveEffectOrder(order);
+      broadcast({ type: 'reorder', order });
     },
     getParams,
     getPattern: () => currentIndex,
@@ -353,6 +413,7 @@ if (myRole === 'screen') {
   renderScreenToolbar();
 } else {
   document.body.classList.add('is-control');
+  updateActiveSketchId();
   ensurePanel();
   syncUI();
 }
@@ -362,8 +423,9 @@ if (import.meta.env.DEV) {
   window.__viz = {
     get role() { return myRole; },
     get pattern() { return currentIndex; },
+    get patternId() { return activeSketchId; },
     get screenOnline() { return screenOnline; },
-    get params() { return getParams(currentIndex); },
+    get params() { return getParams(activeSketchId || getOrderedSketches()[0].id); },
     // DEV only: { key -> last read timestamp } of params the sketch accesses
     readLog: () => devReadLog || {},
   };

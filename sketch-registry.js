@@ -8,6 +8,11 @@
 //
 // Param shape:
 //   { key, label, min, max, step, default }
+//
+// Ordering: SKETCHES is the canonical declaration order. The user can reorder
+// effects in the control panel (drag & drop); the current order is persisted
+// as an array of sketch `id`s in localStorage (viz2_effect_order) and read via
+// getOrderedSketches(). Only the first 10 positions get number shortcuts.
 import circles from './sketches/circles.js';
 import circlesCh1 from './sketches/circles_ch1.js';
 import bars from './sketches/bars.js';
@@ -20,6 +25,8 @@ import pulseRings from './sketches/pulse_rings.js';
 import particleStorm from './sketches/particle_storm.js';
 import waveformTunnel from './sketches/waveform_tunnel.js';
 import chromaMandala from './sketches/chroma_mandala.js';
+import starfieldRush from './sketches/starfield_rush.js';
+import echoRipples from './sketches/echo_ripples.js';
 
 // Shared "responsiveness" triple used by many effects (0..2, default 1)
 const BAND_RESPONSIVENESS = [
@@ -30,6 +37,7 @@ const BAND_RESPONSIVENESS = [
 
 export const SKETCHES = [
   {
+    id: 'circles',
     name: 'Circles',
     factory: circles,
     params: [
@@ -38,11 +46,13 @@ export const SKETCHES = [
     ],
   }, // 1
   {
+    id: 'circles-ch1',
     name: 'Circles CH1',
     factory: circlesCh1,
     params: BAND_RESPONSIVENESS,
   }, // 2
   {
+    id: 'bars',
     name: 'Bars',
     factory: bars,
     params: [
@@ -52,6 +62,7 @@ export const SKETCHES = [
     ],
   }, // 3
   {
+    id: 'techno3d',
     name: 'Techno 3D',
     factory: techno3d,
     params: [
@@ -60,6 +71,7 @@ export const SKETCHES = [
     ],
   }, // 4
   {
+    id: 'character3d',
     name: 'Character 3D',
     factory: character3d,
     params: [
@@ -68,6 +80,7 @@ export const SKETCHES = [
     ],
   }, // 5
   {
+    id: 'neon-spectrum',
     name: 'Neon Spectrum',
     factory: neonSpectrum,
     params: [
@@ -76,6 +89,7 @@ export const SKETCHES = [
     ],
   }, // 6
   {
+    id: 'pulse-rings',
     name: 'Pulse Rings',
     factory: pulseRings,
     params: [
@@ -86,6 +100,7 @@ export const SKETCHES = [
     ],
   }, // 7
   {
+    id: 'particle-storm',
     name: 'Particle Storm',
     factory: particleStorm,
     params: [
@@ -96,6 +111,7 @@ export const SKETCHES = [
     ],
   }, // 8
   {
+    id: 'waveform-tunnel',
     name: 'Waveform Tunnel',
     factory: waveformTunnel,
     params: [
@@ -106,6 +122,7 @@ export const SKETCHES = [
     ],
   }, // 9
   {
+    id: 'chroma-mandala',
     name: 'Chroma Mandala',
     factory: chromaMandala,
     params: [
@@ -115,7 +132,65 @@ export const SKETCHES = [
       { key: 'sub', label: 'Sub Ring', min: 0, max: 2, step: 0.05, default: 1 },
     ],
   }, // 0 (10)
+  {
+    id: 'starfield-rush',
+    name: 'Starfield Rush',
+    factory: starfieldRush,
+    params: [
+      { key: 'count', label: 'Star Count', min: 50, max: 600, step: 10, default: 240 },
+      { key: 'warp', label: 'Warp Speed', min: 0, max: 3, step: 0.05, default: 1 },
+      { key: 'hue', label: 'Hue Drift', min: 0, max: 2, step: 0.05, default: 1 },
+      { key: 'sparkle', label: 'High Sparkle', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+  }, // 11
+  {
+    id: 'echo-ripples',
+    name: 'Echo Ripples',
+    factory: echoRipples,
+    params: [
+      { key: 'speed', label: 'Ripple Speed', min: 0, max: 3, step: 0.05, default: 1 },
+      { key: 'ripples', label: 'Max Ripples', min: 4, max: 32, step: 1, default: 20 },
+      { key: 'thick', label: 'Ring Thickness', min: 0, max: 2, step: 0.05, default: 1 },
+      { key: 'sparkle', label: 'High Sparkle', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+  }, // 12
 ];
+
+// Number of effects that get keyboard shortcuts (1-9, 0 = 10th)
+export const SHORTCUT_COUNT = 10;
+
+// localStorage key that stores the user's effect order (array of sketch ids)
+export const EFFECT_ORDER_KEY = 'viz2_effect_order';
+
+// Load the persisted order. Invalid/unknown ids are dropped and any missing
+// sketches are appended in declaration order, so upgrades never lose effects.
+export function loadEffectOrder() {
+  let saved = [];
+  try {
+    saved = JSON.parse(localStorage.getItem(EFFECT_ORDER_KEY));
+  } catch {
+    saved = [];
+  }
+  if (!Array.isArray(saved)) saved = [];
+
+  const known = new Set(SKETCHES.map((s) => s.id));
+  const valid = saved.filter((id) => known.has(id));
+  for (const s of SKETCHES) {
+    if (!valid.includes(s.id)) valid.push(s.id);
+  }
+  return valid;
+}
+
+export function saveEffectOrder(order) {
+  localStorage.setItem(EFFECT_ORDER_KEY, JSON.stringify(order));
+}
+
+// SKETCHES in the user's current display order (falls back to declaration order)
+export function getOrderedSketches() {
+  const order = loadEffectOrder();
+  const byId = new Map(SKETCHES.map((s) => [s.id, s]));
+  return order.map((id) => byId.get(id)).filter(Boolean);
+}
 
 // Keyboard keys that select a pattern (1-9, 0 = 10th)
 export function indexFromKey(key) {
@@ -125,9 +200,10 @@ export function indexFromKey(key) {
 }
 
 // Build a fresh { key: value } object from a sketch's param defaults
-export function defaultParamValues(index) {
+export function defaultParamValues(id) {
   const out = {};
-  const defs = (SKETCHES[index] && SKETCHES[index].params) || [];
+  const sketch = SKETCHES.find((s) => s.id === id);
+  const defs = (sketch && sketch.params) || [];
   for (const def of defs) out[def.key] = def.default;
   return out;
 }

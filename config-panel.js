@@ -1,4 +1,4 @@
-import { SKETCHES } from './sketch-registry.js';
+import { getOrderedSketches, SHORTCUT_COUNT } from './sketch-registry.js';
 
 // Format a param value for display based on its step size
 function formatParamValue(v, def) {
@@ -15,6 +15,7 @@ export class ConfigPanel {
     onTakeover,
     onOpenControl,
     onParamChange,
+    onReorder,
     getParams,
     getPattern,
     isScreen,
@@ -25,6 +26,7 @@ export class ConfigPanel {
     this.onTakeover = onTakeover;
     this.onOpenControl = onOpenControl;
     this.onParamChange = onParamChange;
+    this.onReorder = onReorder;
     this.getParams = getParams;
     this.getPattern = getPattern;
     this.isScreen = isScreen;
@@ -36,6 +38,8 @@ export class ConfigPanel {
     this.panel = null;
     this.devices = [];
     this.currentPattern = getPattern ? getPattern() : 0;
+    this.currentPatternId = null;
+    this.dragId = null;
 
     this.init();
   }
@@ -50,39 +54,45 @@ export class ConfigPanel {
     this.container.appendChild(this.panel);
 
     this.panel.innerHTML = `
-      <h3 class="panel-title">VIZ CONTROL</h3>
-      <div id="status-line" class="status-line"></div>
-
-      <h3>Pattern</h3>
-      <div id="pattern-grid" class="pattern-grid"></div>
-      <p>Keyboard 1–9 / 0 works here in the control panel.</p>
-
-      <h3>Parameters</h3>
-      <div id="params-list" class="params-list"></div>
-
-      <h3>Audio Input</h3>
-      <div class="config-group">
-        <select id="audio-select" disabled>
-          <option value="">Select Audio...</option>
-        </select>
+      <div id="effects-pane">
+        <h3>Pattern</h3>
+        <div id="pattern-grid" class="pattern-grid"></div>
+        <p>Drag effects to reorder. Keys 1–9 / 0 select the first 10.</p>
       </div>
 
-      <h3>Camera Input</h3>
-      <div class="config-group">
-        <select id="video-select" disabled>
-          <option value="">Select Camera...</option>
-        </select>
-      </div>
+      <div id="effects-resizer" class="effects-resizer" title="Drag to resize"></div>
 
-      <div id="setup-notice" class="config-group" style="display: none;">
-        <p>Permissions needed for audio &amp; camera selection.</p>
-        <button id="setup-all-btn">Initialize</button>
-      </div>
+      <div id="controls-pane">
+        <h3 class="panel-title">VIZ CONTROL</h3>
+        <div id="status-line" class="status-line"></div>
 
-      <div class="config-group actions">
-        <button id="refresh-devices-btn">Refresh Devices</button>
-        <button id="takeover-btn" class="primary">⛶ Take Over as Screen</button>
-        <button id="open-control-btn">＋ New Control Panel</button>
+        <h3>Parameters</h3>
+        <div id="params-list" class="params-list"></div>
+
+        <h3>Audio Input</h3>
+        <div class="config-group">
+          <select id="audio-select" disabled>
+            <option value="">Select Audio...</option>
+          </select>
+        </div>
+
+        <h3>Camera Input</h3>
+        <div class="config-group">
+          <select id="video-select" disabled>
+            <option value="">Select Camera...</option>
+          </select>
+        </div>
+
+        <div id="setup-notice" class="config-group" style="display: none;">
+          <p>Permissions needed for audio &amp; camera selection.</p>
+          <button id="setup-all-btn">Initialize</button>
+        </div>
+
+        <div class="config-group actions">
+          <button id="refresh-devices-btn">Refresh Devices</button>
+          <button id="takeover-btn" class="primary">⛶ Take Over as Screen</button>
+          <button id="open-control-btn">＋ New Control Panel</button>
+        </div>
       </div>
     `;
 
@@ -96,6 +106,8 @@ export class ConfigPanel {
       if (this.onOpenControl) this.onOpenControl();
     };
     this.panel.querySelector('#setup-all-btn').onclick = () => this.requestPermissions();
+
+    this.initResizer();
 
     this.renderStatus();
 
@@ -124,29 +136,147 @@ export class ConfigPanel {
     if (notice) notice.style.display = 'none';
   }
 
+  // Draggable divider between the effects list and the controls.
+  // The effects pane width is persisted so the split survives reloads.
+  initResizer() {
+    const resizer = this.panel.querySelector('#effects-resizer');
+    const pane = this.panel.querySelector('#effects-pane');
+    if (!resizer || !pane) return;
+
+    const saved = parseInt(localStorage.getItem('viz2_effects_width') || '', 10);
+    // Default fits exactly 2 columns of 200px+ buttons (2 * 200 + 8 gap + 40 padding)
+    this.effectsWidth = Number.isFinite(saved) && saved > 0 ? saved : 460;
+    pane.style.width = `${this.effectsWidth}px`;
+
+    // 240 = one 200px button + 40px pane padding (never narrower than a column)
+    const MIN_WIDTH = 240;
+    const CONTROL_MIN_WIDTH = 340; // keep the controls column usable
+
+    resizer.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = this.effectsWidth;
+      const maxW = Math.max(MIN_WIDTH, this.panel.clientWidth - CONTROL_MIN_WIDTH);
+
+      const onMove = (ev) => {
+        const w = Math.min(maxW, Math.max(MIN_WIDTH, startW + (ev.clientX - startX)));
+        this.effectsWidth = w;
+        pane.style.width = `${w}px`;
+        localStorage.setItem('viz2_effects_width', String(w));
+      };
+
+      const onUp = () => {
+        document.body.classList.remove('resizing');
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
+
+      document.body.classList.add('resizing');
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    });
+  }
+
   renderPatternButtons() {
     const grid = this.panel.querySelector('#pattern-grid');
+    grid.innerHTML = '';
 
-    // Skip camera-input effects — hidden from the UI (scripts stay loaded)
-    SKETCHES.forEach((sketch, i) => {
+    // Buttons render in the user's current order (localStorage-backed);
+    // only the first SHORTCUT_COUNT positions carry a number key badge.
+    getOrderedSketches().forEach((sketch, i) => {
+      // Skip camera-input effects — hidden from the UI (scripts stay loaded)
       if (sketch.camera) return;
 
       const btn = document.createElement('button');
       btn.className = 'pattern-btn';
+      btn.dataset.id = sketch.id;
       btn.dataset.index = i;
-      btn.innerHTML = `<span class="pattern-key">${i === 9 ? '0' : i + 1}</span><span class="pattern-name">${sketch.name}</span>`;
+      btn.draggable = true;
+
+      const hasKey = i < SHORTCUT_COUNT;
+      if (!hasKey) btn.classList.add('no-key');
+      const keyHtml = hasKey
+        ? `<span class="pattern-key">${i === 9 ? '0' : i + 1}</span>`
+        : '';
+      btn.innerHTML = `${keyHtml}<span class="pattern-name">${sketch.name}</span><span class="drag-handle" title="Drag to reorder">⠿</span>`;
+
       btn.onclick = () => {
         this.setPattern(i);
         if (this.onPatternChange) this.onPatternChange(i);
       };
+      this.attachDrag(btn);
       grid.appendChild(btn);
     });
 
     this.setPattern(this.currentPattern);
   }
 
+  // HTML5 drag & drop — reorders the effect list and persists it
+  attachDrag(btn) {
+    btn.addEventListener('dragstart', (e) => {
+      this.dragId = btn.dataset.id;
+      btn.classList.add('dragging');
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', this.dragId);
+      }
+    });
+
+    btn.addEventListener('dragend', () => {
+      this.dragId = null;
+      btn.classList.remove('dragging');
+      this.clearDropTargets();
+    });
+
+    btn.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+      this.clearDropTargets();
+      if (btn.dataset.id !== this.dragId) btn.classList.add('drop-target');
+    });
+
+    btn.addEventListener('dragleave', () => btn.classList.remove('drop-target'));
+
+    btn.addEventListener('drop', (e) => {
+      e.preventDefault();
+      this.clearDropTargets();
+      const fromId = this.dragId || (e.dataTransfer && e.dataTransfer.getData('text/plain'));
+      const toId = btn.dataset.id;
+      if (!fromId || fromId === toId) return;
+
+      const ids = getOrderedSketches().map((s) => s.id);
+      const from = ids.indexOf(fromId);
+      const to = ids.indexOf(toId);
+      if (from < 0 || to < 0) return;
+
+      ids.splice(from, 1);
+      ids.splice(to, 0, fromId);
+
+      if (this.onReorder) this.onReorder(ids);
+      // Keep the selection on the sketch that was active before the move
+      this.setOrder();
+    });
+  }
+
+  clearDropTargets() {
+    const grid = this.panel.querySelector('#pattern-grid');
+    if (!grid) return;
+    grid.querySelectorAll('.pattern-btn.drop-target').forEach((b) => b.classList.remove('drop-target'));
+  }
+
+  // Re-render the grid after a reorder and re-select the active effect by id
+  setOrder() {
+    this.renderPatternButtons();
+    const activeId = this.currentPatternId;
+    if (!activeId) return;
+    const idx = getOrderedSketches().findIndex((s) => s.id === activeId);
+    if (idx >= 0) this.setPattern(idx);
+  }
+
   setPattern(index) {
     this.currentPattern = index;
+    const ordered = getOrderedSketches();
+    this.currentPatternId = ordered[index] ? ordered[index].id : null;
     const grid = this.panel.querySelector('#pattern-grid');
     if (!grid) return;
 
@@ -164,13 +294,15 @@ export class ConfigPanel {
 
     list.innerHTML = '';
 
-    const defs = (SKETCHES[this.currentPattern] && SKETCHES[this.currentPattern].params) || [];
+    const ordered = getOrderedSketches();
+    const sketch = ordered[this.currentPattern];
+    const defs = (sketch && sketch.params) || [];
     if (defs.length === 0) {
       list.innerHTML = '<p class="param-empty">No parameters for this effect.</p>';
       return;
     }
 
-    const values = this.getParams ? this.getParams(this.currentPattern) : {};
+    const values = this.getParams ? this.getParams(this.currentPatternId) : {};
 
     for (const def of defs) {
       const val = values[def.key] ?? def.default;
@@ -192,7 +324,7 @@ export class ConfigPanel {
       input.addEventListener('input', () => {
         const v = parseFloat(input.value);
         valueEl.textContent = formatParamValue(v, def);
-        if (this.onParamChange) this.onParamChange(this.currentPattern, def.key, v);
+        if (this.onParamChange) this.onParamChange(this.currentPatternId, def.key, v);
       });
 
       list.appendChild(row);
@@ -200,12 +332,14 @@ export class ConfigPanel {
   }
 
   // Sync slider positions/values for a param change coming from another window
-  applyParam(index, values) {
-    if (index !== this.currentPattern) return;
+  applyParam(id, values) {
+    if (id !== this.currentPatternId) return;
     const list = this.panel.querySelector('#params-list');
     if (!list) return;
 
-    const defs = (SKETCHES[index] && SKETCHES[index].params) || [];
+    const ordered = getOrderedSketches();
+    const sketch = ordered[this.currentPattern];
+    const defs = (sketch && sketch.params) || [];
 
     for (const [key, v] of Object.entries(values)) {
       const input = list.querySelector(`input[data-key="${key}"]`);

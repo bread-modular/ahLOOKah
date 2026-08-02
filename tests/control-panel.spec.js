@@ -45,7 +45,7 @@ test.describe('control panel window', () => {
     await control.goto(CONTROL_URL);
 
     await expect(control.locator('body')).toHaveClass(/is-control/);
-    await expect(control.locator('#pattern-grid .pattern-btn')).toHaveCount(10);
+    await expect(control.locator('#pattern-grid .pattern-btn')).toHaveCount(12);
     await expect(control.locator('#status-line .badge-control')).toBeVisible();
     await expect(control.locator('canvas')).toHaveCount(0);
   });
@@ -165,11 +165,12 @@ test.describe('param slider interactions (e2e)', () => {
   }
 
   // Read the persisted param store without touching the live object
-  // (touching window.__viz.params.* would pollute the sketch read-log probe)
+  // (touching window.__viz.params.* would pollute the sketch read-log probe).
+  // Params are keyed by sketch id (see sketch-registry SKETCHES entries).
   function storedGain(page, min) {
     return page.waitForFunction((m) => {
       const stored = JSON.parse(localStorage.getItem('viz2_params') || '{}');
-      return stored[2] && stored[2].gain >= m;
+      return stored.bars && stored.bars.gain >= m;
     }, min);
   }
 
@@ -207,7 +208,7 @@ test.describe('param slider interactions (e2e)', () => {
 
     await page.waitForFunction(() => {
       const stored = JSON.parse(localStorage.getItem('viz2_params') || '{}');
-      return stored[2] && stored[2].barWidth >= 12;
+      return stored.bars && stored.bars.barWidth >= 12;
     });
   });
 
@@ -236,5 +237,96 @@ test.describe('param slider interactions (e2e)', () => {
     });
 
     await control.mouse.up();
+  });
+});
+
+test.describe('effect ordering (drag & drop)', () => {
+  test('reorders effects, persists to localStorage, keeps shortcuts on the first 10', async ({ context, page }) => {
+    await page.goto(SCREEN_URL); // screen window
+    const control = await context.newPage();
+    await control.goto(CONTROL_URL);
+
+    const btns = control.locator('#pattern-grid .pattern-btn');
+    await expect(btns).toHaveCount(12);
+
+    // Only the first 10 positions carry a number key badge
+    await expect(btns.nth(0).locator('.pattern-key')).toHaveText('1');
+    await expect(btns.nth(9).locator('.pattern-key')).toHaveText('0');
+    await expect(btns.nth(10).locator('.pattern-key')).toHaveCount(0);
+    await expect(btns.nth(11).locator('.pattern-key')).toHaveCount(0);
+    await expect(btns.nth(10)).toHaveClass(/no-key/);
+
+    // Select Bars (default position 2), then drag the first effect to the end
+    await btns.nth(2).click();
+    await page.waitForFunction(() => window.__viz.pattern === 2);
+
+    await btns.nth(0).dragTo(btns.nth(11));
+
+    // New order is persisted: 'circles' moved to the last position
+    await control.waitForFunction(() => {
+      const order = JSON.parse(localStorage.getItem('viz2_effect_order') || '[]');
+      return order.length === 12 && order[0] === 'circles-ch1' && order[11] === 'circles';
+    });
+
+    // Grid re-rendered in the new order
+    await expect(control.locator('.pattern-btn[data-index="0"]')).toHaveAttribute('data-id', 'circles-ch1');
+    await expect(control.locator('.pattern-btn[data-index="11"]')).toHaveAttribute('data-id', 'circles');
+
+    // Active selection followed Bars to its new position (index 1)
+    await expect(control.locator('.pattern-btn.active')).toHaveAttribute('data-id', 'bars');
+    await page.waitForFunction(() => window.__viz.patternId === 'bars');
+
+    // Keyboard shortcuts follow the new order: '1' now selects Circles CH1
+    await control.keyboard.press('1');
+    await page.waitForFunction(() => window.__viz.pattern === 0);
+    await page.waitForFunction(() => window.__viz.patternId === 'circles-ch1');
+  });
+
+  test('order survives a reload', async ({ context }) => {
+    const control = await context.newPage();
+    await control.goto(CONTROL_URL);
+
+    const btns = control.locator('#pattern-grid .pattern-btn');
+    await btns.nth(0).dragTo(btns.nth(11));
+
+    await control.reload();
+    const after = control.locator('#pattern-grid .pattern-btn');
+    await expect(after).toHaveCount(12);
+    await expect(after.nth(0)).toHaveAttribute('data-id', 'circles-ch1');
+    await expect(after.nth(11)).toHaveAttribute('data-id', 'circles');
+  });
+});
+
+test.describe('effects pane divider resize', () => {
+  const cols = (page) =>
+    page.locator('#pattern-grid').evaluate((el) => {
+      const t = getComputedStyle(el).gridTemplateColumns;
+      return t.split(' ').filter(Boolean).length;
+    });
+
+  test('divider drag resizes the pane, adds grid columns, and persists', async ({ context }) => {
+    const control = await context.newPage();
+    await control.goto(CONTROL_URL);
+
+    const pane = control.locator('#effects-pane');
+    await expect(pane).toHaveCSS('width', '460px');
+    expect(await cols(control)).toBe(2);
+
+    // Drag the divider 200px to the right
+    const resizer = control.locator('#effects-resizer');
+    const box = await resizer.boundingBox();
+    await control.mouse.move(box.x + box.width / 2, box.y + 100);
+    await control.mouse.down();
+    await control.mouse.move(box.x + box.width / 2 + 200, box.y + 100, { steps: 5 });
+    await control.mouse.up();
+
+    // Pane widened + more columns fit per row (each stays >= 200px wide)
+    await expect(pane).toHaveCSS('width', '660px');
+    expect(await cols(control)).toBe(3);
+
+    // Persisted across reloads
+    await control.waitForFunction(() => localStorage.getItem('viz2_effects_width') === '660');
+    await control.reload();
+    await expect(control.locator('#effects-pane')).toHaveCSS('width', '660px');
   });
 });
