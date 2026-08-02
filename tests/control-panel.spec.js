@@ -45,7 +45,7 @@ test.describe('control panel window', () => {
     await control.goto(CONTROL_URL);
 
     await expect(control.locator('body')).toHaveClass(/is-control/);
-    await expect(control.locator('#pattern-grid .pattern-btn')).toHaveCount(22);
+    await expect(control.locator('#pattern-grid .pattern-btn')).toHaveCount(27);
     await expect(control.locator('#status-line .badge-control')).toBeVisible();
     await expect(control.locator('canvas')).toHaveCount(0);
   });
@@ -266,13 +266,19 @@ test.describe('param slider interactions (e2e)', () => {
 });
 
 test.describe('effect ordering (drag & drop)', () => {
+  // Keep the final drop target in view now that the catalogue spans 27 items.
+  // The actual resize/persistence behavior has its own tests below.
+  const showAllDropTargets = (control) =>
+    control.locator('#effects-pane').evaluate((pane) => { pane.style.width = '660px'; });
+
   test('reorders effects, persists to localStorage, keeps shortcuts on the first 10', async ({ context, page }) => {
     await page.goto(SCREEN_URL); // screen window
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
+    await showAllDropTargets(control);
 
     const btns = control.locator('#pattern-grid .pattern-btn');
-    await expect(btns).toHaveCount(22);
+    await expect(btns).toHaveCount(27);
 
     // Only the first 10 positions carry a number key badge
     await expect(btns.nth(0).locator('.pattern-key')).toHaveText('1');
@@ -285,17 +291,17 @@ test.describe('effect ordering (drag & drop)', () => {
     await btns.nth(2).click();
     await page.waitForFunction(() => window.__viz.pattern === 2);
 
-    await btns.nth(0).dragTo(btns.nth(21));
+    await btns.nth(0).dragTo(btns.nth(26));
 
     // New order is persisted: 'circles' moved to the last position
     await control.waitForFunction(() => {
       const order = JSON.parse(localStorage.getItem('viz2_effect_order') || '[]');
-      return order.length === 22 && order[0] === 'circles-ch1' && order[21] === 'circles';
+      return order.length === 27 && order[0] === 'circles-ch1' && order[26] === 'circles';
     });
 
     // Grid re-rendered in the new order
     await expect(control.locator('.pattern-btn[data-index="0"]')).toHaveAttribute('data-id', 'circles-ch1');
-    await expect(control.locator('.pattern-btn[data-index="21"]')).toHaveAttribute('data-id', 'circles');
+    await expect(control.locator('.pattern-btn[data-index="26"]')).toHaveAttribute('data-id', 'circles');
 
     // Active selection followed Bars to its new position (index 1)
     await expect(control.locator('.pattern-btn.active')).toHaveAttribute('data-id', 'bars');
@@ -310,15 +316,16 @@ test.describe('effect ordering (drag & drop)', () => {
   test('order survives a reload', async ({ context }) => {
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
+    await showAllDropTargets(control);
 
     const btns = control.locator('#pattern-grid .pattern-btn');
-    await btns.nth(0).dragTo(btns.nth(21));
+    await btns.nth(0).dragTo(btns.nth(26));
 
     await control.reload();
     const after = control.locator('#pattern-grid .pattern-btn');
-    await expect(after).toHaveCount(22);
+    await expect(after).toHaveCount(27);
     await expect(after.nth(0)).toHaveAttribute('data-id', 'circles-ch1');
-    await expect(after.nth(21)).toHaveAttribute('data-id', 'circles');
+    await expect(after.nth(26)).toHaveAttribute('data-id', 'circles');
   });
 });
 
