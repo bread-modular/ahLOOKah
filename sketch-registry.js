@@ -56,6 +56,12 @@ import crystalReliquary from './sketches/crystal_reliquary.js';
 import neuralCascade from './sketches/neural_cascade.js';
 import auroraReactor from './sketches/aurora_reactor.js';
 import warpLoom from './sketches/warp_loom.js';
+// Next-gen cinematic shader effects
+import fractalNebula from './sketches/fractal_nebula.js';
+import auroraStorm from './sketches/aurora_storm.js';
+import wormholeTransit from './sketches/wormhole_transit.js';
+import crystalCavern from './sketches/crystal_cavern.js';
+import neonMetropolis from './sketches/neon_metropolis.js';
 
 // Shared "responsiveness" triple used by many effects (0..2, default 1)
 const BAND_RESPONSIVENESS = [
@@ -485,6 +491,66 @@ export const SKETCHES = [
       { key: 'bloom', label: 'Fiber Bloom', min: 0.3, max: 2, step: 0.05, default: 1 },
     ],
   }, // 37
+  {
+    id: 'fractal-nebula',
+    name: 'Fractal Nebula',
+    factory: fractalNebula,
+    params: [
+      ...PREMIUM_AUDIO_RESPONSIVENESS,
+      { key: 'power', label: 'Fractal Power', min: 0, max: 2, step: 0.05, default: 1 },
+      { key: 'detail', label: 'Iteration Detail', min: 0.2, max: 2, step: 0.05, default: 1 },
+      { key: 'glow', label: 'Nebula Glow', min: 0.2, max: 2, step: 0.05, default: 1 },
+      { key: 'speed', label: 'Orbit Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
+    ],
+  }, // 38
+  {
+    id: 'aurora-storm',
+    name: 'Aurora Storm',
+    factory: auroraStorm,
+    params: [
+      ...PREMIUM_AUDIO_RESPONSIVENESS,
+      { key: 'curtains', label: 'Curtain Layers', min: 0.2, max: 2, step: 0.05, default: 1 },
+      { key: 'palette', label: 'Color Palette', min: 0, max: 2, step: 0.05, default: 1 },
+      { key: 'shimmer', label: 'Particle Shimmer', min: 0, max: 2, step: 0.05, default: 1 },
+      { key: 'speed', label: 'Wind Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
+    ],
+  }, // 39
+  {
+    id: 'wormhole-transit',
+    name: 'Wormhole Transit',
+    factory: wormholeTransit,
+    params: [
+      ...PREMIUM_AUDIO_RESPONSIVENESS,
+      { key: 'twist', label: 'Spacetime Twist', min: 0, max: 2, step: 0.05, default: 1 },
+      { key: 'throat', label: 'Throat Radius', min: 0.3, max: 2, step: 0.05, default: 1 },
+      { key: 'doppler', label: 'Doppler Shift', min: 0, max: 2, step: 0.05, default: 1 },
+      { key: 'speed', label: 'Transit Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
+    ],
+  }, // 40
+  {
+    id: 'crystal-cavern',
+    name: 'Crystal Cavern',
+    factory: crystalCavern,
+    params: [
+      ...PREMIUM_AUDIO_RESPONSIVENESS,
+      { key: 'crystalSize', label: 'Crystal Scale', min: 0.4, max: 2, step: 0.05, default: 1 },
+      { key: 'refraction', label: 'Prismatic Refraction', min: 0.2, max: 2, step: 0.05, default: 1 },
+      { key: 'caustics', label: 'Caustic Intensity', min: 0.2, max: 2, step: 0.05, default: 1 },
+      { key: 'speed', label: 'Growth Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
+    ],
+  }, // 41
+  {
+    id: 'neon-metropolis',
+    name: 'Neon Metropolis',
+    factory: neonMetropolis,
+    params: [
+      ...PREMIUM_AUDIO_RESPONSIVENESS,
+      { key: 'skyline', label: 'Skyline Density', min: 0.2, max: 2, step: 0.05, default: 1 },
+      { key: 'neon', label: 'Neon Intensity', min: 0.2, max: 2, step: 0.05, default: 1 },
+      { key: 'traffic', label: 'Traffic Density', min: 0, max: 2, step: 0.05, default: 1 },
+      { key: 'speed', label: 'City Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
+    ],
+  }, // 42
 ];
 
 // Number of effects that get keyboard shortcuts (1-9, 0 = 10th)
