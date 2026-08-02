@@ -1,8 +1,7 @@
 // Pulse Rings — neon concentric rings that erupt on every bass kick.
 // Rings expand with the audio envelope, each with its own hue; a glowing
 // core pulses with sub-bass. Trails fade via translucent black fills.
-export default (audio) => (p) => {
-  const MAX_RINGS = 40;
+export default (audio, videoDeviceId, params) => (p) => {
   const rings = [];
   let hueOffset = 0;
   let lastKick = 0;
@@ -17,7 +16,9 @@ export default (audio) => (p) => {
 
   function kickDetected(sub, now) {
     // Rising edge on the sub-bass with a cooldown = kick detection
-    if (sub > 0.35 && sub > prevSub && now - lastKick > 90) {
+    // (threshold read live so the Kick Threshold slider applies immediately)
+    const threshold = params?.kick ?? 0.35;
+    if (sub > threshold && sub > prevSub && now - lastKick > 90) {
       lastKick = now;
       return true;
     }
@@ -38,6 +39,12 @@ export default (audio) => (p) => {
     p.rect(0, 0, p.width, p.height);
     p.blendMode(p.ADD);
 
+    // Read live params every frame so slider changes apply immediately
+    const P = params || {};
+    const ringSpeed = P.speed ?? 1;
+    const MAX_RINGS = P.rings ?? 40;
+    const subPulse = P.sub ?? 1;
+
     const freqs = audio && audio.isStarted ? audio.getFrequencies() : null;
     const sub = subBand(freqs ? freqs.left : null);
     const now = p.millis();
@@ -45,7 +52,7 @@ export default (audio) => (p) => {
     if (kickDetected(sub, now)) {
       rings.push({
         r: 10,
-        speed: 6 + p.random(0, 6),
+        speed: (6 + p.random(0, 6)) * ringSpeed,
         hue: (hueOffset + p.random(-30, 30) + 360) % 360,
         life: 1,
       });
@@ -56,7 +63,7 @@ export default (audio) => (p) => {
     hueOffset = (hueOffset + 0.4 + sub * 2) % 360;
 
     // Core pulse
-    const coreR = p.map(sub, 0, 1, 60, 260) + 40 * p.sin(p.frameCount * 0.15);
+    const coreR = p.map(sub * subPulse, 0, 1, 60, 260) + 40 * p.sin(p.frameCount * 0.15);
     p.noStroke();
     p.fill(hueOffset, 90, 100, 90);
     p.circle(p.width / 2, p.height / 2, coreR * 2);
@@ -66,7 +73,7 @@ export default (audio) => (p) => {
     // Expanding rings
     for (let i = rings.length - 1; i >= 0; i--) {
       const ring = rings[i];
-      ring.r += ring.speed * (0.6 + sub * 2);
+      ring.r += ring.speed * (0.6 + sub * 2 * subPulse);
       ring.life -= 0.008;
 
       if (ring.life <= 0) {

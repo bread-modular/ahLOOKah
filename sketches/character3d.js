@@ -1,4 +1,4 @@
-export default (audio) => (p) => {
+export default (audio, videoDeviceId, params) => (p) => {
   let rotation = 0;
   let groove = 0;
   let bgLines = [];
@@ -64,6 +64,14 @@ export default (audio) => (p) => {
 
   p.draw = () => {
     p.background(0);
+
+    // Read live params every frame so slider changes apply immediately
+    const P = params || {};
+    const grooveSpeed = P.groove ?? 1;
+    const bass = P.bass ?? 1;
+    const mid = P.mid ?? 1;
+    const high = P.high ?? 1;
+
     if (!audio || !audio.isStarted) return;
 
     const freqs = audio.getFrequencies();
@@ -74,7 +82,7 @@ export default (audio) => (p) => {
     const noiseLevel = (b2.mid + b2.high) * 0.5;
 
     // Animation Timings
-    groove += 0.1 + b.mid * 0.2;
+    groove += (0.1 + b.mid * 0.2) * grooveSpeed;
     rotation += 0.005 + noiseLevel * 0.1;
 
     // Camera Context - Centered on screen with tilt
@@ -89,16 +97,16 @@ export default (audio) => (p) => {
 
     // 1. DYNAMIC BACKGROUND
     p.push();
-    p.stroke(255, 60 + b.high * 100);
-    p.strokeWeight(0.5 + b.high * 2);
+    p.stroke(255, 60 + b.high * 100 * high);
+    p.strokeWeight(0.5 + b.high * 2 * high);
     bgLines.forEach((line, i) => {
       const activeNum = p.map(b.mid + b.sub, 0, 1, numBgLines * 0.3, numBgLines);
       if (i < activeNum) {
-        line.z += line.speed + b.sub * 150 + noiseLevel * 80;
+        line.z += line.speed + b.sub * 150 * bass + noiseLevel * 80;
         if (line.z > 500) line.z = -3000;
         p.push();
         p.translate(line.x, line.y, line.z);
-        const l = 40 + b.high * 600;
+        const l = 40 + b.high * 600 * high;
         p.line(0, 0, 0, 0, 0, l);
         p.pop();
       }
@@ -123,9 +131,9 @@ export default (audio) => (p) => {
     p.scale(2.2);
     p.noFill();
     p.stroke(255);
-    p.strokeWeight((1.2 + b.sub * 2.0) / 2.2);
+    p.strokeWeight((1.2 + b.sub * 2.0 * bass) / 2.2);
 
-    const bounce = b.sub * 30;
+    const bounce = b.sub * 30 * bass;
     p.translate(0, bounce, 0);
     p.box(50, 20, 30); // Pelvis
 
@@ -154,7 +162,7 @@ export default (audio) => (p) => {
     // Eye Slit
     p.push();
     p.translate(0, 0, HEAD_SIZE * 0.5);
-    if (b.mid > 0.45 || b.high > 0.45) {
+    if (b.mid * mid > 0.45 || b.high * high > 0.45) {
       p.fill(255);
     }
     p.box(HEAD_SIZE * 1.0, 5, 8);
@@ -165,11 +173,11 @@ export default (audio) => (p) => {
 
     // Arms
     const upperArmRotation = p.PI / 8 + p.sin(groove * 0.8) * 0.2;
-    const forearmRotation = p.PI / 3 + b.mid * p.PI / 2;
+    const forearmRotation = p.PI / 3 + b.mid * (p.PI / 2) * mid;
 
     p.push();
     p.translate(-TORSO_W / 2 - 2, -TORSO_H + 10, 0);
-    p.rotateZ(upperArmRotation + b.mid * 0.5);
+    p.rotateZ(upperArmRotation + b.mid * 0.5 * mid);
     p.rotateX(p.sin(groove * 0.5) * 0.2);
     drawBox(LIMB_W - 2, ARM_L, LIMB_W - 2);
     p.translate(0, ARM_L, 0);
@@ -181,7 +189,7 @@ export default (audio) => (p) => {
 
     p.push();
     p.translate(TORSO_W / 2 + 2, -TORSO_H + 10, 0);
-    p.rotateZ(-upperArmRotation - b.mid * 0.5);
+    p.rotateZ(-upperArmRotation - b.mid * 0.5 * mid);
     p.rotateX(p.sin(groove * 0.5 + p.PI) * 0.2);
     drawBox(LIMB_W - 2, ARM_L, LIMB_W - 2);
     p.translate(0, ARM_L, 0);

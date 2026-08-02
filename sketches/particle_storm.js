@@ -1,8 +1,7 @@
 // Particle Storm — an additive particle system that explodes on every kick.
 // A bass hit resets all particles outward with fresh hues; mid/high energy
 // acts as wind and keeps the storm churning. Colors cycle through the rainbow.
-export default (audio) => (p) => {
-  const COUNT = 320;
+export default (audio, videoDeviceId, params) => (p) => {
   const particles = [];
   let hueOffset = 0;
   let kick = 0; // 0..1 kick envelope
@@ -20,10 +19,9 @@ export default (audio) => (p) => {
     return { sub, mid, high, energy: (sub + mid + high) / 3 };
   }
 
-  p.setup = () => {
-    p.createCanvas(p.windowWidth, p.windowHeight);
-    p.colorMode(p.HSB, 360, 100, 100, 255);
-    for (let i = 0; i < COUNT; i++) {
+  // Grow the particle pool lazily so the Particle Count slider works live
+  function ensureParticles(n) {
+    while (particles.length < n) {
       particles.push({
         x: p.random(p.width),
         y: p.random(p.height),
@@ -34,12 +32,20 @@ export default (audio) => (p) => {
         life: p.random(0.3, 1),
       });
     }
+  }
+
+  p.setup = () => {
+    p.createCanvas(p.windowWidth, p.windowHeight);
+    p.colorMode(p.HSB, 360, 100, 100, 255);
+    ensureParticles(params?.count ?? 320);
   };
 
   function burst(energy) {
+    // Burst strength read live so the slider applies immediately
+    const strength = params?.burst ?? 1;
     for (const pt of particles) {
       const angle = p.random(p.TWO_PI);
-      const speed = p.random(2, 12) * (0.5 + energy * 2.5);
+      const speed = p.random(2, 12) * (0.5 + energy * 2.5) * strength;
       pt.vx = p.cos(angle) * speed;
       pt.vy = p.sin(angle) * speed;
       pt.hue = p.random(360);
@@ -54,23 +60,31 @@ export default (audio) => (p) => {
     p.rect(0, 0, p.width, p.height);
     p.blendMode(p.ADD);
 
+    // Read live params every frame so slider changes apply immediately
+    const P = params || {};
+    const count = Math.floor(P.count ?? 320);
+    const kickSensitivity = P.kick ?? 1;
+    const windStrength = P.wind ?? 1;
+    ensureParticles(count);
+
     const freqs = audio && audio.isStarted ? audio.getFrequencies() : null;
     const b = bands(freqs ? freqs.left : null);
     hueOffset = (hueOffset + 0.5 + b.energy * 3) % 360;
 
     // Kick: rising edge of sub-bass triggers a full burst
-    if (b.sub > 0.3 && b.sub > prevSub) {
+    if (b.sub > 0.3 / kickSensitivity && b.sub > prevSub) {
       kick = 1;
       burst(b.sub);
     }
     prevSub = b.sub;
     kick = p.lerp(kick, 0, 0.08);
 
-    const windX = (b.mid - 0.5) * 6;
-    const windY = (b.high - 0.5) * 6;
+    const windX = (b.mid - 0.5) * 6 * windStrength;
+    const windY = (b.high - 0.5) * 6 * windStrength;
 
     p.noStroke();
-    for (const pt of particles) {
+    for (let i = 0; i < count; i++) {
+      const pt = particles[i];
       // Wind + mild attraction toward the center keeps the storm dense
       pt.vx += windX * 0.2 + (p.width / 2 - pt.x) * 0.002;
       pt.vy += windY * 0.2 + (p.height / 2 - pt.y) * 0.002;

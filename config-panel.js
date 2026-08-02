@@ -1,11 +1,21 @@
 import { SKETCHES } from './sketch-registry.js';
 
+// Format a param value for display based on its step size
+function formatParamValue(v, def) {
+  const step = def.step ?? 0.01;
+  if (step >= 1) return String(Math.round(v));
+  if (step >= 0.1) return v.toFixed(1);
+  return v.toFixed(2);
+}
+
 export class ConfigPanel {
   constructor({
     onPatternChange,
     onDevicesChange,
     onTakeover,
     onOpenControl,
+    onParamChange,
+    getParams,
     getPattern,
     isScreen,
     isScreenOnline,
@@ -14,6 +24,8 @@ export class ConfigPanel {
     this.onDevicesChange = onDevicesChange;
     this.onTakeover = onTakeover;
     this.onOpenControl = onOpenControl;
+    this.onParamChange = onParamChange;
+    this.getParams = getParams;
     this.getPattern = getPattern;
     this.isScreen = isScreen;
     this.isScreenOnline = isScreenOnline;
@@ -44,6 +56,9 @@ export class ConfigPanel {
       <h3>Pattern</h3>
       <div id="pattern-grid" class="pattern-grid"></div>
       <p>Keyboard 1–9 / 0 works here in the control panel.</p>
+
+      <h3>Parameters</h3>
+      <div id="params-list" class="params-list"></div>
 
       <h3>Audio Input</h3>
       <div class="config-group">
@@ -138,6 +153,68 @@ export class ConfigPanel {
     grid.querySelectorAll('.pattern-btn').forEach((btn) => {
       btn.classList.toggle('active', parseInt(btn.dataset.index, 10) === index);
     });
+
+    this.renderParams();
+  }
+
+  // Rebuild the slider list for the currently selected effect
+  renderParams() {
+    const list = this.panel.querySelector('#params-list');
+    if (!list) return;
+
+    list.innerHTML = '';
+
+    const defs = (SKETCHES[this.currentPattern] && SKETCHES[this.currentPattern].params) || [];
+    if (defs.length === 0) {
+      list.innerHTML = '<p class="param-empty">No parameters for this effect.</p>';
+      return;
+    }
+
+    const values = this.getParams ? this.getParams(this.currentPattern) : {};
+
+    for (const def of defs) {
+      const val = values[def.key] ?? def.default;
+
+      const row = document.createElement('div');
+      row.className = 'param-row';
+      row.innerHTML = `
+        <div class="param-head">
+          <label for="param-${def.key}">${def.label}</label>
+          <span class="param-value" data-value="${def.key}">${formatParamValue(val, def)}</span>
+        </div>
+        <input type="range" id="param-${def.key}" data-key="${def.key}"
+               min="${def.min}" max="${def.max}" step="${def.step}" value="${val}">
+      `;
+
+      const input = row.querySelector('input');
+      const valueEl = row.querySelector('.param-value');
+
+      input.addEventListener('input', () => {
+        const v = parseFloat(input.value);
+        valueEl.textContent = formatParamValue(v, def);
+        if (this.onParamChange) this.onParamChange(this.currentPattern, def.key, v);
+      });
+
+      list.appendChild(row);
+    }
+  }
+
+  // Sync slider positions/values for a param change coming from another window
+  applyParam(index, values) {
+    if (index !== this.currentPattern) return;
+    const list = this.panel.querySelector('#params-list');
+    if (!list) return;
+
+    const defs = (SKETCHES[index] && SKETCHES[index].params) || [];
+
+    for (const [key, v] of Object.entries(values)) {
+      const input = list.querySelector(`input[data-key="${key}"]`);
+      if (input) input.value = v;
+
+      const valueEl = list.querySelector(`.param-value[data-value="${key}"]`);
+      const def = defs.find((d) => d.key === key);
+      if (valueEl && def) valueEl.textContent = formatParamValue(v, def);
+    }
   }
 
   setScreenOnline(online) {

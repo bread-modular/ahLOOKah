@@ -1,19 +1,22 @@
 // Neon Spectrum — colorful frequency bars with additive glow.
 // Each bar gets its own hue from a slowly cycling rainbow; bass/mid/high
 // energy push brightness, bar height and hue speed. Ideal for techno sets.
-export default (audio) => (p) => {
-  const BARS = 72;
+export default (audio, videoDeviceId, params) => (p) => {
   let hueOffset = 0;
 
   function bands(freqs) {
     if (!freqs) return { low: 0, mid: 0, high: 0, energy: 0 };
+    // Boosts are read live from params so sliders apply immediately
+    const bb = params?.bass ?? 1;
+    const mb = params?.mid ?? 1;
+    const hb = params?.high ?? 1;
     let low = 0, mid = 0, high = 0;
     for (let i = 0; i < 40; i++) low += freqs[i];
     for (let i = 40; i < 150; i++) mid += freqs[i];
     for (let i = 150; i < 500; i++) high += freqs[i];
-    low = low / (40 * 255);
-    mid = mid / (110 * 255);
-    high = high / (350 * 255);
+    low = low / (40 * 255) * bb;
+    mid = mid / (110 * 255) * mb;
+    high = high / (350 * 255) * hb;
     return { low, mid, high, energy: (low + mid + high) / 3 };
   }
 
@@ -31,6 +34,9 @@ export default (audio) => (p) => {
     const b = bands(freqs ? freqs.left : null);
 
     hueOffset = (hueOffset + 0.35 + b.energy * 2.5) % 360;
+
+    // Bar count is structural but re-read each frame so it applies on the fly
+    const BARS = params?.bars ?? 72;
 
     const w = p.width / BARS;
     for (let i = 0; i < BARS; i++) {

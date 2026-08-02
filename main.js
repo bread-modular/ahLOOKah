@@ -1,6 +1,6 @@
 import p5 from 'p5';
 import './style.css';
-import { SKETCHES, indexFromKey } from './sketch-registry.js';
+import { SKETCHES, defaultParamValues, indexFromKey } from './sketch-registry.js';
 import { ConfigPanel } from './config-panel.js';
 import { AudioManager } from './audio-manager.js';
 
@@ -29,7 +29,72 @@ let panel = null;
 const STORAGE = {
   audio: 'viz2_audio_device_id',
   video: 'viz2_video_device_id',
+  params: 'viz2_params',
 };
+
+// ---------------------------------------------------------------------------
+// Effect parameters
+// Each sketch can expose a set of live-adjustable params (see sketch-registry).
+// `paramValues` is a per-index map of { key: value }. The same object that is
+// handed to a sketch factory is mutated in place on 'params' messages, so
+// running sketches pick up slider changes immediately.
+// ---------------------------------------------------------------------------
+
+let paramValues = loadParamValues();
+
+// Raw (non-proxied) counterparts, used for serialization only — JSON.stringify
+// of a Proxy would hit its get-trap and pollute the DEV read-log below.
+const paramRawValues = { ...paramValues };
+
+// DEV only: records which params the RUNNING sketch actually reads each frame.
+// Lets e2e tests verify slider changes reach the sketch in realtime (a sketch
+// that captured params once at creation never touches this object again).
+let devReadLog = null;
+
+function loadParamValues() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE.params)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveParamValues() {
+  localStorage.setItem(STORAGE.params, JSON.stringify(paramRawValues));
+}
+
+// Returns the live param object for a sketch index (creating it from defaults).
+// In DEV builds the object is wrapped in a Proxy that records property reads,
+// so tests can prove the running sketch re-reads params every frame.
+function getParams(index) {
+  let v = paramValues[index];
+  if (!v) {
+    v = defaultParamValues(index);
+    paramValues[index] = v;
+    paramRawValues[index] = v;
+  }
+
+  if (import.meta.env.DEV && !v.__vizProxied) {
+    Object.defineProperty(v, '__vizProxied', { value: true, enumerable: false, configurable: true });
+    devReadLog = {};
+    const proxy = new Proxy(v, {
+      get(obj, prop) {
+        if (typeof prop === 'string' && !prop.startsWith('__')) {
+          devReadLog[prop] = performance.now();
+        }
+        return obj[prop];
+      },
+      set(obj, prop, value) {
+        obj[prop] = value;
+        return true;
+      },
+    });
+    paramValues[index] = proxy;
+    paramRawValues[index] = v;
+  }
+
+  return paramValues[index];
+}
 
 // ---------------------------------------------------------------------------
 // Screen runtime
@@ -45,8 +110,9 @@ function loadSketch(index) {
   currentIndex = index;
   const sketchFactory = SKETCHES[index].factory;
 
-  // Inject both audio and current video device ID
-  currentP5 = new p5(sketchFactory(audio, currentVideoDeviceId));
+  // Inject audio, current video device ID, and the LIVE params object so the
+  // sketch reads updated param values every frame.
+  currentP5 = new p5(sketchFactory(audio, currentVideoDeviceId, getParams(index)));
 
   console.log(`Loaded sketch ${index + 1} (${SKETCHES[index].name})`);
 }
@@ -161,6 +227,16 @@ function handleMessage(msg) {
       if (myRole === 'screen') applyDevices();
       break;
 
+    case 'params':
+      // A param slider moved somewhere — merge into the live store (both
+      // windows keep the same store, so the running sketch updates in place).
+      if (typeof msg.index === 'number' && msg.values) {
+        Object.assign(getParams(msg.index), msg.values);
+        saveParamValues();
+        if (myRole === 'control' && panel) panel.applyParam(msg.index, msg.values);
+      }
+      break;
+
     case 'role':
       if (msg.windowId === myId) {
         becomeScreen();
@@ -222,6 +298,11 @@ function ensurePanel() {
     onDevicesChange: () => broadcast({ type: 'devices' }),
     onTakeover: () => broadcast({ type: 'role', role: 'screen' }),
     onOpenControl: () => openControlWindow(),
+    onParamChange: (index, key, value) => {
+      // Local dispatch (via broadcast) updates the store + saves + syncs UI
+      broadcast({ type: 'params', index, values: { [key]: value } });
+    },
+    getParams,
     getPattern: () => currentIndex,
     isScreen: () => myRole === 'screen',
     isScreenOnline: () => screenOnline,
@@ -282,5 +363,8 @@ if (import.meta.env.DEV) {
     get role() { return myRole; },
     get pattern() { return currentIndex; },
     get screenOnline() { return screenOnline; },
+    get params() { return getParams(currentIndex); },
+    // DEV only: { key -> last read timestamp } of params the sketch accesses
+    readLog: () => devReadLog || {},
   };
 }

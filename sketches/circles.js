@@ -1,4 +1,4 @@
-export default (audio) => (p) => {
+export default (audio, videoDeviceId, params) => (p) => {
   let circles = [];
   let hats = [];
 
@@ -50,6 +50,13 @@ export default (audio) => (p) => {
   p.draw = () => {
     p.background(0);
 
+    // Read live params every frame so slider changes apply immediately
+    const P = params || {};
+    const bass = P.bass ?? 1;
+    const mid = P.mid ?? 1;
+    const high = P.high ?? 1;
+    const glitch = P.glitch ?? 1;
+
     if (!audio || !audio.isStarted) return;
 
     const freqs = audio.getFrequencies();
@@ -59,7 +66,7 @@ export default (audio) => (p) => {
     const bands2 = analyzeBands(freqs.right); // Ch 2
 
     const noiseIntensity = (bands2.mid + bands2.high) * 0.5;
-    const glitchAmount = p.map(noiseIntensity, 0, 0.5, 0, 60);
+    const glitchAmount = p.map(noiseIntensity, 0, 0.5, 0, 60) * glitch;
 
     p.push();
     // Global glitch translation
@@ -78,8 +85,8 @@ export default (audio) => (p) => {
     }
 
     // Spawn tiny circles (hats)
-    if (bands1.high > 0.15) {
-      const spawnCount = Math.floor(p.map(bands1.high, 0.15, 0.6, 1, 8));
+    if (bands1.high * high > 0.15) {
+      const spawnCount = Math.floor(p.map(bands1.high * high, 0.15, 0.6, 1, 8));
       for (let i = 0; i < spawnCount; i++) {
         hats.push(createHat());
       }
@@ -87,17 +94,17 @@ export default (audio) => (p) => {
 
     // Draw Main Circles
     circles.forEach(c => {
-      const pump = 1 + bands1.sub * 2.5;
+      const pump = 1 + bands1.sub * 2.5 * bass;
       const currentSize = c.baseSize * pump;
 
-      const midBrightness = p.map(bands1.mid, 0, 0.5, 0, 180);
+      const midBrightness = p.map(bands1.mid * mid, 0, 0.5, 0, 180);
       if (midBrightness > 20) {
         p.fill(255, midBrightness);
       } else {
         p.noFill();
       }
 
-      p.strokeWeight(p.map(bands1.sub, 0, 0.5, 1, 12));
+      p.strokeWeight(p.map(bands1.sub * bass, 0, 0.5, 1, 12));
 
       // Jitter circles based on Ch 2 noise
       const jx = p.random(-glitchAmount / 2, glitchAmount / 2);
@@ -106,8 +113,8 @@ export default (audio) => (p) => {
       p.stroke(255, p.map(c.brightness, 150, 255, 180, 255));
       p.circle(c.x + jx, c.y + jy, currentSize);
 
-      c.x += c.speedX * (1 + bands1.sub * 12);
-      c.y += c.speedY * (1 + bands1.sub * 12);
+      c.x += c.speedX * (1 + bands1.sub * 12 * bass);
+      c.y += c.speedY * (1 + bands1.sub * 12 * bass);
 
       if (c.y < -currentSize) c.y = p.height + currentSize;
       if (c.x < -currentSize) c.x = p.width + currentSize;
