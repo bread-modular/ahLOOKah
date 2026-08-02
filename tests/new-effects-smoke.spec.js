@@ -17,6 +17,11 @@ const NEW_IDS = [
   'laser-cathedral',
   'cymatic-bloom',
   'holo-swarm',
+  'aurora-veil',
+  'mandelbulb-drift',
+  'storm-surge',
+  'ink-dispersion',
+  'infinity-mirror',
 ];
 
 test.describe('new effects smoke test', () => {
