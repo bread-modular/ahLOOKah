@@ -32,7 +32,7 @@ canvas {
 --------------------------------------------------------------------------- */
 
 body.is-control {
-  overflow: auto;
+  overflow: hidden;
   background: #0a0a0a;
 }
 
@@ -62,26 +62,101 @@ body.is-control {
   pointer-events: auto;
 }
 
-/* In control mode the panel is a full-page layout (not a hover sidebar) */
+/* In control mode the panel is a full-page, two-column layout: a fixed-width
+   scrollable effects list on the left, and the controls (params, devices,
+   actions) always visible on the right. The page itself never scrolls. */
 body.is-control #config-container {
   position: static;
   width: 100%;
-  height: 100%;
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
   display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  padding: 24px 16px;
+  justify-content: flex-start;
+  align-items: stretch;
+  padding: 0;
   box-sizing: border-box;
 }
 
 body.is-control #config-panel {
   margin: 0;
-  width: 420px;
-  max-width: 100%;
+  width: 100%;
+  max-width: none;
   max-height: none;
-  overflow: visible;
-  padding: 24px;
+  overflow: hidden;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+}
+
+/* Effects list column — fixed width, scrolls independently of the controls.
+   The width is live-edited by the resizer (viz2_effects_width in localStorage);
+   460px here is just the pre-JS default (2 columns of 200px+ buttons). */
+body.is-control #effects-pane {
+  display: flex;
+  flex-direction: column;
+  width: 320px;
+  flex-shrink: 0;
+  height: 100vh;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+/* Draggable divider between the effects list and the controls */
+#effects-resizer {
+  display: none;
+}
+
+body.is-control #effects-resizer {
+  display: block;
+  flex-shrink: 0;
+  width: 6px;
+  height: 100vh;
+  cursor: col-resize;
+  background: transparent;
+  border-right: 1px solid var(--border-gray);
+  transition: background var(--transition-speed) ease-out;
+}
+
+body.is-control #effects-resizer:hover,
+body.is-control #effects-resizer:active {
+  background: rgba(77, 163, 255, 0.35);
+  border-right-color: var(--accent);
+}
+
+body.resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+body.is-control #effects-pane .pattern-grid {
+  flex: 1 1 auto;
+  min-height: 0; /* allow the grid to shrink so it can scroll */
+  overflow-y: auto;
+  align-content: start;
+  padding-right: 4px;
+  margin-right: -4px;
+  /* Each effect button is always at least 200px wide; the column count is
+     derived from the pane width so that never changes (auto-fill). */
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+}
+
+body.is-control #effects-pane > p {
+  margin: 12px 0 0 0;
+  flex-shrink: 0;
+}
+
+/* Controls column — takes the remaining width, scrolls only if too tall */
+body.is-control #controls-pane {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100vh;
+  overflow-y: auto;
+  padding: 20px 24px;
+  box-sizing: border-box;
 }
 
 /* Hide the panel when this window is the screen */
@@ -197,7 +272,36 @@ body.is-screen #config-container {
   text-transform: none !important;
   font-weight: 500 !important;
   text-align: left;
+  cursor: grab;
   transition: all var(--transition-speed) ease-out;
+}
+
+.pattern-btn:active {
+  cursor: grabbing;
+}
+
+/* Effects past the first 10 have no number shortcut — keep the name aligned */
+.pattern-btn.no-key {
+  padding-left: 44px !important;
+}
+
+.pattern-btn .drag-handle {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 1rem;
+  line-height: 1;
+  opacity: 0.45;
+  cursor: grab;
+  user-select: none;
+}
+
+.pattern-btn.dragging {
+  opacity: 0.45;
+}
+
+.pattern-btn.drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
 }
 
 .pattern-btn .pattern-key {
