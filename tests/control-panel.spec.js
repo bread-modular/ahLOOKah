@@ -187,14 +187,39 @@ test.describe('param slider interactions (e2e)', () => {
 
     await control.mouse.move(startX, y);
     await control.mouse.down();
-    // Note: interpolated moves (steps > 1) don't drive native range thumbs in
-    // headless Chromium — a single move to the target is reliable (verified).
-    await control.mouse.move(box.x + box.width - 4, y, { steps: 1 });
+    // Multi-step interpolated drag — this must keep driving the native range
+    // thumb. (Regression: the params list used to re-render on the first
+    // input event, destroying the slider mid-drag after a single step.)
+    await control.mouse.move(box.x + box.width - 4, y, { steps: 5 });
     await control.mouse.up();
 
     // The drag reaches the high end and lands on the screen window
     await storedGain(page, 2.5);
     expect(parseFloat(await slider.inputValue())).toBeGreaterThan(2.5);
+  });
+
+  test('the slider element is not re-rendered mid-drag', async ({ context, page }) => {
+    const control = await openBars(context, page);
+    const slider = control.locator('#params-list input[data-key="gain"]');
+    const box = await slider.boundingBox();
+    expect(box).not.toBeNull();
+
+    // Tag the DOM node so we can detect the params list replacing it
+    await slider.evaluate((el) => { el.__dragProbe = 'original'; });
+
+    const frac = (1 - 0.2) / (3 - 0.2);
+    const y = box.y + box.height / 2;
+    await control.mouse.move(box.x + frac * box.width, y);
+    await control.mouse.down();
+    await control.mouse.move(box.x + box.width * 0.8, y, { steps: 5 });
+    await control.mouse.up();
+
+    // Same DOM node (a re-render would have replaced it with an untagged one)
+    const probe = await control
+      .locator('#params-list input[data-key="gain"]')
+      .evaluate((el) => el.__dragProbe);
+    expect(probe).toBe('original');
+    expect(parseFloat(await slider.inputValue())).toBeGreaterThan(2);
   });
 
   test('clicking on the track jumps the value and applies it', async ({ context, page }) => {
