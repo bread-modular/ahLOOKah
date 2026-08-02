@@ -58,6 +58,18 @@ export class AudioManager {
     }
   }
 
+  stop() {
+    this.isStarted = false;
+    if (this.audioContext) {
+      this.audioContext.close().catch(() => {});
+      this.audioContext = null;
+    }
+    this.source = null;
+    this.splitter = null;
+    this.analyserL = null;
+    this.analyserR = null;
+  }
+
   resume() {
     if (this.audioContext && this.audioContext.state === 'suspended') {
       this.audioContext.resume();
