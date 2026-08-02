@@ -43,6 +43,14 @@ import liquidChrome from './sketches/liquid_chrome.js';
 import laserCathedral from './sketches/laser_cathedral.js';
 import cymaticBloom from './sketches/cymatic_bloom.js';
 import holoSwarm from './sketches/holo_swarm.js';
+// State-of-the-art cinematic FX: volumetric aurora, 3D fractal, storm clouds,
+// ink-in-water fluid, and an infinite mirrored neon room.
+import auroraVeil from './sketches/aurora_veil.js';
+import mandelbulbDrift from './sketches/mandelbulb_drift.js';
+import stormSurge from './sketches/storm_surge.js';
+import inkDispersion from './sketches/ink_dispersion.js';
+import infinityMirror from './sketches/infinity_mirror.js';
+// Additional cinematic FX from the patterns drop.
 import ionTempest from './sketches/ion_tempest.js';
 import crystalReliquary from './sketches/crystal_reliquary.js';
 import neuralCascade from './sketches/neural_cascade.js';
@@ -358,6 +366,66 @@ export const SKETCHES = [
     ],
   }, // 27
   {
+    id: 'aurora-veil',
+    name: 'Aurora Veil',
+    factory: auroraVeil,
+    params: [
+      ...PREMIUM_AUDIO_RESPONSIVENESS,
+      { key: 'curtain', label: 'Curtain Height', min: 0.4, max: 2, step: 0.05, default: 1 },
+      { key: 'flow', label: 'Flow Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
+      { key: 'shimmer', label: 'Curtain Shimmer', min: 0, max: 2, step: 0.05, default: 1 },
+      { key: 'haze', label: 'Aurora Haze', min: 0.3, max: 2, step: 0.05, default: 1 },
+    ],
+  }, // 28
+  {
+    id: 'mandelbulb-drift',
+    name: 'Mandelbulb Drift',
+    factory: mandelbulbDrift,
+    params: [
+      ...PREMIUM_AUDIO_RESPONSIVENESS,
+      { key: 'power', label: 'Fractal Power', min: 2, max: 12, step: 0.1, default: 8 },
+      { key: 'detail', label: 'Iteration Detail', min: 0.4, max: 2, step: 0.05, default: 1 },
+      { key: 'drift', label: 'Orbit Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
+      { key: 'glow', label: 'Trap Glow', min: 0.3, max: 2, step: 0.05, default: 1 },
+    ],
+  }, // 29
+  {
+    id: 'storm-surge',
+    name: 'Storm Surge',
+    factory: stormSurge,
+    params: [
+      ...PREMIUM_AUDIO_RESPONSIVENESS,
+      { key: 'cover', label: 'Cloud Cover', min: 0.3, max: 2, step: 0.05, default: 1 },
+      { key: 'godrays', label: 'God Rays', min: 0, max: 2, step: 0.05, default: 1 },
+      { key: 'drift', label: 'Wind Drift', min: 0, max: 2.5, step: 0.05, default: 1 },
+      { key: 'bloom', label: 'Lightning Bloom', min: 0.3, max: 2, step: 0.05, default: 1 },
+    ],
+  }, // 30
+  {
+    id: 'ink-dispersion',
+    name: 'Ink Dispersion',
+    factory: inkDispersion,
+    params: [
+      ...PREMIUM_AUDIO_RESPONSIVENESS,
+      { key: 'viscosity', label: 'Ink Viscosity', min: 0.3, max: 2, step: 0.05, default: 1 },
+      { key: 'density', label: 'Ink Density', min: 0.4, max: 2, step: 0.05, default: 1 },
+      { key: 'spread', label: 'Burst Spread', min: 0, max: 2, step: 0.05, default: 1 },
+      { key: 'bloom', label: 'Ink Bloom', min: 0.3, max: 2, step: 0.05, default: 1 },
+    ],
+  }, // 31
+  {
+    id: 'infinity-mirror',
+    name: 'Infinity Mirror',
+    factory: infinityMirror,
+    params: [
+      ...PREMIUM_AUDIO_RESPONSIVENESS,
+      { key: 'mirrors', label: 'Mirror Reflect', min: 0.2, max: 1, step: 0.05, default: 0.8 },
+      { key: 'glow', label: 'Neon Glow', min: 0.3, max: 2, step: 0.05, default: 1 },
+      { key: 'spin', label: 'Room Spin', min: 0, max: 2.5, step: 0.05, default: 1 },
+      { key: 'depth', label: 'Reflection Depth', min: 0.4, max: 2, step: 0.05, default: 1 },
+    ],
+  }, // 32
+  {
     id: 'ion-tempest',
     name: 'Ion Tempest',
     factory: ionTempest,
@@ -368,7 +436,7 @@ export const SKETCHES = [
       { key: 'speed', label: 'Storm Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
       { key: 'glow', label: 'Plasma Glow', min: 0.3, max: 2, step: 0.05, default: 1 },
     ],
-  }, // 28
+  }, // 33
   {
     id: 'crystal-reliquary',
     name: 'Crystal Reliquary',
@@ -380,7 +448,7 @@ export const SKETCHES = [
       { key: 'spin', label: 'Orbit Spin', min: 0, max: 2.5, step: 0.05, default: 1 },
       { key: 'caustic', label: 'Spectral Caustics', min: 0.2, max: 2, step: 0.05, default: 1 },
     ],
-  }, // 29
+  }, // 34
   {
     id: 'neural-cascade',
     name: 'Neural Cascade',
@@ -392,7 +460,7 @@ export const SKETCHES = [
       { key: 'pulse', label: 'Activation Pulse', min: 0.2, max: 2, step: 0.05, default: 1 },
       { key: 'speed', label: 'Cascade Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
     ],
-  }, // 30
+  }, // 35
   {
     id: 'aurora-reactor',
     name: 'Aurora Reactor',
@@ -404,7 +472,7 @@ export const SKETCHES = [
       { key: 'core', label: 'Reactor Core', min: 0.35, max: 2, step: 0.05, default: 1 },
       { key: 'speed', label: 'Field Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
     ],
-  }, // 31
+  }, // 36
   {
     id: 'warp-loom',
     name: 'Warp Loom',
@@ -416,7 +484,7 @@ export const SKETCHES = [
       { key: 'speed', label: 'Warp Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
       { key: 'bloom', label: 'Fiber Bloom', min: 0.3, max: 2, step: 0.05, default: 1 },
     ],
-  }, // 32
+  }, // 37
 ];
 
 // Number of effects that get keyboard shortcuts (1-9, 0 = 10th)
