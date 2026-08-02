@@ -1,8 +1,7 @@
 // Waveform Tunnel — fly through a 3D tunnel whose rings are carved from the
 // live waveform. Every ring has its own hue and twists with the music;
 // sub-bass scales the tunnel and high frequencies add shimmering noise rings.
-export default (audio) => (p) => {
-  const RINGS = 46;
+export default (audio, videoDeviceId, params) => (p) => {
   const SEGMENTS = 36;
   const DEPTH = 900;
   let hueOffset = 0;
@@ -29,15 +28,22 @@ export default (audio) => (p) => {
   p.draw = () => {
     p.background(0);
 
+    // Read live params every frame so slider changes apply immediately
+    const P = params || {};
+    const RINGS = P.rings ?? 46;
+    const twistSpeed = P.twist ?? 1;
+    const tunnelScale = P.scale ?? 1;
+    const subPush = P.sub ?? 1;
+
     const wf = audio && audio.isStarted ? audio.getWaveforms() : null;
     const freqs = audio && audio.isStarted ? audio.getFrequencies() : null;
     const b = bands(freqs ? freqs.left : null);
 
     hueOffset = (hueOffset + 0.4 + b.energy * 2) % 360;
-    twist += 0.004 + b.mid * 0.02;
+    twist += (0.004 + b.mid * 0.02) * twistSpeed;
 
     // Sub-bass pushes the tunnel wider and the camera forward
-    const scale = 1 + b.sub * 0.9;
+    const scale = tunnelScale * (1 + b.sub * 0.9 * subPush);
     p.translate(0, 0, 120);
 
     for (let i = 0; i < RINGS; i++) {

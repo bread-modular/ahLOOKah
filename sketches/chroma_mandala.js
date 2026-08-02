@@ -1,8 +1,7 @@
 // Chroma Mandala — a 12-fold kaleidoscope mandala in full color.
 // Mid energy blooms the petals outward, high energy spins the mandala and
 // triggers glitch flashes, sub-bass pulses a spectral ring of dots around it.
-export default (audio) => (p) => {
-  const PETALS = 12;
+export default (audio, videoDeviceId, params) => (p) => {
   let hueOffset = 0;
   let rotation = 0;
 
@@ -44,14 +43,21 @@ export default (audio) => (p) => {
     const freqs = audio && audio.isStarted ? audio.getFrequencies() : null;
     const b = bands(freqs ? freqs.left : null);
 
+    // Read live params every frame so slider changes apply immediately
+    const P = params || {};
+    const PETALS = P.petals ?? 12;
+    const spinSpeed = P.spin ?? 1;
+    const midBloom = P.bloom ?? 1;
+    const subRing = P.sub ?? 1;
+
     hueOffset = (hueOffset + 0.35 + b.energy * 2) % 360;
-    rotation += 0.002 + b.high * 0.06;
+    rotation += (0.002 + b.high * 0.06) * spinSpeed;
 
     const cx = p.width / 2;
     const cy = p.height / 2;
     const maxR = p.min(p.width, p.height) * 0.48;
-    const R1 = maxR * (0.3 + b.mid * 0.7);
-    const R2 = maxR * (0.5 + b.mid * 0.5);
+    const R1 = maxR * (0.3 + b.mid * 0.7 * midBloom);
+    const R2 = maxR * (0.5 + b.mid * 0.5 * midBloom);
 
     p.noStroke();
     for (let k = 0; k < PETALS; k++) {
@@ -68,7 +74,7 @@ export default (audio) => (p) => {
     }
 
     // Center glow, breathing with sub-bass
-    const coreR = maxR * (0.08 + b.sub * 0.18);
+    const coreR = maxR * (0.08 + b.sub * 0.18 * subRing);
     p.fill(hueOffset, 100, 100, 200);
     p.circle(cx, cy, coreR * 2);
     p.fill((hueOffset + 120) % 360, 100, 100, 120);
@@ -76,7 +82,7 @@ export default (audio) => (p) => {
 
     // Spectral ring of dots around the mandala (frequency map)
     const DOTS = 64;
-    const ringR = maxR * (0.55 + b.sub * 0.15);
+    const ringR = maxR * (0.55 + b.sub * 0.15 * subRing);
     if (freqs) {
       for (let d = 0; d < DOTS; d++) {
         const idx = Math.floor(p.map(d, 0, DOTS, 0, 600));

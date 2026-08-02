@@ -1,4 +1,4 @@
-export default (audio) => (p) => {
+export default (audio, videoDeviceId, params) => (p) => {
   let rotation = 0;
   let lines = [];
   const numLines = 40;
@@ -33,6 +33,13 @@ export default (audio) => (p) => {
   p.draw = () => {
     p.background(0);
 
+    // Read live params every frame so slider changes apply immediately
+    const P = params || {};
+    const spin = P.spin ?? 1;
+    const bass = P.bass ?? 1;
+    const mid = P.mid ?? 1;
+    const high = P.high ?? 1;
+
     if (!audio || !audio.isStarted) return;
 
     const freqs = audio.getFrequencies();
@@ -43,13 +50,13 @@ export default (audio) => (p) => {
 
     // Ch 2 Noise drives rotation speed and jitter
     const noiseEnv = (b2.mid + b2.high) * 0.5;
-    rotation += 0.005 + noiseEnv * 0.2;
+    rotation += (0.005 + noiseEnv * 0.2) * spin;
 
     p.rotateX(rotation * 0.5);
     p.rotateY(rotation);
 
     // Sub-bass Kick pulse
-    const kickScale = 1 + b1.sub * 1.5;
+    const kickScale = 1 + b1.sub * 1.5 * bass;
 
     // 1. Central Core Geometry (Kick/Bass)
     p.push();
@@ -58,7 +65,7 @@ export default (audio) => (p) => {
     p.strokeWeight(1 + b1.sub * 5);
 
     // Core shape changes as synth energy (Mid) increases
-    if (b1.mid > 0.5) {
+    if (b1.mid * mid > 0.5) {
       p.box(200 * kickScale);
     } else {
       p.sphere(150 * kickScale, 12, 12);
@@ -68,7 +75,7 @@ export default (audio) => (p) => {
     // 2. Wireframe Grid "Slices" (Mid frequencies)
     p.push();
     p.noFill();
-    p.stroke(255, 50 + b1.mid * 200);
+    p.stroke(255, 50 + b1.mid * 200 * mid);
     p.strokeWeight(1);
 
     const gridRes = 8;
@@ -85,17 +92,17 @@ export default (audio) => (p) => {
     // 3. Digital "Rain" / Perspective lines (High frequencies)
     p.push();
     p.stroke(255, 150);
-    p.strokeWeight(p.map(b1.high, 0, 0.5, 1, 3));
+    p.strokeWeight(p.map(b1.high * high, 0, 0.5, 1, 3));
 
     lines.forEach(line => {
       // Move towards camera
-      line.z += 10 + b1.sub * 100 + noiseEnv * 50;
+      line.z += 10 + b1.sub * 100 * bass + noiseEnv * 50;
       if (line.z > 500) line.z = -2000;
 
       p.push();
       p.translate(line.x, line.y, line.z);
       // High end energy makes lines longer
-      const l = 50 + b1.high * 500;
+      const l = 50 + b1.high * 500 * high;
       p.line(0, 0, 0, 0, 0, l);
       p.pop();
     });
