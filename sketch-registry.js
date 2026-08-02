@@ -37,12 +37,25 @@ import shockwaveBeats from './sketches/shockwave_beats.js';
 import neonRibbons from './sketches/neon_ribbons.js';
 import prismBurst from './sketches/prism_burst.js';
 import cosmicWeb from './sketches/cosmic_web.js';
+// GPU-first cinematic looks inspired by modern real-time VJ pipelines
+import eventHorizon from './sketches/event_horizon.js';
+import liquidChrome from './sketches/liquid_chrome.js';
+import laserCathedral from './sketches/laser_cathedral.js';
+import cymaticBloom from './sketches/cymatic_bloom.js';
+import holoSwarm from './sketches/holo_swarm.js';
 
 // Shared "responsiveness" triple used by many effects (0..2, default 1)
 const BAND_RESPONSIVENESS = [
   { key: 'bass', label: 'Bass Responsiveness', min: 0, max: 2, step: 0.05, default: 1 },
   { key: 'mid', label: 'Mid Responsiveness', min: 0, max: 2, step: 0.05, default: 1 },
   { key: 'high', label: 'High Responsiveness', min: 0, max: 2, step: 0.05, default: 1 },
+];
+
+// The cinematic shader looks also expose transient gain. Band sliders shape
+// sustained movement; Punch controls kick/snare/hat impacts independently.
+const PREMIUM_AUDIO_RESPONSIVENESS = [
+  ...BAND_RESPONSIVENESS,
+  { key: 'punch', label: 'Transient Punch', min: 0, max: 2, step: 0.05, default: 1 },
 ];
 
 export const SKETCHES = [
@@ -279,6 +292,66 @@ export const SKETCHES = [
       { key: 'drift', label: 'Drift Speed', min: 0, max: 3, step: 0.05, default: 1 },
     ],
   }, // 22
+  {
+    id: 'event-horizon',
+    name: 'Event Horizon',
+    factory: eventHorizon,
+    params: [
+      ...PREMIUM_AUDIO_RESPONSIVENESS,
+      { key: 'gravity', label: 'Gravity Lens', min: 0.4, max: 2, step: 0.05, default: 1 },
+      { key: 'disk', label: 'Accretion Disc', min: 0.35, max: 2, step: 0.05, default: 1 },
+      { key: 'spin', label: 'Orbital Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
+      { key: 'bloom', label: 'Photon Bloom', min: 0.3, max: 2, step: 0.05, default: 1 },
+    ],
+  }, // 23
+  {
+    id: 'liquid-chrome',
+    name: 'Liquid Chrome',
+    factory: liquidChrome,
+    params: [
+      ...PREMIUM_AUDIO_RESPONSIVENESS,
+      { key: 'morph', label: 'Liquid Morph', min: 0, max: 2, step: 0.05, default: 1 },
+      { key: 'reflect', label: 'Neon Reflection', min: 0.2, max: 2, step: 0.05, default: 1 },
+      { key: 'speed', label: 'Flow Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
+      { key: 'iridescence', label: 'Iridescence', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+  }, // 24
+  {
+    id: 'laser-cathedral',
+    name: 'Laser Cathedral',
+    factory: laserCathedral,
+    params: [
+      ...PREMIUM_AUDIO_RESPONSIVENESS,
+      { key: 'speed', label: 'Flight Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
+      { key: 'beams', label: 'Volumetric Beams', min: 0.2, max: 2, step: 0.05, default: 1 },
+      { key: 'depth', label: 'Perspective Depth', min: 0.4, max: 2.2, step: 0.05, default: 1 },
+      { key: 'structure', label: 'Arch Density', min: 0.35, max: 2, step: 0.05, default: 1 },
+    ],
+  }, // 25
+  {
+    id: 'cymatic-bloom',
+    name: 'Cymatic Bloom',
+    factory: cymaticBloom,
+    params: [
+      ...PREMIUM_AUDIO_RESPONSIVENESS,
+      { key: 'symmetry', label: 'Kaleido Symmetry', min: 4, max: 18, step: 1, default: 10 },
+      { key: 'complexity', label: 'Pattern Complexity', min: 0.4, max: 2, step: 0.05, default: 1 },
+      { key: 'flow', label: 'Liquid Flow', min: 0, max: 2.5, step: 0.05, default: 1 },
+      { key: 'bloom', label: 'Caustic Bloom', min: 0.3, max: 2, step: 0.05, default: 1 },
+    ],
+  }, // 26
+  {
+    id: 'holo-swarm',
+    name: 'Holo Swarm',
+    factory: holoSwarm,
+    params: [
+      ...PREMIUM_AUDIO_RESPONSIVENESS,
+      { key: 'morph', label: 'Shape Morph', min: 0, max: 2, step: 0.05, default: 1 },
+      { key: 'density', label: 'Particle Density', min: 0.4, max: 2, step: 0.05, default: 1 },
+      { key: 'scan', label: 'Hologram Scan', min: 0, max: 2, step: 0.05, default: 1 },
+      { key: 'speed', label: 'Orbit Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
+    ],
+  }, // 27
 ];
 
 // Number of effects that get keyboard shortcuts (1-9, 0 = 10th)

@@ -1,6 +1,7 @@
 export class AudioManager {
   constructor() {
     this.audioContext = null;
+    this.stream = null;
     this.source = null;
     this.splitter = null;
     this.analyserL = null;
@@ -9,14 +10,63 @@ export class AudioManager {
     this.dataArrayR = null;
     this.freqDataL = null;
     this.freqDataR = null;
+    this.floatWaveDataL = null;
+    this.floatWaveDataR = null;
+    this.floatFreqDataL = null;
+    this.floatFreqDataR = null;
     this.isStarted = false;
     this.fftSize = 2048;
+    this.requestToken = 0;
+    this.resumePromise = null;
+  }
+
+  async releaseCurrentStream() {
+    this.isStarted = false;
+    if (this.stream) {
+      this.stream.getTracks().forEach((track) => track.stop());
+      this.stream = null;
+    }
+    if (this.audioContext) {
+      const context = this.audioContext;
+      this.audioContext = null;
+      await context.close().catch(() => {});
+    }
+    this.resumePromise = null;
+    this.source = null;
+    this.splitter = null;
+    this.analyserL = null;
+    this.analyserR = null;
+  }
+
+  configureAnalyser(analyser) {
+    analyser.fftSize = this.fftSize;
+    // The browser default (0.8) plus each sketch's own envelope caused almost
+    // a second of visible lag. Keep only light anti-jitter smoothing here; the
+    // musical feature extractor owns attack/release timing.
+    analyser.smoothingTimeConstant = 0.12;
+    // Preserve the browser's traditional byte-spectrum scale for the legacy
+    // sketches; the new feature path reads unclipped float dB values.
+    analyser.minDecibels = -100;
+    analyser.maxDecibels = -30;
+  }
+
+  allocateBuffers() {
+    const frequencyBins = this.analyserL.frequencyBinCount;
+    // Keep the legacy waveform length stable while the analysis path receives
+    // the full FFT window in its dedicated float buffers.
+    this.dataArrayL = new Uint8Array(frequencyBins);
+    this.dataArrayR = new Uint8Array(frequencyBins);
+    this.freqDataL = new Uint8Array(frequencyBins);
+    this.freqDataR = new Uint8Array(frequencyBins);
+    this.floatWaveDataL = new Float32Array(this.fftSize);
+    this.floatWaveDataR = new Float32Array(this.fftSize);
+    this.floatFreqDataL = new Float32Array(frequencyBins);
+    this.floatFreqDataR = new Float32Array(frequencyBins);
   }
 
   async startStream(deviceId) {
-    if (this.audioContext) {
-      await this.audioContext.close();
-    }
+    const token = ++this.requestToken;
+    await this.releaseCurrentStream();
 
     const constraints = {
       audio: {
@@ -24,56 +74,91 @@ export class AudioManager {
         echoCancellation: false,
         autoGainControl: false,
         noiseSuppression: false,
-        channelCount: 2
-      }
+        channelCount: { ideal: 2 },
+      },
     };
 
+    let stream = null;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      this.source = this.audioContext.createMediaStreamSource(stream);
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+      if (token !== this.requestToken) {
+        stream.getTracks().forEach((track) => track.stop());
+        return false;
+      }
 
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      this.audioContext = new AudioContextClass({ latencyHint: 'interactive' });
+      this.stream = stream;
+      this.source = this.audioContext.createMediaStreamSource(stream);
       this.splitter = this.audioContext.createChannelSplitter(2);
       this.analyserL = this.audioContext.createAnalyser();
       this.analyserR = this.audioContext.createAnalyser();
-
-      this.analyserL.fftSize = this.fftSize;
-      this.analyserR.fftSize = this.fftSize;
+      this.configureAnalyser(this.analyserL);
+      this.configureAnalyser(this.analyserR);
 
       this.source.connect(this.splitter);
       this.splitter.connect(this.analyserL, 0);
-      this.splitter.connect(this.analyserR, 1);
 
-      const bufferLength = this.analyserL.frequencyBinCount;
-      this.dataArrayL = new Uint8Array(bufferLength);
-      this.dataArrayR = new Uint8Array(bufferLength);
-      this.freqDataL = new Uint8Array(bufferLength);
-      this.freqDataR = new Uint8Array(bufferLength);
+      // Many DJ interfaces advertise one channel even when stereo was
+      // requested. Mirror channel 1 in that case instead of feeding every
+      // right-channel-aware effect a silent spectrum.
+      const channelCount = stream.getAudioTracks()[0]?.getSettings?.().channelCount || 1;
+      this.splitter.connect(this.analyserR, channelCount > 1 ? 1 : 0);
+      this.allocateBuffers();
 
       this.isStarted = true;
-      return true;
+      // getUserMedia often permits this immediately. If autoplay policy keeps
+      // it suspended, the next click/tap on the screen calls resume() again.
+      this.resume();
+      return token === this.requestToken && this.isStarted;
     } catch (err) {
-      console.error('Error starting audio stream:', err);
+      if (stream && stream !== this.stream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
+      // A superseded request must not tear down a newer stream that has
+      // already finished connecting.
+      if (token === this.requestToken) {
+        await this.releaseCurrentStream();
+        console.error('Error starting audio stream:', err);
+      }
       return false;
     }
   }
 
   stop() {
+    this.requestToken += 1;
     this.isStarted = false;
+    if (this.stream) {
+      this.stream.getTracks().forEach((track) => track.stop());
+      this.stream = null;
+    }
     if (this.audioContext) {
       this.audioContext.close().catch(() => {});
       this.audioContext = null;
     }
+    this.resumePromise = null;
     this.source = null;
     this.splitter = null;
     this.analyserL = null;
     this.analyserR = null;
   }
 
-  resume() {
+  resume(force = false) {
     if (this.audioContext && this.audioContext.state === 'suspended') {
-      this.audioContext.resume();
+      // A genuine screen click gets a fresh resume call even if an earlier
+      // autoplay-blocked promise is still pending.
+      if (force || navigator.userActivation?.isActive) this.resumePromise = null;
+      if (!this.resumePromise) {
+        const context = this.audioContext;
+        this.resumePromise = context.resume()
+          .catch(() => {})
+          .finally(() => {
+            if (this.audioContext === context) this.resumePromise = null;
+          });
+      }
+      return this.resumePromise;
     }
+    return Promise.resolve();
   }
 
   getState() {
@@ -81,17 +166,43 @@ export class AudioManager {
   }
 
   getWaveforms() {
-    if (!this.isStarted) return null;
+    if (!this.isStarted || !this.analyserL || !this.analyserR) return null;
     this.analyserL.getByteTimeDomainData(this.dataArrayL);
     this.analyserR.getByteTimeDomainData(this.dataArrayR);
     return { left: this.dataArrayL, right: this.dataArrayR };
   }
 
   getFrequencies() {
-    if (!this.isStarted) return null;
+    if (!this.isStarted || !this.analyserL || !this.analyserR) return null;
     this.analyserL.getByteFrequencyData(this.freqDataL);
     this.analyserR.getByteFrequencyData(this.freqDataR);
     return { left: this.freqDataL, right: this.freqDataR };
+  }
+
+  // High-resolution snapshot used by the newer shader effects. Float dB data
+  // preserves low-level detail needed for adaptive gain and spectral-flux hit
+  // detection; waveform data supplies a reliable silence gate and input RMS.
+  getAnalysisFrame() {
+    if (!this.isStarted || !this.audioContext || !this.analyserL || !this.analyserR) return null;
+    if (this.audioContext.state !== 'running') {
+      this.resume();
+      return null;
+    }
+
+    this.analyserL.getFloatFrequencyData(this.floatFreqDataL);
+    this.analyserR.getFloatFrequencyData(this.floatFreqDataR);
+    this.analyserL.getFloatTimeDomainData(this.floatWaveDataL);
+    this.analyserR.getFloatTimeDomainData(this.floatWaveDataR);
+
+    return {
+      left: this.floatFreqDataL,
+      right: this.floatFreqDataR,
+      waveformLeft: this.floatWaveDataL,
+      waveformRight: this.floatWaveDataR,
+      sampleRate: this.audioContext.sampleRate,
+      fftSize: this.fftSize,
+      time: this.audioContext.currentTime,
+    };
   }
 
   getAmplitudes() {
@@ -113,7 +224,7 @@ export class AudioManager {
 
     return {
       left: Math.sqrt(sumL / len),
-      right: Math.sqrt(sumR / len)
+      right: Math.sqrt(sumR / len),
     };
   }
 }

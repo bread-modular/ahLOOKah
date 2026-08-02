@@ -426,6 +426,10 @@ if (import.meta.env.DEV) {
     get patternId() { return activeSketchId; },
     get screenOnline() { return screenOnline; },
     get params() { return getParams(activeSketchId || getOrderedSketches()[0].id); },
+    get audioFeatures() { return currentP5?.__audioFeatures || null; },
+    // Exposed only in Vite development mode so integration tests can inject a
+    // deterministic spectrum without requiring microphone permissions.
+    audio,
     // DEV only: { key -> last read timestamp } of params the sketch accesses
     readLog: () => devReadLog || {},
   };

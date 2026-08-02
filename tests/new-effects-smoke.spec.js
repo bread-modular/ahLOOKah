@@ -12,6 +12,11 @@ const NEW_IDS = [
   'neon-ribbons',
   'prism-burst',
   'cosmic-web',
+  'event-horizon',
+  'liquid-chrome',
+  'laser-cathedral',
+  'cymatic-bloom',
+  'holo-swarm',
 ];
 
 test.describe('new effects smoke test', () => {
