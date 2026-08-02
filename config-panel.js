@@ -39,6 +39,9 @@ export class ConfigPanel {
     this.devices = [];
     this.currentPattern = getPattern ? getPattern() : 0;
     this.currentPatternId = null;
+    // Id of the sketch the slider list was last rendered for — used to skip
+    // redundant re-renders (see setPattern).
+    this.renderedPatternId = null;
     this.dragId = null;
 
     this.init();
@@ -284,7 +287,15 @@ export class ConfigPanel {
       btn.classList.toggle('active', parseInt(btn.dataset.index, 10) === index);
     });
 
-    this.renderParams();
+    // Only rebuild the sliders when the selected effect actually changes.
+    // syncUI() calls setPattern() after EVERY broadcast message — including
+    // the 'params' message a slider drag itself emits — and rebuilding the
+    // list destroys the <input type="range"> mid-drag, so click-and-drag
+    // used to stop after a single step.
+    if (this.renderedPatternId !== this.currentPatternId) {
+      this.renderedPatternId = this.currentPatternId;
+      this.renderParams();
+    }
   }
 
   // Rebuild the slider list for the currently selected effect
