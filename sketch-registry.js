@@ -5,11 +5,13 @@ import circlesCh1 from './sketches/circles_ch1.js';
 import bars from './sketches/bars.js';
 import techno3d from './sketches/techno3d.js';
 import character3d from './sketches/character3d.js';
-import webcamDotsGpu from './sketches/webcam_dots_gpu.js';
-import webcamShader from './sketches/webcam_shader.js';
-import webcamHighContrast from './sketches/webcam_high_contrast.js';
-import video3d from './sketches/video3d.js';
-import characterTv from './sketches/character_tv.js';
+// Colorful audio-reactive visuals for live techno/noise shows
+// (camera-input sketches still live in ./sketches/ but are not registered)
+import neonSpectrum from './sketches/neon_spectrum.js';
+import pulseRings from './sketches/pulse_rings.js';
+import particleStorm from './sketches/particle_storm.js';
+import waveformTunnel from './sketches/waveform_tunnel.js';
+import chromaMandala from './sketches/chroma_mandala.js';
 
 export const SKETCHES = [
   { name: 'Circles', factory: circles },            // 1
@@ -17,11 +19,11 @@ export const SKETCHES = [
   { name: 'Bars', factory: bars },                  // 3
   { name: 'Techno 3D', factory: techno3d },         // 4
   { name: 'Character 3D', factory: character3d },   // 5
-  { name: 'Webcam Dots', factory: webcamDotsGpu },  // 6
-  { name: 'Webcam Shader', factory: webcamShader }, // 7
-  { name: 'Webcam Hi-Contrast', factory: webcamHighContrast }, // 8
-  { name: 'Video 3D', factory: video3d },           // 9
-  { name: 'Character TV', factory: characterTv },   // 0 (10)
+  { name: 'Neon Spectrum', factory: neonSpectrum }, // 6
+  { name: 'Pulse Rings', factory: pulseRings },     // 7
+  { name: 'Particle Storm', factory: particleStorm }, // 8
+  { name: 'Waveform Tunnel', factory: waveformTunnel }, // 9
+  { name: 'Chroma Mandala', factory: chromaMandala }, // 0 (10)
 ];
 
 // Keyboard keys that select a pattern (1-9, 0 = 10th)
