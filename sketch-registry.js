@@ -27,6 +27,16 @@ import waveformTunnel from './sketches/waveform_tunnel.js';
 import chromaMandala from './sketches/chroma_mandala.js';
 import starfieldRush from './sketches/starfield_rush.js';
 import echoRipples from './sketches/echo_ripples.js';
+import laserGrid from './sketches/laser_grid.js';
+import strobePulse from './sketches/strobe_pulse.js';
+import plasmaWaves from './sketches/plasma_waves.js';
+import vortexSpiral from './sketches/vortex_spiral.js';
+import glitchMatrix from './sketches/glitch_matrix.js';
+import orbitalRings from './sketches/orbital_rings.js';
+import shockwaveBeats from './sketches/shockwave_beats.js';
+import neonRibbons from './sketches/neon_ribbons.js';
+import prismBurst from './sketches/prism_burst.js';
+import cosmicWeb from './sketches/cosmic_web.js';
 
 // Shared "responsiveness" triple used by many effects (0..2, default 1)
 const BAND_RESPONSIVENESS = [
@@ -154,6 +164,121 @@ export const SKETCHES = [
       { key: 'sparkle', label: 'High Sparkle', min: 0, max: 2, step: 0.05, default: 1 },
     ],
   }, // 12
+  {
+    id: 'laser-grid',
+    name: 'Laser Grid',
+    factory: laserGrid,
+    params: [
+      ...BAND_RESPONSIVENESS,
+      { key: 'grid', label: 'Grid Lines', min: 8, max: 32, step: 1, default: 18 },
+      { key: 'beams', label: 'Laser Beams', min: 0, max: 16, step: 1, default: 6 },
+      { key: 'speed', label: 'Scroll Speed', min: 0, max: 3, step: 0.05, default: 1 },
+    ],
+  }, // 13
+  {
+    id: 'strobe-pulse',
+    name: 'Strobe Pulse',
+    factory: strobePulse,
+    params: [
+      { key: 'threshold', label: 'Kick Threshold', min: 0.15, max: 0.6, step: 0.01, default: 0.32 },
+      { key: 'decay', label: 'Flash Decay', min: 0.6, max: 0.97, step: 0.01, default: 0.82 },
+      { key: 'split', label: 'RGB Split', min: 0, max: 3, step: 0.05, default: 1 },
+      { key: 'cycle', label: 'Color Cycle', min: 0, max: 3, step: 0.05, default: 1 },
+    ],
+  }, // 14
+  {
+    id: 'plasma-waves',
+    name: 'Plasma Waves',
+    factory: plasmaWaves,
+    params: [
+      ...BAND_RESPONSIVENESS,
+      { key: 'cell', label: 'Cell Size', min: 4, max: 24, step: 1, default: 10 },
+      { key: 'speed', label: 'Flow Speed', min: 0, max: 3, step: 0.05, default: 1 },
+      { key: 'scale', label: 'Plasma Scale', min: 0.3, max: 3, step: 0.05, default: 1 },
+    ],
+  }, // 15
+  {
+    id: 'vortex-spiral',
+    name: 'Vortex Spiral',
+    factory: vortexSpiral,
+    params: [
+      ...BAND_RESPONSIVENESS,
+      { key: 'arms', label: 'Spiral Arms', min: 2, max: 12, step: 1, default: 5 },
+      { key: 'density', label: 'Dot Density', min: 30, max: 200, step: 5, default: 90 },
+      { key: 'twist', label: 'Twist Amount', min: 0, max: 2, step: 0.05, default: 1 },
+      { key: 'sparkle', label: 'Stardust', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+  }, // 16
+  {
+    id: 'glitch-matrix',
+    name: 'Glitch Matrix',
+    factory: glitchMatrix,
+    params: [
+      { key: 'columns', label: 'Columns', min: 15, max: 80, step: 1, default: 40 },
+      { key: 'speed', label: 'Fall Speed', min: 0, max: 3, step: 0.05, default: 1 },
+      { key: 'glitch', label: 'Glitch Amount', min: 0, max: 2, step: 0.05, default: 1 },
+      { key: 'trail', label: 'Trail Length', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+  }, // 17
+  {
+    id: 'orbital-rings',
+    name: 'Orbital Rings',
+    factory: orbitalRings,
+    params: [
+      ...BAND_RESPONSIVENESS,
+      { key: 'rings', label: 'Ring Count', min: 2, max: 10, step: 1, default: 5 },
+      { key: 'spin', label: 'Spin Speed', min: 0, max: 3, step: 0.05, default: 1 },
+      { key: 'tilt', label: 'Bass Tilt', min: 0, max: 2, step: 0.05, default: 1 },
+      { key: 'satellites', label: 'Satellites', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+  }, // 18
+  {
+    id: 'shockwave-beats',
+    name: 'Shockwave Beats',
+    factory: shockwaveBeats,
+    params: [
+      { key: 'threshold', label: 'Kick Threshold', min: 0.15, max: 0.6, step: 0.01, default: 0.3 },
+      { key: 'speed', label: 'Wave Speed', min: 0, max: 3, step: 0.05, default: 1 },
+      { key: 'chroma', label: 'Chroma Split', min: 0, max: 3, step: 0.05, default: 1 },
+      { key: 'max', label: 'Max Waves', min: 4, max: 48, step: 1, default: 24 },
+    ],
+  }, // 19
+  {
+    id: 'neon-ribbons',
+    name: 'Neon Ribbons',
+    factory: neonRibbons,
+    params: [
+      ...BAND_RESPONSIVENESS,
+      { key: 'ribbons', label: 'Ribbon Count', min: 2, max: 16, step: 1, default: 6 },
+      { key: 'flow', label: 'Flow Speed', min: 0, max: 3, step: 0.05, default: 1 },
+      { key: 'width', label: 'Ribbon Width', min: 0.3, max: 3, step: 0.05, default: 1 },
+      { key: 'trail', label: 'Trail Length', min: 20, max: 150, step: 5, default: 60 },
+    ],
+  }, // 20
+  {
+    id: 'prism-burst',
+    name: 'Prism Burst',
+    factory: prismBurst,
+    params: [
+      ...BAND_RESPONSIVENESS,
+      { key: 'rays', label: 'Ray Count', min: 12, max: 96, step: 2, default: 48 },
+      { key: 'spin', label: 'Spin Speed', min: 0, max: 3, step: 0.05, default: 1 },
+      { key: 'length', label: 'Ray Length', min: 0.3, max: 2, step: 0.05, default: 1 },
+      { key: 'core', label: 'Core Pulse', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+  }, // 21
+  {
+    id: 'cosmic-web',
+    name: 'Cosmic Web',
+    factory: cosmicWeb,
+    params: [
+      ...BAND_RESPONSIVENESS,
+      { key: 'nodes', label: 'Node Count', min: 30, max: 200, step: 5, default: 90 },
+      { key: 'link', label: 'Link Distance', min: 60, max: 260, step: 5, default: 130 },
+      { key: 'scatter', label: 'Kick Scatter', min: 0, max: 3, step: 0.05, default: 1 },
+      { key: 'drift', label: 'Drift Speed', min: 0, max: 3, step: 0.05, default: 1 },
+    ],
+  }, // 22
 ];
 
 // Number of effects that get keyboard shortcuts (1-9, 0 = 10th)
