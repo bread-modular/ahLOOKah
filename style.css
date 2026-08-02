@@ -1,9 +1,10 @@
 :root {
   --bg-dark: #000000;
-  --panel-bg: rgba(20, 20, 20, 0.9);
-  --border-gray: rgba(255, 255, 255, 0.1);
+  --panel-bg: rgba(16, 16, 16, 0.92);
+  --border-gray: rgba(255, 255, 255, 0.12);
   --text-main: #ffffff;
-  --text-dim: #888888;
+  --text-dim: #8a8a8a;
+  --accent: #4da3ff;
   --transition-speed: 0.2s;
 }
 
@@ -16,6 +17,7 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   width: 100vw;
   height: 100vh;
+  color: var(--text-main);
 }
 
 canvas {
@@ -25,7 +27,15 @@ canvas {
   left: 0;
 }
 
-/* Invisible Hover Area in Top Right */
+/* ---------------------------------------------------------------------------
+   Control panel mode (body.is-control)
+--------------------------------------------------------------------------- */
+
+body.is-control {
+  overflow: auto;
+  background: #0a0a0a;
+}
+
 #config-container {
   position: fixed;
   top: 0;
@@ -36,9 +46,9 @@ canvas {
   display: flex;
   justify-content: flex-end;
   align-items: flex-start;
+  pointer-events: none;
 }
 
-/* The Panel Content */
 #config-panel {
   margin: 20px;
   background: var(--panel-bg);
@@ -46,29 +56,56 @@ canvas {
   padding: 20px;
   border-radius: 6px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
-
-  opacity: 0;
-  transform: translateY(-5px);
-  pointer-events: none;
-  transition: all var(--transition-speed) ease-out;
-
   width: 280px;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  pointer-events: auto;
 }
 
-/* Reveal when hovering the container area */
-#config-container:hover #config-panel {
-  opacity: 1;
-  transform: translateY(0);
-  pointer-events: all;
+/* In control mode the panel is a full-page layout (not a hover sidebar) */
+body.is-control #config-container {
+  position: static;
+  width: 100%;
+  height: 100%;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 24px 16px;
+  box-sizing: border-box;
+}
+
+body.is-control #config-panel {
+  margin: 0;
+  width: 420px;
+  max-width: 100%;
+  max-height: none;
+  overflow: visible;
+  padding: 24px;
+}
+
+/* Hide the panel when this window is the screen */
+body.is-screen #config-container {
+  display: none;
 }
 
 #config-panel h3 {
-  margin: 0 0 14px 0;
-  font-size: 0.9rem;
+  margin: 20px 0 10px 0;
+  font-size: 0.85rem;
   color: var(--text-dim);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05rem;
+}
+
+#config-panel h3:first-child {
+  margin-top: 0;
+}
+
+.panel-title {
+  font-size: 1rem !important;
+  color: var(--text-main) !important;
+  letter-spacing: 0.15rem;
 }
 
 .config-group {
@@ -88,6 +125,7 @@ canvas {
   outline: none;
   width: 100%;
   box-sizing: border-box;
+  cursor: pointer;
 }
 
 #config-panel select:hover,
@@ -109,15 +147,204 @@ canvas {
 }
 
 #config-panel button {
-  cursor: pointer;
   text-transform: uppercase;
   font-size: 0.85rem;
   font-weight: 600;
 }
 
+#config-panel button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #00101f;
+}
+
+#config-panel button.primary:hover {
+  background: #6fb4ff;
+  border-color: #6fb4ff;
+}
+
+#config-panel button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 #config-panel p {
-  margin: 0;
+  margin: 8px 0 0 0;
   font-size: 0.7rem;
   color: var(--text-dim);
   line-height: 1.4;
+}
+
+.config-group.actions {
+  margin-top: 16px;
+}
+
+/* ---------------------------------------------------------------------------
+   Pattern buttons
+--------------------------------------------------------------------------- */
+
+.pattern-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.pattern-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px !important;
+  text-transform: none !important;
+  font-weight: 500 !important;
+  text-align: left;
+  transition: all var(--transition-speed) ease-out;
+}
+
+.pattern-btn .pattern-key {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-gray);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  background: #0a0a0a;
+}
+
+.pattern-btn .pattern-name {
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pattern-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #00101f;
+}
+
+.pattern-btn.active .pattern-key {
+  border-color: #00101f;
+  color: #00101f;
+}
+
+.pattern-btn:hover {
+  border-color: var(--accent);
+}
+
+/* ---------------------------------------------------------------------------
+   Status line
+--------------------------------------------------------------------------- */
+
+.status-line {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08rem;
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--border-gray);
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+.badge-screen {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #00101f;
+}
+
+.badge-control {
+  background: #222;
+}
+
+.badge-online {
+  border-color: #2ecc71;
+  color: #2ecc71;
+}
+
+.badge-offline {
+  border-color: #e74c3c;
+  color: #e74c3c;
+}
+
+/* ---------------------------------------------------------------------------
+   Screen mode floating toolbar
+--------------------------------------------------------------------------- */
+
+#screen-toolbar {
+  /* Invisible hover zone at the top-right corner; the button only
+     appears while the mouse is over this area. */
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 220px;
+  height: 110px;
+  z-index: 2000;
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+#screen-toolbar button {
+  background: rgba(16, 16, 16, 0.85);
+  border: 1px solid var(--border-gray);
+  color: var(--text-main);
+  padding: 8px 14px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.05rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-speed) ease-out;
+}
+
+#screen-toolbar:hover button {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+#screen-toolbar button:hover {
+  background: #222;
+  border-color: var(--accent);
+}
+
+body.is-control #screen-toolbar {
+  display: none;
+}
+
+/* ---------------------------------------------------------------------------
+   Scrollbars (control mode)
+--------------------------------------------------------------------------- */
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0a0a0a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
 }
