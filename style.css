@@ -222,15 +222,35 @@ body.is-screen #config-container {
   text-overflow: ellipsis;
 }
 
-.pattern-btn.active {
+#config-panel .pattern-btn.active {
   background: var(--accent);
   border-color: var(--accent);
   color: #00101f;
+  /* Obvious glow so the selected effect pops on stage */
+  box-shadow:
+    0 0 0 2px rgba(77, 163, 255, 0.4),
+    0 0 16px rgba(77, 163, 255, 0.65);
 }
 
-.pattern-btn.active .pattern-key {
+#config-panel .pattern-btn.active .pattern-key {
+  background: #ffffff;
   border-color: #00101f;
   color: #00101f;
+}
+
+#config-panel .pattern-btn.active .pattern-name {
+  color: #00101f;
+  font-weight: 700;
+}
+
+/* Keep the highlight even while hovering the active button */
+#config-panel .pattern-btn.active:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #00101f;
+  box-shadow:
+    0 0 0 2px rgba(77, 163, 255, 0.4),
+    0 0 16px rgba(77, 163, 255, 0.65);
 }
 
 .pattern-btn:hover {

@@ -112,7 +112,10 @@ export class ConfigPanel {
   renderPatternButtons() {
     const grid = this.panel.querySelector('#pattern-grid');
 
+    // Skip camera-input effects — hidden from the UI (scripts stay loaded)
     SKETCHES.forEach((sketch, i) => {
+      if (sketch.camera) return;
+
       const btn = document.createElement('button');
       btn.className = 'pattern-btn';
       btn.dataset.index = i;
