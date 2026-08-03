@@ -30,6 +30,20 @@ canvas {
   left: 0;
 }
 
+/* Post-processing stage wrapper: the screen moves its p5 canvases into this
+   element (see adoptCanvas in main.js) and applies the brightness / contrast
+   / saturation trim as a CSS filter — GPU-composited AFTER the merge blend.
+   The wrapper never intercepts pointer events; the canvases stay clickable. */
+#screen-wrap {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+#screen-wrap canvas {
+  pointer-events: auto;
+}
+
 /* ---------------------------------------------------------------------------
    Control panel mode (body.is-control)
 --------------------------------------------------------------------------- */
@@ -722,7 +736,8 @@ body.is-screen #config-container {
   font-variant-numeric: tabular-nums;
 }
 
-#params-list input[type="range"] {
+#params-list input[type="range"],
+#post-fx-list input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
@@ -736,13 +751,15 @@ body.is-screen #config-container {
   cursor: pointer;
 }
 
-#params-list input[type="range"]::-webkit-slider-runnable-track {
+#params-list input[type="range"]::-webkit-slider-runnable-track,
+#post-fx-list input[type="range"]::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 2px;
   background: #2a2a2a;
 }
 
-#params-list input[type="range"]::-webkit-slider-thumb {
+#params-list input[type="range"]::-webkit-slider-thumb,
+#post-fx-list input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   /* (track 4px - thumb 14px) / 2 = -5px centers the thumb on the track */
@@ -756,17 +773,20 @@ body.is-screen #config-container {
   transition: transform var(--transition-speed) ease-out;
 }
 
-#params-list input[type="range"]::-webkit-slider-thumb:hover {
+#params-list input[type="range"]::-webkit-slider-thumb:hover,
+#post-fx-list input[type="range"]::-webkit-slider-thumb:hover {
   transform: scale(1.15);
 }
 
-#params-list input[type="range"]::-moz-range-track {
+#params-list input[type="range"]::-moz-range-track,
+#post-fx-list input[type="range"]::-moz-range-track {
   height: 4px;
   border-radius: 2px;
   background: #2a2a2a;
 }
 
-#params-list input[type="range"]::-moz-range-thumb {
+#params-list input[type="range"]::-moz-range-thumb,
+#post-fx-list input[type="range"]::-moz-range-thumb {
   width: 14px;
   height: 14px;
   border-radius: 50%;
