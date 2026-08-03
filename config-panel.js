@@ -8,6 +8,8 @@ import {
   BLEND_PARAMS,
   BANDS_ID,
   BAND_SPLIT_DEFAULTS,
+  POSTFX_ID,
+  POSTFX_PARAMS,
 } from './sketch-registry.js';
 import {
   BAND_SPLIT_LIMITS,
@@ -62,6 +64,13 @@ function formatParamValue(v, def) {
   return v.toFixed(2);
 }
 
+// Signed display for the post-processing offsets (0 = natural level;
+// the sign shows which way the trim pulls).
+function formatPostFxValue(v) {
+  const n = Math.round(Number(v) || 0);
+  return n > 0 ? `+${n}` : String(n);
+}
+
 // Pad slot label for a position (0-9 renders as keys 1-9, 0)
 function slotLabel(i) {
   return i === 9 ? '0' : String(i + 1);
@@ -105,6 +114,8 @@ export class ConfigPanel {
     this.deviceSectionKey = 'viz2_device_setup_open';
     // Persisted open/closed state of the band-split EQ section.
     this.bandEqKey = 'viz2_band_eq_open';
+    // Persisted open/closed state of the post-processing section.
+    this.postFxKey = 'viz2_post_fx_open';
     this.container = null;
     this.panel = null;
     this.devices = [];
@@ -146,6 +157,9 @@ export class ConfigPanel {
     // Band-split EQ: a fresh profile starts open so the new tool is visible.
     const bandEqOpen = localStorage.getItem(this.bandEqKey) !== '0';
 
+    // Post Processing: same convention — open until the user collapses it.
+    const postFxOpen = localStorage.getItem(this.postFxKey) !== '0';
+
     this.panel.innerHTML = `
       <div id="effects-pane">
         <h3>Pattern Pad <span class="pad-hint">1–0</span></h3>
@@ -163,6 +177,17 @@ export class ConfigPanel {
 
         <h3>Parameters</h3>
         <div id="params-list" class="params-list"></div>
+
+        <details id="post-fx" class="config-section"${postFxOpen ? ' open' : ''}>
+          <summary class="config-section-header">Post Processing</summary>
+          <div class="config-section-body">
+            <div id="post-fx-list" class="params-list"></div>
+            <div class="config-group actions">
+              <button id="post-fx-reset-btn" type="button">↺ Reset to Natural</button>
+            </div>
+            <p>Global output trim — applied on top of every effect, including blends. 0 is the natural level; negative values reduce, positive values boost.</p>
+          </div>
+        </details>
 
         <details id="band-eq" class="config-section"${bandEqOpen ? ' open' : ''}>
           <summary class="config-section-header">Band Split EQ</summary>
@@ -230,6 +255,13 @@ export class ConfigPanel {
       });
     }
 
+    const postFxSection = this.panel.querySelector('#post-fx');
+    if (postFxSection) {
+      postFxSection.addEventListener('toggle', (e) => {
+        if (e.isTrusted) localStorage.setItem(this.postFxKey, postFxSection.open ? '1' : '0');
+      });
+    }
+
     this.panel.querySelector('#refresh-devices-btn').onclick = () => this.refreshDevices();
     this.panel.querySelector('#takeover-btn').onclick = () => {
       if (this.onTakeover) this.onTakeover();
@@ -240,6 +272,7 @@ export class ConfigPanel {
     this.panel.querySelector('#setup-all-btn').onclick = () => this.requestPermissions();
 
     this.initResizer();
+    this.initPostFx();
     this.initBandEq();
 
     this.renderStatus();
@@ -317,6 +350,69 @@ export class ConfigPanel {
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onUp);
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Post-processing (global brightness / contrast / saturation trim)
+  // Three offset sliders (-100..+100, 0 = natural) that ride the shared param
+  // store under POSTFX_ID, exactly like the band-split crossovers. The screen
+  // applies them as a CSS filter on its stage wrapper (#screen-wrap); this
+  // panel only edits, displays and syncs the values.
+  // ---------------------------------------------------------------------------
+
+  initPostFx() {
+    const list = this.panel.querySelector('#post-fx-list');
+    const resetBtn = this.panel.querySelector('#post-fx-reset-btn');
+    if (!list) return;
+
+    const values = this.getParams ? this.getParams(POSTFX_ID) : {};
+
+    for (const def of POSTFX_PARAMS) {
+      const val = values[def.key] ?? def.default;
+
+      const row = document.createElement('div');
+      row.className = 'param-row';
+      row.innerHTML = `
+        <div class="param-head">
+          <label for="postfx-${def.key}">${def.label}</label>
+          <span class="param-value" data-value="${def.key}">${formatPostFxValue(val)}</span>
+        </div>
+        <input type="range" id="postfx-${def.key}" data-key="${def.key}"
+               min="${def.min}" max="${def.max}" step="${def.step}" value="${val}">
+      `;
+
+      const input = row.querySelector('input');
+      const valueEl = row.querySelector('.param-value');
+
+      input.addEventListener('input', () => {
+        const v = parseFloat(input.value);
+        valueEl.textContent = formatPostFxValue(v);
+        if (this.onParamChange) this.onParamChange(POSTFX_ID, def.key, v);
+      });
+
+      list.appendChild(row);
+    }
+
+    if (resetBtn) {
+      resetBtn.onclick = () => {
+        for (const def of POSTFX_PARAMS) {
+          if (this.onParamChange) this.onParamChange(POSTFX_ID, def.key, def.default);
+        }
+      };
+    }
+  }
+
+  // Sync slider positions/values for a post-fx change from another window
+  // (or our own broadcast round-trip).
+  setPostFx(values = {}) {
+    const list = this.panel.querySelector('#post-fx-list');
+    if (!list) return;
+    for (const [key, v] of Object.entries(values)) {
+      const input = list.querySelector(`input[data-key="${key}"]`);
+      if (input) input.value = v;
+      const valueEl = list.querySelector(`.param-value[data-value="${key}"]`);
+      if (valueEl) valueEl.textContent = formatPostFxValue(v);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1105,6 +1201,12 @@ export class ConfigPanel {
 
   // Sync slider positions/values for a param change coming from another window
   applyParam(id, values) {
+    // The post-processing trim is global — independent of the selection
+    if (id === POSTFX_ID) {
+      this.setPostFx(values);
+      return;
+    }
+
     // The band-split crossovers are global — independent of the selection
     if (id === BANDS_ID) {
       this.setEqSplit(values);

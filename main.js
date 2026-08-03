@@ -5,6 +5,7 @@ import {
   SKETCHES,
   BLEND_ID,
   BANDS_ID,
+  POSTFX_ID,
   defaultParamValues,
   indexFromKey,
   saveSlotOrder,
@@ -104,6 +105,9 @@ function loadParamValues() {
     } else if (key === BANDS_ID) {
       // Global band-split crossovers (same reserved-id trick as BLEND_ID)
       out[key] = { ...defaultParamValues(BANDS_ID), ...(value || {}) };
+    } else if (key === POSTFX_ID) {
+      // Global post-processing trim (same reserved-id trick as BLEND_ID)
+      out[key] = { ...defaultParamValues(POSTFX_ID), ...(value || {}) };
     } else if (knownIds.has(key)) {
       out[key] = value;
     }
@@ -186,6 +190,8 @@ function loadMerged(indexA, indexB) {
   const p5B = new p5(skB.factory(audio, currentVideoDeviceId, getParams(skB.id)));
 
   mergeP5 = [p5A, p5B];
+  adoptCanvas(p5A);
+  adoptCanvas(p5B);
   // p5 creates the canvas when setup() runs — after the constructor returns —
   // so tag each canvas as soon as it exists.
   tagMergeCanvas(p5A, '0');
@@ -243,6 +249,60 @@ function applyBlendStyles() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Post-processing (global output trim: brightness / contrast / saturation)
+// The screen moves its stage canvases into #screen-wrap and applies the trim
+// as a CSS filter on the wrapper — GPU-composited AFTER the merge blend, no
+// pixel readback, and it survives sketch teardown (canvases come and go, the
+// wrapper stays). Sliders ride the shared param store under POSTFX_ID.
+// ---------------------------------------------------------------------------
+
+function ensureScreenWrap() {
+  let wrap = document.getElementById('screen-wrap');
+  if (!wrap) {
+    wrap = document.createElement('div');
+    wrap.id = 'screen-wrap';
+    document.body.appendChild(wrap);
+  }
+  return wrap;
+}
+
+// Map the -100..+100 offsets onto CSS filter functions around the natural
+// level (0 -> 1.0, +100 -> 2.0, -100 -> 0.0).
+function postFxFilterString() {
+  const p = getParams(POSTFX_ID);
+  const b = Number(p.brightness) || 0;
+  const c = Number(p.contrast) || 0;
+  const s = Number(p.saturation) || 0;
+  if (!b && !c && !s) return 'none'; // natural level — skip the GPU pass
+  return `brightness(${(100 + b) / 100}) contrast(${(100 + c) / 100}) saturate(${(100 + s) / 100})`;
+}
+
+function applyPostFx() {
+  if (myRole !== 'screen') return;
+  ensureScreenWrap().style.filter = postFxFilterString();
+}
+
+// Move a sketch's canvas into the filter wrapper once p5 creates it (p5 2.x
+// creates the canvas asynchronously, on the first frame — retry until it
+// exists). Idempotent; safe for both single sketches and merge pairs.
+function adoptCanvas(inst) {
+  const adopt = () => {
+    if (!inst.canvas || inst.canvas.__postfxAdopted) return;
+    inst.canvas.__postfxAdopted = true;
+    // The wrapper disables hit-testing; keep the stage itself interactive.
+    inst.canvas.style.pointerEvents = 'auto';
+    ensureScreenWrap().appendChild(inst.canvas);
+  };
+  adopt();
+  if (inst.canvas || inst._removed) return;
+  const tick = () => {
+    if (inst.canvas) adopt();
+    else if (!inst._removed) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
 function loadSketch(index, merge = null) {
   const ordered = getOrderedSketches();
   if (index < 0 || index >= ordered.length) return;
@@ -276,6 +336,7 @@ function loadSketch(index, merge = null) {
     // Inject audio, current video device ID, and the LIVE params object so the
     // sketch reads updated param values every frame.
     currentP5 = new p5(sketch.factory(audio, currentVideoDeviceId, getParams(sketch.id)));
+    adoptCanvas(currentP5);
 
     console.log(`Loaded sketch ${index + 1} (${sketch.name})`);
   }
@@ -296,6 +357,7 @@ function loadSketchById(id) {
   activeSketchId = id;
 
   currentP5 = new p5(sketch.factory(audio, currentVideoDeviceId, getParams(id)));
+  adoptCanvas(currentP5);
   console.log(`Loaded sketch ${sketch.name}`);
 }
 
@@ -359,6 +421,7 @@ function becomeScreen() {
   if (currentIndex >= 0) loadSketch(currentIndex, mergeIndices);
   else loadSketchById(activeSketchId);
   startAudio();
+  applyPostFx();
   renderScreenToolbar();
   startSpectrumBroadcast();
 
@@ -473,6 +536,8 @@ function handleMessage(msg) {
         if (msg.id === BLEND_ID && myRole === 'screen') applyBlendStyles();
         // Band-split crossovers retune the musical feature extractor
         if (msg.id === BANDS_ID) setBandSplit(getParams(BANDS_ID));
+        // Post-processing trim restyles the stage wrapper on the screen
+        if (msg.id === POSTFX_ID) applyPostFx();
         if (myRole === 'control' && panel) panel.applyParam(msg.id, msg.values);
       }
       break;
@@ -792,6 +857,10 @@ function renderScreenToolbar() {
 // on the feature extractor (later changes ride the 'params' message path).
 setBandSplit(getParams(BANDS_ID));
 
+// Apply any saved post-processing trim to the stage wrapper (no-op on
+// control windows; later changes ride the 'params' message path).
+applyPostFx();
+
 // Restore a captured noise floor so cleaned spectra survive reloads.
 loadNoiseFloor();
 
@@ -824,6 +893,8 @@ if (import.meta.env.DEV) {
     get audioFeatures() { return currentP5?.__audioFeatures || null; },
     // Live band-split crossovers (BANDS_ID param store)
     get bands() { return getParams(BANDS_ID); },
+    // Live post-processing trim (POSTFX_ID param store)
+    get postfx() { return getParams(POSTFX_ID); },
     // Control-panel band-split EQ internals (control windows only)
     get eq() {
       if (!panel) return null;

@@ -872,6 +872,26 @@ export const BANDS_ID = '__bands';
 // Defaults mirror MUSICAL_BANDS so nothing changes until a handle moves.
 export const BAND_SPLIT_DEFAULTS = Object.freeze({ low: 180, high: 2800 });
 
+// Reserved id for the global post-processing trim (brightness / contrast /
+// saturation). Same reserved-id trick as BLEND_ID/BANDS_ID: rides the shared
+// param store + broadcast pipeline, so the sliders persist and sync across
+// windows for free. Applied by the screen as a CSS filter on the stage
+// wrapper (see applyPostFx in main.js). Every slider is an OFFSET around the
+// natural level: 0 = untouched output, -100 = fully reduced, +100 = doubled.
+export const POSTFX_ID = '__postfx';
+
+export const POSTFX_PARAMS = [
+  { key: 'brightness', label: 'Brightness', min: -100, max: 100, step: 1, default: 0 },
+  { key: 'contrast', label: 'Contrast', min: -100, max: 100, step: 1, default: 0 },
+  { key: 'saturation', label: 'Saturation', min: -100, max: 100, step: 1, default: 0 },
+];
+
+export function defaultPostFxValues() {
+  const out = {};
+  for (const def of POSTFX_PARAMS) out[def.key] = def.default;
+  return out;
+}
+
 // Number of pad slots / effects that get keyboard shortcuts (1-9, 0 = 10th)
 export const SHORTCUT_COUNT = 10;
 
@@ -1000,6 +1020,7 @@ export function indexFromKey(key) {
 export function defaultParamValues(id) {
   if (id === BLEND_ID) return defaultBlendValues();
   if (id === BANDS_ID) return { ...BAND_SPLIT_DEFAULTS };
+  if (id === POSTFX_ID) return defaultPostFxValues();
   const out = {};
   const sketch = SKETCHES.find((s) => s.id === id);
   const defs = (sketch && sketch.params) || [];
