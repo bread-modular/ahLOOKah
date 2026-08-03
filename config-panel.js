@@ -6,7 +6,48 @@ import {
   SHORTCUT_COUNT,
   BLEND_ID,
   BLEND_PARAMS,
+  BANDS_ID,
+  BAND_SPLIT_DEFAULTS,
 } from './sketch-registry.js';
+import {
+  BAND_SPLIT_LIMITS,
+  EQ_MIN_HZ,
+  EQ_MAX_HZ,
+  EQ_DB_TOP,
+  EQ_DB_BOTTOM,
+} from './sketches/audio-features.js';
+
+// Band colours of the split EQ — same hues as the legend chips in style.css.
+const EQ_COLORS = {
+  bass: '#ff6a3d',
+  mid: '#42d68a',
+  high: '#5b9dff',
+  bassFill: 'rgba(255, 106, 61, 0.16)',
+  midFill: 'rgba(66, 214, 138, 0.14)',
+  highFill: 'rgba(91, 157, 255, 0.14)',
+  bassCurve: 'rgba(255, 106, 61, 0.36)',
+  midCurve: 'rgba(66, 214, 138, 0.32)',
+  highCurve: 'rgba(91, 157, 255, 0.32)',
+  grid: 'rgba(255, 255, 255, 0.07)',
+  label: 'rgba(255, 255, 255, 0.38)',
+};
+
+// Log-frequency <-> pixel mapping shared by drawing and separator dragging.
+const eqHzToX = (hz, w) =>
+  (Math.log(Math.min(Math.max(hz, EQ_MIN_HZ), EQ_MAX_HZ) / EQ_MIN_HZ) / Math.log(EQ_MAX_HZ / EQ_MIN_HZ)) * w;
+const eqXToHz = (x, w) =>
+  EQ_MIN_HZ * Math.pow(EQ_MAX_HZ / EQ_MIN_HZ, Math.min(Math.max(x / w, 0), 1));
+const eqDbToY = (db, h) => {
+  const t = (EQ_DB_TOP - db) / (EQ_DB_TOP - EQ_DB_BOTTOM);
+  return Math.min(h, Math.max(0, t * h));
+};
+const formatHz = (hz) => {
+  if (hz >= 1000) {
+    const k = hz / 1000;
+    return `${k >= 10 ? Math.round(k) : Math.round(k * 10) / 10}k`;
+  }
+  return String(Math.round(hz));
+};
 
 // Format a param value for display based on its step size
 function formatParamValue(v, def) {
@@ -51,6 +92,8 @@ export class ConfigPanel {
     this.videoKey = 'viz2_video_device_id';
     // Persisted open/closed state of the collapsible devices & setup section.
     this.deviceSectionKey = 'viz2_device_setup_open';
+    // Persisted open/closed state of the band-split EQ section.
+    this.bandEqKey = 'viz2_band_eq_open';
     this.container = null;
     this.panel = null;
     this.devices = [];
@@ -89,6 +132,9 @@ export class ConfigPanel {
     const deviceSectionOpen =
       savedPref !== null ? savedPref === '1' : !hasSavedDevice;
 
+    // Band-split EQ: a fresh profile starts open so the new tool is visible.
+    const bandEqOpen = localStorage.getItem(this.bandEqKey) !== '0';
+
     this.panel.innerHTML = `
       <div id="effects-pane">
         <h3>Pattern Pad <span class="pad-hint">1–0</span></h3>
@@ -106,6 +152,22 @@ export class ConfigPanel {
 
         <h3>Parameters</h3>
         <div id="params-list" class="params-list"></div>
+
+        <details id="band-eq" class="config-section"${bandEqOpen ? ' open' : ''}>
+          <summary class="config-section-header">Band Split EQ</summary>
+          <div class="config-section-body">
+            <div class="band-eq-wrap">
+              <canvas id="band-eq-canvas"></canvas>
+              <div id="band-eq-idle" class="band-eq-idle">Waiting for audio…</div>
+            </div>
+            <div class="band-eq-legend">
+              <span class="band-chip band-chip-bass"><i></i>Bass <b data-eq-range="bass">—</b></span>
+              <span class="band-chip band-chip-mid"><i></i>Mid <b data-eq-range="mid">—</b></span>
+              <span class="band-chip band-chip-high"><i></i>High <b data-eq-range="high">—</b></span>
+            </div>
+            <p>Drag the two handles to set the Bass / Mid / High borders. Every effect's Bass, Mid &amp; High controls follow this split.</p>
+          </div>
+        </details>
 
         <details id="device-setup" class="config-section"${deviceSectionOpen ? ' open' : ''}>
           <summary class="config-section-header">Devices &amp; Setup</summary>
@@ -160,6 +222,7 @@ export class ConfigPanel {
     this.panel.querySelector('#setup-all-btn').onclick = () => this.requestPermissions();
 
     this.initResizer();
+    this.initBandEq();
 
     this.renderStatus();
 
@@ -236,6 +299,289 @@ export class ConfigPanel {
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onUp);
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Band-split EQ (Ableton-style log spectrum + draggable bass/mid/high borders)
+  // The screen broadcasts a compact log-spaced dB spectrum (~15fps); this
+  // section draws it with the three band regions and two draggable crossover
+  // handles. Moving a handle broadcasts the new crossover as the global
+  // BANDS_ID param set, and the screen retunes its feature extractor.
+  // ---------------------------------------------------------------------------
+
+  initBandEq() {
+    this.eqSection = this.panel.querySelector('#band-eq');
+    this.eqCanvas = this.panel.querySelector('#band-eq-canvas');
+    this.eqCtx = this.eqCanvas ? this.eqCanvas.getContext('2d') : null;
+    this.eqIdle = this.panel.querySelector('#band-eq-idle');
+
+    const stored = this.getParams ? this.getParams(BANDS_ID) : null;
+    this.eqSplit = {
+      low: Number.isFinite(Number(stored?.low)) ? Number(stored.low) : BAND_SPLIT_DEFAULTS.low,
+      high: Number.isFinite(Number(stored?.high)) ? Number(stored.high) : BAND_SPLIT_DEFAULTS.high,
+    };
+    this.eqSpectrum = null;
+    this.lastSpectrumAt = 0;
+    // e2e probe: frames drawn with live spectrum data
+    this.eqDrawn = 0;
+    this.eqDrag = null;
+    this.lastEqBroadcastAt = 0;
+    this.eqWatchTimer = 0;
+
+    if (!this.eqSection || !this.eqCanvas) return;
+
+    this.eqSection.addEventListener('toggle', () => {
+      localStorage.setItem(this.bandEqKey, this.eqSection.open ? '1' : '0');
+      if (this.eqSection.open) {
+        this.drawEq();
+        this.startEqWatch();
+      } else {
+        this.stopEqWatch();
+      }
+    });
+
+    window.addEventListener('resize', () => this.drawEq());
+
+    this.eqCanvas.addEventListener('pointerdown', (e) => {
+      const { x, w } = this.eqPointerPos(e);
+      const hit = this.eqHitSeparator(x, w);
+      if (!hit) return;
+      this.eqDrag = hit;
+      this.eqCanvas.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    });
+
+    this.eqCanvas.addEventListener('pointermove', (e) => {
+      const { x, w } = this.eqPointerPos(e);
+      if (!this.eqDrag) {
+        this.eqCanvas.style.cursor = this.eqHitSeparator(x, w) ? 'col-resize' : 'default';
+        return;
+      }
+      // Live local update for smooth dragging; the broadcast is throttled.
+      this.eqSplit[this.eqDrag] = Math.round(this.eqClampHz(eqXToHz(x, w), this.eqDrag));
+      this.updateEqLegend();
+      this.drawEq();
+      const now = performance.now();
+      if (now - this.lastEqBroadcastAt > 90) {
+        this.lastEqBroadcastAt = now;
+        this.broadcastEqSplit(this.eqDrag);
+      }
+    });
+
+    const endEqDrag = () => {
+      if (!this.eqDrag) return;
+      // Always commit the final value even if the throttle swallowed it
+      this.broadcastEqSplit(this.eqDrag);
+      this.eqDrag = null;
+      this.eqCanvas.style.cursor = 'default';
+    };
+    this.eqCanvas.addEventListener('pointerup', endEqDrag);
+    this.eqCanvas.addEventListener('pointercancel', endEqDrag);
+
+    this.updateEqLegend();
+    this.drawEq();
+    if (this.eqSection.open) this.startEqWatch();
+  }
+
+  // Redraw periodically while open so the "waiting for audio" overlay comes
+  // back if the spectrum feed stops (screen closed, audio device stopped).
+  startEqWatch() {
+    if (this.eqWatchTimer) return;
+    this.eqWatchTimer = setInterval(() => {
+      if (this.eqSection && this.eqSection.open) this.drawEq();
+    }, 600);
+  }
+
+  stopEqWatch() {
+    if (this.eqWatchTimer) clearInterval(this.eqWatchTimer);
+    this.eqWatchTimer = 0;
+  }
+
+  // Spectrum message from the screen (see main.js spectrum broadcast).
+  handleSpectrum(msg) {
+    if (!msg || !msg.freqs || !msg.dbs || msg.freqs.length !== msg.dbs.length || !msg.freqs.length) return;
+    this.eqSpectrum = msg;
+    this.lastSpectrumAt = performance.now();
+    if (this.eqSection && this.eqSection.open) this.drawEq();
+  }
+
+  // Crossover change arriving from another window (or our own round-trip).
+  setEqSplit(values = {}) {
+    let changed = false;
+    for (const key of ['low', 'high']) {
+      const v = Math.round(Number(values[key]));
+      if (Number.isFinite(v) && v !== this.eqSplit[key]) {
+        this.eqSplit[key] = v;
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    this.updateEqLegend();
+    this.drawEq();
+  }
+
+  broadcastEqSplit(key) {
+    if (this.onParamChange) this.onParamChange(BANDS_ID, key, this.eqSplit[key]);
+  }
+
+  updateEqLegend() {
+    if (!this.panel) return;
+    const { low, high } = this.eqSplit;
+    const set = (name, text) => {
+      const el = this.panel.querySelector(`[data-eq-range="${name}"]`);
+      if (el) el.textContent = text;
+    };
+    set('bass', `${formatHz(EQ_MIN_HZ)}–${formatHz(low)} Hz`);
+    set('mid', `${formatHz(low)} Hz–${formatHz(high)}`);
+    set('high', `${formatHz(high)}–${formatHz(EQ_MAX_HZ)}`);
+  }
+
+  eqPointerPos(e) {
+    const rect = this.eqCanvas.getBoundingClientRect();
+    return { x: e.clientX - rect.left, w: Math.max(1, rect.width) };
+  }
+
+  eqHitSeparator(x, w) {
+    const RADIUS = 9;
+    const lowX = eqHzToX(this.eqSplit.low, w);
+    const highX = eqHzToX(this.eqSplit.high, w);
+    const dLow = Math.abs(x - lowX);
+    const dHigh = Math.abs(x - highX);
+    if (dLow <= RADIUS && dLow <= dHigh) return 'low';
+    if (dHigh <= RADIUS) return 'high';
+    return null;
+  }
+
+  eqClampHz(hz, which) {
+    const L = BAND_SPLIT_LIMITS;
+    if (which === 'low') {
+      return Math.min(Math.max(hz, L.lowMin), Math.min(L.lowMax, this.eqSplit.high / L.minRatio));
+    }
+    return Math.max(Math.min(hz, L.highMax), Math.max(L.highMin, this.eqSplit.low * L.minRatio));
+  }
+
+  drawEq() {
+    const canvas = this.eqCanvas;
+    const ctx = this.eqCtx;
+    if (!canvas || !ctx) return;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    if (!w || !h) return;
+
+    // HiDPI sizing (cheap no-op when nothing changed)
+    const dpr = window.devicePixelRatio || 1;
+    const pw = Math.round(w * dpr);
+    const ph = Math.round(h * dpr);
+    if (canvas.width !== pw || canvas.height !== ph) {
+      canvas.width = pw;
+      canvas.height = ph;
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    const { low, high } = this.eqSplit;
+    const lowX = eqHzToX(low, w);
+    const highX = eqHzToX(high, w);
+
+    // 1) Band region tints: bass | mid | high
+    ctx.fillStyle = EQ_COLORS.bassFill;
+    ctx.fillRect(0, 0, lowX, h);
+    ctx.fillStyle = EQ_COLORS.midFill;
+    ctx.fillRect(lowX, 0, highX - lowX, h);
+    ctx.fillStyle = EQ_COLORS.highFill;
+    ctx.fillRect(highX, 0, w - highX, h);
+
+    // 2) Musical grid (log frequency ticks + dB lines)
+    ctx.strokeStyle = EQ_COLORS.grid;
+    ctx.lineWidth = 1;
+    ctx.font = '9px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    for (const hz of [60, 250, 1000, 4000, 12000]) {
+      const x = eqHzToX(hz, w);
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, h - 11);
+      ctx.stroke();
+      ctx.fillStyle = EQ_COLORS.label;
+      ctx.fillText(formatHz(hz), x, h - 2);
+    }
+    for (let db = EQ_DB_TOP - 14; db > EQ_DB_BOTTOM; db -= 14) {
+      const y = eqDbToY(db, h);
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+      ctx.stroke();
+    }
+
+    // 3) Live spectrum curve, coloured per band (Ableton style)
+    const spec = this.eqSpectrum;
+    const idle = !spec || performance.now() - this.lastSpectrumAt > 1500;
+    if (!idle) {
+      const line = new Path2D();
+      const area = new Path2D();
+      const { freqs, dbs } = spec;
+      for (let i = 0; i < freqs.length; i++) {
+        const x = eqHzToX(freqs[i], w);
+        const y = eqDbToY(dbs[i], h);
+        if (i === 0) {
+          line.moveTo(x, y);
+          area.moveTo(x, y);
+        } else {
+          line.lineTo(x, y);
+          area.lineTo(x, y);
+        }
+      }
+      area.lineTo(eqHzToX(freqs[freqs.length - 1], w), h);
+      area.lineTo(eqHzToX(freqs[0], w), h);
+      area.closePath();
+
+      const regions = [
+        { x0: 0, x1: lowX, stroke: EQ_COLORS.bass, fill: EQ_COLORS.bassCurve },
+        { x0: lowX, x1: highX, stroke: EQ_COLORS.mid, fill: EQ_COLORS.midCurve },
+        { x0: highX, x1: w, stroke: EQ_COLORS.high, fill: EQ_COLORS.highCurve },
+      ];
+      for (const r of regions) {
+        if (r.x1 - r.x0 <= 0) continue;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(r.x0, 0, r.x1 - r.x0, h);
+        ctx.clip();
+        ctx.fillStyle = r.fill;
+        ctx.fill(area);
+        ctx.strokeStyle = r.stroke;
+        ctx.lineWidth = 1.6;
+        ctx.stroke(line);
+        ctx.restore();
+      }
+      this.eqDrawn += 1;
+    }
+
+    // 4) Crossover separators with grab handles
+    const drawSeparator = (x, color) => {
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, h);
+      ctx.stroke();
+
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(x, h / 2, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
+      for (const dx of [-2, 2]) {
+        ctx.beginPath();
+        ctx.moveTo(x + dx, h / 2 - 3);
+        ctx.lineTo(x + dx, h / 2 + 3);
+        ctx.stroke();
+      }
+    };
+    drawSeparator(lowX, EQ_COLORS.bass);
+    drawSeparator(highX, EQ_COLORS.high);
+
+    // 5) Idle overlay when the spectrum feed is missing/stale
+    if (this.eqIdle) this.eqIdle.hidden = !idle;
   }
 
   // ---------------------------------------------------------------------------
@@ -614,6 +960,12 @@ export class ConfigPanel {
 
   // Sync slider positions/values for a param change coming from another window
   applyParam(id, values) {
+    // The band-split crossovers are global — independent of the selection
+    if (id === BANDS_ID) {
+      this.setEqSplit(values);
+      return;
+    }
+
     if (id !== this.currentPatternId) return;
 
     // Mode switches swap which level slider is shown — rebuild the blend section

@@ -862,6 +862,16 @@ export function defaultBlendValues() {
   return out;
 }
 
+// Reserved id for the global band-split crossovers (bass|mid and mid|high in
+// Hz). Like BLEND_ID it rides the shared param store + broadcast pipeline, so
+// the EQ separators persist and sync across windows for free. Edited by the
+// control panel's band-split EQ; applied by the screen to the feature
+// extractor (see sketches/audio-features.js setBandSplit).
+export const BANDS_ID = '__bands';
+
+// Defaults mirror MUSICAL_BANDS so nothing changes until a handle moves.
+export const BAND_SPLIT_DEFAULTS = Object.freeze({ low: 180, high: 2800 });
+
 // Number of pad slots / effects that get keyboard shortcuts (1-9, 0 = 10th)
 export const SHORTCUT_COUNT = 10;
 
@@ -989,6 +999,7 @@ export function indexFromKey(key) {
 // Build a fresh { key: value } object from a sketch's param defaults
 export function defaultParamValues(id) {
   if (id === BLEND_ID) return defaultBlendValues();
+  if (id === BANDS_ID) return { ...BAND_SPLIT_DEFAULTS };
   const out = {};
   const sketch = SKETCHES.find((s) => s.id === id);
   const defs = (sketch && sketch.params) || [];
