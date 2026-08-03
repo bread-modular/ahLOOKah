@@ -40,12 +40,39 @@ test.describe('screen window', () => {
 });
 
 test.describe('control panel window', () => {
-  test('renders pattern buttons, status and no canvas', async ({ context }) => {
+  test('renders a 10-slot pad with 1-0 badges and a grouped library of all 48 patterns', async ({ context }) => {
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
 
     await expect(control.locator('body')).toHaveClass(/is-control/);
-    await expect(control.locator('#pattern-grid .pattern-btn')).toHaveCount(42);
+
+    // Fixed pad: exactly 10 slots carrying key badges 1..9,0
+    const slots = control.locator('#pattern-pad .pattern-btn');
+    await expect(slots).toHaveCount(10);
+    await expect(slots.nth(0).locator('.pattern-key')).toHaveText('1');
+    await expect(slots.nth(8).locator('.pattern-key')).toHaveText('9');
+    await expect(slots.nth(9).locator('.pattern-key')).toHaveText('0');
+
+    // Default pad = first 10 declaration patterns
+    await expect(control.locator('#pattern-pad [data-index="0"]')).toHaveAttribute('data-id', 'circles');
+    await expect(control.locator('#pattern-pad [data-index="9"]')).toHaveAttribute('data-id', 'chroma-mandala');
+
+    // Library: all 48 patterns grouped under 6 headers
+    const items = control.locator('#pattern-library .pattern-btn');
+    await expect(items).toHaveCount(48);
+    const headers = control.locator('.library-group-header');
+    await expect(headers).toHaveCount(6);
+    await expect(headers.first()).toHaveText('Audio Reactive');
+    await expect(headers.last()).toHaveText('Basics');
+
+    // Assigned patterns show a slot-number badge; unassigned ones don't
+    await expect(control.locator('#pattern-library [data-id="circles"] .slot-badge')).toHaveText('1');
+    await expect(control.locator('#pattern-library [data-id="plasma-waves"] .slot-badge')).toHaveCount(0);
+
+    // The pad is fixed and separate from the scrollable library
+    await expect(control.locator('#pattern-pad')).toBeVisible();
+    await expect(control.locator('#pattern-library')).toHaveCSS('overflow-y', 'auto');
+
     await expect(control.locator('#status-line .badge-control')).toBeVisible();
     await expect(control.locator('canvas')).toHaveCount(0);
   });
@@ -64,14 +91,128 @@ test.describe('control panel window', () => {
   });
 });
 
+test.describe('pattern pad + library interactions', () => {
+  test('clicking a pad slot plays that pattern and highlights the slot', async ({ context, page }) => {
+    await page.goto(SCREEN_URL); // screen window
+    const control = await context.newPage();
+    await control.goto(CONTROL_URL);
+
+    await control.locator('#pattern-pad [data-index="2"]').click();
+    await page.waitForFunction(() => window.__viz.pattern === 2);
+    await expect(control.locator('#pattern-pad [data-index="2"]')).toHaveClass(/active/);
+    await expect(control.locator('#pattern-pad [data-index="0"]')).not.toHaveClass(/active/);
+  });
+
+  test('clicking an unassigned library pattern plays it by id', async ({ context, page }) => {
+    await page.goto(SCREEN_URL); // screen window
+    const control = await context.newPage();
+    await control.goto(CONTROL_URL);
+
+    // plasma-waves is NOT on the default pad (16th in declaration order)
+    await control.locator('#pattern-library [data-id="plasma-waves"]').click();
+    await page.waitForFunction(() => window.__viz.patternId === 'plasma-waves');
+    await expect(control.locator('#pattern-library [data-id="plasma-waves"]')).toHaveClass(/active/);
+    // No pad slot highlights for a library-only pattern
+    await expect(control.locator('#pattern-pad .pattern-btn.active')).toHaveCount(0);
+  });
+
+  test('dragging a library pattern onto a pad slot assigns it and persists', async ({ context, page }) => {
+    await page.goto(SCREEN_URL); // screen window
+    const control = await context.newPage();
+    await control.goto(CONTROL_URL);
+
+    // echo-ripples sits near the top of the first group and is unassigned by default
+    const source = control.locator('#pattern-library [data-id="echo-ripples"]');
+    await source.scrollIntoViewIfNeeded();
+    await source.dragTo(control.locator('#pattern-pad [data-index="0"]'));
+
+    // Assignment persisted to the new slot-order key
+    await control.waitForFunction(() => {
+      const order = JSON.parse(localStorage.getItem('viz2_slot_order') || '[]');
+      return order.length === 10 && order[0] === 'echo-ripples';
+    });
+    await expect(control.locator('#pattern-pad [data-index="0"]')).toHaveAttribute('data-id', 'echo-ripples');
+    await expect(control.locator('#pattern-pad [data-index="0"] .pattern-name')).toContainText('Echo Ripples');
+  });
+
+  test('dragging a slot onto another slot swaps them', async ({ context }) => {
+    const control = await context.newPage();
+    await control.goto(CONTROL_URL);
+
+    // Default pad: slot 0 = circles, slot 5 = neon-spectrum
+    await control.locator('#pattern-pad [data-index="0"]').dragTo(control.locator('#pattern-pad [data-index="5"]'));
+
+    await control.waitForFunction(() => {
+      const order = JSON.parse(localStorage.getItem('viz2_slot_order') || '[]');
+      return order[0] === 'neon-spectrum' && order[5] === 'circles';
+    });
+    await expect(control.locator('#pattern-pad [data-index="0"]')).toHaveAttribute('data-id', 'neon-spectrum');
+    await expect(control.locator('#pattern-pad [data-index="5"]')).toHaveAttribute('data-id', 'circles');
+  });
+
+  test('slot order survives a reload', async ({ context }) => {
+    const control = await context.newPage();
+    await control.goto(CONTROL_URL);
+
+    await control.locator('#pattern-pad [data-index="0"]').dragTo(control.locator('#pattern-pad [data-index="1"]'));
+    await control.waitForFunction(
+      () => JSON.parse(localStorage.getItem('viz2_slot_order') || '[]')[0] === 'circles-ch1'
+    );
+
+    await control.reload();
+    await expect(control.locator('#pattern-pad [data-index="0"]')).toHaveAttribute('data-id', 'circles-ch1');
+    await expect(control.locator('#pattern-pad [data-index="1"]')).toHaveAttribute('data-id', 'circles');
+  });
+
+  test('pad changes sync to other control windows', async ({ context }) => {
+    const control = await context.newPage();
+    await control.goto(CONTROL_URL);
+    const control2 = await context.newPage();
+    await control2.goto(CONTROL_URL);
+
+    await control.locator('#pattern-pad [data-index="0"]').dragTo(control.locator('#pattern-pad [data-index="1"]'));
+    await control.waitForFunction(
+      () => JSON.parse(localStorage.getItem('viz2_slot_order') || '[]')[0] === 'circles-ch1'
+    );
+
+    // The second control window re-renders its pad to match the assignment
+    await expect(control2.locator('#pattern-pad [data-index="0"]')).toHaveAttribute('data-id', 'circles-ch1');
+    await expect(control2.locator('#pattern-pad [data-index="1"]')).toHaveAttribute('data-id', 'circles');
+  });
+
+  test('legacy viz2_effect_order migrates into the first 10 pad slots', async ({ context }) => {
+    const control = await context.newPage();
+    await control.goto(CONTROL_URL);
+
+    // Simulate a pre-pad build: legacy full order, no slot order yet
+    await control.evaluate(() => {
+      localStorage.removeItem('viz2_slot_order');
+      localStorage.setItem(
+        'viz2_effect_order',
+        JSON.stringify([
+          'bars', 'circles', 'laser-grid', 'solid-color', 'techno3d',
+          'aurora-veil', 'event-horizon', 'prism-burst', 'glitch-matrix', 'checkerboard',
+          'neon-metropolis', 'film-grain',
+        ])
+      );
+    });
+    await control.reload();
+
+    // First 10 valid legacy ids seed the pad
+    await expect(control.locator('#pattern-pad [data-index="0"]')).toHaveAttribute('data-id', 'bars');
+    await expect(control.locator('#pattern-pad [data-index="1"]')).toHaveAttribute('data-id', 'circles');
+    await expect(control.locator('#pattern-pad [data-index="9"]')).toHaveAttribute('data-id', 'checkerboard');
+  });
+});
+
 test.describe('effect parameters', () => {
   test('sliders render for the selected effect and drive the screen live', async ({ context, page }) => {
     await page.goto(SCREEN_URL); // screen window
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
 
-    // Bars (index 2) exposes 3 params: gain, barWidth, flash
-    await control.locator('.pattern-btn[data-index="2"]').click();
+    // Bars (slot 2) exposes 3 params: gain, barWidth, flash
+    await control.locator('#pattern-pad [data-index="2"]').click();
     await page.waitForFunction(() => window.__viz.pattern === 2);
 
     await expect(control.locator('#params-list .param-row')).toHaveCount(3);
@@ -85,12 +226,12 @@ test.describe('effect parameters', () => {
     await page.waitForFunction(() => window.__viz.params.gain === 3);
 
     // Switching effects swaps the slider set (Pulse Rings has 4 params)
-    await control.locator('.pattern-btn[data-index="6"]').click();
+    await control.locator('#pattern-pad [data-index="6"]').click();
     await expect(control.locator('#params-list .param-row')).toHaveCount(4);
     await expect(control.locator('#params-list input[data-key="rings"]')).toBeVisible();
 
     // Param values persist per-effect (Bars gain is still 3 after switching back)
-    await control.locator('.pattern-btn[data-index="2"]').click();
+    await control.locator('#pattern-pad [data-index="2"]').click();
     await expect(control.locator('#params-list input[data-key="gain"]')).toHaveValue('3');
   });
 
@@ -98,9 +239,9 @@ test.describe('effect parameters', () => {
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
 
-    // All registered effects currently have params; pick index 2 anyway and
+    // All registered effects currently have params; pick slot 2 anyway and
     // assert the list exists. (Guards against regressions in the renderer.)
-    await control.locator('.pattern-btn[data-index="2"]').click();
+    await control.locator('#pattern-pad [data-index="2"]').click();
     await expect(control.locator('#params-list')).toBeVisible();
   });
 });
@@ -111,14 +252,14 @@ test.describe('screen <-> control interaction', () => {
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
 
-    await control.locator('.pattern-btn[data-index="2"]').click();
+    await control.locator('#pattern-pad [data-index="2"]').click();
     await page.waitForFunction(() => window.__viz.pattern === 2);
-    await expect(control.locator('.pattern-btn[data-index="2"]')).toHaveClass(/active/);
+    await expect(control.locator('#pattern-pad [data-index="2"]')).toHaveClass(/active/);
 
-    await control.locator('.pattern-btn[data-index="9"]').click();
+    await control.locator('#pattern-pad [data-index="9"]').click();
     await page.waitForFunction(() => window.__viz.pattern === 9);
-    await expect(control.locator('.pattern-btn[data-index="9"]')).toHaveClass(/active/);
-    await expect(control.locator('.pattern-btn[data-index="2"]')).not.toHaveClass(/active/);
+    await expect(control.locator('#pattern-pad [data-index="9"]')).toHaveClass(/active/);
+    await expect(control.locator('#pattern-pad [data-index="2"]')).not.toHaveClass(/active/);
   });
 
   test('take over as screen demotes the old screen', async ({ context, page }) => {
@@ -154,12 +295,12 @@ test.describe('screen <-> control interaction', () => {
 });
 
 test.describe('param slider interactions (e2e)', () => {
-  // Open the screen + a control panel, select Bars (index 2)
+  // Open the screen + a control panel, select Bars (slot 2)
   async function openBars(context, page) {
     await page.goto(SCREEN_URL);
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
-    await control.locator('.pattern-btn[data-index="2"]').click();
+    await control.locator('#pattern-pad [data-index="2"]').click();
     await page.waitForFunction(() => window.__viz.pattern === 2);
     return control;
   }
@@ -265,79 +406,14 @@ test.describe('param slider interactions (e2e)', () => {
   });
 });
 
-test.describe('effect ordering (drag & drop)', () => {
-  // Keep the final drop target in view now that the catalogue spans 42 items.
-  // 5 columns fits every effect on screen (no internal scrolling), so the
-  // HTML5 drag to the last position lands reliably.
-  const showAllDropTargets = (control) =>
-    control.locator('#effects-pane').evaluate((pane) => { pane.style.width = '1100px'; });
-
-  test('reorders effects, persists to localStorage, keeps shortcuts on the first 10', async ({ context, page }) => {
-    await page.goto(SCREEN_URL); // screen window
-    const control = await context.newPage();
-    await control.goto(CONTROL_URL);
-    await showAllDropTargets(control);
-
-    const btns = control.locator('#pattern-grid .pattern-btn');
-    await expect(btns).toHaveCount(42);
-
-    // Only the first 10 positions carry a number key badge
-    await expect(btns.nth(0).locator('.pattern-key')).toHaveText('1');
-    await expect(btns.nth(9).locator('.pattern-key')).toHaveText('0');
-    await expect(btns.nth(10).locator('.pattern-key')).toHaveCount(0);
-    await expect(btns.nth(11).locator('.pattern-key')).toHaveCount(0);
-    await expect(btns.nth(10)).toHaveClass(/no-key/);
-
-    // Select Bars (default position 2), then drag the first effect to the end
-    await btns.nth(2).click();
-    await page.waitForFunction(() => window.__viz.pattern === 2);
-
-    await btns.nth(0).dragTo(btns.nth(41));
-
-    // New order is persisted: 'circles' moved to the last position
-    await control.waitForFunction(() => {
-      const order = JSON.parse(localStorage.getItem('viz2_effect_order') || '[]');
-      return order.length === 42 && order[0] === 'circles-ch1' && order[41] === 'circles';
-    });
-
-    // Grid re-rendered in the new order
-    await expect(control.locator('.pattern-btn[data-index="0"]')).toHaveAttribute('data-id', 'circles-ch1');
-    await expect(control.locator('.pattern-btn[data-index="41"]')).toHaveAttribute('data-id', 'circles');
-
-    // Active selection followed Bars to its new position (index 1)
-    await expect(control.locator('.pattern-btn.active')).toHaveAttribute('data-id', 'bars');
-    await page.waitForFunction(() => window.__viz.patternId === 'bars');
-
-    // Keyboard shortcuts follow the new order: '1' now selects Circles CH1
-    await control.keyboard.press('1');
-    await page.waitForFunction(() => window.__viz.pattern === 0);
-    await page.waitForFunction(() => window.__viz.patternId === 'circles-ch1');
-  });
-
-  test('order survives a reload', async ({ context }) => {
-    const control = await context.newPage();
-    await control.goto(CONTROL_URL);
-    await showAllDropTargets(control);
-
-    const btns = control.locator('#pattern-grid .pattern-btn');
-    await btns.nth(0).dragTo(btns.nth(41));
-
-    await control.reload();
-    const after = control.locator('#pattern-grid .pattern-btn');
-    await expect(after).toHaveCount(42);
-    await expect(after.nth(0)).toHaveAttribute('data-id', 'circles-ch1');
-    await expect(after.nth(41)).toHaveAttribute('data-id', 'circles');
-  });
-});
-
 test.describe('effects pane divider resize', () => {
   const cols = (page) =>
-    page.locator('#pattern-grid').evaluate((el) => {
+    page.locator('.library-group-grid').first().evaluate((el) => {
       const t = getComputedStyle(el).gridTemplateColumns;
       return t.split(' ').filter(Boolean).length;
     });
 
-  test('divider drag resizes the pane, adds grid columns, and persists', async ({ context }) => {
+  test('divider drag resizes the pane, adds library columns, and persists', async ({ context }) => {
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
 

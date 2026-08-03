@@ -132,16 +132,24 @@ body.resizing {
   user-select: none;
 }
 
-body.is-control #effects-pane .pattern-grid {
+body.is-control #effects-pane .pattern-pad {
+  flex-shrink: 0; /* the pad is FIXED — never scrolls away */
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+body.is-control #effects-pane h3 {
+  flex-shrink: 0;
+}
+
+body.is-control #effects-pane .pattern-library {
   flex: 1 1 auto;
-  min-height: 0; /* allow the grid to shrink so it can scroll */
+  min-height: 0; /* allow the library to shrink so it can scroll */
   overflow-y: auto;
   align-content: start;
   padding-right: 4px;
   margin-right: -4px;
-  /* Each effect button is always at least 200px wide; the column count is
-     derived from the pane width so that never changes (auto-fill). */
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
 }
 
 body.is-control #effects-pane > p {
@@ -255,12 +263,49 @@ body.is-screen #config-container {
 }
 
 /* ---------------------------------------------------------------------------
-   Pattern buttons
+   Pattern pad + library
 --------------------------------------------------------------------------- */
 
-.pattern-grid {
+.pad-hint {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: none;
+  letter-spacing: 0;
+  margin-left: 6px;
+}
+
+/* Compact fixed pad slots */
+.pattern-pad .pattern-btn {
+  padding: 8px 10px !important;
+  min-height: 38px;
+}
+
+/* Grouped library sections */
+.library-group {
+  margin-bottom: 16px;
+}
+
+.library-group:last-child {
+  margin-bottom: 0;
+}
+
+.library-group-header {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  margin: 0 2px 8px 2px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-gray);
+}
+
+/* Library items: each button is always at least 200px wide; the column count
+   is derived from the pane width so that never changes (auto-fill). */
+.library-group-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 8px;
 }
 
@@ -280,9 +325,20 @@ body.is-screen #config-container {
   cursor: grabbing;
 }
 
-/* Effects past the first 10 have no number shortcut — keep the name aligned */
-.pattern-btn.no-key {
-  padding-left: 44px !important;
+/* Small badge showing which pad slot a library pattern is assigned to */
+.pattern-btn .slot-badge {
+  flex-shrink: 0;
+  min-width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(77, 163, 255, 0.55);
+  border-radius: 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--accent);
+  background: rgba(77, 163, 255, 0.12);
 }
 
 .pattern-btn .drag-handle {
