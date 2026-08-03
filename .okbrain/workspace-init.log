@@ -2,7 +2,7 @@ Initializing workspace from: /home/arunoda/projects/bread_viz
 Installing npm modules...
 Found local node_modules cache, copying...
 
-added 3 packages, and audited 45 packages in 996ms
+added 3 packages, and audited 45 packages in 871ms
 
 12 packages are looking for funding
   run `npm fund` for details

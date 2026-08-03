@@ -12,6 +12,17 @@ import {
 import { ConfigPanel } from './config-panel.js';
 import { AudioManager } from './audio-manager.js';
 import { setBandSplit, computeLogSpectrum } from './sketches/audio-features.js';
+import {
+  loadNoiseFloor,
+  clearNoiseFloor,
+  startNoiseCapture,
+  cancelNoiseCapture,
+  isNoiseCapturing,
+  getNoiseCaptureState,
+  getNoiseFloorMeta,
+  sampleNoiseFloorDb,
+  NOISE_CAPTURE_DEFAULT_SECONDS,
+} from './noise-floor.js';
 
 // ---------------------------------------------------------------------------
 // Window roles
@@ -473,6 +484,36 @@ function handleMessage(msg) {
       if (myRole === 'control' && panel) panel.handleSpectrum(msg);
       return;
 
+    case 'noise-capture':
+      // Capture requests come from control panels; only the screen owns the
+      // audio analyser, so only it runs the sampler.
+      if (myRole === 'screen') {
+        if (msg.action === 'start') {
+          if (!audio.isStarted) {
+            broadcast({ type: 'noise-floor', status: 'failed', reason: 'no-audio' });
+          } else {
+            startNoiseCapture(typeof msg.seconds === 'number' ? msg.seconds : NOISE_CAPTURE_DEFAULT_SECONDS);
+            noiseCaptureActive = true;
+            lastNoiseProgressAt = 0;
+            broadcast({ type: 'noise-floor', status: 'capturing', progress: 0, elapsed: 0, seconds: NOISE_CAPTURE_DEFAULT_SECONDS });
+          }
+        } else if (msg.action === 'cancel') {
+          cancelNoiseCapture();
+          noiseCaptureActive = false;
+          broadcast({ type: 'noise-floor', status: 'cancelled' });
+        }
+      }
+      return;
+
+    case 'noise-floor':
+      // The profile itself lives in localStorage (written by the screen);
+      // reload it so this window's subtraction / EQ curve stay in sync.
+      if (msg.status === 'ready' || msg.status === 'cleared' || msg.status === 'cancelled') {
+        loadNoiseFloor();
+      }
+      if (myRole === 'control' && panel) panel.setNoiseState(msg);
+      return;
+
     case 'reorder':
       // The pad assignment changed in some window. Positions shift, so keep the
       // currently playing pattern selected (by id) and re-render the panel.
@@ -526,6 +567,10 @@ broadcast({ type: 'hello', role: myRole, bootTime: MY_BOOT_TIME });
 
 let spectrumRaf = 0;
 let lastSpectrumAt = 0;
+// True while this screen is running a noise-floor capture; the loop watches
+// the sampler for completion and streams progress to the control panels.
+let noiseCaptureActive = false;
+let lastNoiseProgressAt = 0;
 
 function spectrumLoop(now) {
   spectrumRaf = 0;
@@ -536,6 +581,30 @@ function spectrumLoop(now) {
     const spec = frame ? computeLogSpectrum(frame) : null;
     if (spec) broadcast({ type: 'spectrum', ...spec });
   }
+
+  if (noiseCaptureActive) {
+    const cap = getNoiseCaptureState();
+    if (!cap.capturing) {
+      // feedNoiseCapture() finalised the profile inside getAnalysisFrame.
+      noiseCaptureActive = false;
+      broadcast({ type: 'noise-floor', status: 'ready', meta: getNoiseFloorMeta() });
+    } else if (cap.frames === 0 && cap.elapsed > cap.seconds + 2) {
+      // No analysis frames arrived (audio died mid-capture) — give up.
+      cancelNoiseCapture();
+      noiseCaptureActive = false;
+      broadcast({ type: 'noise-floor', status: 'failed', reason: 'no-audio' });
+    } else if (now - lastNoiseProgressAt > 250) {
+      lastNoiseProgressAt = now;
+      broadcast({
+        type: 'noise-floor',
+        status: 'capturing',
+        progress: cap.progress,
+        elapsed: cap.elapsed,
+        seconds: cap.seconds,
+      });
+    }
+  }
+
   spectrumRaf = requestAnimationFrame(spectrumLoop);
 }
 
@@ -668,6 +737,12 @@ function ensurePanel() {
       saveSlotOrder(order);
       broadcast({ type: 'reorder', order });
     },
+    onNoiseCapture: (seconds) => broadcast({ type: 'noise-capture', action: 'start', seconds }),
+    onNoiseCancel: () => broadcast({ type: 'noise-capture', action: 'cancel' }),
+    onNoiseClear: () => {
+      clearNoiseFloor();
+      broadcast({ type: 'noise-floor', status: 'cleared' });
+    },
     getParams,
     getPattern: () => currentIndex,
     isScreen: () => myRole === 'screen',
@@ -717,6 +792,9 @@ function renderScreenToolbar() {
 // on the feature extractor (later changes ride the 'params' message path).
 setBandSplit(getParams(BANDS_ID));
 
+// Restore a captured noise floor so cleaned spectra survive reloads.
+loadNoiseFloor();
+
 if (myRole === 'screen') {
   document.body.classList.add('is-screen');
   currentVideoDeviceId = localStorage.getItem(STORAGE.video) || null;
@@ -753,6 +831,17 @@ if (import.meta.env.DEV) {
         split: { ...panel.eqSplit },
         drawn: panel.eqDrawn,
         spectrumAt: panel.lastSpectrumAt,
+        // Last spectrum message received (cleaned by the screen's noise floor)
+        lastSpectrum: panel.eqSpectrum,
+      };
+    },
+    // Noise-floor capture state + stored profile (for tests & debugging)
+    get noise() {
+      return {
+        capturing: isNoiseCapturing(),
+        capture: getNoiseCaptureState(),
+        profile: getNoiseFloorMeta(),
+        sampleDb: (hz) => sampleNoiseFloorDb(hz),
       };
     },
     // Exposed only in Vite development mode so integration tests can inject a

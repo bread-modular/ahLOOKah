@@ -1,3 +1,5 @@
+import { feedNoiseCapture, applyNoiseFloor } from './noise-floor.js';
+
 export class AudioManager {
   constructor() {
     this.audioContext = null;
@@ -194,7 +196,7 @@ export class AudioManager {
     this.analyserL.getFloatTimeDomainData(this.floatWaveDataL);
     this.analyserR.getFloatTimeDomainData(this.floatWaveDataR);
 
-    return {
+    const frame = {
       left: this.floatFreqDataL,
       right: this.floatFreqDataR,
       waveformLeft: this.floatWaveDataL,
@@ -203,6 +205,14 @@ export class AudioManager {
       fftSize: this.fftSize,
       time: this.audioContext.currentTime,
     };
+
+    // Noise floor: sample the RAW signature while a capture is running, then
+    // subtract the stored profile in place so every consumer (musical feature
+    // extractor, band-split EQ broadcast) sees the cleaned spectrum.
+    feedNoiseCapture(frame);
+    applyNoiseFloor(frame.left, frame.right, frame.sampleRate, frame.fftSize);
+
+    return frame;
   }
 
   getAmplitudes() {

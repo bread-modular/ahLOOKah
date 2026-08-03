@@ -16,6 +16,11 @@ import {
   EQ_DB_TOP,
   EQ_DB_BOTTOM,
 } from './sketches/audio-features.js';
+import {
+  NOISE_CAPTURE_DEFAULT_SECONDS,
+  getNoiseFloorMeta,
+  sampleNoiseFloorDb,
+} from './noise-floor.js';
 
 // Band colours of the split EQ — same hues as the legend chips in style.css.
 const EQ_COLORS = {
@@ -71,6 +76,9 @@ export class ConfigPanel {
     onOpenControl,
     onParamChange,
     onReorder,
+    onNoiseCapture,
+    onNoiseCancel,
+    onNoiseClear,
     getParams,
     getPattern,
     isScreen,
@@ -83,6 +91,9 @@ export class ConfigPanel {
     this.onOpenControl = onOpenControl;
     this.onParamChange = onParamChange;
     this.onReorder = onReorder;
+    this.onNoiseCapture = onNoiseCapture;
+    this.onNoiseCancel = onNoiseCancel;
+    this.onNoiseClear = onNoiseClear;
     this.getParams = getParams;
     this.getPattern = getPattern;
     this.isScreen = isScreen;
@@ -165,7 +176,14 @@ export class ConfigPanel {
               <span class="band-chip band-chip-mid"><i></i>Mid <b data-eq-range="mid">—</b></span>
               <span class="band-chip band-chip-high"><i></i>High <b data-eq-range="high">—</b></span>
             </div>
-            <p>Drag the two handles to set the Bass / Mid / High borders. Every effect's Bass, Mid &amp; High controls follow this split.</p>
+            <div class="band-eq-noise">
+              <div id="noise-status" class="noise-status">No noise profile yet.</div>
+              <div class="noise-actions">
+                <button id="noise-capture-btn" type="button">🎙 Capture Noise Floor</button>
+                <button id="noise-clear-btn" type="button">Clear</button>
+              </div>
+            </div>
+            <p>Drag the two handles to set the Bass / Mid / High borders. Every effect's Bass, Mid &amp; High controls follow this split. Capture a few seconds of silence to record the input's noise signature — it is subtracted from the live spectrum (dashed line).</p>
           </div>
         </details>
 
@@ -328,6 +346,28 @@ export class ConfigPanel {
     this.lastEqBroadcastAt = 0;
     this.eqWatchTimer = 0;
 
+    // Noise-floor capture UI; live state arrives via 'noise-floor' broadcasts
+    // from the screen, the stored profile is read straight from localStorage.
+    this.noiseStatusEl = this.panel.querySelector('#noise-status');
+    this.noiseCaptureBtn = this.panel.querySelector('#noise-capture-btn');
+    this.noiseClearBtn = this.panel.querySelector('#noise-clear-btn');
+    this.noiseState = { status: getNoiseFloorMeta() ? 'ready' : 'idle' };
+    if (this.noiseCaptureBtn) {
+      this.noiseCaptureBtn.onclick = () => {
+        if (this.noiseState.status === 'capturing') {
+          if (this.onNoiseCancel) this.onNoiseCancel();
+        } else if (this.onNoiseCapture) {
+          this.onNoiseCapture(NOISE_CAPTURE_DEFAULT_SECONDS);
+        }
+      };
+    }
+    if (this.noiseClearBtn) {
+      this.noiseClearBtn.onclick = () => {
+        if (this.onNoiseClear) this.onNoiseClear();
+      };
+    }
+    this.updateNoiseUi();
+
     if (!this.eqSection || !this.eqCanvas) return;
 
     this.eqSection.addEventListener('toggle', () => {
@@ -403,6 +443,77 @@ export class ConfigPanel {
     this.eqSpectrum = msg;
     this.lastSpectrumAt = performance.now();
     if (this.eqSection && this.eqSection.open) this.drawEq();
+  }
+
+  // Noise-floor lifecycle broadcast from the screen (capturing/ready/failed/
+  // cancelled/cleared). The profile itself is reloaded from localStorage by
+  // main.js before this runs.
+  setNoiseState(msg = {}) {
+    switch (msg.status) {
+      case 'capturing':
+        this.noiseState = {
+          status: 'capturing',
+          progress: Number(msg.progress) || 0,
+          elapsed: Number(msg.elapsed) || 0,
+          seconds: Number(msg.seconds) || NOISE_CAPTURE_DEFAULT_SECONDS,
+        };
+        break;
+      case 'ready':
+        this.noiseState = { status: 'ready' };
+        break;
+      case 'failed':
+        this.noiseState = { status: 'failed', reason: msg.reason };
+        break;
+      case 'cancelled':
+      case 'cleared':
+        this.noiseState = { status: getNoiseFloorMeta() ? 'ready' : 'idle' };
+        break;
+      default:
+        return;
+    }
+    this.updateNoiseUi();
+    if (this.eqSection && this.eqSection.open) this.drawEq();
+  }
+
+  updateNoiseUi() {
+    if (!this.noiseStatusEl) return;
+    const st = this.noiseState?.status || 'idle';
+    const meta = getNoiseFloorMeta();
+
+    if (st === 'capturing') {
+      const s = this.noiseState;
+      this.noiseStatusEl.textContent =
+        `Capturing noise floor… ${Math.min(s.elapsed, s.seconds).toFixed(1)}s / ${s.seconds.toFixed(0)}s — stay quiet.`;
+      this.noiseStatusEl.classList.remove('noise-active');
+      if (this.noiseCaptureBtn) {
+        this.noiseCaptureBtn.textContent = '✕ Cancel Capture';
+        this.noiseCaptureBtn.disabled = false;
+      }
+      if (this.noiseClearBtn) this.noiseClearBtn.disabled = true;
+      return;
+    }
+
+    if (this.noiseClearBtn) this.noiseClearBtn.disabled = !meta;
+
+    if (st === 'ready' && meta) {
+      const at = new Date(meta.capturedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      this.noiseStatusEl.textContent =
+        `Noise floor active — ${meta.seconds.toFixed(1)}s average captured at ${at}. The dashed line shows what gets removed.`;
+      this.noiseStatusEl.classList.add('noise-active');
+      if (this.noiseCaptureBtn) this.noiseCaptureBtn.textContent = '🎙 Re-capture Noise Floor';
+      return;
+    }
+
+    this.noiseStatusEl.classList.remove('noise-active');
+    if (st === 'failed') {
+      this.noiseStatusEl.textContent = this.noiseState.reason === 'no-audio'
+        ? 'Capture failed — the screen has no audio input running.'
+        : 'Capture failed.';
+    } else {
+      this.noiseStatusEl.textContent =
+        'No noise profile. Capture a few seconds of silence to subtract room & interface hum from the spectrum.';
+    }
+    if (this.noiseCaptureBtn) this.noiseCaptureBtn.textContent = '🎙 Capture Noise Floor';
   }
 
   // Crossover change arriving from another window (or our own round-trip).
@@ -554,6 +665,40 @@ export class ConfigPanel {
         ctx.restore();
       }
       this.eqDrawn += 1;
+    }
+
+    // 3b) Captured noise floor as a faint dashed curve — the signature that
+    // is being subtracted from the live spectrum above.
+    if (getNoiseFloorMeta()) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      const steps = 72;
+      for (let i = 0; i <= steps; i++) {
+        const x = (i / steps) * w;
+        const db = sampleNoiseFloorDb(eqXToHz(x, w));
+        const y = db === null ? h : eqDbToY(db, h);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 3c) Dim + label the canvas while a capture is running
+    if (this.noiseState?.status === 'capturing') {
+      ctx.fillStyle = 'rgba(5, 6, 8, 0.45)';
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+      ctx.font = '600 10px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(
+        `CAPTURING NOISE FLOOR… ${Math.min(this.noiseState.elapsed, this.noiseState.seconds).toFixed(1)}s`,
+        w / 2,
+        h / 2,
+      );
     }
 
     // 4) Crossover separators with grab handles
