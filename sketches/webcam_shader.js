@@ -1,4 +1,4 @@
-export default (audio, videoDeviceId) => (p) => {
+export default (audio, videoDeviceId, params) => (p) => {
   let capture;
   let theShader;
   let isCaptureReady = false;
@@ -24,6 +24,8 @@ export default (audio, videoDeviceId) => (p) => {
     uniform float uSub;
     uniform float uMid;
     uniform float uHigh;
+    uniform float uShift;
+    uniform float uScan;
     uniform float uResolution[2];
 
     void main() {
@@ -42,7 +44,7 @@ export default (audio, videoDeviceId) => (p) => {
       uv.x += noiseShift;
 
       // Sampling with RGB Shift
-      float shift = uHigh * 0.015;
+      float shift = uHigh * 0.015 * uShift;
       vec4 rCol = texture2D(uTex, uv + vec2(shift, 0.0));
       vec4 gCol = texture2D(uTex, uv);
       vec4 bCol = texture2D(uTex, uv - vec2(shift, 0.0));
@@ -61,7 +63,7 @@ export default (audio, videoDeviceId) => (p) => {
       }
 
       // CRT Scanlines
-      float scanline = sin(uv.y * uResolution[1] * 1.2) * 0.08;
+      float scanline = sin(uv.y * uResolution[1] * 1.2) * 0.08 * uScan;
       color -= scanline;
 
       // Vignette
@@ -113,13 +115,21 @@ export default (audio, videoDeviceId) => (p) => {
     const freqs = audio.getFrequencies();
     const b = analyzeBands(freqs ? freqs.left : null);
 
+    // Read live params every frame so slider changes apply immediately
+    const P = params || {};
+    const shift = P.shift ?? 1;
+    const scan = P.scan ?? 1;
+    const react = P.react ?? 1;
+
     p.shader(theShader);
 
     theShader.setUniform('uTex', capture);
     theShader.setUniform('uTime', p.frameCount * 0.05);
-    theShader.setUniform('uSub', b.sub);
-    theShader.setUniform('uMid', b.mid);
-    theShader.setUniform('uHigh', b.high);
+    theShader.setUniform('uSub', b.sub * react);
+    theShader.setUniform('uMid', b.mid * react);
+    theShader.setUniform('uHigh', b.high * react);
+    theShader.setUniform('uShift', shift);
+    theShader.setUniform('uScan', scan);
     theShader.setUniform('uResolution', [p.width, p.height]);
 
     p.rect(0, 0, p.width, p.height);

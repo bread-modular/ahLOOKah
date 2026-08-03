@@ -1,4 +1,4 @@
-export default (audio, videoDeviceId) => (p) => {
+export default (audio, videoDeviceId, params) => (p) => {
   let rotation = 0;
   let groove = 0;
   let bgLines = [];
@@ -89,7 +89,7 @@ export default (audio, videoDeviceId) => (p) => {
     p.pop();
   }
 
-  function drawScreen(b) {
+  function drawScreen(b, react, scan) {
     p.push();
     // Position TV on the left side
     p.translate(-350, -50, -100);
@@ -126,12 +126,13 @@ export default (audio, videoDeviceId) => (p) => {
     p.pop();
 
     // Scanline overlay effect
-    if (b.mid > 0.2) {
+    if (b.mid * react > 0.2) {
       p.push();
       p.translate(0, 0, 12);
       p.stroke(0, 60);
       p.strokeWeight(1);
-      for (let y = -SCREEN_H / 2; y < SCREEN_H / 2; y += 4) {
+      const scanStep = Math.max(1, 4 / scan);
+      for (let y = -SCREEN_H / 2; y < SCREEN_H / 2; y += scanStep) {
         p.line(-SCREEN_W / 2, y, SCREEN_W / 2, y);
       }
       p.pop();
@@ -266,9 +267,15 @@ export default (audio, videoDeviceId) => (p) => {
     const b2 = analyzeBands(freqs.right); // Ch 2
     const noiseLevel = (b2.mid + b2.high) * 0.5;
 
+    // Read live params every frame so slider changes apply immediately
+    const P = params || {};
+    const grooveSpeed = P.groove ?? 1;
+    const scan = P.scan ?? 1;
+    const react = P.react ?? 1;
+
     // Animation Timings
-    groove += 0.1 + b.mid * 0.2;
-    rotation += 0.005 + noiseLevel * 0.1;
+    groove += (0.1 + b.mid * 0.2) * grooveSpeed;
+    rotation += (0.005 + noiseLevel * 0.1) * react;
 
     // Camera Context
     p.push();
@@ -313,7 +320,7 @@ export default (audio, videoDeviceId) => (p) => {
     p.pop();
 
     // Draw TV screen on left
-    drawScreen(b);
+    drawScreen(b, react, scan);
 
     // Draw character on right
     drawCharacter(b, noiseLevel);

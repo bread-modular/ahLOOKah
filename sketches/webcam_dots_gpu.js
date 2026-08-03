@@ -1,4 +1,4 @@
-export default (audio, videoDeviceId) => (p) => {
+export default (audio, videoDeviceId, params) => (p) => {
   let capture;
   let theShader;
   let isCaptureReady = false;
@@ -24,6 +24,8 @@ export default (audio, videoDeviceId) => (p) => {
     uniform float uSub;
     uniform float uMid;
     uniform float uHigh;
+    uniform float uSpacing;
+    uniform float uGlitch;
     uniform vec2 uResolution;
 
     float random(vec2 st) {
@@ -40,7 +42,7 @@ export default (audio, videoDeviceId) => (p) => {
       uv.x += displace;
       
       // Dot grid spacing - denser with higher mids
-      float dotSpacing = mix(12.0, 5.0, uMid);
+      float dotSpacing = mix(uSpacing, 5.0, uMid);
       
       // Calculate grid cell
       vec2 gridPos = floor(uv * uResolution / dotSpacing);
@@ -61,8 +63,8 @@ export default (audio, videoDeviceId) => (p) => {
       // Draw dot
       float dot = smoothstep(dotSize + 0.05, dotSize - 0.05, dist);
       
-      // Glitchy rectangles on high frequencies
-      float glitch = step(0.5, uHigh) * step(0.92, random(gridPos + floor(uTime)));
+      // Glitchy rectangles on high frequencies (frequency scales with uGlitch)
+      float glitch = step(0.5, uHigh) * step(0.98 - 0.06 * uGlitch, random(gridPos + floor(uTime)));
       if (glitch > 0.5) {
         float rect = step(abs(cellUV.y - 0.5), 0.1) * step(abs(cellUV.x - 0.5), 0.4);
         dot = max(dot, rect);
@@ -140,18 +142,21 @@ export default (audio, videoDeviceId) => (p) => {
     const freqs = audio.getFrequencies();
     const b = analyzeBands(freqs ? freqs.left : null);
 
-    // Debug: log audio values every 60 frames
-    if (p.frameCount % 60 === 0) {
-      console.log('Audio:', { sub: b.sub.toFixed(2), mid: b.mid.toFixed(2), high: b.high.toFixed(2) });
-    }
+    // Read live params every frame so slider changes apply immediately
+    const P = params || {};
+    const spacing = P.spacing ?? 12;
+    const glitch = P.glitch ?? 1;
+    const react = P.react ?? 1;
 
     p.shader(theShader);
     theShader.setUniform('uTex', capture);
     theShader.setUniform('uTime', p.frameCount * 0.05);
     // Boost the values a bit to make effects more visible
-    theShader.setUniform('uSub', b.sub * 2.0);
-    theShader.setUniform('uMid', b.mid * 2.0);
-    theShader.setUniform('uHigh', b.high * 2.0);
+    theShader.setUniform('uSub', b.sub * 2.0 * react);
+    theShader.setUniform('uMid', b.mid * 2.0 * react);
+    theShader.setUniform('uHigh', b.high * 2.0 * react);
+    theShader.setUniform('uSpacing', spacing);
+    theShader.setUniform('uGlitch', glitch);
     theShader.setUniform('uResolution', [p.width, p.height]);
 
     p.rect(0, 0, p.width, p.height);

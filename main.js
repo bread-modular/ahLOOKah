@@ -315,10 +315,13 @@ function applyDevices() {
 
   if (savedVideoId && savedVideoId !== currentVideoDeviceId) {
     currentVideoDeviceId = savedVideoId;
-    // Reload current sketch only if it's a webcam-dependent one
-    const sketch = getOrderedSketches()[currentIndex];
+    // Reload the current sketch only if it's a webcam-dependent one — this
+    // covers both pad-based and library-only (id-based) camera effects, and
+    // preserves a live merge pair when one is running.
+    const sketch = SKETCHES.find((s) => s.id === activeSketchId);
     if (sketch && sketch.camera) {
-      loadSketch(currentIndex);
+      if (currentIndex >= 0) loadSketch(currentIndex, mergeIndices);
+      else loadSketchById(activeSketchId);
     }
   }
 }

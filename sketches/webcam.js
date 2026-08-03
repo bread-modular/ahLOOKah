@@ -1,4 +1,4 @@
-export default (audio, videoDeviceId) => (p) => {
+export default (audio, videoDeviceId, params) => (p) => {
   let capture;
   let isCaptureReady = false;
 
@@ -48,8 +48,15 @@ export default (audio, videoDeviceId) => (p) => {
     const freqs = audio.getFrequencies();
     const b = analyzeBands(freqs ? freqs.left : null);
 
+    // Read live params every frame so slider changes apply immediately
+    const P = params || {};
+    const density = P.density ?? 1;
+    const dotSize = P.size ?? 1;
+    const grain = P.grain ?? 1;
+    const react = P.react ?? 1;
+
     // Grid spacing based on audio - more dense on high mids
-    const step = Math.floor(p.map(b.mid, 0, 1, 15, 6));
+    const step = Math.max(2, Math.floor(p.map(b.mid, 0, 1, 15, 6) / density));
 
     capture.loadPixels();
 
@@ -75,13 +82,13 @@ export default (audio, videoDeviceId) => (p) => {
           const screenY = offsetY + y * scale;
 
           // Dot size reacts to brightness and audio sub-bass
-          const baseSize = p.map(brightness, 0, 255, 1, step * 1.5);
-          const finalSize = baseSize * (1 + b.sub * 1.5);
+          const baseSize = p.map(brightness, 0, 255, 1, step * 1.5) * dotSize;
+          const finalSize = baseSize * (1 + b.sub * 1.5 * react);
 
           // Gritty monochrome
           p.fill(255, p.map(brightness, 0, 255, 100, 255));
 
-          if (b.high > 0.4 && p.random(1) > 0.9) {
+          if (b.high * react > 0.4 && p.random(1) > 0.9) {
             // Glitchy squares on hats
             p.rect(screenX, screenY, finalSize * 2, 2);
           } else {
@@ -93,7 +100,7 @@ export default (audio, videoDeviceId) => (p) => {
 
     // Noise/Grain Overlay
     if (b.mid > 0.3) {
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < 10 * grain; i++) {
         p.stroke(255, 50);
         p.line(0, p.random(p.height), p.width, p.random(p.height));
       }
