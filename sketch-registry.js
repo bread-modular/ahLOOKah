@@ -95,12 +95,8 @@ import glitchCrt from './sketches/glitch_crt.js';
 // Legacy camera-input sketches surfaced into the library (registered now so
 // they appear under Video FX with live params; each tolerates a missing camera
 // by drawing a fallback/black frame until capture is ready).
-import webcam from './sketches/webcam.js';
-import video3d from './sketches/video3d.js';
 import webcamDotsGpu from './sketches/webcam_dots_gpu.js';
 import webcamHighContrast from './sketches/webcam_high_contrast.js';
-import webcamShader from './sketches/webcam_shader.js';
-import characterTv from './sketches/character_tv.js';
 
 // Shared "responsiveness" triple used by many effects (0..2, default 1)
 const BAND_RESPONSIVENESS = [
@@ -817,31 +813,7 @@ export const SKETCHES = [
     ],
     group: 'Glitch / Effects',
   }, // 56
-  {
-    id: 'video-feed',
-    name: 'Video Dots',
-    factory: webcam,
-    params: [
-      { key: 'density', label: 'Dot Density', min: 0.4, max: 3, step: 0.05, default: 1 },
-      { key: 'size', label: 'Dot Size', min: 0.3, max: 2, step: 0.05, default: 1 },
-      { key: 'grain', label: 'Noise Grain', min: 0, max: 2, step: 0.05, default: 1 },
-      { key: 'react', label: 'Audio Reactivity', min: 0, max: 2, step: 0.05, default: 1 },
-    ],
-    group: 'Video FX',
-    camera: true,
-  }, // 57
-  {
-    id: 'video-3d',
-    name: 'Video 3D',
-    factory: video3d,
-    params: [
-      { key: 'spin', label: 'Spin Speed', min: 0, max: 3, step: 0.05, default: 1 },
-      { key: 'boxes', label: 'Background Boxes', min: 0, max: 30, step: 1, default: 15 },
-      { key: 'react', label: 'Audio Reactivity', min: 0, max: 2, step: 0.05, default: 1 },
-    ],
-    group: 'Video FX',
-    camera: true,
-  }, // 58
+  // 57
   {
     id: 'video-dots-gpu',
     name: 'Video Dots GPU',
@@ -853,7 +825,7 @@ export const SKETCHES = [
     ],
     group: 'Video FX',
     camera: true,
-  }, // 59
+  }, // 58
   {
     id: 'video-high-contrast',
     name: 'Video High Contrast',
@@ -865,31 +837,7 @@ export const SKETCHES = [
     ],
     group: 'Video FX',
     camera: true,
-  }, // 60
-  {
-    id: 'video-shader',
-    name: 'Video Shader',
-    factory: webcamShader,
-    params: [
-      { key: 'shift', label: 'RGB Shift', min: 0, max: 3, step: 0.05, default: 1 },
-      { key: 'scan', label: 'Scanlines', min: 0, max: 2, step: 0.05, default: 1 },
-      { key: 'react', label: 'Audio Reactivity', min: 0, max: 2, step: 0.05, default: 1 },
-    ],
-    group: 'Video FX',
-    camera: true,
-  }, // 61
-  {
-    id: 'character-tv',
-    name: 'Character TV',
-    factory: characterTv,
-    params: [
-      { key: 'groove', label: 'Groove Speed', min: 0, max: 3, step: 0.05, default: 1 },
-      { key: 'scan', label: 'TV Scanlines', min: 0, max: 2, step: 0.05, default: 1 },
-      { key: 'react', label: 'Audio Reactivity', min: 0, max: 2, step: 0.05, default: 1 },
-    ],
-    group: 'Video FX',
-    camera: true,
-  }, // 62
+  }, // 59
 ];
 
 // Reserved id for the global dual-effect blend params (shown in merge mode).
