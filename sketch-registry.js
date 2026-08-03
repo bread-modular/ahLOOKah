@@ -9,10 +9,21 @@
 // Param shape:
 //   { key, label, min, max, step, default }
 //
-// Ordering: SKETCHES is the canonical declaration order. The user can reorder
-// effects in the control panel (drag & drop); the current order is persisted
-// as an array of sketch `id`s in localStorage (viz2_effect_order) and read via
-// getOrderedSketches(). Only the first 10 positions get number shortcuts.
+// Ordering: SKETCHES is the canonical declaration order (and the order used
+// inside the pattern library). The control panel's FIXED pattern pad holds 10
+// slots (keys 1-9/0); the assigned sketch ids are persisted in localStorage
+// (viz2_slot_order) and read via getOrderedSketches(), which returns exactly
+// the 10 pad sketches. Older builds persisted a full order (viz2_effect_order);
+// it is migrated once — its first 10 valid ids become the pad, gaps filled
+// from declaration order.
+//
+// Group taxonomy (every entry carries a `group` field, used by the library):
+//   Audio Reactive      — beat/band-driven 2D visuals
+//   3D                  — perspective / depth-driven looks
+//   Cinematic / Shaders — GPU-first cinematic looks
+//   Neon / Lasers       — synthwave, neon & laser aesthetics
+//   Glitch / Effects    — glitch / digital-artifact effects
+//   Basics              — simple building-block patterns
 import circles from './sketches/circles.js';
 import circlesCh1 from './sketches/circles_ch1.js';
 import bars from './sketches/bars.js';
@@ -62,6 +73,14 @@ import auroraStorm from './sketches/aurora_storm.js';
 import wormholeTransit from './sketches/wormhole_transit.js';
 import crystalCavern from './sketches/crystal_cavern.js';
 import neonMetropolis from './sketches/neon_metropolis.js';
+// Basics: simple building-block patterns (flat color, washes, bars, noise,
+// grain, checkerboard) for the grouped pattern library.
+import solidColor from './sketches/solid_color.js';
+import gradientWash from './sketches/gradient_wash.js';
+import colorBars from './sketches/color_bars.js';
+import noiseStatic from './sketches/noise_static.js';
+import filmGrain from './sketches/film_grain.js';
+import checkerboard from './sketches/checkerboard.js';
 
 // Shared "responsiveness" triple used by many effects (0..2, default 1)
 const BAND_RESPONSIVENESS = [
@@ -86,12 +105,14 @@ export const SKETCHES = [
       ...BAND_RESPONSIVENESS,
       { key: 'glitch', label: 'Glitch Amount', min: 0, max: 2, step: 0.05, default: 1 },
     ],
+    group: 'Audio Reactive',
   }, // 1
   {
     id: 'circles-ch1',
     name: 'Circles CH1',
     factory: circlesCh1,
     params: BAND_RESPONSIVENESS,
+    group: 'Audio Reactive',
   }, // 2
   {
     id: 'bars',
@@ -102,6 +123,7 @@ export const SKETCHES = [
       { key: 'barWidth', label: 'Bar Width', min: 2, max: 16, step: 1, default: 4 },
       { key: 'flash', label: 'Peak Flash', min: 0, max: 2, step: 0.05, default: 1 },
     ],
+    group: 'Audio Reactive',
   }, // 3
   {
     id: 'techno3d',
@@ -111,6 +133,7 @@ export const SKETCHES = [
       { key: 'spin', label: 'Spin Speed', min: 0, max: 3, step: 0.05, default: 1 },
       ...BAND_RESPONSIVENESS,
     ],
+    group: '3D',
   }, // 4
   {
     id: 'character3d',
@@ -120,6 +143,7 @@ export const SKETCHES = [
       { key: 'groove', label: 'Groove Speed', min: 0, max: 3, step: 0.05, default: 1 },
       ...BAND_RESPONSIVENESS,
     ],
+    group: '3D',
   }, // 5
   {
     id: 'neon-spectrum',
@@ -129,6 +153,7 @@ export const SKETCHES = [
       ...BAND_RESPONSIVENESS,
       { key: 'bars', label: 'Bar Count', min: 24, max: 144, step: 1, default: 72 },
     ],
+    group: 'Audio Reactive',
   }, // 6
   {
     id: 'pulse-rings',
@@ -140,6 +165,7 @@ export const SKETCHES = [
       { key: 'rings', label: 'Max Rings', min: 10, max: 80, step: 1, default: 40 },
       { key: 'sub', label: 'Sub Pulse', min: 0, max: 2, step: 0.05, default: 1 },
     ],
+    group: 'Audio Reactive',
   }, // 7
   {
     id: 'particle-storm',
@@ -151,6 +177,7 @@ export const SKETCHES = [
       { key: 'wind', label: 'Wind Strength', min: 0, max: 3, step: 0.05, default: 1 },
       { key: 'kick', label: 'Kick Sensitivity', min: 0.2, max: 2, step: 0.05, default: 1 },
     ],
+    group: 'Audio Reactive',
   }, // 8
   {
     id: 'waveform-tunnel',
@@ -162,6 +189,7 @@ export const SKETCHES = [
       { key: 'scale', label: 'Tunnel Scale', min: 0.5, max: 2, step: 0.05, default: 1 },
       { key: 'sub', label: 'Sub Push', min: 0, max: 2, step: 0.05, default: 1 },
     ],
+    group: 'Audio Reactive',
   }, // 9
   {
     id: 'chroma-mandala',
@@ -173,6 +201,7 @@ export const SKETCHES = [
       { key: 'bloom', label: 'Mid Bloom', min: 0, max: 2, step: 0.05, default: 1 },
       { key: 'sub', label: 'Sub Ring', min: 0, max: 2, step: 0.05, default: 1 },
     ],
+    group: 'Audio Reactive',
   }, // 0 (10)
   {
     id: 'starfield-rush',
@@ -184,6 +213,7 @@ export const SKETCHES = [
       { key: 'hue', label: 'Hue Drift', min: 0, max: 2, step: 0.05, default: 1 },
       { key: 'sparkle', label: 'High Sparkle', min: 0, max: 2, step: 0.05, default: 1 },
     ],
+    group: '3D',
   }, // 11
   {
     id: 'echo-ripples',
@@ -195,6 +225,7 @@ export const SKETCHES = [
       { key: 'thick', label: 'Ring Thickness', min: 0, max: 2, step: 0.05, default: 1 },
       { key: 'sparkle', label: 'High Sparkle', min: 0, max: 2, step: 0.05, default: 1 },
     ],
+    group: 'Audio Reactive',
   }, // 12
   {
     id: 'laser-grid',
@@ -206,6 +237,7 @@ export const SKETCHES = [
       { key: 'beams', label: 'Laser Beams', min: 0, max: 16, step: 1, default: 6 },
       { key: 'speed', label: 'Scroll Speed', min: 0, max: 3, step: 0.05, default: 1 },
     ],
+    group: 'Neon / Lasers',
   }, // 13
   {
     id: 'strobe-pulse',
@@ -217,6 +249,7 @@ export const SKETCHES = [
       { key: 'split', label: 'RGB Split', min: 0, max: 3, step: 0.05, default: 1 },
       { key: 'cycle', label: 'Color Cycle', min: 0, max: 3, step: 0.05, default: 1 },
     ],
+    group: 'Audio Reactive',
   }, // 14
   {
     id: 'plasma-waves',
@@ -228,6 +261,7 @@ export const SKETCHES = [
       { key: 'speed', label: 'Flow Speed', min: 0, max: 3, step: 0.05, default: 1 },
       { key: 'scale', label: 'Plasma Scale', min: 0.3, max: 3, step: 0.05, default: 1 },
     ],
+    group: 'Audio Reactive',
   }, // 15
   {
     id: 'vortex-spiral',
@@ -240,6 +274,7 @@ export const SKETCHES = [
       { key: 'twist', label: 'Twist Amount', min: 0, max: 2, step: 0.05, default: 1 },
       { key: 'sparkle', label: 'Stardust', min: 0, max: 2, step: 0.05, default: 1 },
     ],
+    group: '3D',
   }, // 16
   {
     id: 'glitch-matrix',
@@ -251,6 +286,7 @@ export const SKETCHES = [
       { key: 'glitch', label: 'Glitch Amount', min: 0, max: 2, step: 0.05, default: 1 },
       { key: 'trail', label: 'Trail Length', min: 0, max: 2, step: 0.05, default: 1 },
     ],
+    group: 'Glitch / Effects',
   }, // 17
   {
     id: 'orbital-rings',
@@ -263,6 +299,7 @@ export const SKETCHES = [
       { key: 'tilt', label: 'Bass Tilt', min: 0, max: 2, step: 0.05, default: 1 },
       { key: 'satellites', label: 'Satellites', min: 0, max: 2, step: 0.05, default: 1 },
     ],
+    group: '3D',
   }, // 18
   {
     id: 'shockwave-beats',
@@ -274,6 +311,7 @@ export const SKETCHES = [
       { key: 'chroma', label: 'Chroma Split', min: 0, max: 3, step: 0.05, default: 1 },
       { key: 'max', label: 'Max Waves', min: 4, max: 48, step: 1, default: 24 },
     ],
+    group: 'Audio Reactive',
   }, // 19
   {
     id: 'neon-ribbons',
@@ -286,6 +324,7 @@ export const SKETCHES = [
       { key: 'width', label: 'Ribbon Width', min: 0.3, max: 3, step: 0.05, default: 1 },
       { key: 'trail', label: 'Trail Length', min: 20, max: 150, step: 5, default: 60 },
     ],
+    group: 'Neon / Lasers',
   }, // 20
   {
     id: 'prism-burst',
@@ -298,6 +337,7 @@ export const SKETCHES = [
       { key: 'length', label: 'Ray Length', min: 0.3, max: 2, step: 0.05, default: 1 },
       { key: 'core', label: 'Core Pulse', min: 0, max: 2, step: 0.05, default: 1 },
     ],
+    group: 'Neon / Lasers',
   }, // 21
   {
     id: 'cosmic-web',
@@ -310,6 +350,7 @@ export const SKETCHES = [
       { key: 'scatter', label: 'Kick Scatter', min: 0, max: 3, step: 0.05, default: 1 },
       { key: 'drift', label: 'Drift Speed', min: 0, max: 3, step: 0.05, default: 1 },
     ],
+    group: 'Audio Reactive',
   }, // 22
   {
     id: 'event-horizon',
@@ -322,6 +363,7 @@ export const SKETCHES = [
       { key: 'spin', label: 'Orbital Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
       { key: 'bloom', label: 'Photon Bloom', min: 0.3, max: 2, step: 0.05, default: 1 },
     ],
+    group: 'Cinematic / Shaders',
   }, // 23
   {
     id: 'liquid-chrome',
@@ -334,6 +376,7 @@ export const SKETCHES = [
       { key: 'speed', label: 'Flow Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
       { key: 'iridescence', label: 'Iridescence', min: 0, max: 2, step: 0.05, default: 1 },
     ],
+    group: 'Cinematic / Shaders',
   }, // 24
   {
     id: 'laser-cathedral',
@@ -346,6 +389,7 @@ export const SKETCHES = [
       { key: 'depth', label: 'Perspective Depth', min: 0.4, max: 2.2, step: 0.05, default: 1 },
       { key: 'structure', label: 'Arch Density', min: 0.35, max: 2, step: 0.05, default: 1 },
     ],
+    group: 'Neon / Lasers',
   }, // 25
   {
     id: 'cymatic-bloom',
@@ -358,6 +402,7 @@ export const SKETCHES = [
       { key: 'flow', label: 'Liquid Flow', min: 0, max: 2.5, step: 0.05, default: 1 },
       { key: 'bloom', label: 'Caustic Bloom', min: 0.3, max: 2, step: 0.05, default: 1 },
     ],
+    group: 'Cinematic / Shaders',
   }, // 26
   {
     id: 'holo-swarm',
@@ -370,6 +415,7 @@ export const SKETCHES = [
       { key: 'scan', label: 'Hologram Scan', min: 0, max: 2, step: 0.05, default: 1 },
       { key: 'speed', label: 'Orbit Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
     ],
+    group: 'Cinematic / Shaders',
   }, // 27
   {
     id: 'aurora-veil',
@@ -382,6 +428,7 @@ export const SKETCHES = [
       { key: 'shimmer', label: 'Curtain Shimmer', min: 0, max: 2, step: 0.05, default: 1 },
       { key: 'haze', label: 'Aurora Haze', min: 0.3, max: 2, step: 0.05, default: 1 },
     ],
+    group: 'Cinematic / Shaders',
   }, // 28
   {
     id: 'mandelbulb-drift',
@@ -394,6 +441,7 @@ export const SKETCHES = [
       { key: 'drift', label: 'Orbit Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
       { key: 'glow', label: 'Trap Glow', min: 0.3, max: 2, step: 0.05, default: 1 },
     ],
+    group: '3D',
   }, // 29
   {
     id: 'storm-surge',
@@ -406,6 +454,7 @@ export const SKETCHES = [
       { key: 'drift', label: 'Wind Drift', min: 0, max: 2.5, step: 0.05, default: 1 },
       { key: 'bloom', label: 'Lightning Bloom', min: 0.3, max: 2, step: 0.05, default: 1 },
     ],
+    group: 'Cinematic / Shaders',
   }, // 30
   {
     id: 'ink-dispersion',
@@ -418,6 +467,7 @@ export const SKETCHES = [
       { key: 'spread', label: 'Burst Spread', min: 0, max: 2, step: 0.05, default: 1 },
       { key: 'bloom', label: 'Ink Bloom', min: 0.3, max: 2, step: 0.05, default: 1 },
     ],
+    group: 'Cinematic / Shaders',
   }, // 31
   {
     id: 'infinity-mirror',
@@ -430,6 +480,7 @@ export const SKETCHES = [
       { key: 'spin', label: 'Room Spin', min: 0, max: 2.5, step: 0.05, default: 1 },
       { key: 'depth', label: 'Reflection Depth', min: 0.4, max: 2, step: 0.05, default: 1 },
     ],
+    group: '3D',
   }, // 32
   {
     id: 'ion-tempest',
@@ -442,6 +493,7 @@ export const SKETCHES = [
       { key: 'speed', label: 'Storm Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
       { key: 'glow', label: 'Plasma Glow', min: 0.3, max: 2, step: 0.05, default: 1 },
     ],
+    group: 'Cinematic / Shaders',
   }, // 33
   {
     id: 'crystal-reliquary',
@@ -454,6 +506,7 @@ export const SKETCHES = [
       { key: 'spin', label: 'Orbit Spin', min: 0, max: 2.5, step: 0.05, default: 1 },
       { key: 'caustic', label: 'Spectral Caustics', min: 0.2, max: 2, step: 0.05, default: 1 },
     ],
+    group: '3D',
   }, // 34
   {
     id: 'neural-cascade',
@@ -466,6 +519,7 @@ export const SKETCHES = [
       { key: 'pulse', label: 'Activation Pulse', min: 0.2, max: 2, step: 0.05, default: 1 },
       { key: 'speed', label: 'Cascade Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
     ],
+    group: 'Cinematic / Shaders',
   }, // 35
   {
     id: 'aurora-reactor',
@@ -478,6 +532,7 @@ export const SKETCHES = [
       { key: 'core', label: 'Reactor Core', min: 0.35, max: 2, step: 0.05, default: 1 },
       { key: 'speed', label: 'Field Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
     ],
+    group: 'Cinematic / Shaders',
   }, // 36
   {
     id: 'warp-loom',
@@ -490,6 +545,7 @@ export const SKETCHES = [
       { key: 'speed', label: 'Warp Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
       { key: 'bloom', label: 'Fiber Bloom', min: 0.3, max: 2, step: 0.05, default: 1 },
     ],
+    group: 'Cinematic / Shaders',
   }, // 37
   {
     id: 'fractal-nebula',
@@ -502,6 +558,7 @@ export const SKETCHES = [
       { key: 'glow', label: 'Nebula Glow', min: 0.2, max: 2, step: 0.05, default: 1 },
       { key: 'speed', label: 'Orbit Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
     ],
+    group: 'Cinematic / Shaders',
   }, // 38
   {
     id: 'aurora-storm',
@@ -514,6 +571,7 @@ export const SKETCHES = [
       { key: 'shimmer', label: 'Particle Shimmer', min: 0, max: 2, step: 0.05, default: 1 },
       { key: 'speed', label: 'Wind Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
     ],
+    group: 'Cinematic / Shaders',
   }, // 39
   {
     id: 'wormhole-transit',
@@ -526,6 +584,7 @@ export const SKETCHES = [
       { key: 'doppler', label: 'Doppler Shift', min: 0, max: 2, step: 0.05, default: 1 },
       { key: 'speed', label: 'Transit Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
     ],
+    group: '3D',
   }, // 40
   {
     id: 'crystal-cavern',
@@ -538,6 +597,7 @@ export const SKETCHES = [
       { key: 'caustics', label: 'Caustic Intensity', min: 0.2, max: 2, step: 0.05, default: 1 },
       { key: 'speed', label: 'Growth Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
     ],
+    group: '3D',
   }, // 41
   {
     id: 'neon-metropolis',
@@ -550,7 +610,82 @@ export const SKETCHES = [
       { key: 'traffic', label: 'Traffic Density', min: 0, max: 2, step: 0.05, default: 1 },
       { key: 'speed', label: 'City Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
     ],
+    group: 'Neon / Lasers',
   }, // 42
+  {
+    id: 'solid-color',
+    name: 'Solid Color',
+    factory: solidColor,
+    params: [
+      { key: 'hue', label: 'Hue', min: 0, max: 1, step: 0.01, default: 0.6 },
+      { key: 'saturation', label: 'Saturation', min: 0, max: 1, step: 0.01, default: 0.7 },
+      { key: 'brightness', label: 'Brightness', min: 0, max: 1, step: 0.01, default: 0.9 },
+      { key: 'pulse', label: 'Audio Pulse', min: 0, max: 1, step: 0.01, default: 0 },
+    ],
+    group: 'Basics',
+  }, // 43
+  {
+    id: 'gradient-wash',
+    name: 'Color Wash',
+    factory: gradientWash,
+    params: [
+      { key: 'hueA', label: 'Hue A', min: 0, max: 1, step: 0.01, default: 0.55 },
+      { key: 'hueB', label: 'Hue B', min: 0, max: 1, step: 0.01, default: 0.92 },
+      { key: 'speed', label: 'Drift Speed', min: 0, max: 3, step: 0.05, default: 0.6 },
+      { key: 'pulse', label: 'Audio Pulse', min: 0, max: 2, step: 0.05, default: 0.8 },
+    ],
+    group: 'Basics',
+  }, // 44
+  {
+    id: 'color-bars',
+    name: 'Color Bars',
+    factory: colorBars,
+    params: [
+      { key: 'bars', label: 'Bar Count', min: 2, max: 24, step: 1, default: 8 },
+      { key: 'saturation', label: 'Saturation', min: 0, max: 1, step: 0.01, default: 0.85 },
+      { key: 'brightness', label: 'Brightness', min: 0, max: 1, step: 0.01, default: 0.95 },
+      { key: 'wobble', label: 'Wobble', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+    group: 'Basics',
+  }, // 45
+  {
+    id: 'noise-static',
+    name: 'Noise Static',
+    factory: noiseStatic,
+    params: [
+      { key: 'intensity', label: 'Intensity', min: 0, max: 1, step: 0.01, default: 0.7 },
+      { key: 'density', label: 'Density (Block Size)', min: 1, max: 12, step: 1, default: 3 },
+      { key: 'color', label: 'Color Mode', min: 0, max: 1, step: 1, default: 0 },
+      { key: 'pulse', label: 'Audio Intensity', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+    group: 'Basics',
+  }, // 46
+  {
+    id: 'film-grain',
+    name: 'Film Grain',
+    factory: filmGrain,
+    params: [
+      { key: 'amount', label: 'Grain Amount', min: 0, max: 1, step: 0.01, default: 0.5 },
+      { key: 'size', label: 'Grain Size', min: 1, max: 8, step: 1, default: 2 },
+      { key: 'tint', label: 'Tint Hue', min: 0, max: 1, step: 0.01, default: 0.08 },
+      { key: 'bgBrightness', label: 'Background Brightness', min: 0, max: 1, step: 0.01, default: 0.25 },
+      { key: 'speed', label: 'Grain Speed', min: 0, max: 3, step: 0.05, default: 1 },
+    ],
+    group: 'Basics',
+  }, // 47
+  {
+    id: 'checkerboard',
+    name: 'Checkerboard',
+    factory: checkerboard,
+    params: [
+      { key: 'cell', label: 'Cell Size', min: 12, max: 160, step: 2, default: 48 },
+      { key: 'hueA', label: 'Hue A', min: 0, max: 1, step: 0.01, default: 0.58 },
+      { key: 'hueB', label: 'Hue B', min: 0, max: 1, step: 0.01, default: 0.08 },
+      { key: 'speed', label: 'Drift Speed', min: 0, max: 3, step: 0.05, default: 0.5 },
+      { key: 'pulse', label: 'Audio Scale Pulse', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+    group: 'Basics',
+  }, // 48
 ];
 
 // Reserved id for the global dual-effect blend params (shown in merge mode).
@@ -575,15 +710,50 @@ export function defaultBlendValues() {
   return out;
 }
 
-// Number of effects that get keyboard shortcuts (1-9, 0 = 10th)
+// Number of pad slots / effects that get keyboard shortcuts (1-9, 0 = 10th)
 export const SHORTCUT_COUNT = 10;
 
-// localStorage key that stores the user's effect order (array of sketch ids)
+// localStorage key that stores the pattern pad assignment
+// (array of exactly SHORTCUT_COUNT sketch ids, positions 0-9 = keys 1-0)
+export const SLOT_ORDER_KEY = 'viz2_slot_order';
+
+// Legacy key (pre-pad builds): the full reorderable effect list. Its first 10
+// valid ids seed the pad on first boot after an upgrade (see loadSlotOrder).
 export const EFFECT_ORDER_KEY = 'viz2_effect_order';
 
-// Load the persisted order. Invalid/unknown ids are dropped and any missing
-// sketches are appended in declaration order, so upgrades never lose effects.
-export function loadEffectOrder() {
+// Group display order for the pattern library. Any group not listed here
+// (e.g. one added by a future sketch) is appended after these.
+export const GROUP_ORDER = [
+  'Audio Reactive',
+  '3D',
+  'Cinematic / Shaders',
+  'Neon / Lasers',
+  'Glitch / Effects',
+  'Basics',
+];
+
+// Group names present in SKETCHES, in GROUP_ORDER (unknown groups appended).
+export function getGroups() {
+  const present = [];
+  const seen = new Set();
+  for (const s of SKETCHES) {
+    if (s.group && !seen.has(s.group)) {
+      seen.add(s.group);
+      present.push(s.group);
+    }
+  }
+  const ordered = GROUP_ORDER.filter((g) => seen.has(g));
+  for (const g of present) if (!ordered.includes(g)) ordered.push(g);
+  return ordered;
+}
+
+// Sketches in a group, in declaration order (camera-input effects excluded).
+export function getSketchesByGroup(group) {
+  return SKETCHES.filter((s) => s.group === group && !s.camera);
+}
+
+// Load the legacy full order (viz2_effect_order), dropping unknown ids.
+function loadLegacyEffectOrder() {
   let saved = [];
   try {
     saved = JSON.parse(localStorage.getItem(EFFECT_ORDER_KEY));
@@ -591,22 +761,66 @@ export function loadEffectOrder() {
     saved = [];
   }
   if (!Array.isArray(saved)) saved = [];
+  const known = new Set(SKETCHES.map((s) => s.id));
+  return saved.filter((id) => known.has(id));
+}
+
+// The pattern pad assignment (array of SHORTCUT_COUNT unique sketch ids).
+// Resolution order:
+//   1. viz2_slot_order if present -> keep its valid ids (in order, capped).
+//   2. Otherwise migrate legacy viz2_effect_order -> its first 10 valid ids.
+//   3. Fill any remaining gaps from declaration order so the pad is always full.
+// Nothing is written back here — the pad only persists once the user edits it.
+export function loadSlotOrder() {
+  let saved = [];
+  try {
+    saved = JSON.parse(localStorage.getItem(SLOT_ORDER_KEY));
+  } catch {
+    saved = [];
+  }
+  if (!Array.isArray(saved)) saved = [];
 
   const known = new Set(SKETCHES.map((s) => s.id));
-  const valid = saved.filter((id) => known.has(id));
-  for (const s of SKETCHES) {
-    if (!valid.includes(s.id)) valid.push(s.id);
+  const valid = [];
+  const seen = new Set();
+  for (const id of saved) {
+    if (valid.length >= SHORTCUT_COUNT) break;
+    if (known.has(id) && !seen.has(id)) {
+      seen.add(id);
+      valid.push(id);
+    }
   }
-  return valid;
+
+  // First boot on an upgraded build: seed the pad from the old full order.
+  if (valid.length === 0 && !localStorage.getItem(SLOT_ORDER_KEY)) {
+    for (const id of loadLegacyEffectOrder()) {
+      if (valid.length >= SHORTCUT_COUNT) break;
+      if (!seen.has(id)) {
+        seen.add(id);
+        valid.push(id);
+      }
+    }
+  }
+
+  for (const s of SKETCHES) {
+    if (valid.length >= SHORTCUT_COUNT) break;
+    if (!seen.has(s.id)) {
+      seen.add(s.id);
+      valid.push(s.id);
+    }
+  }
+  return valid.slice(0, SHORTCUT_COUNT);
 }
 
-export function saveEffectOrder(order) {
-  localStorage.setItem(EFFECT_ORDER_KEY, JSON.stringify(order));
+export function saveSlotOrder(order) {
+  localStorage.setItem(SLOT_ORDER_KEY, JSON.stringify(order));
 }
 
-// SKETCHES in the user's current display order (falls back to declaration order)
+// The 10 pad sketches in pad order (falls back to declaration order).
+// All existing callers (screen loading, keyboard shortcuts, merge blending)
+// index into this list, so they keep working unchanged.
 export function getOrderedSketches() {
-  const order = loadEffectOrder();
+  const order = loadSlotOrder();
   const byId = new Map(SKETCHES.map((s) => [s.id, s]));
   return order.map((id) => byId.get(id)).filter(Boolean);
 }

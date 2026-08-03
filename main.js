@@ -6,7 +6,7 @@ import {
   BLEND_ID,
   defaultParamValues,
   indexFromKey,
-  saveEffectOrder,
+  saveSlotOrder,
 } from './sketch-registry.js';
 import { ConfigPanel } from './config-panel.js';
 import { AudioManager } from './audio-manager.js';
@@ -265,14 +265,32 @@ function loadSketch(index, merge = null) {
   }
 }
 
+// Load a pattern by id — used for library-only patterns that are not assigned
+// to any pad slot. The pad index bookkeeping is reset (-1) so the screen knows
+// the selection is id-based, not slot-based.
+function loadSketchById(id) {
+  const sketch = SKETCHES.find((s) => s.id === id);
+  if (!sketch) return;
+
+  removeCurrentP5();
+
+  currentIndex = -1;
+  mergeIndices = null;
+  mergeIds = null;
+  activeSketchId = id;
+
+  currentP5 = new p5(sketch.factory(audio, currentVideoDeviceId, getParams(id)));
+  console.log(`Loaded sketch ${sketch.name}`);
+}
+
 // Keep activeSketchId in sync for ALL windows (the screen sets it in loadSketch;
-// control windows derive it from the current ordered list). Reorders shift
+// control windows derive it from the current ordered list). Pad edits shift
 // positions, so the id is what survives an order change.
 function updateActiveSketchId() {
   const ordered = getOrderedSketches();
   if (mergeIndices && ordered[mergeIndices[0]]) {
     activeSketchId = ordered[mergeIndices[0]].id;
-  } else if (ordered[currentIndex]) {
+  } else if (currentIndex >= 0 && ordered[currentIndex]) {
     activeSketchId = ordered[currentIndex].id;
   }
 }
@@ -319,11 +337,12 @@ function becomeScreen() {
 
   currentVideoDeviceId = localStorage.getItem(STORAGE.video) || null;
   currentAudioDeviceId = null;
-  loadSketch(currentIndex, mergeIndices);
+  if (currentIndex >= 0) loadSketch(currentIndex, mergeIndices);
+  else loadSketchById(activeSketchId);
   startAudio();
   renderScreenToolbar();
 
-  broadcast({ type: 'state', pattern: currentIndex, merge: mergeIndices });
+  broadcast({ type: 'state', pattern: currentIndex, merge: mergeIndices, patternId: activeSketchId });
   console.log(`Window ${myId} became the screen`);
 }
 
@@ -364,14 +383,21 @@ function handleMessage(msg) {
           becomeControl();
         }
       }
-      if (myRole === 'screen') broadcast({ type: 'state', pattern: currentIndex, merge: mergeIndices });
+      if (myRole === 'screen') {
+        broadcast({ type: 'state', pattern: currentIndex, merge: mergeIndices, patternId: activeSketchId });
+      }
       break;
 
     case 'state':
       if (typeof msg.pattern === 'number') {
         currentIndex = msg.pattern;
         mergeIndices = Array.isArray(msg.merge) && msg.merge.length === 2 ? [...msg.merge] : null;
-        updateActiveSketchId();
+        if (msg.pattern < 0 && typeof msg.patternId === 'string') {
+          // Library-only playback is id-based; the pad index is -1
+          activeSketchId = msg.patternId;
+        } else {
+          updateActiveSketchId();
+        }
       }
       screenOnline = true;
       break;
@@ -382,7 +408,19 @@ function handleMessage(msg) {
       updateActiveSketchId();
       if (myRole === 'screen') {
         loadSketch(msg.index);
-        broadcast({ type: 'state', pattern: currentIndex, merge: null });
+        broadcast({ type: 'state', pattern: currentIndex, merge: null, patternId: activeSketchId });
+      }
+      break;
+
+    case 'pattern-id':
+      // A library-only pattern (not on the pad) was clicked in some window.
+      currentIndex = -1;
+      mergeIndices = null;
+      mergeIds = null;
+      activeSketchId = msg.id;
+      if (myRole === 'screen') {
+        loadSketchById(msg.id);
+        broadcast({ type: 'state', pattern: -1, merge: null, patternId: activeSketchId });
       }
       break;
 
@@ -394,7 +432,7 @@ function handleMessage(msg) {
         updateActiveSketchId();
         if (myRole === 'screen') {
           loadSketch(msg.a, mergeIndices);
-          broadcast({ type: 'state', pattern: currentIndex, merge: mergeIndices });
+          broadcast({ type: 'state', pattern: currentIndex, merge: mergeIndices, patternId: activeSketchId });
         }
       }
       break;
@@ -417,17 +455,22 @@ function handleMessage(msg) {
       break;
 
     case 'reorder':
-      // The effect order changed in some window. Positions shift, so keep the
-      // currently playing sketch selected and re-render the control panel.
+      // The pad assignment changed in some window. Positions shift, so keep the
+      // currently playing pattern selected (by id) and re-render the panel.
       if (Array.isArray(msg.order) && msg.order.length) {
         const idx = msg.order.indexOf(activeSketchId);
-        if (idx >= 0) currentIndex = idx;
+        currentIndex = idx >= 0 ? idx : -1;
         // A live merge selection is positional too — remap it by id so the
         // next key event / takeover keeps pointing at the same effects.
         if (mergeIndices && mergeIds) {
           const a = msg.order.indexOf(mergeIds[0]);
           const b = msg.order.indexOf(mergeIds[1]);
           if (a >= 0 && b >= 0) mergeIndices = [a, b];
+          else {
+            // One merged pattern left the pad — end the merge selection
+            mergeIndices = null;
+            mergeIds = null;
+          }
         }
         if (myRole === 'control' && panel) panel.setOrder();
       }
@@ -558,6 +601,10 @@ function ensurePanel() {
       currentIndex = index;
       broadcast({ type: 'pattern', index });
     },
+    onPatternChangeId: (id) => {
+      // Library-only pattern (not on the pad) — play by id
+      broadcast({ type: 'pattern-id', id });
+    },
     onDevicesChange: () => broadcast({ type: 'devices' }),
     onTakeover: () => broadcast({ type: 'role', role: 'screen' }),
     onOpenControl: () => openControlWindow(),
@@ -566,8 +613,8 @@ function ensurePanel() {
       broadcast({ type: 'params', id, values: { [key]: value } });
     },
     onReorder: (order) => {
-      // Persist + sync the new order to every window
-      saveEffectOrder(order);
+      // Persist + sync the new pad assignment to every window
+      saveSlotOrder(order);
       broadcast({ type: 'reorder', order });
     },
     getParams,
@@ -582,7 +629,8 @@ function syncUI() {
     ensurePanel();
     if (panel) {
       if (mergeIndices) panel.setMerge(mergeIndices);
-      else panel.setPattern(currentIndex);
+      else if (currentIndex >= 0) panel.setPattern(currentIndex);
+      else panel.setPatternById(activeSketchId);
       panel.setScreenOnline(screenOnline);
     }
   }
