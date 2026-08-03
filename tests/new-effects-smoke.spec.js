@@ -48,12 +48,8 @@ const NEW_IDS = [
   // The test browser launches with fake media-stream flags, so these get a
   // synthetic camera; without one they would still render (black/fallback
   // frame) without crashing — the assertions below stay frame-agnostic.
-  'video-feed',
-  'video-3d',
   'video-dots-gpu',
   'video-high-contrast',
-  'video-shader',
-  'character-tv',
 ];
 
 test.describe('new effects smoke test', () => {
