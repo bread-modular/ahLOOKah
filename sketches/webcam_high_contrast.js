@@ -1,4 +1,4 @@
-export default (audio, videoDeviceId) => (p) => {
+export default (audio, videoDeviceId, params) => (p) => {
   let capture;
   let theShader;
   let isCaptureReady = false;
@@ -25,6 +25,8 @@ export default (audio, videoDeviceId) => (p) => {
     uniform float uMid;
     uniform float uHigh;
     uniform float uNoise;
+    uniform float uThresh;
+    uniform float uContrast;
     uniform vec2 uRes;
 
     float rand(vec2 n) { 
@@ -55,9 +57,10 @@ export default (audio, videoDeviceId) => (p) => {
       lum = floor(lum * levels) / levels;
 
       // 4. INDUSTRIAL THRESHOLDING
-      float thresh = 0.35 - (uSub * 0.1);
+      float thresh = uThresh - (uSub * 0.1);
       float softness = 0.05 + (1.0 - uMid) * 0.15;
       float c = smoothstep(thresh, thresh + softness, lum);
+      c = (c - 0.5) * uContrast + 0.5;
 
       // 5. REACTIVE NOISE
       float noise = rand(uv + uTime) * (0.1 + uHigh * 0.3);
@@ -132,16 +135,24 @@ export default (audio, videoDeviceId) => (p) => {
     const b1 = analyzeBands(freqs ? freqs.left : null);
     const b2 = analyzeBands(freqs ? freqs.right : null);
 
+    // Read live params every frame so slider changes apply immediately
+    const P = params || {};
+    const threshold = P.threshold ?? 0.35;
+    const contrast = P.contrast ?? 1;
+    const react = P.react ?? 1;
+
     p.shader(theShader);
 
     const noiseLevel = (b2.mid + b2.high) * 0.5;
 
     theShader.setUniform('uTex', capture);
     theShader.setUniform('uTime', p.frameCount * 0.1);
-    theShader.setUniform('uSub', b1.sub || 0);
-    theShader.setUniform('uMid', b1.mid || 0);
-    theShader.setUniform('uHigh', b1.high || 0);
-    theShader.setUniform('uNoise', noiseLevel || 0);
+    theShader.setUniform('uSub', (b1.sub || 0) * react);
+    theShader.setUniform('uMid', (b1.mid || 0) * react);
+    theShader.setUniform('uHigh', (b1.high || 0) * react);
+    theShader.setUniform('uNoise', noiseLevel * react || 0);
+    theShader.setUniform('uThresh', threshold);
+    theShader.setUniform('uContrast', contrast);
     theShader.setUniform('uRes', [p.width, p.height]);
 
     p.rect(0, 0, p.width, p.height);

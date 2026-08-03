@@ -266,8 +266,6 @@ export class ConfigPanel {
       grid.className = 'library-group-grid';
 
       for (const sketch of sketches) {
-        if (sketch.camera) continue;
-
         const btn = document.createElement('button');
         btn.className = 'pattern-btn library-btn';
         btn.dataset.id = sketch.id;
@@ -278,7 +276,10 @@ export class ConfigPanel {
           slotIdx !== undefined
             ? `<span class="slot-badge" title="Assigned to pad slot ${slotLabel(slotIdx)}">${slotLabel(slotIdx)}</span>`
             : '';
-        btn.innerHTML = `<span class="pattern-name">${sketch.name}</span>${badge}<span class="drag-handle" title="Drag to pad slot">⠿</span>`;
+        const cam = sketch.camera
+          ? '<span class="camera-badge" title="Uses camera input">📷</span>'
+          : '';
+        btn.innerHTML = `<span class="pattern-name">${sketch.name}</span>${cam}${badge}<span class="drag-handle" title="Drag to pad slot">⠿</span>`;
 
         btn.onclick = () => {
           if (slotIdx !== undefined) {

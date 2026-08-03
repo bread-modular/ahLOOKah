@@ -1,4 +1,4 @@
-export default (audio, videoDeviceId) => (p) => {
+export default (audio, videoDeviceId, params) => (p) => {
   let capture;
   let isCaptureReady = false;
   let rotation = 0;
@@ -55,7 +55,13 @@ export default (audio, videoDeviceId) => (p) => {
     const b = analyzeBands(freqs ? freqs.left : null);
     const noiseLevel = freqs ? analyzeBands(freqs.right).mid : 0;
 
-    rotation += 0.01 + b.sub * 0.05 + noiseLevel * 0.1;
+    // Read live params every frame so slider changes apply immediately
+    const P = params || {};
+    const spin = P.spin ?? 1;
+    const boxCount = Math.max(0, Math.min(boxes.length, Math.round(P.boxes ?? boxes.length)));
+    const react = P.react ?? 1;
+
+    rotation += (0.01 + b.sub * 0.05 + noiseLevel * 0.1) * spin * react;
 
     // Use video as a texture
     p.texture(capture);
@@ -65,7 +71,7 @@ export default (audio, videoDeviceId) => (p) => {
     p.rotateX(rotation * 0.5);
     p.rotateY(rotation);
 
-    const coreScale = 1.0 + b.sub * 0.5;
+    const coreScale = 1.0 + b.sub * 0.5 * react;
     if (b.mid > 0.5) {
       p.box(300 * coreScale);
     } else {
@@ -74,19 +80,20 @@ export default (audio, videoDeviceId) => (p) => {
     p.pop();
 
     // 2. BACKGROUND TEXTURED BOXES
-    boxes.forEach(box => {
+    boxes.forEach((box, i) => {
+      if (i >= boxCount) return;
       p.push();
       p.translate(box.x, box.y, box.z);
       p.rotateX(rotation * box.rotDir);
       p.rotateZ(rotation * 0.3);
 
-      const s = box.size * (1 + b.high * 0.5);
+      const s = box.size * (1 + b.high * 0.5 * react);
       p.box(s);
       p.pop();
     });
 
     // 3. GLITCH PLANES
-    if (b.high > 0.4 || noiseLevel > 0.4) {
+    if (b.high * react > 0.4 || noiseLevel * react > 0.4) {
       p.push();
       const planeDist = p.map(b.sub, 0, 1, -500, 500);
       p.translate(0, 0, planeDist);

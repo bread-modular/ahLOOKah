@@ -40,7 +40,7 @@ test.describe('screen window', () => {
 });
 
 test.describe('control panel window', () => {
-  test('renders a 10-slot pad with 1-0 badges and a grouped library of all 48 patterns', async ({ context }) => {
+  test('renders a 10-slot pad with 1-0 badges and a grouped library of all 62 patterns', async ({ context }) => {
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
 
@@ -57,13 +57,22 @@ test.describe('control panel window', () => {
     await expect(control.locator('#pattern-pad [data-index="0"]')).toHaveAttribute('data-id', 'circles');
     await expect(control.locator('#pattern-pad [data-index="9"]')).toHaveAttribute('data-id', 'chroma-mandala');
 
-    // Library: all 48 patterns grouped under 6 headers
+    // Library: all 62 patterns grouped under 7 headers (56 registered + 6
+    // camera-input Video FX effects now surfaced in the library)
     const items = control.locator('#pattern-library .pattern-btn');
-    await expect(items).toHaveCount(48);
+    await expect(items).toHaveCount(62);
     const headers = control.locator('.library-group-header');
-    await expect(headers).toHaveCount(6);
-    await expect(headers.first()).toHaveText('Audio Reactive');
+    await expect(headers).toHaveCount(7);
+    await expect(headers.first()).toHaveText('Rhythmic');
     await expect(headers.last()).toHaveText('Basics');
+
+    // The Video FX group lists all 10 camera effects (4 new + 6 legacy), each
+    // marked with a camera glyph; Glitch / Effects holds 5
+    const vfx = control.locator('.library-group', { hasText: 'Video FX' });
+    await expect(vfx.locator('.pattern-btn')).toHaveCount(10);
+    await expect(vfx.locator('.camera-badge')).toHaveCount(10);
+    const glitch = control.locator('.library-group', { hasText: 'Glitch / Effects' });
+    await expect(glitch.locator('.pattern-btn')).toHaveCount(5);
 
     // Assigned patterns show a slot-number badge; unassigned ones don't
     await expect(control.locator('#pattern-library [data-id="circles"] .slot-badge')).toHaveText('1');

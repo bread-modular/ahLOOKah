@@ -18,10 +18,11 @@
 // from declaration order.
 //
 // Group taxonomy (every entry carries a `group` field, used by the library):
-//   Audio Reactive      — beat/band-driven 2D visuals
+//   Rhythmic            — beat/band-driven 2D visuals (spectrum/pulse/waveform)
 //   3D                  — perspective / depth-driven looks
 //   Cinematic / Shaders — GPU-first cinematic looks
 //   Neon / Lasers       — synthwave, neon & laser aesthetics
+//   Video FX            — live camera-input effects
 //   Glitch / Effects    — glitch / digital-artifact effects
 //   Basics              — simple building-block patterns
 import circles from './sketches/circles.js';
@@ -81,6 +82,25 @@ import colorBars from './sketches/color_bars.js';
 import noiseStatic from './sketches/noise_static.js';
 import filmGrain from './sketches/film_grain.js';
 import checkerboard from './sketches/checkerboard.js';
+// Camera-input FX (chroma keyer, kaleidoscope, pixelate, motion trails) and a
+// second wave of glitch looks for the grouped pattern library.
+import videoChroma from './sketches/video_chroma.js';
+import videoKaleido from './sketches/video_kaleido.js';
+import videoPixelate from './sketches/video_pixelate.js';
+import videoTrails from './sketches/video_trails.js';
+import glitchRgbSplit from './sketches/glitch_rgb_split.js';
+import glitchScanlines from './sketches/glitch_scanlines.js';
+import glitchSlices from './sketches/glitch_slices.js';
+import glitchCrt from './sketches/glitch_crt.js';
+// Legacy camera-input sketches surfaced into the library (registered now so
+// they appear under Video FX with live params; each tolerates a missing camera
+// by drawing a fallback/black frame until capture is ready).
+import webcam from './sketches/webcam.js';
+import video3d from './sketches/video3d.js';
+import webcamDotsGpu from './sketches/webcam_dots_gpu.js';
+import webcamHighContrast from './sketches/webcam_high_contrast.js';
+import webcamShader from './sketches/webcam_shader.js';
+import characterTv from './sketches/character_tv.js';
 
 // Shared "responsiveness" triple used by many effects (0..2, default 1)
 const BAND_RESPONSIVENESS = [
@@ -105,14 +125,14 @@ export const SKETCHES = [
       ...BAND_RESPONSIVENESS,
       { key: 'glitch', label: 'Glitch Amount', min: 0, max: 2, step: 0.05, default: 1 },
     ],
-    group: 'Audio Reactive',
+    group: 'Rhythmic',
   }, // 1
   {
     id: 'circles-ch1',
     name: 'Circles CH1',
     factory: circlesCh1,
     params: BAND_RESPONSIVENESS,
-    group: 'Audio Reactive',
+    group: 'Rhythmic',
   }, // 2
   {
     id: 'bars',
@@ -123,7 +143,7 @@ export const SKETCHES = [
       { key: 'barWidth', label: 'Bar Width', min: 2, max: 16, step: 1, default: 4 },
       { key: 'flash', label: 'Peak Flash', min: 0, max: 2, step: 0.05, default: 1 },
     ],
-    group: 'Audio Reactive',
+    group: 'Rhythmic',
   }, // 3
   {
     id: 'techno3d',
@@ -153,7 +173,7 @@ export const SKETCHES = [
       ...BAND_RESPONSIVENESS,
       { key: 'bars', label: 'Bar Count', min: 24, max: 144, step: 1, default: 72 },
     ],
-    group: 'Audio Reactive',
+    group: 'Rhythmic',
   }, // 6
   {
     id: 'pulse-rings',
@@ -165,7 +185,7 @@ export const SKETCHES = [
       { key: 'rings', label: 'Max Rings', min: 10, max: 80, step: 1, default: 40 },
       { key: 'sub', label: 'Sub Pulse', min: 0, max: 2, step: 0.05, default: 1 },
     ],
-    group: 'Audio Reactive',
+    group: 'Rhythmic',
   }, // 7
   {
     id: 'particle-storm',
@@ -177,7 +197,7 @@ export const SKETCHES = [
       { key: 'wind', label: 'Wind Strength', min: 0, max: 3, step: 0.05, default: 1 },
       { key: 'kick', label: 'Kick Sensitivity', min: 0.2, max: 2, step: 0.05, default: 1 },
     ],
-    group: 'Audio Reactive',
+    group: 'Rhythmic',
   }, // 8
   {
     id: 'waveform-tunnel',
@@ -189,7 +209,7 @@ export const SKETCHES = [
       { key: 'scale', label: 'Tunnel Scale', min: 0.5, max: 2, step: 0.05, default: 1 },
       { key: 'sub', label: 'Sub Push', min: 0, max: 2, step: 0.05, default: 1 },
     ],
-    group: 'Audio Reactive',
+    group: 'Rhythmic',
   }, // 9
   {
     id: 'chroma-mandala',
@@ -201,7 +221,7 @@ export const SKETCHES = [
       { key: 'bloom', label: 'Mid Bloom', min: 0, max: 2, step: 0.05, default: 1 },
       { key: 'sub', label: 'Sub Ring', min: 0, max: 2, step: 0.05, default: 1 },
     ],
-    group: 'Audio Reactive',
+    group: 'Rhythmic',
   }, // 0 (10)
   {
     id: 'starfield-rush',
@@ -225,7 +245,7 @@ export const SKETCHES = [
       { key: 'thick', label: 'Ring Thickness', min: 0, max: 2, step: 0.05, default: 1 },
       { key: 'sparkle', label: 'High Sparkle', min: 0, max: 2, step: 0.05, default: 1 },
     ],
-    group: 'Audio Reactive',
+    group: 'Rhythmic',
   }, // 12
   {
     id: 'laser-grid',
@@ -249,7 +269,7 @@ export const SKETCHES = [
       { key: 'split', label: 'RGB Split', min: 0, max: 3, step: 0.05, default: 1 },
       { key: 'cycle', label: 'Color Cycle', min: 0, max: 3, step: 0.05, default: 1 },
     ],
-    group: 'Audio Reactive',
+    group: 'Rhythmic',
   }, // 14
   {
     id: 'plasma-waves',
@@ -261,7 +281,7 @@ export const SKETCHES = [
       { key: 'speed', label: 'Flow Speed', min: 0, max: 3, step: 0.05, default: 1 },
       { key: 'scale', label: 'Plasma Scale', min: 0.3, max: 3, step: 0.05, default: 1 },
     ],
-    group: 'Audio Reactive',
+    group: 'Rhythmic',
   }, // 15
   {
     id: 'vortex-spiral',
@@ -311,7 +331,7 @@ export const SKETCHES = [
       { key: 'chroma', label: 'Chroma Split', min: 0, max: 3, step: 0.05, default: 1 },
       { key: 'max', label: 'Max Waves', min: 4, max: 48, step: 1, default: 24 },
     ],
-    group: 'Audio Reactive',
+    group: 'Rhythmic',
   }, // 19
   {
     id: 'neon-ribbons',
@@ -350,7 +370,7 @@ export const SKETCHES = [
       { key: 'scatter', label: 'Kick Scatter', min: 0, max: 3, step: 0.05, default: 1 },
       { key: 'drift', label: 'Drift Speed', min: 0, max: 3, step: 0.05, default: 1 },
     ],
-    group: 'Audio Reactive',
+    group: 'Rhythmic',
   }, // 22
   {
     id: 'event-horizon',
@@ -686,6 +706,190 @@ export const SKETCHES = [
     ],
     group: 'Basics',
   }, // 48
+  {
+    id: 'video-chroma',
+    name: 'Video Chroma Key',
+    factory: videoChroma,
+    params: [
+      { key: 'keyHue', label: 'Key Hue', min: 0, max: 360, step: 1, default: 120 },
+      { key: 'tolerance', label: 'Key Tolerance', min: 0.02, max: 0.5, step: 0.01, default: 0.16 },
+      { key: 'softness', label: 'Edge Softness', min: 0, max: 0.4, step: 0.01, default: 0.12 },
+      { key: 'bgMode', label: 'BG Gradient', min: 0, max: 1, step: 1, default: 1 },
+      { key: 'bgHue', label: 'BG Hue', min: 0, max: 360, step: 1, default: 275 },
+      { key: 'bgSat', label: 'BG Saturation', min: 0, max: 1, step: 0.01, default: 0.7 },
+      { key: 'bgBright', label: 'BG Brightness', min: 0, max: 1, step: 0.01, default: 0.55 },
+      { key: 'audioReact', label: 'Audio Key Widen', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+    group: 'Video FX',
+    camera: true,
+  }, // 49
+  {
+    id: 'video-kaleido',
+    name: 'Video Kaleidoscope',
+    factory: videoKaleido,
+    params: [
+      { key: 'segments', label: 'Segments', min: 3, max: 12, step: 1, default: 6 },
+      { key: 'speed', label: 'Rotation Speed', min: 0, max: 3, step: 0.05, default: 0.6 },
+      { key: 'zoom', label: 'Zoom', min: 0.4, max: 3, step: 0.05, default: 1 },
+      { key: 'cx', label: 'Center X', min: -1, max: 1, step: 0.05, default: 0 },
+      { key: 'cy', label: 'Center Y', min: -1, max: 1, step: 0.05, default: 0 },
+      { key: 'audioZoom', label: 'Audio Zoom Pump', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+    group: 'Video FX',
+    camera: true,
+  }, // 50
+  {
+    id: 'video-pixelate',
+    name: 'Video Pixelate',
+    factory: videoPixelate,
+    params: [
+      { key: 'block', label: 'Block Size', min: 2, max: 64, step: 1, default: 14 },
+      { key: 'audioBlocks', label: 'Audio Block Swell', min: 0, max: 2, step: 0.05, default: 0.8 },
+      { key: 'levels', label: 'Quantize Levels', min: 0, max: 16, step: 1, default: 8 },
+      { key: 'tint', label: 'Hue Tint', min: 0, max: 1, step: 0.01, default: 0 },
+      { key: 'bright', label: 'Brightness', min: 0.3, max: 1.8, step: 0.05, default: 1 },
+    ],
+    group: 'Video FX',
+    camera: true,
+  }, // 51
+  {
+    id: 'video-trails',
+    name: 'Video Trails',
+    factory: videoTrails,
+    params: [
+      { key: 'decay', label: 'Trail Decay', min: 0, max: 1, step: 0.01, default: 0.6 },
+      { key: 'tintHue', label: 'Tint Hue', min: 0, max: 1, step: 0.01, default: 0.6 },
+      { key: 'blend', label: 'Blend Mode', min: 0, max: 2, step: 1, default: 0 },
+      { key: 'audioDecay', label: 'Audio Trail Stretch', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+    group: 'Video FX',
+    camera: true,
+  }, // 52
+  {
+    id: 'glitch-rgb-split',
+    name: 'RGB Split',
+    factory: glitchRgbSplit,
+    params: [
+      { key: 'intensity', label: 'Base Offset', min: 0, max: 1, step: 0.01, default: 0.4 },
+      { key: 'burst', label: 'Burst Strength', min: 0, max: 2, step: 0.05, default: 1 },
+      { key: 'speed', label: 'Pattern Speed', min: 0, max: 3, step: 0.05, default: 1 },
+      { key: 'pulse', label: 'Audio Reactivity', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+    group: 'Glitch / Effects',
+  }, // 53
+  {
+    id: 'glitch-scanlines',
+    name: 'Scanline Roll',
+    factory: glitchScanlines,
+    params: [
+      { key: 'speed', label: 'Roll Speed', min: 0, max: 3, step: 0.05, default: 1 },
+      { key: 'intensity', label: 'Jitter Intensity', min: 0, max: 2, step: 0.05, default: 1 },
+      { key: 'bands', label: 'Scan Bands', min: 1, max: 8, step: 1, default: 3 },
+      { key: 'pulse', label: 'Audio Reactivity', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+    group: 'Glitch / Effects',
+  }, // 54
+  {
+    id: 'glitch-slices',
+    name: 'Slice Glitch',
+    factory: glitchSlices,
+    params: [
+      { key: 'slices', label: 'Slice Count', min: 0, max: 24, step: 1, default: 10 },
+      { key: 'shift', label: 'Max Shift', min: 0, max: 1, step: 0.01, default: 0.5 },
+      { key: 'blocks', label: 'Block Artifacts', min: 0, max: 20, step: 1, default: 8 },
+      { key: 'speed', label: 'Pattern Speed', min: 0, max: 3, step: 0.05, default: 1 },
+      { key: 'pulse', label: 'Audio Reactivity', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+    group: 'Glitch / Effects',
+  }, // 55
+  {
+    id: 'glitch-crt',
+    name: 'CRT Glitch',
+    factory: glitchCrt,
+    params: [
+      { key: 'curvature', label: 'Tube Curvature', min: 0, max: 1, step: 0.01, default: 0.6 },
+      { key: 'scanlines', label: 'Scanlines', min: 0, max: 1, step: 0.01, default: 0.7 },
+      { key: 'flicker', label: 'Flicker', min: 0, max: 1, step: 0.01, default: 0.5 },
+      { key: 'roll', label: 'Roll Bar', min: 0, max: 1, step: 0.01, default: 0.5 },
+      { key: 'ghost', label: 'Ghosting', min: 0, max: 1, step: 0.01, default: 0.4 },
+      { key: 'speed', label: 'Roll Speed', min: 0, max: 3, step: 0.05, default: 1 },
+      { key: 'pulse', label: 'Audio Distortion', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+    group: 'Glitch / Effects',
+  }, // 56
+  {
+    id: 'video-feed',
+    name: 'Video Dots',
+    factory: webcam,
+    params: [
+      { key: 'density', label: 'Dot Density', min: 0.4, max: 3, step: 0.05, default: 1 },
+      { key: 'size', label: 'Dot Size', min: 0.3, max: 2, step: 0.05, default: 1 },
+      { key: 'grain', label: 'Noise Grain', min: 0, max: 2, step: 0.05, default: 1 },
+      { key: 'react', label: 'Audio Reactivity', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+    group: 'Video FX',
+    camera: true,
+  }, // 57
+  {
+    id: 'video-3d',
+    name: 'Video 3D',
+    factory: video3d,
+    params: [
+      { key: 'spin', label: 'Spin Speed', min: 0, max: 3, step: 0.05, default: 1 },
+      { key: 'boxes', label: 'Background Boxes', min: 0, max: 30, step: 1, default: 15 },
+      { key: 'react', label: 'Audio Reactivity', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+    group: 'Video FX',
+    camera: true,
+  }, // 58
+  {
+    id: 'video-dots-gpu',
+    name: 'Video Dots GPU',
+    factory: webcamDotsGpu,
+    params: [
+      { key: 'spacing', label: 'Dot Spacing', min: 4, max: 24, step: 0.5, default: 12 },
+      { key: 'glitch', label: 'Glitch Amount', min: 0, max: 2, step: 0.05, default: 1 },
+      { key: 'react', label: 'Audio Reactivity', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+    group: 'Video FX',
+    camera: true,
+  }, // 59
+  {
+    id: 'video-high-contrast',
+    name: 'Video High Contrast',
+    factory: webcamHighContrast,
+    params: [
+      { key: 'threshold', label: 'Threshold', min: 0, max: 1, step: 0.01, default: 0.35 },
+      { key: 'contrast', label: 'Contrast', min: 0, max: 2, step: 0.05, default: 1 },
+      { key: 'react', label: 'Audio Reactivity', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+    group: 'Video FX',
+    camera: true,
+  }, // 60
+  {
+    id: 'video-shader',
+    name: 'Video Shader',
+    factory: webcamShader,
+    params: [
+      { key: 'shift', label: 'RGB Shift', min: 0, max: 3, step: 0.05, default: 1 },
+      { key: 'scan', label: 'Scanlines', min: 0, max: 2, step: 0.05, default: 1 },
+      { key: 'react', label: 'Audio Reactivity', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+    group: 'Video FX',
+    camera: true,
+  }, // 61
+  {
+    id: 'character-tv',
+    name: 'Character TV',
+    factory: characterTv,
+    params: [
+      { key: 'groove', label: 'Groove Speed', min: 0, max: 3, step: 0.05, default: 1 },
+      { key: 'scan', label: 'TV Scanlines', min: 0, max: 2, step: 0.05, default: 1 },
+      { key: 'react', label: 'Audio Reactivity', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+    group: 'Video FX',
+    camera: true,
+  }, // 62
 ];
 
 // Reserved id for the global dual-effect blend params (shown in merge mode).
@@ -724,10 +928,11 @@ export const EFFECT_ORDER_KEY = 'viz2_effect_order';
 // Group display order for the pattern library. Any group not listed here
 // (e.g. one added by a future sketch) is appended after these.
 export const GROUP_ORDER = [
-  'Audio Reactive',
+  'Rhythmic',
   '3D',
   'Cinematic / Shaders',
   'Neon / Lasers',
+  'Video FX',
   'Glitch / Effects',
   'Basics',
 ];
@@ -747,9 +952,10 @@ export function getGroups() {
   return ordered;
 }
 
-// Sketches in a group, in declaration order (camera-input effects excluded).
+// Sketches in a group, in declaration order. Camera-input effects are included
+// (Video FX renders in the library like every other group).
 export function getSketchesByGroup(group) {
-  return SKETCHES.filter((s) => s.group === group && !s.camera);
+  return SKETCHES.filter((s) => s.group === group);
 }
 
 // Load the legacy full order (viz2_effect_order), dropping unknown ids.
