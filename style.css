@@ -262,6 +262,44 @@ body.is-screen #config-container {
   margin-top: 16px;
 }
 
+/* Collapsible devices & setup section (Audio/Camera, Refresh, Take Over, New Panel).
+   The summary reads like the other h3 section headers but is clickable. */
+.config-section {
+  margin-top: 20px;
+}
+
+.config-section-header {
+  list-style: none; /* hide the native disclosure triangle */
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05rem;
+  padding: 4px 0;
+  user-select: none;
+}
+
+.config-section-header::-webkit-details-marker {
+  display: none; /* Safari */
+}
+
+.config-section-header:hover {
+  color: var(--text-main);
+}
+
+.config-section-body {
+  margin-top: 10px;
+}
+
+.config-section-body h3:first-child {
+  margin-top: 12px;
+}
+
 /* ---------------------------------------------------------------------------
    Pattern pad + library
 --------------------------------------------------------------------------- */

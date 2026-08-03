@@ -49,6 +49,8 @@ export class ConfigPanel {
 
     this.audioKey = 'viz2_audio_device_id';
     this.videoKey = 'viz2_video_device_id';
+    // Persisted open/closed state of the collapsible devices & setup section.
+    this.deviceSectionKey = 'viz2_device_setup_open';
     this.container = null;
     this.panel = null;
     this.devices = [];
@@ -78,6 +80,15 @@ export class ConfigPanel {
     this.panel.id = 'config-panel';
     this.container.appendChild(this.panel);
 
+    // Initial visibility of the devices & setup section. Fresh profile: open
+    // (setup still pending). Once a device has been saved the section is only
+    // needed for changes, so collapse it — unless the user pinned a preference.
+    // Computed before the template renders so there is no open→closed flash.
+    const savedPref = localStorage.getItem(this.deviceSectionKey);
+    const hasSavedDevice = !!(localStorage.getItem(this.audioKey) || localStorage.getItem(this.videoKey));
+    const deviceSectionOpen =
+      savedPref !== null ? savedPref === '1' : !hasSavedDevice;
+
     this.panel.innerHTML = `
       <div id="effects-pane">
         <h3>Pattern Pad <span class="pad-hint">1–0</span></h3>
@@ -96,34 +107,48 @@ export class ConfigPanel {
         <h3>Parameters</h3>
         <div id="params-list" class="params-list"></div>
 
-        <h3>Audio Input</h3>
-        <div class="config-group">
-          <select id="audio-select" disabled>
-            <option value="">Select Audio...</option>
-          </select>
-        </div>
+        <details id="device-setup" class="config-section"${deviceSectionOpen ? ' open' : ''}>
+          <summary class="config-section-header">Devices &amp; Setup</summary>
+          <div class="config-section-body">
+            <h3>Audio Input</h3>
+            <div class="config-group">
+              <select id="audio-select" disabled>
+                <option value="">Select Audio...</option>
+              </select>
+            </div>
 
-        <h3>Camera Input</h3>
-        <div class="config-group">
-          <select id="video-select" disabled>
-            <option value="">Select Camera...</option>
-          </select>
-        </div>
+            <h3>Camera Input</h3>
+            <div class="config-group">
+              <select id="video-select" disabled>
+                <option value="">Select Camera...</option>
+              </select>
+            </div>
 
-        <div id="setup-notice" class="config-group" style="display: none;">
-          <p>Permissions needed for audio &amp; camera selection.</p>
-          <button id="setup-all-btn">Initialize</button>
-        </div>
+            <div id="setup-notice" class="config-group" style="display: none;">
+              <p>Permissions needed for audio &amp; camera selection.</p>
+              <button id="setup-all-btn">Initialize</button>
+            </div>
 
-        <div class="config-group actions">
-          <button id="refresh-devices-btn">Refresh Devices</button>
-          <button id="takeover-btn" class="primary">⛶ Take Over as Screen</button>
-          <button id="open-control-btn">＋ New Control Panel</button>
-        </div>
+            <div class="config-group actions">
+              <button id="refresh-devices-btn">Refresh Devices</button>
+              <button id="takeover-btn" class="primary">⛶ Take Over as Screen</button>
+              <button id="open-control-btn">＋ New Control Panel</button>
+            </div>
+          </div>
+        </details>
       </div>
     `;
 
     this.renderAll();
+
+    // Persist only real user toggles (the programmatic open from
+    // showSetupNotice must not overwrite a deliberate collapse).
+    const deviceSection = this.panel.querySelector('#device-setup');
+    if (deviceSection) {
+      deviceSection.addEventListener('toggle', (e) => {
+        if (e.isTrusted) localStorage.setItem(this.deviceSectionKey, deviceSection.open ? '1' : '0');
+      });
+    }
 
     this.panel.querySelector('#refresh-devices-btn').onclick = () => this.refreshDevices();
     this.panel.querySelector('#takeover-btn').onclick = () => {
@@ -154,8 +179,17 @@ export class ConfigPanel {
   }
 
   showSetupNotice() {
+    // Permissions are missing — force the section open so the Initialize
+    // button stays reachable even if the user had collapsed it.
+    this.openDeviceSection();
     const notice = this.panel.querySelector('#setup-notice');
     if (notice) notice.style.display = 'flex';
+  }
+
+  // Force the devices & setup section open (used when permissions are needed).
+  openDeviceSection() {
+    const section = this.panel.querySelector('#device-setup');
+    if (section) section.open = true;
   }
 
   hideSetupNotice() {
