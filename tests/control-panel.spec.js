@@ -98,6 +98,31 @@ test.describe('control panel window', () => {
     expect(control.url()).toContain('role=control');
     await expect(control.locator('#config-panel')).toBeVisible();
   });
+
+  test('devices & setup section collapses via its header and persists', async ({ context }) => {
+    const control = await context.newPage();
+    await control.goto(CONTROL_URL);
+
+    const section = control.locator('#device-setup');
+    // Fresh profile (no saved device): the section starts open
+    await expect(section).toHaveAttribute('open', '');
+    await expect(control.locator('#audio-select')).toBeVisible();
+    await expect(control.locator('#takeover-btn')).toBeVisible();
+
+    // Clicking the header collapses the section and hides the setup controls
+    await section.locator('summary').click();
+    await expect(section).not.toHaveAttribute('open', '');
+    await expect(control.locator('#audio-select')).not.toBeVisible();
+
+    // The collapsed state survives a reload
+    await control.reload();
+    await expect(control.locator('#device-setup')).not.toHaveAttribute('open', '');
+
+    // And the header reopens it
+    await control.locator('#device-setup summary').click();
+    await expect(control.locator('#device-setup')).toHaveAttribute('open', '');
+    await expect(control.locator('#takeover-btn')).toBeVisible();
+  });
 });
 
 test.describe('pattern pad + library interactions', () => {
