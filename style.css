@@ -391,6 +391,34 @@ body.is-screen #config-container {
   background: var(--band-high);
 }
 
+/* Noise-floor capture row (inside the band-split EQ section) */
+.band-eq-noise {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-gray);
+}
+
+.noise-status {
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+
+.noise-status.noise-active {
+  color: var(--text-main);
+}
+
+.noise-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.noise-actions button {
+  font-size: 0.7rem;
+  padding: 5px 10px;
+}
+
 /* ---------------------------------------------------------------------------
    Pattern pad + library
 --------------------------------------------------------------------------- */
