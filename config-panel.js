@@ -1,4 +1,4 @@
-import { getOrderedSketches, SHORTCUT_COUNT } from './sketch-registry.js';
+import { getOrderedSketches, SHORTCUT_COUNT, BLEND_ID, BLEND_PARAMS } from './sketch-registry.js';
 
 // Format a param value for display based on its step size
 function formatParamValue(v, def) {
@@ -39,9 +39,13 @@ export class ConfigPanel {
     this.devices = [];
     this.currentPattern = getPattern ? getPattern() : 0;
     this.currentPatternId = null;
-    // Id of the sketch the slider list was last rendered for — used to skip
-    // redundant re-renders (see setPattern).
-    this.renderedPatternId = null;
+    // Merge mode state: two effects selected at once. currentPatternId becomes
+    // BLEND_ID so the params list renders the global blend sliders instead.
+    this.mergeMode = false;
+    this.mergeIndices = null;
+    this.mergePatternIds = null;
+    // Key used to skip redundant re-renders (see refreshSelection).
+    this.renderedKey = null;
     this.dragId = null;
 
     this.init();
@@ -60,7 +64,7 @@ export class ConfigPanel {
       <div id="effects-pane">
         <h3>Pattern</h3>
         <div id="pattern-grid" class="pattern-grid"></div>
-        <p>Drag effects to reorder. Keys 1–9 / 0 select the first 10.</p>
+        <p>Drag effects to reorder. Keys 1–9 / 0 select an effect. Hold two keys together to blend them — the blend persists until you pick another. While blending: + / − adjust the level, Tab switches Blend / Additive.</p>
       </div>
 
       <div id="effects-resizer" class="effects-resizer" title="Drag to resize"></div>
@@ -211,9 +215,13 @@ export class ConfigPanel {
       grid.appendChild(btn);
     });
 
-    this.setPattern(this.currentPattern);
+    // Re-apply whatever the current selection is (single effect or a merge)
+    if (this.mergeMode && this.mergeIndices) {
+      this.setMerge(this.mergeIndices);
+    } else {
+      this.setPattern(this.currentPattern);
+    }
   }
-
   // HTML5 drag & drop — reorders the effect list and persists it
   attachDrag(btn) {
     btn.addEventListener('dragstart', (e) => {
@@ -267,43 +275,83 @@ export class ConfigPanel {
     grid.querySelectorAll('.pattern-btn.drop-target').forEach((b) => b.classList.remove('drop-target'));
   }
 
-  // Re-render the grid after a reorder and re-select the active effect by id
+  // Re-render the grid after a reorder and re-select whatever was active
+  // (by id — positions shift on a reorder). Merge selections survive too.
   setOrder() {
     this.renderPatternButtons();
+
+    if (this.mergeMode && this.mergePatternIds) {
+      const ordered = getOrderedSketches();
+      const a = ordered.findIndex((s) => s.id === this.mergePatternIds[0]);
+      const b = ordered.findIndex((s) => s.id === this.mergePatternIds[1]);
+      if (a >= 0 && b >= 0) this.setMerge([a, b]);
+      return;
+    }
+
     const activeId = this.currentPatternId;
-    if (!activeId) return;
+    if (!activeId || activeId === BLEND_ID) return;
     const idx = getOrderedSketches().findIndex((s) => s.id === activeId);
     if (idx >= 0) this.setPattern(idx);
   }
 
+  // Select a single effect (clears any merge)
   setPattern(index) {
     this.currentPattern = index;
+    this.mergeMode = false;
+    this.mergeIndices = null;
+    this.mergePatternIds = null;
     const ordered = getOrderedSketches();
     this.currentPatternId = ordered[index] ? ordered[index].id : null;
+    this.refreshSelection();
+  }
+
+  // Select two effects to merge. The params list switches to the global blend
+  // sliders (currentPatternId -> BLEND_ID) and both buttons highlight.
+  setMerge(merge) {
+    if (!merge || merge.length !== 2) return;
+    this.mergeMode = true;
+    this.mergeIndices = [...merge];
+    const ordered = getOrderedSketches();
+    this.mergePatternIds = merge.map((i) => (ordered[i] ? ordered[i].id : null));
+    this.currentPattern = merge[0];
+    this.currentPatternId = BLEND_ID;
+    this.refreshSelection();
+  }
+
+  // Highlight the right buttons and rebuild the sliders only when the
+  // selection actually changed. syncUI() calls the setters after EVERY
+  // broadcast message — including the 'params' message a slider drag itself
+  // emits — and rebuilding the list destroys the <input type="range">
+  // mid-drag, so click-and-drag used to stop after a single step.
+  refreshSelection() {
     const grid = this.panel.querySelector('#pattern-grid');
-    if (!grid) return;
+    if (grid) {
+      grid.querySelectorAll('.pattern-btn').forEach((btn) => {
+        const idx = parseInt(btn.dataset.index, 10);
+        btn.classList.toggle('active', !this.mergeMode && idx === this.currentPattern);
+        btn.classList.toggle('merge-active', !!this.mergeMode && this.mergeIndices.includes(idx));
+      });
+    }
 
-    grid.querySelectorAll('.pattern-btn').forEach((btn) => {
-      btn.classList.toggle('active', parseInt(btn.dataset.index, 10) === index);
-    });
-
-    // Only rebuild the sliders when the selected effect actually changes.
-    // syncUI() calls setPattern() after EVERY broadcast message — including
-    // the 'params' message a slider drag itself emits — and rebuilding the
-    // list destroys the <input type="range"> mid-drag, so click-and-drag
-    // used to stop after a single step.
-    if (this.renderedPatternId !== this.currentPatternId) {
-      this.renderedPatternId = this.currentPatternId;
+    const key = this.mergeMode ? `merge:${this.mergeIndices.join(',')}` : `single:${this.currentPatternId}`;
+    if (this.renderedKey !== key) {
+      this.renderedKey = key;
       this.renderParams();
     }
   }
 
-  // Rebuild the slider list for the currently selected effect
+  // Rebuild the slider list for the currently selected effect — or the global
+  // blend sliders while two effects are merged.
   renderParams() {
     const list = this.panel.querySelector('#params-list');
     if (!list) return;
 
     list.innerHTML = '';
+
+    if (this.mergeMode) {
+      this.renderBlendParams(list);
+      return;
+    }
 
     const ordered = getOrderedSketches();
     const sketch = ordered[this.currentPattern];
@@ -342,15 +390,80 @@ export class ConfigPanel {
     }
   }
 
+  // Blend controls replace the individual effect params while merging: a
+  // Blend / Additive mode toggle plus ONE level slider that drives whichever
+  // mode is active (crossfade mix or additive strength).
+  renderBlendParams(list) {
+    const ordered = getOrderedSketches();
+    const nameA = ordered[this.mergeIndices[0]] ? ordered[this.mergeIndices[0]].name : 'Effect';
+    const nameB = ordered[this.mergeIndices[1]] ? ordered[this.mergeIndices[1]].name : 'Effect';
+
+    const header = document.createElement('div');
+    header.className = 'blend-header';
+    header.innerHTML = `<span>Blend</span><span class="blend-names">${nameA} + ${nameB}</span>`;
+    list.appendChild(header);
+
+    const values = this.getParams ? this.getParams(BLEND_ID) : {};
+    const additive = values.mode === 1;
+
+    // Mode toggle (Blend | Additive)
+    const toggle = document.createElement('div');
+    toggle.className = 'blend-mode-toggle';
+    toggle.innerHTML = `
+      <button type="button" class="blend-mode-btn${additive ? '' : ' active'}" data-mode="blend">Blend</button>
+      <button type="button" class="blend-mode-btn${additive ? ' active' : ''}" data-mode="additive">Additive</button>
+    `;
+    toggle.querySelectorAll('.blend-mode-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const mode = btn.dataset.mode === 'additive' ? 1 : 0;
+        if (this.onParamChange) this.onParamChange(BLEND_ID, 'mode', mode);
+      });
+    });
+    list.appendChild(toggle);
+
+    // Single level slider for the active mode
+    const activeDef = BLEND_PARAMS.find((d) => d.key === (additive ? 'add' : 'mix'));
+    const val = values[activeDef.key] ?? activeDef.default;
+
+    const row = document.createElement('div');
+    row.className = 'param-row';
+    row.innerHTML = `
+      <div class="param-head">
+        <label for="param-${activeDef.key}">${activeDef.label}</label>
+        <span class="param-value" data-value="${activeDef.key}">${formatParamValue(val, activeDef)}</span>
+      </div>
+      <input type="range" id="param-${activeDef.key}" data-key="${activeDef.key}"
+             min="${activeDef.min}" max="${activeDef.max}" step="${activeDef.step}" value="${val}">
+    `;
+
+    const input = row.querySelector('input');
+    const valueEl = row.querySelector('.param-value');
+
+    input.addEventListener('input', () => {
+      const v = parseFloat(input.value);
+      valueEl.textContent = formatParamValue(v, activeDef);
+      if (this.onParamChange) this.onParamChange(BLEND_ID, activeDef.key, v);
+    });
+
+    list.appendChild(row);
+  }
+
   // Sync slider positions/values for a param change coming from another window
   applyParam(id, values) {
     if (id !== this.currentPatternId) return;
+
+    // Mode switches swap which level slider is shown — rebuild the blend section
+    if (this.mergeMode && 'mode' in values) {
+      this.renderParams();
+      return;
+    }
+
     const list = this.panel.querySelector('#params-list');
     if (!list) return;
 
-    const ordered = getOrderedSketches();
-    const sketch = ordered[this.currentPattern];
-    const defs = (sketch && sketch.params) || [];
+    const defs = this.mergeMode
+      ? BLEND_PARAMS
+      : (getOrderedSketches()[this.currentPattern]?.params || []);
 
     for (const [key, v] of Object.entries(values)) {
       const input = list.querySelector(`input[data-key="${key}"]`);

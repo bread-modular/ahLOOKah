@@ -3,6 +3,7 @@ import './style.css';
 import {
   getOrderedSketches,
   SKETCHES,
+  BLEND_ID,
   defaultParamValues,
   indexFromKey,
   saveEffectOrder,
@@ -29,6 +30,15 @@ let currentP5 = null;
 let currentIndex = 0;
 // Stable id of the currently loaded sketch — survives reorders
 let activeSketchId = null;
+// Merge mode: two effects selected to blend (latched via the keyboard
+// gesture). Both run simultaneously and are blended on screen. null = single
+// effect.
+let mergeIndices = null;
+// Ids of the running merge pair — survives reorders (positions shift).
+let mergeIds = null;
+// The two p5 instances backing a merge (base + overlay). currentP5 is the
+// base instance; these are tracked so teardown removes BOTH canvases.
+let mergeP5 = [];
 let currentVideoDeviceId = null;
 let currentAudioDeviceId = null;
 let screenOnline = myRole === 'screen';
@@ -72,7 +82,15 @@ function loadParamValues() {
   const knownIds = new Set(SKETCHES.map((s) => s.id));
 
   for (const [key, value] of Object.entries(raw)) {
-    if (knownIds.has(key)) out[key] = value;
+    // BLEND_ID is a reserved pseudo-sketch id that stores the global blend
+    // params — keep it alongside the per-effect entries. Merge stored values
+    // over the defaults so stores saved by older builds (no `mode`, add:0)
+    // pick up the new keys instead of rendering with undefined.
+    if (key === BLEND_ID) {
+      out[key] = { ...defaultParamValues(BLEND_ID), ...(value || {}) };
+    } else if (knownIds.has(key)) {
+      out[key] = value;
+    }
   }
 
   // Migrate legacy numeric (position-keyed) entries to sketch ids so an
@@ -129,23 +147,122 @@ function getParams(id) {
 // Screen runtime
 // ---------------------------------------------------------------------------
 
-function loadSketch(index) {
+// Tear down whatever is running: a single sketch or both merge instances.
+function removeCurrentP5() {
+  if (currentP5) {
+    currentP5.remove();
+    currentP5 = null;
+  }
+  mergeP5.forEach((inst) => inst.remove());
+  mergeP5 = [];
+}
+
+// Run two sketches side by side as stacked canvases and blend them purely in
+// the GPU compositor: the overlay canvas' opacity drives the crossfade and
+// mix-blend-mode:screen layers it additively. No per-frame pixel readback, so
+// WEBGL/shader effects stay at full speed.
+function loadMerged(indexA, indexB) {
+  const ordered = getOrderedSketches();
+  const skA = ordered[indexA];
+  const skB = ordered[indexB];
+
+  const p5A = new p5(skA.factory(audio, currentVideoDeviceId, getParams(skA.id)));
+  const p5B = new p5(skB.factory(audio, currentVideoDeviceId, getParams(skB.id)));
+
+  mergeP5 = [p5A, p5B];
+  // p5 creates the canvas when setup() runs — after the constructor returns —
+  // so tag each canvas as soon as it exists.
+  tagMergeCanvas(p5A, '0');
+  tagMergeCanvas(p5B, '1');
+  applyBlendStyles();
+
+  return p5A;
+}
+
+// Tag a merge sketch's canvas for stacking + tests. p5 2.x creates the canvas
+// asynchronously (first frame), so retry until it appears.
+function tagMergeCanvas(inst, zIndex) {
+  const tag = () => {
+    if (!inst.canvas || inst.canvas.__mergeTagged) return;
+    inst.canvas.__mergeTagged = true;
+    inst.canvas.classList.add('merge-canvas');
+    // Both canvases are position:fixed via CSS; make the stacking explicit.
+    inst.canvas.style.zIndex = zIndex;
+    // Keep the stage clickable: the toolbar sits at z-index 2000.
+    inst.canvas.style.pointerEvents = 'auto';
+    applyBlendStyles();
+  };
+  tag();
+  if (inst.canvas) return;
+  const tick = () => {
+    if (inst.canvas) {
+      tag();
+    } else {
+      requestAnimationFrame(tick);
+    }
+  };
+  requestAnimationFrame(tick);
+}
+
+// Push the current blend params onto the overlay canvas styles. Called when a
+// merge loads and whenever a blend slider moves on any window.
+function applyBlendStyles() {
+  if (mergeP5.length !== 2) return;
+  const [p5A, p5B] = mergeP5;
+  if (!p5A.canvas || !p5B.canvas) return;
+
+  const bp = getParams(BLEND_ID);
+  const additive = bp.mode === 1;
+  const mix = typeof bp.mix === 'number' ? bp.mix : 0.5;
+  const add = typeof bp.add === 'number' ? bp.add : 0.5;
+
+  if (additive) {
+    // Additive layering: overlay is screened on top of the base
+    p5B.canvas.style.mixBlendMode = 'screen';
+    p5B.canvas.style.opacity = String(add);
+  } else {
+    // Crossfade: opacity 0 -> base only, 1 -> overlay only
+    p5B.canvas.style.mixBlendMode = 'normal';
+    p5B.canvas.style.opacity = String(mix);
+  }
+}
+
+function loadSketch(index, merge = null) {
   const ordered = getOrderedSketches();
   if (index < 0 || index >= ordered.length) return;
 
-  if (currentP5) {
-    currentP5.remove();
-  }
+  removeCurrentP5();
 
   currentIndex = index;
-  const sketch = ordered[index];
-  activeSketchId = sketch.id;
+  const canMerge =
+    merge && merge.length === 2 &&
+    merge[0] >= 0 && merge[0] < ordered.length &&
+    merge[1] >= 0 && merge[1] < ordered.length;
 
-  // Inject audio, current video device ID, and the LIVE params object so the
-  // sketch reads updated param values every frame.
-  currentP5 = new p5(sketch.factory(audio, currentVideoDeviceId, getParams(sketch.id)));
+  if (canMerge) {
+    mergeIndices = [...merge];
+    const skA = ordered[merge[0]];
+    const skB = ordered[merge[1]];
+    mergeIds = [skA.id, skB.id];
+    activeSketchId = skA.id;
 
-  console.log(`Loaded sketch ${index + 1} (${sketch.name})`);
+    // Inject audio, current video device ID, and the LIVE params object so the
+    // sketch reads updated param values every frame.
+    currentP5 = loadMerged(merge[0], merge[1]);
+
+    console.log(`Loaded merged sketch ${skA.name} + ${skB.name}`);
+  } else {
+    mergeIndices = null;
+    mergeIds = null;
+    const sketch = ordered[index];
+    activeSketchId = sketch.id;
+
+    // Inject audio, current video device ID, and the LIVE params object so the
+    // sketch reads updated param values every frame.
+    currentP5 = new p5(sketch.factory(audio, currentVideoDeviceId, getParams(sketch.id)));
+
+    console.log(`Loaded sketch ${index + 1} (${sketch.name})`);
+  }
 }
 
 // Keep activeSketchId in sync for ALL windows (the screen sets it in loadSketch;
@@ -153,7 +270,11 @@ function loadSketch(index) {
 // positions, so the id is what survives an order change.
 function updateActiveSketchId() {
   const ordered = getOrderedSketches();
-  if (ordered[currentIndex]) activeSketchId = ordered[currentIndex].id;
+  if (mergeIndices && ordered[mergeIndices[0]]) {
+    activeSketchId = ordered[mergeIndices[0]].id;
+  } else if (ordered[currentIndex]) {
+    activeSketchId = ordered[currentIndex].id;
+  }
 }
 
 function startAudio() {
@@ -198,11 +319,11 @@ function becomeScreen() {
 
   currentVideoDeviceId = localStorage.getItem(STORAGE.video) || null;
   currentAudioDeviceId = null;
-  loadSketch(currentIndex);
+  loadSketch(currentIndex, mergeIndices);
   startAudio();
   renderScreenToolbar();
 
-  broadcast({ type: 'state', pattern: currentIndex });
+  broadcast({ type: 'state', pattern: currentIndex, merge: mergeIndices });
   console.log(`Window ${myId} became the screen`);
 }
 
@@ -210,10 +331,7 @@ function becomeControl() {
   if (myRole === 'control') return;
   myRole = 'control';
 
-  if (currentP5) {
-    currentP5.remove();
-    currentP5 = null;
-  }
+  removeCurrentP5();
   audio.stop();
   currentAudioDeviceId = null;
 
@@ -246,12 +364,13 @@ function handleMessage(msg) {
           becomeControl();
         }
       }
-      if (myRole === 'screen') broadcast({ type: 'state', pattern: currentIndex });
+      if (myRole === 'screen') broadcast({ type: 'state', pattern: currentIndex, merge: mergeIndices });
       break;
 
     case 'state':
       if (typeof msg.pattern === 'number') {
         currentIndex = msg.pattern;
+        mergeIndices = Array.isArray(msg.merge) && msg.merge.length === 2 ? [...msg.merge] : null;
         updateActiveSketchId();
       }
       screenOnline = true;
@@ -259,10 +378,24 @@ function handleMessage(msg) {
 
     case 'pattern':
       currentIndex = msg.index;
+      mergeIndices = null;
       updateActiveSketchId();
       if (myRole === 'screen') {
         loadSketch(msg.index);
-        broadcast({ type: 'state', pattern: currentIndex });
+        broadcast({ type: 'state', pattern: currentIndex, merge: null });
+      }
+      break;
+
+    case 'merge':
+      // Two effects selected at once — run both and blend them on screen.
+      if (typeof msg.a === 'number' && typeof msg.b === 'number') {
+        currentIndex = msg.a;
+        mergeIndices = [msg.a, msg.b];
+        updateActiveSketchId();
+        if (myRole === 'screen') {
+          loadSketch(msg.a, mergeIndices);
+          broadcast({ type: 'state', pattern: currentIndex, merge: mergeIndices });
+        }
       }
       break;
 
@@ -277,6 +410,8 @@ function handleMessage(msg) {
       if (typeof msg.id === 'string' && msg.values) {
         Object.assign(getParams(msg.id), msg.values);
         saveParamValues();
+        // Blend sliders drive the overlay canvas styles on the screen
+        if (msg.id === BLEND_ID && myRole === 'screen') applyBlendStyles();
         if (myRole === 'control' && panel) panel.applyParam(msg.id, msg.values);
       }
       break;
@@ -287,6 +422,13 @@ function handleMessage(msg) {
       if (Array.isArray(msg.order) && msg.order.length) {
         const idx = msg.order.indexOf(activeSketchId);
         if (idx >= 0) currentIndex = idx;
+        // A live merge selection is positional too — remap it by id so the
+        // next key event / takeover keeps pointing at the same effects.
+        if (mergeIndices && mergeIds) {
+          const a = msg.order.indexOf(mergeIds[0]);
+          const b = msg.order.indexOf(mergeIds[1]);
+          if (a >= 0 && b >= 0) mergeIndices = [a, b];
+        }
         if (myRole === 'control' && panel) panel.setOrder();
       }
       break;
@@ -313,23 +455,89 @@ channel.onmessage = (e) => handleMessage(e.data || {});
 broadcast({ type: 'hello', role: myRole, bootTime: MY_BOOT_TIME });
 
 // ---------------------------------------------------------------------------
-// Keyboard shortcuts (1-0) — active on control panel windows
+// Keyboard shortcuts (1-0) — active on control panel windows.
+// Gesture model (latched): the FIRST key pressed selects that effect; if a
+// SECOND key is pressed while the first is still held, both effects merge and
+// the blend STAYS (latched) even after the keys are released. A later single
+// key press ends the blend; two overlapping presses start a new one. Extra
+// held keys (3+) are ignored to keep the blend target stable.
 // ---------------------------------------------------------------------------
+
+// Indices of currently held shortcut keys, in press order.
+const heldKeys = [];
 
 window.addEventListener('keydown', (e) => {
   if (myRole !== 'control') return;
   if (e.metaKey || e.ctrlKey || e.altKey) return;
 
   const target = e.target;
-  if (target && (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA')) {
-    return;
+  // Only bail when the focused element actually consumes typed characters.
+  // Range sliders (and buttons/checkboxes) must NOT block the shortcuts, so
+  // 1-0 keep switching/blending effects while a param slider has focus.
+  const tag = target && target.tagName;
+  const type = target && target.type;
+  const isTextEntry =
+    tag === 'TEXTAREA' ||
+    tag === 'SELECT' ||
+    (tag === 'INPUT' &&
+      ['text', 'search', 'url', 'tel', 'email', 'password', 'number', 'date', 'time', 'datetime-local', 'month', 'week'].includes(type)) ||
+    !!(target && target.isContentEditable);
+  if (isTextEntry) return;
+
+  // Blend shortcuts (merge mode only): + / - nudge the active level slider,
+  // Tab switches between Blend and Additive modes.
+  if (mergeIndices) {
+    const bp = getParams(BLEND_ID);
+    if (e.key === '+' || e.key === '=' || e.key === '-') {
+      const activeKey = bp.mode === 1 ? 'add' : 'mix';
+      const delta = e.key === '-' ? -0.05 : 0.05;
+      const cur = typeof bp[activeKey] === 'number' ? bp[activeKey] : 0.5;
+      const next = Math.max(0, Math.min(1, Math.round((cur + delta) * 100) / 100));
+      broadcast({ type: 'params', id: BLEND_ID, values: { [activeKey]: next } });
+      e.preventDefault();
+      return;
+    }
+    if (e.key === 'Tab') {
+      broadcast({ type: 'params', id: BLEND_ID, values: { mode: bp.mode === 1 ? 0 : 1 } });
+      e.preventDefault();
+      return;
+    }
   }
 
   const index = indexFromKey(e.key);
   // Only the first 10 positions have shortcuts (1-9, 0)
-  if (index >= 0 && index < getOrderedSketches().length) {
+  if (index < 0 || index >= getOrderedSketches().length) return;
+  if (e.repeat || heldKeys.includes(index)) return;
+
+  if (heldKeys.length === 0) {
+    // Single selection — replaces any latched blend
+    heldKeys.push(index);
     broadcast({ type: 'pattern', index });
+  } else if (heldKeys.length === 1) {
+    // Second key while the first is still held -> merge the pair (latched)
+    heldKeys.push(index);
+    const lo = Math.min(heldKeys[0], index);
+    const hi = Math.max(heldKeys[0], index);
+    broadcast({ type: 'merge', a: lo, b: hi });
   }
+  // 2+ keys already held -> ignore extras
+});
+
+window.addEventListener('keyup', (e) => {
+  if (myRole !== 'control') return;
+
+  const index = indexFromKey(e.key);
+  const pos = heldKeys.indexOf(index);
+  if (pos >= 0) heldKeys.splice(pos, 1);
+  // No broadcast on release: an started blend is latched until the next press
+});
+
+// If the control window loses focus mid-hold its keyup events are lost. The
+// latched selection is unaffected, but the held-key bookkeeping must reset so
+// the next press isn't mistaken for part of a stale gesture.
+window.addEventListener('blur', () => {
+  if (myRole !== 'control') return;
+  heldKeys.length = 0;
 });
 
 // Tell everyone when the screen window closes
@@ -373,7 +581,8 @@ function syncUI() {
   if (myRole === 'control') {
     ensurePanel();
     if (panel) {
-      panel.setPattern(currentIndex);
+      if (mergeIndices) panel.setMerge(mergeIndices);
+      else panel.setPattern(currentIndex);
       panel.setScreenOnline(screenOnline);
     }
   }
@@ -424,8 +633,12 @@ if (import.meta.env.DEV) {
     get role() { return myRole; },
     get pattern() { return currentIndex; },
     get patternId() { return activeSketchId; },
+    // [a, b] effect indices while two effects are merged, null otherwise
+    get merge() { return mergeIndices ? [...mergeIndices] : null; },
     get screenOnline() { return screenOnline; },
     get params() { return getParams(activeSketchId || getOrderedSketches()[0].id); },
+    // Live blend params (mix/add) — shared via the BLEND_ID store
+    get blend() { return getParams(BLEND_ID); },
     get audioFeatures() { return currentP5?.__audioFeatures || null; },
     // Exposed only in Vite development mode so integration tests can inject a
     // deterministic spectrum without requiring microphone permissions.

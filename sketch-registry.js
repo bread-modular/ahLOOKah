@@ -553,6 +553,28 @@ export const SKETCHES = [
   }, // 42
 ];
 
+// Reserved id for the global dual-effect blend params (shown in merge mode).
+// It intentionally cannot collide with a sketch id, so it is safe to store in
+// the same param store (viz2_params) as per-effect params.
+export const BLEND_ID = '__merge';
+
+// Blend params replace the individual effect sliders while two effects are
+// merged. One level slider drives either `mix` (crossfade base -> overlay) or
+// `add` (additive screen-blend layering) depending on `mode` (0 = Blend,
+// 1 = Additive — the default is Blend @ 0.5). The panel renders the toggle
+// and a single slider; `mode` is stored here so it persists and syncs.
+export const BLEND_PARAMS = [
+  { key: 'mix', label: 'Blend', min: 0, max: 1, step: 0.01, default: 0.5 },
+  { key: 'add', label: 'Additive', min: 0, max: 1, step: 0.01, default: 0.5 },
+  { key: 'mode', label: 'Mode', min: 0, max: 1, step: 1, default: 0 },
+];
+
+export function defaultBlendValues() {
+  const out = {};
+  for (const def of BLEND_PARAMS) out[def.key] = def.default;
+  return out;
+}
+
 // Number of effects that get keyboard shortcuts (1-9, 0 = 10th)
 export const SHORTCUT_COUNT = 10;
 
@@ -598,6 +620,7 @@ export function indexFromKey(key) {
 
 // Build a fresh { key: value } object from a sketch's param defaults
 export function defaultParamValues(id) {
+  if (id === BLEND_ID) return defaultBlendValues();
   const out = {};
   const sketch = SKETCHES.find((s) => s.id === id);
   const defs = (sketch && sketch.params) || [];
