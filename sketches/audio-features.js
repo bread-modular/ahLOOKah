@@ -27,6 +27,89 @@ const LEVEL_WINDOWS = Object.freeze({
   high: [-76, -24],
 });
 
+// Live bass|mid and mid|high crossover frequencies (Hz). The control panel's
+// band-split EQ drags these; the screen applies them here so every effect's
+// Bass / Mid / High responsiveness sliders act on the selected ranges. The
+// defaults mirror MUSICAL_BANDS, so nothing changes until a handle moves.
+const bandSplit = {
+  low: MUSICAL_BANDS.sub[1], // 180 Hz
+  high: MUSICAL_BANDS.mid[1], // 2800 Hz
+};
+
+// Drag limits for the EQ separators (kept in sync with the panel rendering).
+export const BAND_SPLIT_LIMITS = Object.freeze({
+  lowMin: 40,
+  lowMax: 1200,
+  highMin: 400,
+  highMax: 15000,
+  // The two crossovers must stay at least this ratio apart so the three
+  // bands never collapse into each other.
+  minRatio: 1.25,
+});
+
+export function getBandSplit() {
+  return { low: bandSplit.low, high: bandSplit.high };
+}
+
+export function setBandSplit({ low, high } = {}) {
+  const L = BAND_SPLIT_LIMITS;
+  if (Number.isFinite(low)) bandSplit.low = clamp(low, L.lowMin, L.lowMax);
+  if (Number.isFinite(high)) bandSplit.high = clamp(high, L.highMin, L.highMax);
+  // Never allow an inverted split; push the bass crossover back down.
+  if (bandSplit.high < bandSplit.low * L.minRatio) {
+    bandSplit.low = bandSplit.high / L.minRatio;
+  }
+  return getBandSplit();
+}
+
+// Display window of the control panel's band-split EQ: log frequency axis and
+// the dB range the spectrum curve is drawn in (Ableton-style).
+export const EQ_MIN_HZ = 30;
+export const EQ_MAX_HZ = 16000;
+export const EQ_DB_TOP = -20;
+export const EQ_DB_BOTTOM = -90;
+
+// Resample an analysis frame into a compact log-spaced dB spectrum for the
+// control panel EQ (screen broadcasts this; ~15 fps, a few hundred bytes).
+// Channels are mixed in the power domain exactly like the feature extractor.
+export function computeLogSpectrum(frame, points = 96, minHz = EQ_MIN_HZ, maxHz = EQ_MAX_HZ) {
+  const left = frame?.left;
+  const right = frame?.right;
+  if (!left?.length && !right?.length) return null;
+
+  const binCount = Math.max(left?.length || 0, right?.length || 0);
+  const sampleRate = Math.max(8000, Number(frame.sampleRate) || 48000);
+  const fftSize = Math.max(binCount * 2, Number(frame.fftSize) || binCount * 2);
+  const topHz = Math.min(maxHz, sampleRate * 0.48);
+
+  const channelCount = left?.length && right?.length ? 2 : 1;
+  const binDb = new Float32Array(binCount);
+  for (let i = 0; i < binCount; i++) {
+    let power = 0;
+    if (left?.length) power += dbToPower(left[Math.min(i, left.length - 1)]);
+    if (right?.length) power += dbToPower(right[Math.min(i, right.length - 1)]);
+    binDb[i] = powerToDb(power / channelCount);
+  }
+
+  const freqs = new Float32Array(points);
+  const dbs = new Float32Array(points);
+  const binHz = sampleRate / fftSize;
+  const logMin = Math.log(minHz);
+  const logSpan = Math.log(topHz / minHz);
+  for (let k = 0; k < points; k++) {
+    const hz = Math.exp(logMin + (logSpan * k) / (points - 1));
+    freqs[k] = hz;
+    // Linear interpolation between bins keeps the low end (few bins per
+    // octave) smooth on the log axis.
+    const pos = hz / binHz;
+    const i0 = Math.min(Math.floor(pos), binCount - 1);
+    const i1 = Math.min(i0 + 1, binCount - 1);
+    const frac = clamp(pos - i0, 0, 1);
+    dbs[k] = binDb[i0] * (1 - frac) + binDb[i1] * frac;
+  }
+  return { freqs, dbs, minHz, maxHz: topHz };
+}
+
 const clamp = (value, min = 0, max = 1) => Math.min(max, Math.max(min, value));
 const smoothstep = (edge0, edge1, value) => {
   const x = clamp((value - edge0) / Math.max(edge1 - edge0, EPSILON));
@@ -225,8 +308,17 @@ export function makeAudioFeatures() {
 
     const silenceGate = smoothstep(-72, -48, rmsDb);
     const rawLevels = {};
+    // Band ranges follow the live band-split crossovers (defaults match
+    // MUSICAL_BANDS). Kick/snare/hat transient detectors keep their fixed
+    // musical ranges — only the sustained Bass/Mid/High levels retune.
+    const split = getBandSplit();
+    const splitRanges = {
+      sub: [MUSICAL_BANDS.sub[0], split.low],
+      mid: [split.low, split.high],
+      high: [split.high, MUSICAL_BANDS.high[1]],
+    };
     for (const name of ['sub', 'mid', 'high']) {
-      const db = powerToDb(bandPower(spectrumPower, MUSICAL_BANDS[name], sampleRate, fftSize));
+      const db = powerToDb(bandPower(spectrumPower, splitRanges[name], sampleRate, fftSize));
       const [quietDb, loudDb] = LEVEL_WINDOWS[name];
       rawLevels[name] = smoothstep(quietDb, loudDb, db + autoGainDb) * silenceGate;
     }

@@ -4,12 +4,14 @@ import {
   getOrderedSketches,
   SKETCHES,
   BLEND_ID,
+  BANDS_ID,
   defaultParamValues,
   indexFromKey,
   saveSlotOrder,
 } from './sketch-registry.js';
 import { ConfigPanel } from './config-panel.js';
 import { AudioManager } from './audio-manager.js';
+import { setBandSplit, computeLogSpectrum } from './sketches/audio-features.js';
 
 // ---------------------------------------------------------------------------
 // Window roles
@@ -88,6 +90,9 @@ function loadParamValues() {
     // pick up the new keys instead of rendering with undefined.
     if (key === BLEND_ID) {
       out[key] = { ...defaultParamValues(BLEND_ID), ...(value || {}) };
+    } else if (key === BANDS_ID) {
+      // Global band-split crossovers (same reserved-id trick as BLEND_ID)
+      out[key] = { ...defaultParamValues(BANDS_ID), ...(value || {}) };
     } else if (knownIds.has(key)) {
       out[key] = value;
     }
@@ -344,6 +349,7 @@ function becomeScreen() {
   else loadSketchById(activeSketchId);
   startAudio();
   renderScreenToolbar();
+  startSpectrumBroadcast();
 
   broadcast({ type: 'state', pattern: currentIndex, merge: mergeIndices, patternId: activeSketchId });
   console.log(`Window ${myId} became the screen`);
@@ -355,6 +361,7 @@ function becomeControl() {
 
   removeCurrentP5();
   audio.stop();
+  stopSpectrumBroadcast();
   currentAudioDeviceId = null;
 
   document.body.classList.add('is-control');
@@ -453,9 +460,18 @@ function handleMessage(msg) {
         saveParamValues();
         // Blend sliders drive the overlay canvas styles on the screen
         if (msg.id === BLEND_ID && myRole === 'screen') applyBlendStyles();
+        // Band-split crossovers retune the musical feature extractor
+        if (msg.id === BANDS_ID) setBandSplit(getParams(BANDS_ID));
         if (myRole === 'control' && panel) panel.applyParam(msg.id, msg.values);
       }
       break;
+
+    case 'spectrum':
+      // High-frequency log-spectrum feed for the control panel's band-split
+      // EQ (broadcast by the screen ~15fps). Forward and return early — the
+      // full syncUI() dance is pointless churn at this message rate.
+      if (myRole === 'control' && panel) panel.handleSpectrum(msg);
+      return;
 
     case 'reorder':
       // The pad assignment changed in some window. Positions shift, so keep the
@@ -499,6 +515,38 @@ channel.onmessage = (e) => handleMessage(e.data || {});
 
 // Announce ourselves so an existing screen can push its state
 broadcast({ type: 'hello', role: myRole, bootTime: MY_BOOT_TIME });
+
+// ---------------------------------------------------------------------------
+// Band-split EQ spectrum feed (screen -> control panels)
+// The screen owns the audio analyser; control panels have none. While this
+// window is the screen it resamples the analysis frame into a compact
+// log-spaced dB spectrum and broadcasts it (~15fps) so the control panel's
+// EQ section can draw the live spectrum.
+// ---------------------------------------------------------------------------
+
+let spectrumRaf = 0;
+let lastSpectrumAt = 0;
+
+function spectrumLoop(now) {
+  spectrumRaf = 0;
+  if (myRole !== 'screen') return;
+  if (now - lastSpectrumAt >= 66) {
+    lastSpectrumAt = now;
+    const frame = audio.isStarted ? audio.getAnalysisFrame() : null;
+    const spec = frame ? computeLogSpectrum(frame) : null;
+    if (spec) broadcast({ type: 'spectrum', ...spec });
+  }
+  spectrumRaf = requestAnimationFrame(spectrumLoop);
+}
+
+function startSpectrumBroadcast() {
+  if (!spectrumRaf) spectrumRaf = requestAnimationFrame(spectrumLoop);
+}
+
+function stopSpectrumBroadcast() {
+  if (spectrumRaf) cancelAnimationFrame(spectrumRaf);
+  spectrumRaf = 0;
+}
 
 // ---------------------------------------------------------------------------
 // Keyboard shortcuts (1-0) — active on control panel windows.
@@ -665,12 +713,17 @@ function renderScreenToolbar() {
 // Boot
 // ---------------------------------------------------------------------------
 
+// Apply any saved band-split crossovers so a reload keeps the tuned borders
+// on the feature extractor (later changes ride the 'params' message path).
+setBandSplit(getParams(BANDS_ID));
+
 if (myRole === 'screen') {
   document.body.classList.add('is-screen');
   currentVideoDeviceId = localStorage.getItem(STORAGE.video) || null;
   loadSketch(currentIndex);
   startAudio();
   renderScreenToolbar();
+  startSpectrumBroadcast();
 } else {
   document.body.classList.add('is-control');
   updateActiveSketchId();
@@ -691,6 +744,17 @@ if (import.meta.env.DEV) {
     // Live blend params (mix/add) — shared via the BLEND_ID store
     get blend() { return getParams(BLEND_ID); },
     get audioFeatures() { return currentP5?.__audioFeatures || null; },
+    // Live band-split crossovers (BANDS_ID param store)
+    get bands() { return getParams(BANDS_ID); },
+    // Control-panel band-split EQ internals (control windows only)
+    get eq() {
+      if (!panel) return null;
+      return {
+        split: { ...panel.eqSplit },
+        drawn: panel.eqDrawn,
+        spectrumAt: panel.lastSpectrumAt,
+      };
+    },
     // Exposed only in Vite development mode so integration tests can inject a
     // deterministic spectrum without requiring microphone permissions.
     audio,

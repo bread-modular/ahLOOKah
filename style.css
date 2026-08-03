@@ -6,6 +6,9 @@
   --text-dim: #8a8a8a;
   --accent: #4da3ff;
   --transition-speed: 0.2s;
+  --band-bass: #ff6a3d;
+  --band-mid: #42d68a;
+  --band-high: #5b9dff;
 }
 
 html,
@@ -298,6 +301,94 @@ body.is-screen #config-container {
 
 .config-section-body h3:first-child {
   margin-top: 12px;
+}
+
+/* ---------------------------------------------------------------------------
+   Band-split EQ (Ableton-style log spectrum + draggable bass/mid/high borders)
+--------------------------------------------------------------------------- */
+
+.band-eq-wrap {
+  position: relative;
+  border: 1px solid var(--border-gray);
+  border-radius: 4px;
+  overflow: hidden;
+  background: #0b0d10;
+}
+
+/* The global `canvas` rule above pins canvases fullscreen for the p5 stage —
+   the EQ canvas is an ordinary inline element inside the panel. */
+#band-eq-canvas {
+  position: static;
+  top: auto;
+  left: auto;
+  width: 100%;
+  height: 150px;
+  touch-action: none;
+  cursor: default;
+}
+
+.band-eq-idle {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.68rem;
+  letter-spacing: 0.08rem;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  background: rgba(8, 8, 8, 0.45);
+  pointer-events: none;
+}
+
+.band-eq-idle[hidden] {
+  display: none;
+}
+
+.band-eq-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.band-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04rem;
+  text-transform: uppercase;
+  padding: 4px 9px;
+  border: 1px solid var(--border-gray);
+  border-radius: 14px;
+  color: var(--text-dim);
+}
+
+.band-chip i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.band-chip b {
+  color: var(--text-main);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.band-chip-bass i {
+  background: var(--band-bass);
+}
+
+.band-chip-mid i {
+  background: var(--band-mid);
+}
+
+.band-chip-high i {
+  background: var(--band-high);
 }
 
 /* ---------------------------------------------------------------------------
