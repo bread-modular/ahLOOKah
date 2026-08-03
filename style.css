@@ -357,8 +357,107 @@ body.is-screen #config-container {
     0 0 16px rgba(77, 163, 255, 0.65);
 }
 
+/* Both buttons in a dual-effect merge get a distinct purple highlight so the
+   blend pair pops on stage (single-selection stays blue). */
+#config-panel .pattern-btn.merge-active {
+  background: #a855f7;
+  border-color: #a855f7;
+  color: #ffffff;
+  box-shadow:
+    0 0 0 2px rgba(168, 85, 247, 0.45),
+    0 0 16px rgba(168, 85, 247, 0.7);
+}
+
+#config-panel .pattern-btn.merge-active .pattern-key {
+  background: #ffffff;
+  border-color: #2a0e4d;
+  color: #2a0e4d;
+}
+
+#config-panel .pattern-btn.merge-active .pattern-name {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+#config-panel .pattern-btn.merge-active:hover {
+  background: #a855f7;
+  border-color: #a855f7;
+  color: #ffffff;
+  box-shadow:
+    0 0 0 2px rgba(168, 85, 247, 0.45),
+    0 0 16px rgba(168, 85, 247, 0.7);
+}
+
 .pattern-btn:hover {
   border-color: var(--accent);
+}
+
+/* Header row shown above the blend sliders in merge mode */
+.blend-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #c084fc;
+  border-bottom: 1px solid var(--border-gray);
+  padding-bottom: 6px;
+  margin-bottom: 2px;
+}
+
+.blend-header .blend-names {
+  font-size: 0.72rem;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Blend / Additive mode toggle shown above the level slider in merge mode.
+   The selectors are ID-qualified (#config-panel) so they beat the generic
+   `#config-panel button` background rule (ID specificity wins over classes). */
+#config-panel .blend-mode-toggle {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0 10px;
+}
+
+#config-panel .blend-mode-btn {
+  flex: 1;
+  padding: 7px 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border-gray);
+  border-radius: 6px;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+#config-panel .blend-mode-btn:hover:not(.active) {
+  background: #222;
+  border-color: #a855f7;
+  color: var(--text-main);
+}
+
+/* Selected mode gets a solid purple fill so it reads at a glance */
+#config-panel .blend-mode-btn.active {
+  background: #a855f7;
+  border-color: #a855f7;
+  color: #ffffff;
+  box-shadow: 0 0 10px rgba(168, 85, 247, 0.45);
 }
 
 /* ---------------------------------------------------------------------------
