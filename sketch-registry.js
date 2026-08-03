@@ -81,6 +81,16 @@ import colorBars from './sketches/color_bars.js';
 import noiseStatic from './sketches/noise_static.js';
 import filmGrain from './sketches/film_grain.js';
 import checkerboard from './sketches/checkerboard.js';
+// Camera-input FX (chroma keyer, kaleidoscope, pixelate, motion trails) and a
+// second wave of glitch looks for the grouped pattern library.
+import videoChroma from './sketches/video_chroma.js';
+import videoKaleido from './sketches/video_kaleido.js';
+import videoPixelate from './sketches/video_pixelate.js';
+import videoTrails from './sketches/video_trails.js';
+import glitchRgbSplit from './sketches/glitch_rgb_split.js';
+import glitchScanlines from './sketches/glitch_scanlines.js';
+import glitchSlices from './sketches/glitch_slices.js';
+import glitchCrt from './sketches/glitch_crt.js';
 
 // Shared "responsiveness" triple used by many effects (0..2, default 1)
 const BAND_RESPONSIVENESS = [
@@ -686,6 +696,117 @@ export const SKETCHES = [
     ],
     group: 'Basics',
   }, // 48
+  {
+    id: 'video-chroma',
+    name: 'Video Chroma Key',
+    factory: videoChroma,
+    params: [
+      { key: 'keyHue', label: 'Key Hue', min: 0, max: 360, step: 1, default: 120 },
+      { key: 'tolerance', label: 'Key Tolerance', min: 0.02, max: 0.5, step: 0.01, default: 0.16 },
+      { key: 'softness', label: 'Edge Softness', min: 0, max: 0.4, step: 0.01, default: 0.12 },
+      { key: 'bgMode', label: 'BG Gradient', min: 0, max: 1, step: 1, default: 1 },
+      { key: 'bgHue', label: 'BG Hue', min: 0, max: 360, step: 1, default: 275 },
+      { key: 'bgSat', label: 'BG Saturation', min: 0, max: 1, step: 0.01, default: 0.7 },
+      { key: 'bgBright', label: 'BG Brightness', min: 0, max: 1, step: 0.01, default: 0.55 },
+      { key: 'audioReact', label: 'Audio Key Widen', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+    group: 'Video FX',
+    camera: true,
+  }, // 49
+  {
+    id: 'video-kaleido',
+    name: 'Video Kaleidoscope',
+    factory: videoKaleido,
+    params: [
+      { key: 'segments', label: 'Segments', min: 3, max: 12, step: 1, default: 6 },
+      { key: 'speed', label: 'Rotation Speed', min: 0, max: 3, step: 0.05, default: 0.6 },
+      { key: 'zoom', label: 'Zoom', min: 0.4, max: 3, step: 0.05, default: 1 },
+      { key: 'cx', label: 'Center X', min: -1, max: 1, step: 0.05, default: 0 },
+      { key: 'cy', label: 'Center Y', min: -1, max: 1, step: 0.05, default: 0 },
+      { key: 'audioZoom', label: 'Audio Zoom Pump', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+    group: 'Video FX',
+    camera: true,
+  }, // 50
+  {
+    id: 'video-pixelate',
+    name: 'Video Pixelate',
+    factory: videoPixelate,
+    params: [
+      { key: 'block', label: 'Block Size', min: 2, max: 64, step: 1, default: 14 },
+      { key: 'audioBlocks', label: 'Audio Block Swell', min: 0, max: 2, step: 0.05, default: 0.8 },
+      { key: 'levels', label: 'Quantize Levels', min: 0, max: 16, step: 1, default: 8 },
+      { key: 'tint', label: 'Hue Tint', min: 0, max: 1, step: 0.01, default: 0 },
+      { key: 'bright', label: 'Brightness', min: 0.3, max: 1.8, step: 0.05, default: 1 },
+    ],
+    group: 'Video FX',
+    camera: true,
+  }, // 51
+  {
+    id: 'video-trails',
+    name: 'Video Trails',
+    factory: videoTrails,
+    params: [
+      { key: 'decay', label: 'Trail Decay', min: 0, max: 1, step: 0.01, default: 0.6 },
+      { key: 'tintHue', label: 'Tint Hue', min: 0, max: 1, step: 0.01, default: 0.6 },
+      { key: 'blend', label: 'Blend Mode', min: 0, max: 2, step: 1, default: 0 },
+      { key: 'audioDecay', label: 'Audio Trail Stretch', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+    group: 'Video FX',
+    camera: true,
+  }, // 52
+  {
+    id: 'glitch-rgb-split',
+    name: 'RGB Split',
+    factory: glitchRgbSplit,
+    params: [
+      { key: 'intensity', label: 'Base Offset', min: 0, max: 1, step: 0.01, default: 0.4 },
+      { key: 'burst', label: 'Burst Strength', min: 0, max: 2, step: 0.05, default: 1 },
+      { key: 'speed', label: 'Pattern Speed', min: 0, max: 3, step: 0.05, default: 1 },
+      { key: 'pulse', label: 'Audio Reactivity', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+    group: 'Glitch / Effects',
+  }, // 53
+  {
+    id: 'glitch-scanlines',
+    name: 'Scanline Roll',
+    factory: glitchScanlines,
+    params: [
+      { key: 'speed', label: 'Roll Speed', min: 0, max: 3, step: 0.05, default: 1 },
+      { key: 'intensity', label: 'Jitter Intensity', min: 0, max: 2, step: 0.05, default: 1 },
+      { key: 'bands', label: 'Scan Bands', min: 1, max: 8, step: 1, default: 3 },
+      { key: 'pulse', label: 'Audio Reactivity', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+    group: 'Glitch / Effects',
+  }, // 54
+  {
+    id: 'glitch-slices',
+    name: 'Slice Glitch',
+    factory: glitchSlices,
+    params: [
+      { key: 'slices', label: 'Slice Count', min: 0, max: 24, step: 1, default: 10 },
+      { key: 'shift', label: 'Max Shift', min: 0, max: 1, step: 0.01, default: 0.5 },
+      { key: 'blocks', label: 'Block Artifacts', min: 0, max: 20, step: 1, default: 8 },
+      { key: 'speed', label: 'Pattern Speed', min: 0, max: 3, step: 0.05, default: 1 },
+      { key: 'pulse', label: 'Audio Reactivity', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+    group: 'Glitch / Effects',
+  }, // 55
+  {
+    id: 'glitch-crt',
+    name: 'CRT Glitch',
+    factory: glitchCrt,
+    params: [
+      { key: 'curvature', label: 'Tube Curvature', min: 0, max: 1, step: 0.01, default: 0.6 },
+      { key: 'scanlines', label: 'Scanlines', min: 0, max: 1, step: 0.01, default: 0.7 },
+      { key: 'flicker', label: 'Flicker', min: 0, max: 1, step: 0.01, default: 0.5 },
+      { key: 'roll', label: 'Roll Bar', min: 0, max: 1, step: 0.01, default: 0.5 },
+      { key: 'ghost', label: 'Ghosting', min: 0, max: 1, step: 0.01, default: 0.4 },
+      { key: 'speed', label: 'Roll Speed', min: 0, max: 3, step: 0.05, default: 1 },
+      { key: 'pulse', label: 'Audio Distortion', min: 0, max: 2, step: 0.05, default: 1 },
+    ],
+    group: 'Glitch / Effects',
+  }, // 56
 ];
 
 // Reserved id for the global dual-effect blend params (shown in merge mode).
