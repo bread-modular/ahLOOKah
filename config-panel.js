@@ -334,14 +334,20 @@ export class ConfigPanel {
     const pane = this.panel.querySelector('#effects-pane');
     if (!resizer || !pane) return;
 
+    // 446 = the Pattern Pad's fixed 2-column grid floor: 2 x 200px buttons +
+    // 6px gap + 40px pane padding. The pad is repeat(2, 1fr), so below this the
+    // buttons can't shrink (grid min-width:auto) and would overflow the pane
+    // onto the divider / controls — the divider must stop right here with it.
+    const MIN_WIDTH = 446;
+    const CONTROL_MIN_WIDTH = 340; // keep the controls column usable
+
     const saved = parseInt(localStorage.getItem('viz2_effects_width') || '', 10);
     // Default fits exactly 2 columns of 200px+ buttons (2 * 200 + 8 gap + 40 padding)
-    this.effectsWidth = Number.isFinite(saved) && saved > 0 ? saved : 460;
+    // Clamp persisted widths: an old pre-446 value must not recreate the overflow.
+    // Write the clamped value back so it isn't re-clamped on every load.
+    this.effectsWidth = Number.isFinite(saved) && saved > 0 ? Math.max(saved, MIN_WIDTH) : 460;
+    if (saved !== this.effectsWidth) localStorage.setItem('viz2_effects_width', String(this.effectsWidth));
     pane.style.width = `${this.effectsWidth}px`;
-
-    // 240 = one 200px button + 40px pane padding (never narrower than a column)
-    const MIN_WIDTH = 240;
-    const CONTROL_MIN_WIDTH = 340; // keep the controls column usable
 
     resizer.addEventListener('mousedown', (e) => {
       e.preventDefault();

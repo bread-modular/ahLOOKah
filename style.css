@@ -502,6 +502,10 @@ body.is-screen #config-container {
 .pattern-pad .pattern-btn {
   padding: 8px 10px !important;
   min-height: 38px;
+  /* Grid tracks default to min-width:auto, so a long pattern name would force
+     the 2-column pad wider than the pane and spill onto the divider/controls.
+     Let the 1fr tracks shrink instead; the name ellipsizes. */
+  min-width: 0;
 }
 
 /* Grouped library sections */

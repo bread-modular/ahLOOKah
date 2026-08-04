@@ -475,4 +475,36 @@ test.describe('effects pane divider resize', () => {
     await control.reload();
     await expect(control.locator('#effects-pane')).toHaveCSS('width', '660px');
   });
+
+  test('divider drag far left clamps at the 2-column pad floor — no overflow onto the divider/controls', async ({ context }) => {
+    const control = await context.newPage();
+    await control.goto(CONTROL_URL);
+
+    const pane = control.locator('#effects-pane');
+    await expect(pane).toHaveCSS('width', '460px');
+
+    // Drag the divider far to the left
+    const resizer = control.locator('#effects-resizer');
+    const box = await resizer.boundingBox();
+    await control.mouse.move(box.x + box.width / 2, box.y + 100);
+    await control.mouse.down();
+    await control.mouse.move(box.x + box.width / 2 - 600, box.y + 100, { steps: 10 });
+    await control.mouse.up();
+
+    // Pane stops at the pad floor (2 x 200px buttons + 6px gap + 40px padding);
+    // the divider stops with it instead of letting content slide over.
+    await expect(pane).toHaveCSS('width', '446px');
+
+    // Regression: no pad button may extend past the pane's right edge
+    // (previously the grid's min-width:auto columns overflowed onto the
+    // divider and the controls pane).
+    const withinPane = await control.evaluate(() => {
+      const paneEl = document.querySelector('#effects-pane');
+      const paneRight = paneEl.getBoundingClientRect().right;
+      return [...document.querySelectorAll('#pattern-pad .pattern-btn')].every(
+        (b) => b.getBoundingClientRect().right <= paneRight + 0.5
+      );
+    });
+    expect(withinPane).toBe(true);
+  });
 });
