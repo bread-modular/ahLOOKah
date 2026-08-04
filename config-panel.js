@@ -47,10 +47,6 @@ const ICON_MIC =
   '<svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
 const ICON_X =
   '<svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
-const ICON_EXPAND =
-  '<svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M21 8V5a2 2 0 0 0-2-2h-3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path><path d="M3 16v3a2 2 0 0 0 2 2h3"></path></svg>';
-const ICON_PLUS =
-  '<svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>';
 const ICON_MONITOR =
   '<svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>';
 
@@ -110,8 +106,6 @@ export class ConfigPanel {
     onPatternChange,
     onPatternChangeId,
     onDevicesChange,
-    onTakeover,
-    onOpenControl,
     onOpenScreen,
     onParamChange,
     onReorder,
@@ -126,8 +120,6 @@ export class ConfigPanel {
     this.onPatternChange = onPatternChange;
     this.onPatternChangeId = onPatternChangeId;
     this.onDevicesChange = onDevicesChange;
-    this.onTakeover = onTakeover;
-    this.onOpenControl = onOpenControl;
     this.onOpenScreen = onOpenScreen;
     this.onParamChange = onParamChange;
     this.onReorder = onReorder;
@@ -267,8 +259,6 @@ export class ConfigPanel {
 
             <div class="config-group actions">
               <button id="refresh-devices-btn">Refresh Devices</button>
-              <button id="takeover-btn" class="primary">${ICON_EXPAND}Take Over as Screen</button>
-              <button id="open-control-btn">${ICON_PLUS}New Control Panel</button>
             </div>
           </div>
         </details>
@@ -283,12 +273,6 @@ export class ConfigPanel {
     persistSectionOpen(this.panel.querySelector('#post-fx'), this.postFxKey);
 
     this.panel.querySelector('#refresh-devices-btn').onclick = () => this.refreshDevices();
-    this.panel.querySelector('#takeover-btn').onclick = () => {
-      if (this.onTakeover) this.onTakeover();
-    };
-    this.panel.querySelector('#open-control-btn').onclick = () => {
-      if (this.onOpenControl) this.onOpenControl();
-    };
     this.panel.querySelector('#setup-all-btn').onclick = () => this.requestPermissions();
 
     this.initResizer();

@@ -30,8 +30,9 @@ import {
 //   ?screen  -> this window is the visualization screen
 //   ?control -> this window is a control panel (DEFAULT — the root URL boots
 //               the panel; use ?role=screen to boot straight into the stage)
-// Any window can "take over" as the screen via the control panel button, and
-// the panel can open additional screen / control windows.
+// Screens are opened with ?role=screen (the Open Screen button in the panel
+// or the Control Panel button on the screen toolbar); if two windows boot as
+// screens, the older one demotes automatically.
 // ---------------------------------------------------------------------------
 
 const params = new URLSearchParams(window.location.search);
@@ -410,28 +411,6 @@ function applyDevices() {
 // Role switching
 // ---------------------------------------------------------------------------
 
-function becomeScreen() {
-  if (myRole === 'screen') return;
-  myRole = 'screen';
-  screenOnline = true;
-
-  document.title = 'Viz Screen';
-  document.body.classList.add('is-screen');
-  document.body.classList.remove('is-control');
-
-  currentVideoDeviceId = localStorage.getItem(STORAGE.video) || null;
-  currentAudioDeviceId = null;
-  if (currentIndex >= 0) loadSketch(currentIndex, mergeIndices);
-  else loadSketchById(activeSketchId);
-  startAudio();
-  applyPostFx();
-  renderScreenToolbar();
-  startSpectrumBroadcast();
-
-  broadcast({ type: 'state', pattern: currentIndex, merge: mergeIndices, patternId: activeSketchId });
-  console.log(`Window ${myId} became the screen`);
-}
-
 function becomeControl() {
   if (myRole === 'control') return;
   myRole = 'control';
@@ -466,7 +445,7 @@ function handleMessage(msg) {
       if (msg.role === 'screen') {
         screenOnline = true;
         // If two windows booted as screens, the older one demotes so only one
-        // screen exists (first-opened window wins; use Take Over to change it).
+        // screen exists (first-opened window wins).
         if (myRole === 'screen' && msg.windowId !== myId && msg.bootTime < MY_BOOT_TIME) {
           becomeControl();
         }
@@ -590,7 +569,7 @@ function handleMessage(msg) {
         const idx = msg.order.indexOf(activeSketchId);
         currentIndex = idx >= 0 ? idx : -1;
         // A live merge selection is positional too — remap it by id so the
-        // next key event / takeover keeps pointing at the same effects.
+        // next key event keeps pointing at the same effects.
         if (mergeIndices && mergeIds) {
           const a = msg.order.indexOf(mergeIds[0]);
           const b = msg.order.indexOf(mergeIds[1]);
@@ -602,14 +581,6 @@ function handleMessage(msg) {
           }
         }
         if (myRole === 'control' && panel) panel.setOrder();
-      }
-      break;
-
-    case 'role':
-      if (msg.windowId === myId) {
-        becomeScreen();
-      } else {
-        becomeControl();
       }
       break;
 
@@ -795,8 +766,6 @@ function ensurePanel() {
       broadcast({ type: 'pattern-id', id });
     },
     onDevicesChange: () => broadcast({ type: 'devices' }),
-    onTakeover: () => broadcast({ type: 'role', role: 'screen' }),
-    onOpenControl: () => openControlWindow(),
     onOpenScreen: () => openScreenWindow(),
     onParamChange: (id, key, value) => {
       // Local dispatch (via broadcast) updates the store + saves + syncs UI

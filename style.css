@@ -321,7 +321,7 @@ body.is-screen #config-container {
   margin-top: 16px;
 }
 
-/* Collapsible devices & setup section (Audio/Camera, Refresh, Take Over, New Panel).
+/* Collapsible devices & setup section (Audio/Camera, Refresh Devices).
    The summary reads like the other h3 section headers but is clickable. */
 .config-section {
   margin-top: 20px;
