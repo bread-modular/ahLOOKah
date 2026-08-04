@@ -85,6 +85,9 @@ test.describe('band split EQ section', () => {
     await injectToneFrame(page);
     await control.waitForFunction(() => (window.__viz.eq?.drawn ?? 0) > 0);
 
+    // The controls pane scrolls; make sure the canvas is in the viewport so
+    // the raw mouse coordinates below actually land on it.
+    await control.locator('#band-eq-canvas').scrollIntoViewIfNeeded();
     const box = await control.locator('#band-eq-canvas').boundingBox();
     expect(box).not.toBeNull();
 
@@ -146,6 +149,7 @@ test.describe('band split EQ section', () => {
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
 
+    await control.locator('#band-eq-canvas').scrollIntoViewIfNeeded();
     const box = await control.locator('#band-eq-canvas').boundingBox();
     expect(box).not.toBeNull();
 

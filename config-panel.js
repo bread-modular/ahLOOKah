@@ -39,6 +39,33 @@ const EQ_COLORS = {
   label: 'rgba(255, 255, 255, 0.38)',
 };
 
+// Inline stroke icons for panel buttons (styled via .btn-icon in style.css) —
+// they sit on the text baseline at a matching size, unlike emoji/text glyphs.
+const ICON_RESET =
+  '<svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>';
+const ICON_MIC =
+  '<svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
+const ICON_X =
+  '<svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
+const ICON_EXPAND =
+  '<svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M21 8V5a2 2 0 0 0-2-2h-3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path><path d="M3 16v3a2 2 0 0 0 2 2h3"></path></svg>';
+const ICON_PLUS =
+  '<svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>';
+
+// Persist a <details> section's open state synchronously on the user's click.
+// The native `toggle` event is dispatched from a queued task, so a reload
+// racing the click can preempt it and lose the persisted state.
+function persistSectionOpen(section, key) {
+  const summary = section && section.querySelector('summary');
+  if (!summary) return;
+  summary.addEventListener('click', (e) => {
+    if (!e.isTrusted) return;
+    // The default action (the actual open flip) runs after this handler,
+    // so store the state the section is about to have.
+    localStorage.setItem(key, section.open ? '0' : '1');
+  });
+}
+
 // Log-frequency <-> pixel mapping shared by drawing and separator dragging.
 const eqHzToX = (hz, w) =>
   (Math.log(Math.min(Math.max(hz, EQ_MIN_HZ), EQ_MAX_HZ) / EQ_MIN_HZ) / Math.log(EQ_MAX_HZ / EQ_MIN_HZ)) * w;
@@ -183,7 +210,7 @@ export class ConfigPanel {
           <div class="config-section-body">
             <div id="post-fx-list" class="params-list"></div>
             <div class="config-group actions">
-              <button id="post-fx-reset-btn" type="button">↺ Reset to Natural</button>
+              <button id="post-fx-reset-btn" type="button">${ICON_RESET}Reset to Natural</button>
             </div>
             <p>Global output trim — applied on top of every effect, including blends. 0 is the natural level; negative values reduce, positive values boost.</p>
           </div>
@@ -204,7 +231,7 @@ export class ConfigPanel {
             <div class="band-eq-noise">
               <div id="noise-status" class="noise-status">No noise profile yet.</div>
               <div class="noise-actions">
-                <button id="noise-capture-btn" type="button">🎙 Capture Noise Floor</button>
+                <button id="noise-capture-btn" type="button">${ICON_MIC}<span class="btn-label">Capture Noise Floor</span></button>
                 <button id="noise-clear-btn" type="button">Clear</button>
               </div>
             </div>
@@ -236,8 +263,8 @@ export class ConfigPanel {
 
             <div class="config-group actions">
               <button id="refresh-devices-btn">Refresh Devices</button>
-              <button id="takeover-btn" class="primary">⛶ Take Over as Screen</button>
-              <button id="open-control-btn">＋ New Control Panel</button>
+              <button id="takeover-btn" class="primary">${ICON_EXPAND}Take Over as Screen</button>
+              <button id="open-control-btn">${ICON_PLUS}New Control Panel</button>
             </div>
           </div>
         </details>
@@ -248,19 +275,8 @@ export class ConfigPanel {
 
     // Persist only real user toggles (the programmatic open from
     // showSetupNotice must not overwrite a deliberate collapse).
-    const deviceSection = this.panel.querySelector('#device-setup');
-    if (deviceSection) {
-      deviceSection.addEventListener('toggle', (e) => {
-        if (e.isTrusted) localStorage.setItem(this.deviceSectionKey, deviceSection.open ? '1' : '0');
-      });
-    }
-
-    const postFxSection = this.panel.querySelector('#post-fx');
-    if (postFxSection) {
-      postFxSection.addEventListener('toggle', (e) => {
-        if (e.isTrusted) localStorage.setItem(this.postFxKey, postFxSection.open ? '1' : '0');
-      });
-    }
+    persistSectionOpen(this.panel.querySelector('#device-setup'), this.deviceSectionKey);
+    persistSectionOpen(this.panel.querySelector('#post-fx'), this.postFxKey);
 
     this.panel.querySelector('#refresh-devices-btn').onclick = () => this.refreshDevices();
     this.panel.querySelector('#takeover-btn').onclick = () => {
@@ -466,8 +482,8 @@ export class ConfigPanel {
 
     if (!this.eqSection || !this.eqCanvas) return;
 
+    persistSectionOpen(this.eqSection, this.bandEqKey);
     this.eqSection.addEventListener('toggle', () => {
-      localStorage.setItem(this.bandEqKey, this.eqSection.open ? '1' : '0');
       if (this.eqSection.open) {
         this.drawEq();
         this.startEqWatch();
@@ -582,7 +598,7 @@ export class ConfigPanel {
         `Capturing noise floor… ${Math.min(s.elapsed, s.seconds).toFixed(1)}s / ${s.seconds.toFixed(0)}s — stay quiet.`;
       this.noiseStatusEl.classList.remove('noise-active');
       if (this.noiseCaptureBtn) {
-        this.noiseCaptureBtn.textContent = '✕ Cancel Capture';
+        this.noiseCaptureBtn.innerHTML = `${ICON_X}<span class="btn-label">Cancel Capture</span>`;
         this.noiseCaptureBtn.disabled = false;
       }
       if (this.noiseClearBtn) this.noiseClearBtn.disabled = true;
@@ -596,7 +612,7 @@ export class ConfigPanel {
       this.noiseStatusEl.textContent =
         `Noise floor active — ${meta.seconds.toFixed(1)}s average captured at ${at}. The dashed line shows what gets removed.`;
       this.noiseStatusEl.classList.add('noise-active');
-      if (this.noiseCaptureBtn) this.noiseCaptureBtn.textContent = '🎙 Re-capture Noise Floor';
+      if (this.noiseCaptureBtn) this.noiseCaptureBtn.innerHTML = `${ICON_MIC}<span class="btn-label">Re-capture Noise Floor</span>`;
       return;
     }
 
@@ -609,7 +625,7 @@ export class ConfigPanel {
       this.noiseStatusEl.textContent =
         'No noise profile. Capture a few seconds of silence to subtract room & interface hum from the spectrum.';
     }
-    if (this.noiseCaptureBtn) this.noiseCaptureBtn.textContent = '🎙 Capture Noise Floor';
+    if (this.noiseCaptureBtn) this.noiseCaptureBtn.innerHTML = `${ICON_MIC}<span class="btn-label">Capture Noise Floor</span>`;
   }
 
   // Crossover change arriving from another window (or our own round-trip).
