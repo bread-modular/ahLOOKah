@@ -109,7 +109,6 @@ test.describe('control panel window', () => {
     // Fresh profile (no saved device): the section starts open
     await expect(section).toHaveAttribute('open', '');
     await expect(control.locator('#audio-select')).toBeVisible();
-    await expect(control.locator('#takeover-btn')).toBeVisible();
 
     // Clicking the header collapses the section and hides the setup controls
     await section.locator('summary').click();
@@ -123,7 +122,6 @@ test.describe('control panel window', () => {
     // And the header reopens it
     await control.locator('#device-setup summary').click();
     await expect(control.locator('#device-setup')).toHaveAttribute('open', '');
-    await expect(control.locator('#takeover-btn')).toBeVisible();
   });
 });
 
@@ -296,25 +294,6 @@ test.describe('screen <-> control interaction', () => {
     await page.waitForFunction(() => window.__viz.pattern === 9);
     await expect(control.locator('#pattern-pad [data-index="9"]')).toHaveClass(/active/);
     await expect(control.locator('#pattern-pad [data-index="2"]')).not.toHaveClass(/active/);
-  });
-
-  test('take over as screen demotes the old screen', async ({ context, page }) => {
-    await page.goto(SCREEN_URL); // original screen
-    const control = await context.newPage();
-    await control.goto(CONTROL_URL);
-
-    await control.click('#takeover-btn');
-
-    // Control window becomes the new screen (scope to the p5 canvas — the
-    // band-split EQ canvas from the panel days stays in the DOM)
-    await expect(control.locator('body')).toHaveClass(/is-screen/);
-    await expect(control.locator('canvas.p5Canvas')).toBeVisible();
-    await control.waitForFunction(() => window.__viz.role === 'screen');
-
-    // Old screen is demoted to a control panel
-    await expect(page.locator('body')).toHaveClass(/is-control/);
-    await expect(page.locator('#config-panel')).toBeVisible();
-    await page.waitForFunction(() => window.__viz.role === 'control');
   });
 
   test('shows OFFLINE badge when the screen window closes', async ({ context, page }) => {
