@@ -60,11 +60,12 @@ test.describe('dual-effect merge mode', () => {
     await expect(control.locator('#params-list .blend-names')).toContainText('+');
     await expect(control.locator('.blend-mode-btn[data-mode="blend"]')).toHaveClass(/active/);
     await expect(control.locator('.blend-mode-btn[data-mode="additive"]')).toBeVisible();
-    // The selected mode button must have a solid fill (not the generic #111)
+    // The selected mode button must have a solid fill (not the generic #111) —
+    // the system accent blue, matching .primary (no purple in settings).
     const bg = await control
       .locator('.blend-mode-btn[data-mode="blend"]')
       .evaluate((el) => getComputedStyle(el).backgroundColor);
-    expect(bg).toBe('rgb(168, 85, 247)');
+    expect(bg).toBe('rgb(77, 163, 255)');
     await expect(control.locator('#params-list input[data-key="mix"]')).toHaveValue('0.5');
     await expect(control.locator('#params-list input[type="range"]')).toHaveCount(1);
 
