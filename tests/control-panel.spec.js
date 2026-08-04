@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-const SCREEN_URL = '/';
+const SCREEN_URL = '/?role=screen';
 const CONTROL_URL = '/?role=control';
 
 // All multi-window tests use pages from the SAME context, because
@@ -506,5 +506,41 @@ test.describe('effects pane divider resize', () => {
       );
     });
     expect(withinPane).toBe(true);
+  });
+});
+
+test.describe('default UI + opening screens', () => {
+  test('the root URL boots as a control panel (default UI)', async ({ page }) => {
+    await page.goto('/');
+
+    // No role param -> the control panel is the default window
+    await expect(page.locator('body')).toHaveClass(/is-control/);
+    await expect(page.locator('#config-panel')).toBeVisible();
+    await page.waitForFunction(() => window.__viz.role === 'control');
+
+    // No fullstage p5 canvas in control mode — only the band-split EQ canvas
+    await expect(page.locator('canvas.p5Canvas')).toHaveCount(0);
+
+    // With no screen open yet the status reads SCREEN OFFLINE and the
+    // Open Screen action sits beside it
+    await expect(page.locator('#status-line .badge-offline')).toBeVisible();
+    await expect(page.locator('#status-line #open-screen-btn')).toBeVisible();
+  });
+
+  test('Open Screen button beside the SCREEN status opens a new screen window', async ({ context, page }) => {
+    await page.goto('/'); // control panel (default UI)
+
+    const popupPromise = context.waitForEvent('page');
+    await page.click('#open-screen-btn');
+    const screen = await popupPromise;
+    await screen.waitForLoadState();
+
+    expect(screen.url()).toContain('role=screen');
+    await expect(screen.locator('body')).toHaveClass(/is-screen/);
+    await expect(screen.locator('canvas.p5Canvas')).toBeVisible();
+    await screen.waitForFunction(() => window.__viz.role === 'screen');
+
+    // The panel flips its SCREEN badge to ONLINE once the new screen announces
+    await expect(page.locator('#status-line .badge-online')).toBeVisible();
   });
 });

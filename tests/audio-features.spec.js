@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-const SCREEN_URL = '/';
+const SCREEN_URL = '/?role=screen';
 const CONTROL_URL = '/?role=control';
 
 // These tests use deterministic spectra rather than a browser microphone. They

@@ -884,6 +884,44 @@ body.is-screen #config-container {
   color: #e74c3c;
 }
 
+/* Action button inside the status line — opens a NEW screen window. Compact
+   pill matching the badges beside it, pushed to the far right of the row.
+   (ID-qualified so it beats the generic #config-panel button metrics.) */
+#status-line .status-btn {
+  width: auto;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08rem;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border-gray);
+  border-radius: 20px;
+  cursor: pointer;
+  transition:
+    color var(--transition-speed) ease-out,
+    border-color var(--transition-speed) ease-out,
+    background var(--transition-speed) ease-out;
+}
+
+#status-line .status-btn:hover {
+  color: var(--text-main);
+  border-color: var(--accent);
+  background: rgba(77, 163, 255, 0.12);
+}
+
+#status-line .status-btn .btn-icon {
+  width: 11px;
+  height: 11px;
+  margin-right: 0;
+  vertical-align: 0;
+}
+
 /* ---------------------------------------------------------------------------
    Screen mode floating toolbar
 --------------------------------------------------------------------------- */

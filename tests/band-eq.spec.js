@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-const SCREEN_URL = '/';
+const SCREEN_URL = '/?role=screen';
 const CONTROL_URL = '/?role=control';
 
 // Log-axis constants mirrored from sketches/audio-features.js

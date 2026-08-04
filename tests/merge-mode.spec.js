@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-const SCREEN_URL = '/';
+const SCREEN_URL = '/?role=screen';
 const CONTROL_URL = '/?role=control';
 
 // Dual-effect merge mode: holding two number keys (1-9/0) on the control panel
