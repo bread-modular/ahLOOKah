@@ -51,6 +51,8 @@ const ICON_EXPAND =
   '<svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M21 8V5a2 2 0 0 0-2-2h-3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path><path d="M3 16v3a2 2 0 0 0 2 2h3"></path></svg>';
 const ICON_PLUS =
   '<svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>';
+const ICON_MONITOR =
+  '<svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>';
 
 // Persist a <details> section's open state synchronously on the user's click.
 // The native `toggle` event is dispatched from a queued task, so a reload
@@ -110,6 +112,7 @@ export class ConfigPanel {
     onDevicesChange,
     onTakeover,
     onOpenControl,
+    onOpenScreen,
     onParamChange,
     onReorder,
     onNoiseCapture,
@@ -125,6 +128,7 @@ export class ConfigPanel {
     this.onDevicesChange = onDevicesChange;
     this.onTakeover = onTakeover;
     this.onOpenControl = onOpenControl;
+    this.onOpenScreen = onOpenScreen;
     this.onParamChange = onParamChange;
     this.onReorder = onReorder;
     this.onNoiseCapture = onNoiseCapture;
@@ -1277,7 +1281,15 @@ export class ConfigPanel {
     el.innerHTML = `
       <span class="badge ${isScreen ? 'badge-screen' : 'badge-control'}">${isScreen ? 'SCREEN' : 'CONTROL'}</span>
       <span class="badge ${online ? 'badge-online' : 'badge-offline'}">SCREEN ${online ? 'ONLINE' : 'OFFLINE'}</span>
+      <button id="open-screen-btn" class="status-btn" type="button" title="Open a new screen window">${ICON_MONITOR}Open Screen</button>
     `;
+
+    // innerHTML wipes any previous listeners, so bind the handler AFTER
+    // rendering (renderStatus re-runs on every status change).
+    const openBtn = el.querySelector('#open-screen-btn');
+    if (openBtn) openBtn.onclick = () => {
+      if (this.onOpenScreen) this.onOpenScreen();
+    };
   }
 
   async requestPermissions() {

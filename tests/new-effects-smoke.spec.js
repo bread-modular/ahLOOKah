@@ -57,7 +57,7 @@ test.describe('new effects smoke test', () => {
     test(`renders ${id} without errors`, async ({ context, page }) => {
       const errors = [];
       page.on('pageerror', (err) => errors.push(err.message));
-      await page.goto('/'); // screen window
+      await page.goto('/?role=screen'); // screen window
       const control = await context.newPage();
       await control.goto('/?role=control');
       await control.locator(`.pattern-btn[data-id="${id}"]`).click();

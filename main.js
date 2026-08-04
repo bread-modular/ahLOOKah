@@ -27,13 +27,15 @@ import {
 
 // ---------------------------------------------------------------------------
 // Window roles
-//   ?screen  -> this window is the visualization screen (default)
-//   ?control -> this window is a control panel
-// Any window can "take over" as the screen via the control panel button.
+//   ?screen  -> this window is the visualization screen
+//   ?control -> this window is a control panel (DEFAULT — the root URL boots
+//               the panel; use ?role=screen to boot straight into the stage)
+// Any window can "take over" as the screen via the control panel button, and
+// the panel can open additional screen / control windows.
 // ---------------------------------------------------------------------------
 
 const params = new URLSearchParams(window.location.search);
-let myRole = params.get('role') === 'control' ? 'control' : 'screen';
+let myRole = params.get('role') === 'screen' ? 'screen' : 'control';
 const myId = Math.random().toString(36).slice(2);
 const MY_BOOT_TIME = Date.now();
 
@@ -413,6 +415,7 @@ function becomeScreen() {
   myRole = 'screen';
   screenOnline = true;
 
+  document.title = 'Viz Screen';
   document.body.classList.add('is-screen');
   document.body.classList.remove('is-control');
 
@@ -433,6 +436,7 @@ function becomeControl() {
   if (myRole === 'control') return;
   myRole = 'control';
 
+  document.title = 'Viz Control';
   removeCurrentP5();
   audio.stop();
   stopSpectrumBroadcast();
@@ -793,6 +797,7 @@ function ensurePanel() {
     onDevicesChange: () => broadcast({ type: 'devices' }),
     onTakeover: () => broadcast({ type: 'role', role: 'screen' }),
     onOpenControl: () => openControlWindow(),
+    onOpenScreen: () => openScreenWindow(),
     onParamChange: (id, key, value) => {
       // Local dispatch (via broadcast) updates the store + saves + syncs UI
       broadcast({ type: 'params', id, values: { [key]: value } });
@@ -835,6 +840,15 @@ function openControlWindow() {
   if (w) w.focus();
 }
 
+// Open a new screen window (fullstage — drop it on another monitor). Opened
+// without size features so the browser gives it a normal tab-sized window.
+function openScreenWindow() {
+  const url = new URL(window.location.href);
+  url.searchParams.set('role', 'screen');
+  const w = window.open(url.toString(), '_blank');
+  if (w) w.focus();
+}
+
 // Small floating toolbar shown on the screen window
 function renderScreenToolbar() {
   if (document.getElementById('screen-toolbar')) return;
@@ -865,6 +879,7 @@ applyPostFx();
 loadNoiseFloor();
 
 if (myRole === 'screen') {
+  document.title = 'Viz Screen';
   document.body.classList.add('is-screen');
   currentVideoDeviceId = localStorage.getItem(STORAGE.video) || null;
   loadSketch(currentIndex);
@@ -872,6 +887,7 @@ if (myRole === 'screen') {
   renderScreenToolbar();
   startSpectrumBroadcast();
 } else {
+  document.title = 'Viz Control';
   document.body.classList.add('is-control');
   updateActiveSketchId();
   ensurePanel();
