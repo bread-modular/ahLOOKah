@@ -18,12 +18,25 @@ export const FULLSCREEN_VERT = `
   }
 `;
 
+// GLSL lint convention — smoothstep edge order:
+//   ALWAYS call smoothstep(edge0, edge1, x) with edge0 < edge1.
+//   For an inverted falloff use 1.0 - smoothstep(low, high, x), NEVER
+//   smoothstep(high, low, x) which is undefined in GLSL when edge0 >= edge1.
+//   This header documents the rule so future shaders don't regress.
 // Common GLSL helpers kept intentionally WebGL 1 / GLSL ES 1.00 compatible.
 export const AUDIO_SHADER_HEADER = `
   precision highp float;
   varying vec2 vTexCoord;
 
   uniform vec2 uResolution;
+  // canvas vs buffer: single-density policy (pixelDensity(1)) — both are passed
+  // consistently so shaders can pick the right one. uResolution is the drawing
+  // buffer size (p.width/p.height after renderScale); the canvas uniforms are
+  // the CSS/layout size (p.windowWidth/windowHeight). For aspect, either works
+  // (same ratio); for pixel-frequency effects use the buffer or canvas explicitly.
+  uniform vec2 uCanvasResolution;
+  uniform vec2 uDrawingBufferResolution;
+  uniform float uRenderScale;
   uniform float uTime;
   uniform float uSub;
   uniform float uMid;
@@ -93,19 +106,50 @@ export const AUDIO_SHADER_HEADER = `
     color = max(color, 0.0);
     return 1.0 - exp(-color);
   }
+
+  // Helper for inverted smoothstep falloff (lint-safe): use this instead of reversed edges.
+  float smoothstepInv(float edge0, float edge1, float x) {
+    return 1.0 - smoothstep(edge0, edge1, x);
+  }
 `;
 
-export function makeAudioShader(audio, params, fragmentSource, mapUniforms) {
+export function makeAudioShader(audio, params, fragmentSource, mapUniforms, options = {}) {
   return (p) => {
     let effectShader;
     let elapsed = 0;
     const getFeatures = makeAudioFeatures();
 
+    // Adaptive rendering: decide internal buffer scale. Heavy raymarch shaders
+    // (large per-pixel loops) default to ~0.65-0.70 to avoid stalling LIVE/CUE/MERGE
+    // on weak GPUs; light shaders stay at 1.0. Single density policy: pixelDensity(1)
+    // always, so buffer size is explicitly controlled via renderScale, not by OS DPI.
+    const loopCounts = [...fragmentSource.matchAll(/for\s*\(\s*int\s+i\s*=\s*0\s*;\s*i\s*<\s*(\d+)/g)].map((m) => parseInt(m[1], 10));
+    const maxLoop = loopCounts.length ? Math.max(...loopCounts) : 0;
+    const hintHeavy = /mapCathedral|mandelbulb|mapScene|mapCrystals|calcNormal|sceneSDF/.test(fragmentSource);
+    let renderScale = options.renderScale;
+    if (renderScale == null) {
+      if (maxLoop >= 90) renderScale = 0.65;
+      else if (maxLoop >= 60 || hintHeavy) renderScale = 0.70;
+      else if (maxLoop >= 18 && /cloudDensity|volumetric|raymarch/i.test(fragmentSource)) renderScale = 0.75;
+      else renderScale = 1;
+    }
+    renderScale = Math.max(0.4, Math.min(1, renderScale));
+
     p.setup = () => {
-      // A fixed 1x backing density keeps the heavier ray-marched looks smooth
-      // at 1080p/4K while avoiding accidental 4x work on Retina projectors.
+      // Single density policy: fixed 1x backing density. Heavier ray-marched looks
+      // use renderScale (<1) for adaptive internal resolution instead of DPI scaling,
+      // keeping 1080p/4K smooth while avoiding accidental 4x work on Retina.
       p.pixelDensity(1);
-      p.createCanvas(p.windowWidth, p.windowHeight, p.WEBGL);
+      const bufferW = Math.max(1, Math.floor(p.windowWidth * renderScale));
+      const bufferH = Math.max(1, Math.floor(p.windowHeight * renderScale));
+      p.createCanvas(bufferW, bufferH, p.WEBGL);
+      if (renderScale !== 1) {
+        // Stretch the reduced buffer to full window via CSS — keeps visual look
+        // close while quadratically cutting fragment work (0.7 -> ~0.49 fill rate).
+        p.canvas.style.width = p.windowWidth + 'px';
+        p.canvas.style.height = p.windowHeight + 'px';
+      }
+      p.canvas.style.display = 'block';
       p.noStroke();
       effectShader = p.createShader(FULLSCREEN_VERT, fragmentSource);
     };
@@ -158,7 +202,13 @@ export function makeAudioShader(audio, params, fragmentSource, mapUniforms) {
       }
 
       p.shader(effectShader);
+      // Resolution policy: single density (pixelDensity(1)) + explicit renderScale.
+      // Pass BOTH canvas (CSS/layout) and drawing-buffer (actual pixels) sizes
+      // consistently. uResolution remains the buffer size for backward compat.
       effectShader.setUniform('uResolution', [p.width, p.height]);
+      effectShader.setUniform('uCanvasResolution', [p.windowWidth, p.windowHeight]);
+      effectShader.setUniform('uDrawingBufferResolution', [p.width, p.height]);
+      effectShader.setUniform('uRenderScale', renderScale);
       effectShader.setUniform('uTime', elapsed);
       effectShader.setUniform('uSub', bands.sub);
       effectShader.setUniform('uMid', bands.mid);
@@ -177,7 +227,15 @@ export function makeAudioShader(audio, params, fragmentSource, mapUniforms) {
       p.rect(0, 0, p.width, p.height);
     };
 
-    p.windowResized = () => p.resizeCanvas(p.windowWidth, p.windowHeight);
+    p.windowResized = () => {
+      const bufferW = Math.max(1, Math.floor(p.windowWidth * renderScale));
+      const bufferH = Math.max(1, Math.floor(p.windowHeight * renderScale));
+      p.resizeCanvas(bufferW, bufferH);
+      if (renderScale !== 1) {
+        p.canvas.style.width = p.windowWidth + 'px';
+        p.canvas.style.height = p.windowHeight + 'px';
+      }
+    };
 
     p.mousePressed = () => {
       if (audio) audio.resume(true);

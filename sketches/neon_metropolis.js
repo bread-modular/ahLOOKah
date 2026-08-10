@@ -247,7 +247,7 @@ const frag = `${AUDIO_SHADER_HEADER}
       // Hologram projection cone (faint light below the billboard)
       float coneDist = abs(uv.x - hX) - (uv.y - (hY - hH)) * 0.3;
       float cone = exp(-max(0.0, coneDist) * 30.0)
-        * smoothstep(hY - hH, hY - hH - 0.15, uv.y)
+        * (1.0 - smoothstep(hY - hH - 0.15, hY - hH, uv.y))
         * step(uv.y, hY - hH);
       color += hColor * cone * 0.08 * uNeon;
     }

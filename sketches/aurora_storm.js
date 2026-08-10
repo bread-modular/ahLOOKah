@@ -148,7 +148,7 @@ const frag = `${AUDIO_SHADER_HEADER}
       vec3 iceColor = vec3(0.008, 0.015, 0.035) + reflColor * (0.25 + ripple * 0.15);
 
       // Fresnel-like fade: reflection stronger at grazing angles
-      float fresnel = smoothstep(horizon, horizon - 0.5, uv.y);
+      float fresnel = 1.0 - smoothstep(horizon - 0.5, horizon, uv.y);
       color = mix(color, iceColor, 0.7 + fresnel * 0.3);
 
       // Specular highlights on ice ridges

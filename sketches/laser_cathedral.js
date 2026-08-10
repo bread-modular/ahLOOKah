@@ -1,6 +1,8 @@
 // Laser Cathedral — an endless ray-marched nave made from luminous arches,
 // columns and reflective floor rails. Volumetric laser sheets sweep through
 // the architecture while bass pushes the camera physically down the tunnel.
+// GLSL lint: smoothstep must be smoothstep(low, high, x) with low < high.
+// For falloffs use 1.0 - smoothstep(low, high, x), never smoothstep(high, low, x) (undefined).
 import { AUDIO_SHADER_HEADER, makeAudioShader } from './shader-utils.js';
 
 const frag = `${AUDIO_SHADER_HEADER}

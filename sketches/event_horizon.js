@@ -1,9 +1,12 @@
 // Event Horizon — a cinematic black hole with a turbulent accretion disc,
 // gravitationally bent star field, photon ring, and polar energy jets. Bass
 // expands the horizon, mids roughen the disc, and highs ignite stellar flares.
+// GLSL lint: smoothstep must be smoothstep(low, high, x) with low < high.
+// For falloffs use 1.0 - smoothstep(low, high, x), never smoothstep(high, low, x) (undefined).
 import { AUDIO_SHADER_HEADER, makeAudioShader } from './shader-utils.js';
 
 const frag = `${AUDIO_SHADER_HEADER}
+  // lint: smoothstep(low, high, x) — inverted falloff uses 1.0 - smoothstep(low, high, x)
   uniform float uGravity;
   uniform float uDisk;
   uniform float uSpin;
