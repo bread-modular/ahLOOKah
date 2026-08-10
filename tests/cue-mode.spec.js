@@ -447,6 +447,35 @@ test.describe('CUE mode', () => {
     await page.waitForFunction(() => document.getElementById('screen-wrap').style.filter.includes('brightness(1.25)'));
   });
 
+  test('Shift + two held number keys stages a two-pattern CUE blend', async ({ context, page }) => {
+    const control = await openScreenAndControl(context, page);
+
+    // Hold Shift and press two number keys together -> CUE merge entry,
+    // exactly like holding two unmodified keys blends LIVE.
+    await control.keyboard.down('Shift');
+    await control.keyboard.down('1');
+    await control.keyboard.down('3');
+    await page.waitForFunction(() => JSON.stringify(window.__viz.cue?.selection?.ids) === '["circles","bars"]');
+    expect(await page.evaluate(() => window.__viz.cue?.selection?.merge)).toBe(true);
+
+    // LIVE stays on the plain single while the blend is staged
+    expect(await page.evaluate(() => window.__viz.patternId)).toBe('circles');
+    expect(await page.evaluate(() => window.__viz.merge)).toBeNull();
+
+    // Releasing the keys keeps the latched blend (parity with LIVE behavior)
+    await control.keyboard.up('3');
+    await control.keyboard.up('1');
+    await control.keyboard.up('Shift');
+    await page.waitForTimeout(150);
+    expect(await page.evaluate(() => JSON.stringify(window.__viz.cue?.selection?.ids))).toBe('["circles","bars"]');
+    await page.waitForFunction(() => window.__viz.cue?.phase === 'ready');
+
+    // TAKE promotes the cued blend onto LIVE
+    await control.keyboard.press('Enter');
+    await page.waitForFunction(() => window.__viz.cue === null && JSON.stringify(window.__viz.merge) === '[0,2]');
+    expect(await page.evaluate(() => window.__viz.patternId)).toBe('circles');
+  });
+
   test('number merge gestures and blend shortcuts route to CUE', async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
     const liveBlend = await page.evaluate(() => ({ ...window.__viz.blend }));

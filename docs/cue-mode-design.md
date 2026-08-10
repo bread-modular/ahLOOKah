@@ -147,7 +147,7 @@ Use Shift as a momentary modifier and physical digit codes for Shift-modified nu
 
 - Shift-clicking a pad or library pattern starts/updates CUE with that pattern.
 - Detect Shift + 1–0 from `KeyboardEvent.shiftKey` and `KeyboardEvent.code` (`Digit1` through `Digit0`), because `KeyboardEvent.key` becomes punctuation on many keyboard layouts.
-- A Shift + digit starts CUE with one selected effect; it does not participate in the two-number merge gesture.
+- A Shift + digit starts CUE with one selected effect. Holding Shift and pressing a second digit while the first is still down stages a two-pattern CUE blend (the Shift gesture mirrors the unmodified two-number-key merge gesture used for LIVE; the blend latches after release).
 - Handle a non-repeating `KeyboardEvent.code === "Enter"` while CUE is active before text-entry guards. It requests GO LIVE, including queued TAKE while warming.
 - Handle active-CUE Escape before text-entry guards. Escape cancels CUE; when LIVE, preserve normal browser/control behavior.
 - Ignore repeated entry/take keydown events.
