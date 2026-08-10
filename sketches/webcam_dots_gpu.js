@@ -61,7 +61,7 @@ export default (audio, videoDeviceId, params, runtime) => (p) => {
       float dotSize = baseSize * (1.0 + uSub * 1.5);
       
       // Draw dot
-      float dot = smoothstep(dotSize + 0.05, dotSize - 0.05, dist);
+      float dot = 1.0 - smoothstep(dotSize - 0.05, dotSize + 0.05, dist);
       
       // Glitchy rectangles on high frequencies (frequency scales with uGlitch)
       float glitch = step(0.5, uHigh) * step(0.98 - 0.06 * uGlitch, random(gridPos + floor(uTime)));
@@ -80,8 +80,8 @@ export default (audio, videoDeviceId, params, runtime) => (p) => {
       vec3 color;
       if (uHigh > 0.4) {
         float shift = 0.04;
-        float dotR = smoothstep(dotSize + 0.05, dotSize - 0.05, length(cellUV - vec2(0.5 - shift, 0.5)));
-        float dotB = smoothstep(dotSize + 0.05, dotSize - 0.05, length(cellUV - vec2(0.5 + shift, 0.5)));
+        float dotR = 1.0 - smoothstep(dotSize - 0.05, dotSize + 0.05, length(cellUV - vec2(0.5 - shift, 0.5)));
+        float dotB = 1.0 - smoothstep(dotSize - 0.05, dotSize + 0.05, length(cellUV - vec2(0.5 + shift, 0.5)));
         color = vec3(dotR, dot, dotB) * alpha;
       } else {
         color = vec3(dot * alpha);
@@ -111,8 +111,10 @@ export default (audio, videoDeviceId, params, runtime) => (p) => {
 
     capture = runtime?.createCapture(p, constraints, () => {
       isCaptureReady = true;
+      runtime?.reportMediaReady?.();
     }) || p.createCapture(constraints, () => {
       isCaptureReady = true;
+      runtime?.reportMediaReady?.();
     });
     capture.hide();
   };
@@ -132,7 +134,7 @@ export default (audio, videoDeviceId, params, runtime) => (p) => {
 
   p.draw = () => {
     p.background(0);
-    if (!isCaptureReady || !capture.loadedmetadata) return;
+    if (!isCaptureReady || !capture?.loadedmetadata) return;
 
     if (!audio || !audio.isStarted) {
       p.fill(255);

@@ -14,9 +14,21 @@ function videoConstraints(deviceId, constraints = {}) {
   return { video: requested, audio: false };
 }
 
+function isCameraOwner() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    // Only the screen window owns the physical camera. Control windows use
+    // a placeholder/no-op path to avoid double capture and hardware contention.
+    return params.get('role') === 'screen';
+  } catch {
+    return false;
+  }
+}
+
 export class SharedCameraSource {
   constructor() {
     this.sources = new Map();
+    this.epoch = 0;
   }
 
   _ensureSource(deviceId, constraints) {
@@ -24,6 +36,7 @@ export class SharedCameraSource {
     let source = this.sources.get(key);
     if (source) return source;
 
+    const epoch = ++this.epoch;
     source = {
       key,
       deviceId: deviceId || null,
@@ -31,10 +44,11 @@ export class SharedCameraSource {
       stream: null,
       stopped: false,
       promise: null,
+      epoch,
     };
     source.promise = navigator.mediaDevices.getUserMedia(videoConstraints(deviceId, constraints))
       .then((stream) => {
-        if (source.stopped) {
+        if (source.stopped || this.sources.get(key) !== source || this.epoch !== epoch) {
           stream.getTracks().forEach((track) => track.stop());
           throw new Error('Camera source was released before it became ready.');
         }
@@ -50,9 +64,55 @@ export class SharedCameraSource {
   }
 
   acquire({ p, deviceId, constraints, onReady, onError }) {
+    // Explicit camera owner policy: the screen owns the camera.
+    if (!isCameraOwner()) {
+      let placeholder;
+      try {
+        placeholder = p.createVideo([]);
+      } catch {
+        try {
+          placeholder = p.createVideo('');
+        } catch {
+          const v = document.createElement('video');
+          v.muted = true;
+          v.playsInline = true;
+          v.autoplay = true;
+          placeholder = {
+            elt: v,
+            hide() {},
+            remove() {
+              try { v.pause?.(); } catch {}
+              try { v.srcObject = null; } catch {}
+              try { if (v.parentNode) v.parentNode.removeChild(v); } catch {}
+            },
+            get width() { return v.videoWidth || 0; },
+            get height() { return v.videoHeight || 0; },
+            get loadedmetadata() { return false; },
+          };
+        }
+      }
+      try { placeholder.hide?.(); } catch {}
+      try {
+        if (p._elements && Array.isArray(p._elements)) {
+          const idx = p._elements.indexOf(placeholder);
+          if (idx !== -1) p._elements.splice(idx, 1);
+        }
+      } catch {}
+      const video = placeholder.elt;
+      if (video) {
+        try { video.muted = true; video.playsInline = true; video.autoplay = true; } catch {}
+        const origRemove = placeholder.remove?.bind(placeholder);
+        placeholder.remove = () => {
+          try { video.pause?.(); } catch {}
+          try { video.srcObject = null; } catch {}
+          try { if (video.parentNode) video.parentNode.removeChild(video); } catch {}
+        };
+      }
+      queueMicrotask(() => onError?.(new Error('Camera owned by screen window')));
+      return { capture: placeholder, release: () => { try { placeholder.remove?.(); } catch {} } };
+    }
+
     const source = this._ensureSource(deviceId, constraints);
-    // createVideo creates a p5.MediaElement without touching getUserMedia. An
-    // empty source list is intentional; the shared stream is assigned below.
     let capture;
     try {
       capture = p.createVideo([]);
@@ -61,10 +121,37 @@ export class SharedCameraSource {
     }
     capture.hide();
 
+    // Detach from p5's element registry so p5's Element.remove() cannot
+    // stop the shared MediaStream when one layer is removed.
+    try {
+      if (p._elements && Array.isArray(p._elements)) {
+        const idx = p._elements.indexOf(capture);
+        if (idx !== -1) p._elements.splice(idx, 1);
+      }
+      let sketch = capture._pInst;
+      if (sketch && sketch !== p && sketch._elements && Array.isArray(sketch._elements)) {
+        const j = sketch._elements.indexOf(capture);
+        if (j !== -1) sketch._elements.splice(j, 1);
+      }
+    } catch {}
+
     const video = capture.elt;
     video.muted = true;
     video.playsInline = true;
     video.autoplay = true;
+
+    // Neutralize MediaElement.remove/stop so only the manager's lease count
+    // controls track lifetime.
+    capture.remove = () => {
+      try { video.pause?.(); } catch {}
+      try { video.srcObject = null; } catch {}
+      try { if (video.parentNode) video.parentNode.removeChild(video); } catch {}
+    };
+    if (typeof capture.stop === 'function') {
+      capture.stop = () => {
+        try { video.pause?.(); } catch {}
+      };
+    }
 
     const consumer = { capture, video, released: false, source };
     source.consumers.add(consumer);
@@ -79,23 +166,35 @@ export class SharedCameraSource {
       } catch {
         // Browser media teardown is best effort.
       }
+      try { if (video.parentNode) video.parentNode.removeChild(video); } catch {}
       if (source.consumers.size === 0) this._stopSource(source);
     };
 
     source.promise
       .then((stream) => {
         if (consumer.released) return;
+        if (this.sources.get(source.key) !== source || source.stopped) return;
         let reported = false;
         const reportReady = () => {
           if (consumer.released || reported || !video.videoWidth || !video.videoHeight) return;
           reported = true;
           onReady?.();
         };
+        const reportError = (err) => {
+          if (!consumer.released && !reported) {
+            reported = true;
+            onError?.(err instanceof Error ? err : new Error(String(err)));
+          }
+        };
         video.addEventListener('loadeddata', reportReady, { once: true });
         video.addEventListener('canplay', reportReady, { once: true });
+        video.addEventListener('error', () => reportError(new Error('Camera video error')), { once: true });
         video.srcObject = stream;
         const play = video.play?.();
-        if (play?.catch) play.catch(() => {
+        if (play?.catch) play.catch((err) => {
+          if (err && (err.name === 'NotAllowedError' || err.name === 'NotFoundError' || err.name === 'OverconstrainedError' || err.name === 'NotReadableError')) {
+            reportError(err);
+          }
           // muted / inline video normally plays without a gesture. The loaded
           // data events remain the authoritative readiness path if it does not.
         });
@@ -125,6 +224,7 @@ export class SharedCameraSource {
         try {
           consumer.video.pause?.();
           consumer.video.srcObject = null;
+          if (consumer.video.parentNode) consumer.video.parentNode.removeChild(consumer.video);
         } catch {
           // Ignore browser shutdown timing.
         }
@@ -133,6 +233,7 @@ export class SharedCameraSource {
       this._stopSource(source);
     });
     this.sources.clear();
+    this.epoch++;
   }
 
   diagnostics() {

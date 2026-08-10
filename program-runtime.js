@@ -133,7 +133,13 @@ export class ProgramRuntime {
             this._noteMediaReady(index, sketch.id);
             callback?.();
           },
-          onError: (error) => this._fail(error),
+          onError: (error) => {
+            if (this.disposed) return;
+            // Propagate permission denial as a real failure so the warm-up
+            // promise rejects instead of timing out with no feedback.
+            this.handleMediaError(error);
+            // Also fail via _fail path if handleMediaError didn't (already handled)
+          },
         });
         this.cleanup.push(() => consumer.release());
         return consumer.capture;
@@ -472,6 +478,41 @@ export class ProgramRuntime {
     this._rejectReady(this.error);
   }
 
+  _loseContexts() {
+    for (const instance of this.instances) {
+      const canvas = instance?.canvas;
+      if (!canvas) continue;
+      // WEBGL canvases: ask the driver to actually release the context so
+      // rapid switches can't exhaust the device's context budget.
+      try {
+        const gl = canvas.getContext('webgl2')
+          || canvas.getContext('webgl')
+          || canvas.getContext('experimental-webgl');
+        if (!gl) continue;
+        const ext = gl.getExtension('WEBGL_lose_context');
+        if (ext) ext.loseContext();
+      } catch {}
+      // p5 internal GL reference (covers some wrapper layouts)
+      try {
+        const renderer = instance._renderer || instance._curElement?._renderer;
+        const gl2 = renderer?.GL || renderer?.gl || renderer?.drawingContext;
+        if (gl2 && typeof gl2.getExtension === 'function') {
+          const ext2 = gl2.getExtension('WEBGL_lose_context');
+          if (ext2) ext2.loseContext();
+        }
+      } catch {}
+    }
+  }
+
+  // Camera permission denied must settle readiness immediately; otherwise
+  // _fail's guard and the warm timeout leave CUE hanging forever.
+  handleMediaError(error) {
+    if (this.disposed || this.ready || this.error) return;
+    const err = error instanceof Error ? error : new Error(String(error || 'Camera unavailable.'));
+    this._mark('media-error', { message: err.message });
+    this._fail(err);
+  }
+
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
@@ -494,6 +535,11 @@ export class ProgramRuntime {
         // Continue teardown even if a browser media object is already gone.
       }
     });
+
+    // Release GL contexts before removing p5 instances — remove() alone
+    // does not free WebGL resources, so contexts accumulate across switches.
+    this._loseContexts();
+
     this.instances.forEach((instance) => {
       try {
         instance?.remove?.();
