@@ -32,6 +32,9 @@ body {
 
 canvas {
   display: block;
+  /* Backing store vs CSS size: JS via ResizeObserver + rAF syncs width/height attributes to client size */
+  max-width: 100%;
+  max-height: 100%;
 }
 
 /* Only output-stage canvases are full-screen. Panel canvases (the EQ and the
@@ -40,6 +43,9 @@ body.is-screen canvas {
   position: fixed;
   top: 0;
   left: 0;
+  width: 100vw;
+  height: 100vh;
+  /* Sizing is authoritative via ResizeObserver + rAF: CSS size fills viewport, JS syncs backing store */
 }
 
 /* Post-processing stage wrapper: the screen moves its p5 canvases into this
@@ -370,6 +376,7 @@ body.is-control #preview-pane {
   max-width: 100%;
   max-height: 100%;
   pointer-events: none;
+  /* Preview canvas backing store synced via ResizeObserver + rAF in main.js/config-panel.js */
 }
 
 .preview-camera-note,
