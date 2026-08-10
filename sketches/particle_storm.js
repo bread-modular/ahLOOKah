@@ -1,12 +1,65 @@
 // Particle Storm — an additive particle system that explodes on every kick.
-// A bass hit resets all particles outward with fresh hues; mid/high energy
-// acts as wind and keeps the storm churning. Colors cycle through the rainbow.
-export default (audio, videoDeviceId, params) => (p) => {
+// GPU port: the particle physics (kick rising-edge burst, wind, center
+// attraction, drag, life decay, edge wrap) still runs on the CPU exactly as
+// before in mapUniforms; the shader just renders the pool as additive glow
+// dots and the central kick flash, so there are no per-frame 2D draw calls.
+import { AUDIO_SHADER_HEADER, makeAudioShader } from './shader-utils.js';
+
+const MAX_PARTICLES = 800;
+
+const frag = `${AUDIO_SHADER_HEADER}
+  uniform float uParticles[${MAX_PARTICLES * 4}]; // x, y, size+hue, life
+  uniform float uCount;
+  uniform float uHueOffset;
+
+  // CPU canvas semantics: pixel space, origin top-left, y down.
+  vec2 toPx(vec2 uv) {
+    return vec2((uv.x * 0.5 + 0.5) * uResolution.x, (1.0 - (uv.y * 0.5 + 0.5)) * uResolution.y);
+  }
+
+  float dotGlow(float d, float r) {
+    return exp(-(d * d) / max(r * r, 0.001));
+  }
+
+  void main() {
+    vec2 px = toPx(vTexCoord);
+    vec3 color = vec3(0.0);
+
+    for (int i = 0; i < ${MAX_PARTICLES}; i++) {
+      if (float(i) >= uCount) break;
+      float x = uParticles[i * 4 + 0];
+      float y = uParticles[i * 4 + 1];
+      float enc = uParticles[i * 4 + 2];
+      float life = uParticles[i * 4 + 3];
+      if (life > 0.001) {
+        float size = floor(enc / 100.0) / 10.0;          // 2.0..6.0
+        float hue = mod(enc, 100.0) * 3.6;               // 0..360
+        float sizeD = size * (0.6 + uKick * 2.0 + uEnergy * 1.5); // diameter
+        float d = length(px - vec2(x, y));
+        color += hsv2rgb(vec3(hue / 360.0, 0.9, 1.0)) * (life * 220.0 / 255.0) * dotGlow(d, sizeD * 0.5);
+      }
+    }
+
+    // Central flash on kick.
+    if (uKick > 0.05) {
+      color += hsv2rgb(vec3(uHueOffset / 360.0, 0.8, 1.0))
+        * (uKick * 60.0 / 255.0) * dotGlow(length(px - uResolution * 0.5), 150.0 * uKick);
+    }
+
+    // CPU accumulates under a 22/255 fade rect (steady state ≈ 11.6x).
+    color = filmicTone(color * 11.6);
+    gl_FragColor = vec4(color, 1.0);
+  }
+`;
+
+export default (audio, videoDeviceId, params) => {
   const particles = [];
   let hueOffset = 0;
   let kick = 0; // 0..1 kick envelope
   let prevSub = 0;
 
+  // Same raw band extraction as the original (no responsiveness params on
+  // this sketch — count/burst/wind/kick are the only controls).
   function bands(freqs) {
     if (!freqs) return { sub: 0, mid: 0, high: 0, energy: 0 };
     let sub = 0, mid = 0, high = 0;
@@ -19,102 +72,89 @@ export default (audio, videoDeviceId, params) => (p) => {
     return { sub, mid, high, energy: (sub + mid + high) / 3 };
   }
 
-  // Grow the particle pool lazily so the Particle Count slider works live
-  function ensureParticles(n) {
+  // Grow the particle pool lazily so the Particle Count slider works live.
+  function ensureParticles(n, p) {
     while (particles.length < n) {
       particles.push({
-        x: p.random(p.width),
-        y: p.random(p.height),
-        vx: p.random(-1, 1),
-        vy: p.random(-1, 1),
-        hue: p.random(360),
-        size: p.random(2, 6),
-        life: p.random(0.3, 1),
+        x: Math.random() * p.width,
+        y: Math.random() * p.height,
+        vx: Math.random() * 2 - 1,
+        vy: Math.random() * 2 - 1,
+        hue: Math.random() * 360,
+        size: 2 + Math.random() * 4,
+        life: 0.3 + Math.random() * 0.7,
       });
     }
   }
 
-  p.setup = () => {
-    p.createCanvas(p.windowWidth, p.windowHeight);
-    p.colorMode(p.HSB, 360, 100, 100, 255);
-    ensureParticles(params?.count ?? 320);
-  };
-
-  function burst(energy) {
-    // Burst strength read live so the slider applies immediately
-    const strength = params?.burst ?? 1;
-    for (const pt of particles) {
-      const angle = p.random(p.TWO_PI);
-      const speed = p.random(2, 12) * (0.5 + energy * 2.5) * strength;
-      pt.vx = p.cos(angle) * speed;
-      pt.vy = p.sin(angle) * speed;
-      pt.hue = p.random(360);
-      pt.life = 1;
-    }
-  }
-
-  p.draw = () => {
-    p.blendMode(p.BLEND);
-    p.noStroke();
-    p.fill(0, 0, 0, 22);
-    p.rect(0, 0, p.width, p.height);
-    p.blendMode(p.ADD);
-
-    // Read live params every frame so slider changes apply immediately
-    const P = params || {};
+  const mapUniforms = (P, bands_, p) => {
+    // Read live params every frame so slider changes apply immediately.
     const count = Math.floor(P.count ?? 320);
     const kickSensitivity = P.kick ?? 1;
     const windStrength = P.wind ?? 1;
-    ensureParticles(count);
+    ensureParticles(count, p);
 
     const freqs = audio && audio.isStarted ? audio.getFrequencies() : null;
     const b = bands(freqs ? freqs.left : null);
     hueOffset = (hueOffset + 0.5 + b.energy * 3) % 360;
 
-    // Kick: rising edge of sub-bass triggers a full burst
+    // Kick: rising edge of sub-bass triggers a full burst.
     if (b.sub > 0.3 / kickSensitivity && b.sub > prevSub) {
       kick = 1;
-      burst(b.sub);
+      const strength = P.burst ?? 1;
+      for (const pt of particles) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = (2 + Math.random() * 10) * (0.5 + b.sub * 2.5) * strength;
+        pt.vx = Math.cos(angle) * speed;
+        pt.vy = Math.sin(angle) * speed;
+        pt.hue = Math.random() * 360;
+        pt.life = 1;
+      }
     }
     prevSub = b.sub;
-    kick = p.lerp(kick, 0, 0.08);
+    kick = kick + (0 - kick) * 0.08;
 
     const windX = (b.mid - 0.5) * 6 * windStrength;
     const windY = (b.high - 0.5) * 6 * windStrength;
 
-    p.noStroke();
+    const arr = new Float32Array(count * 4);
     for (let i = 0; i < count; i++) {
       const pt = particles[i];
-      // Wind + mild attraction toward the center keeps the storm dense
+      // Wind + mild attraction toward the center keeps the storm dense.
       pt.vx += windX * 0.2 + (p.width / 2 - pt.x) * 0.002;
       pt.vy += windY * 0.2 + (p.height / 2 - pt.y) * 0.002;
       pt.vx *= 0.985;
       pt.vy *= 0.985;
       pt.x += pt.vx;
       pt.y += pt.vy;
-      pt.life = p.max(0, pt.life - 0.004 - b.energy * 0.006);
+      pt.life = Math.max(0, pt.life - 0.004 - b.energy * 0.006);
 
-      // Wrap around the edges
+      // Wrap around the edges.
       if (pt.x < -20) pt.x = p.width + 20;
       if (pt.x > p.width + 20) pt.x = -20;
       if (pt.y < -20) pt.y = p.height + 20;
       if (pt.y > p.height + 20) pt.y = -20;
 
-      const size = pt.size * (0.6 + kick * 2 + b.energy * 1.5);
-      p.fill(pt.hue, 90, 100, pt.life * 220);
-      p.circle(pt.x, pt.y, size);
+      // Pack size (0.1 resolution) and hue percent into one float so a single
+      // vec4 channel carries both (size*10 in the hundreds, huePct in 0..99).
+      const enc = Math.round(pt.size * 10) * 100 + Math.floor(((pt.hue % 360) / 360) * 100);
+      arr[i * 4 + 0] = pt.x;
+      arr[i * 4 + 1] = pt.y;
+      arr[i * 4 + 2] = enc;
+      arr[i * 4 + 3] = pt.life;
     }
 
-    // Central flash on kick
-    if (kick > 0.05) {
-      p.fill(hueOffset, 80, 100, kick * 60);
-      p.circle(p.width / 2, p.height / 2, 300 * kick);
-    }
+    return {
+      uParticles: arr,
+      uCount: count,
+      uHueOffset: hueOffset,
+      uSub: b.sub,
+      uMid: b.mid,
+      uHigh: b.high,
+      uEnergy: b.energy,
+      uKick: kick,
+    };
   };
 
-  p.windowResized = () => p.resizeCanvas(p.windowWidth, p.windowHeight);
-
-  p.mousePressed = () => {
-    if (audio) audio.resume();
-  };
+  return makeAudioShader(audio, params, frag, mapUniforms);
 };
