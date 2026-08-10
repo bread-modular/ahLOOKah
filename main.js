@@ -5,6 +5,9 @@ import {
   SKETCHES,
   BLEND_ID,
   BANDS_ID,
+  BAND_SPLIT_DEFAULTS,
+  BLEND_PARAMS,
+  POSTFX_PARAMS,
   POSTFX_ID,
   defaultParamValues,
   indexFromKey,
@@ -56,6 +59,22 @@ try {
 }
 
 const channel = new BroadcastChannel('viz2_channel');
+
+// Single disposer for timers/listeners so HMR/pagehide/unload do not leak.
+const __vizDisposers = [];
+function trackListener(target, type, handler, opts) { target.addEventListener(type, handler, opts); __vizDisposers.push(() => target.removeEventListener(type, handler, opts)); }
+function disposeViz() {
+  try { if (typeof audioBroadcastRaf !== 'undefined' && audioBroadcastRaf) cancelAnimationFrame(audioBroadcastRaf); } catch {}
+  try { if (typeof cueStageRaf !== 'undefined' && cueStageRaf) cancelAnimationFrame(cueStageRaf); } catch {}
+  try { if (typeof cueMutationRaf !== 'undefined' && cueMutationRaf) cancelAnimationFrame(cueMutationRaf); } catch {}
+  try { if (typeof previewRenderRaf !== 'undefined' && previewRenderRaf) cancelAnimationFrame(previewRenderRaf); } catch {}
+  try { if (typeof previewResizeRaf !== 'undefined' && previewResizeRaf) cancelAnimationFrame(previewResizeRaf); } catch {}
+  try { if (typeof audioRestartTimer !== 'undefined' && audioRestartTimer) clearTimeout(audioRestartTimer); } catch {}
+  try { if (typeof fallbackLeaseTimer !== 'undefined' && fallbackLeaseTimer) clearTimeout(fallbackLeaseTimer); } catch {}
+  try { if (typeof singletonHeartbeatTimer !== 'undefined' && singletonHeartbeatTimer) clearInterval(singletonHeartbeatTimer); } catch {}
+  __vizDisposers.splice(0).forEach((fn) => { try { fn(); } catch {} });
+  try { channel.close(); } catch {}
+}
 
 // ---------------------------------------------------------------------------
 // Singleton enforcement (one control + one screen per browser)
@@ -312,33 +331,70 @@ let paramRawValues = { ...paramValues };
 // that captured params once at creation never touches this object again).
 let devReadLog = null;
 
+function sanitizeParamEntry(id, values) {
+  if (!values || typeof values !== 'object' || Array.isArray(values)) return null;
+  const keys = Object.keys(values);
+  if (keys.length > 16) return null;
+  const defs = id === BLEND_ID ? BLEND_PARAMS : id === POSTFX_ID ? POSTFX_PARAMS : id === BANDS_ID ? [] : (SKETCHES.find((s) => s.id === id)?.params || []);
+  const defaults = defaultParamValues(id);
+  const out = {};
+  for (const k of keys) {
+    if (k.startsWith('__')) continue;
+    const v = values[k];
+    if (!Number.isFinite(v)) continue;
+    if (Math.abs(v) > 1e6) continue;
+    const def = defs.find((d) => d.key === k);
+    let clamped = v;
+    if (def) clamped = Math.min(Math.max(v, def.min - 1e-6), def.max + 1e-6);
+    out[k] = clamped;
+  }
+  // keep at least defaults for missing required keys
+  const merged = { ...defaults, ...out };
+  for (const kk of Object.keys(merged)) if (!Number.isFinite(merged[kk])) merged[kk] = defaults[kk] ?? 0;
+  return merged;
+}
+
 function loadParamValues() {
   let raw = {};
   try {
-    raw = JSON.parse(localStorage.getItem(STORAGE.params)) || {};
+    const txt = localStorage.getItem(STORAGE.params);
+    if (txt && txt.length > 50000) throw new Error('oversize');
+    raw = JSON.parse(txt) || {};
   } catch {
     raw = {};
   }
   if (typeof raw !== 'object' || raw === null) raw = {};
-
+  // schema/version guard: must be plain object, limit top-level entries
+  const entries = Object.entries(raw);
+  if (entries.length > 80) raw = Object.fromEntries(entries.slice(0, 80));
+  if (typeof raw !== 'object' || raw === null) raw = {};
+  
   const out = {};
   const knownIds = new Set(SKETCHES.map((s) => s.id));
 
   for (const [key, value] of Object.entries(raw)) {
+    if (typeof key !== 'string' || key.length > 64) continue;
     // BLEND_ID is a reserved pseudo-sketch id that stores the global blend
     // params — keep it alongside the per-effect entries. Merge stored values
     // over the defaults so stores saved by older builds (no `mode`, add:0)
     // pick up the new keys instead of rendering with undefined.
     if (key === BLEND_ID) {
-      out[key] = { ...defaultParamValues(BLEND_ID), ...(value || {}) };
+      const sanitized = sanitizeParamEntry(BLEND_ID, value);
+      out[key] = sanitized || defaultParamValues(BLEND_ID);
     } else if (key === BANDS_ID) {
-      // Global band-split crossovers (same reserved-id trick as BLEND_ID)
-      out[key] = { ...defaultParamValues(BANDS_ID), ...(value || {}) };
+      const sanitized = sanitizeParamEntry(BANDS_ID, value);
+      // BANDS has only low/high; keep clamped
+      if (sanitized) {
+        const low = Number.isFinite(sanitized.low) ? Math.min(Math.max(sanitized.low, 40), 15000) : BAND_SPLIT_DEFAULTS.low;
+        const high = Number.isFinite(sanitized.high) ? Math.min(Math.max(sanitized.high, 40), 15000) : BAND_SPLIT_DEFAULTS.high;
+        out[key] = { low, high };
+      } else out[key] = { ...defaultParamValues(BANDS_ID) };
     } else if (key === POSTFX_ID) {
-      // Global post-processing trim (same reserved-id trick as BLEND_ID)
-      out[key] = { ...defaultParamValues(POSTFX_ID), ...(value || {}) };
+      const sanitized = sanitizeParamEntry(POSTFX_ID, value);
+      out[key] = sanitized || defaultParamValues(POSTFX_ID);
     } else if (knownIds.has(key)) {
-      out[key] = value;
+      const sanitized = sanitizeParamEntry(key, value);
+      if (sanitized) out[key] = sanitized;
     }
   }
 
@@ -346,9 +402,11 @@ function loadParamValues() {
   // existing param store survives the upgrade (best effort — assumes the
   // default order, since the old format had no ids to resolve against).
   for (const [key, value] of Object.entries(raw)) {
+    if (Object.keys(out).length > 80) break;
     const n = parseInt(key, 10);
     if (!Number.isNaN(n) && SKETCHES[n] && !out[SKETCHES[n].id]) {
-      out[SKETCHES[n].id] = value;
+      const sanitized = sanitizeParamEntry(SKETCHES[n].id, value);
+      if (sanitized) out[SKETCHES[n].id] = sanitized;
     }
   }
 
@@ -616,6 +674,42 @@ function currentLiveSelection() {
   return selectionFromIndices(currentIndex, mergeIndices) || singleSelection(activeSketchId || getOrderedSketches()[0]?.id);
 }
 
+let screenResizeObserver = null;
+let screenResizeRaf = 0;
+function syncCanvasBackingStore() {
+  // Make backing-store (canvas.width/height) match CSS size in rAF
+  const layers = [stageLiveLayer, stageCueLayer].filter(Boolean);
+  for (const layer of layers) {
+    for (const canvas of layer.querySelectorAll('canvas')) {
+      const rect = canvas.getBoundingClientRect();
+      const w = Math.max(1, Math.round(rect.width * (window.devicePixelRatio || 1)));
+      const h = Math.max(1, Math.round(rect.height * (window.devicePixelRatio || 1)));
+      // Only touch if changed (cheap)
+      if (canvas.width !== w || canvas.height !== h) {
+        // Let p5 handle resize where possible; fallback to direct attribute
+        try { if (canvas.width !== w) canvas.width = w; if (canvas.height !== h) canvas.height = h; } catch {}
+      }
+      // Always keep CSS size in sync (in case JS removed it)
+      canvas.style.width = '100%';
+      canvas.style.height = '100%';
+    }
+  }
+}
+function observeScreenResize() {
+  if (screenResizeObserver) try { screenResizeObserver.disconnect(); } catch {}
+  const target = screenStage || document.getElementById('screen-wrap');
+  if (!target) return;
+  screenResizeObserver = new ResizeObserver(() => {
+    if (screenResizeRaf) return;
+    screenResizeRaf = requestAnimationFrame(() => { screenResizeRaf = 0; syncCanvasBackingStore(); });
+  });
+  try { screenResizeObserver.observe(target); } catch {}
+  trackListener(window, 'resize', () => {
+    if (screenResizeRaf) return;
+    screenResizeRaf = requestAnimationFrame(() => { screenResizeRaf = 0; syncCanvasBackingStore(); });
+  });
+}
+
 function ensureScreenStage() {
   if (screenStage && stageLiveLayer && stageCueLayer) return screenStage;
   let wrap = document.getElementById('screen-wrap');
@@ -643,6 +737,7 @@ function ensureScreenStage() {
   screenStage = wrap;
   stageLiveLayer = liveLayer;
   stageCueLayer = cueLayer;
+  observeScreenResize();
   return wrap;
 }
 
@@ -1070,9 +1165,14 @@ function cueStatePayload() {
   };
 }
 
+let lastAudioOwnerBroadcast = null;
+let lastAudioStatusBroadcast = null;
+
 function broadcastLiveState() {
   const selection = currentLiveSelection();
   const indices = selectionIndices(selection);
+  lastAudioOwnerBroadcast = isAudioOwner;
+  lastAudioStatusBroadcast = { ...lastAudioStatus };
   broadcast({
     type: 'state',
     pattern: selection.merge ? indices[0] : (indices[0] ?? -1),
@@ -1084,10 +1184,14 @@ function broadcastLiveState() {
     liveParams: canonicalLiveParamBank(),
     bands: canonicalBandValues(),
     cue: cueStatePayload(),
+    audioOwner: isAudioOwner,
+    audioStatus: { ...lastAudioStatus },
   });
 }
 
 function broadcastCueState(notice = '', committedParams = null, acknowledgement = {}) {
+  lastAudioOwnerBroadcast = isAudioOwner;
+  lastAudioStatusBroadcast = { ...lastAudioStatus };
   broadcast({
     type: 'cue-state',
     cue: cueStatePayload(),
@@ -1098,6 +1202,8 @@ function broadcastCueState(notice = '', committedParams = null, acknowledgement 
     committedParams: committedParams ? copyVisualParamBank(committedParams) : null,
     takeRequestId: acknowledgement.takeRequestId || cueSession?.takeRequestId || null,
     rejectedTakeRequestId: acknowledgement.rejectedTakeRequestId || null,
+    audioOwner: isAudioOwner,
+    audioStatus: { ...lastAudioStatus },
   });
 }
 
@@ -1751,6 +1857,8 @@ function requestCueSelection(selection) {
 }
 
 function requestCuePrimary() {
+  // Flush any coalesced slider broadcast so a rapid input+Enter in one task doesn't drop the last value.
+  try { panel?.flushPendingParamBroadcast?.(); } catch {}
   // There is intentionally no standalone CUE action. Shift + a pattern enters
   // CUE; this overlay action only takes (or retries) an existing candidate.
   if (!cueSession || cueEditsLocked()) return;
@@ -2041,7 +2149,13 @@ function broadcast(msg) {
   handleMessage(full);
 }
 
+function isFiniteNumber(n) { return typeof n === 'number' && Number.isFinite(n); }
+function clampInt(n, lo, hi) { return Math.max(lo, Math.min(hi, n | 0)); }
+
 function handleMessage(msg) {
+  if (!msg || typeof msg !== 'object' || Array.isArray(msg)) return;
+  if (typeof msg.type !== 'string') return;
+  if (msg.type.length > 32) return;
   // Singleton handshake: only an established owner answers singleton probes.
   // A duplicate that lost enforceSingleton() never reaches this boot path, but
   // keep this handler early so probes don't bleed into other handlers.
@@ -2068,26 +2182,54 @@ function handleMessage(msg) {
       break;
 
     case 'state': {
-      const selection = msg.live
-        || (typeof msg.patternId === 'string' && msg.pattern < 0
-          ? selectionFromId(msg.patternId)
-          : selectionFromIndices(msg.pattern, msg.merge));
+      // validate incoming state: ids/indices bounded, numeric clamped
+      let selection = null;
+      if (msg.live && typeof msg.live === 'object' && !Array.isArray(msg.live)) {
+        const ids = Array.isArray(msg.live.ids) ? msg.live.ids.slice(0, 2) : [];
+        if (ids.length && ids.length <= 2 && ids.every((id) => typeof id === 'string' && id.length <= 64)) {
+          selection = copyProgramSelection(msg.live);
+          if (!selection.ids.every((id) => SKETCHES.some((s) => s.id === id))) selection = null;
+        }
+      }
+      if (!selection) {
+        if (typeof msg.patternId === 'string' && msg.patternId.length <= 64 && isFiniteNumber(msg.pattern) && msg.pattern < 0) {
+          selection = selectionFromId(msg.patternId);
+        } else if (isFiniteNumber(msg.pattern)) {
+          const p = clampInt(msg.pattern, -1, 100);
+          let merge = null;
+          if (Array.isArray(msg.merge) && msg.merge.length === 2 && msg.merge.every(isFiniteNumber)) merge = msg.merge.map((n) => clampInt(n, 0, 100));
+          selection = selectionFromIndices(p, merge);
+        }
+      }
       if (selection?.ids?.length) {
         liveProgram = copyProgramSelection(selection);
         syncLegacyLiveProjection();
-      } else if (typeof msg.pattern === 'number') {
-        currentIndex = msg.pattern;
-        mergeIndices = Array.isArray(msg.merge) && msg.merge.length === 2 ? [...msg.merge] : null;
-        if (msg.pattern < 0 && typeof msg.patternId === 'string') activeSketchId = msg.patternId;
+      } else if (isFiniteNumber(msg.pattern)) {
+        currentIndex = clampInt(msg.pattern, -1, 100);
+        mergeIndices = Array.isArray(msg.merge) && msg.merge.length === 2 && msg.merge.every(isFiniteNumber) ? msg.merge.map((n) => clampInt(n, 0, 100)) : null;
+        if (msg.pattern < 0 && typeof msg.patternId === 'string' && msg.patternId.length <= 64) activeSketchId = msg.patternId;
         else updateActiveSketchId();
       }
       screenOnline = true;
+      // audioOwner exposure for tests/readiness: screen-authored
+      if (typeof msg.audioOwner === 'boolean') {
+        lastAudioOwnerBroadcast = msg.audioOwner;
+        lastAudioStatusBroadcast = msg.audioStatus && typeof msg.audioStatus === 'object' ? msg.audioStatus : lastAudioStatusBroadcast;
+      }
       // Adopt screen-authored global and visual values before constructing a
       // received CUE bank; a late-open panel must clone the same canonical
       // values the screen uses.
-      if (msg.bands) applyCanonicalBandValues(msg.bands);
-      if (msg.liveParams) applyCanonicalLiveParamBank(msg.liveParams);
-      if ('cue' in msg) applyReceivedCueState(msg.cue);
+      if (msg.bands && typeof msg.bands === 'object' && !Array.isArray(msg.bands)) {
+        const keys = Object.keys(msg.bands);
+        if (keys.length <= 16) applyCanonicalBandValues(msg.bands);
+      }
+      if (msg.liveParams && typeof msg.liveParams === 'object' && !Array.isArray(msg.liveParams)) {
+        if (Object.keys(msg.liveParams).length <= 80) applyCanonicalLiveParamBank(msg.liveParams);
+      }
+      if ('cue' in msg) {
+        const cue = msg.cue;
+        if (cue === null || (cue && typeof cue === 'object' && !Array.isArray(cue))) applyReceivedCueState(cue);
+      }
       break;
     }
 
@@ -2095,7 +2237,9 @@ function handleMessage(msg) {
       // Legacy live-scoped messages are intentionally ignored during a cue;
       // only explicit cue-* protocol messages may mutate the candidate.
       if (cueSession) break;
-      const selection = selectionFromIndices(msg.index);
+      if (!isFiniteNumber(msg.index)) break;
+      const idx = clampInt(msg.index, 0, 100);
+      const selection = selectionFromIndices(idx);
       if (!selection) break;
       if (myRole === 'screen') {
         if (!cueSession) prepareThenPromoteLive(selection);
@@ -2110,6 +2254,7 @@ function handleMessage(msg) {
 
     case 'pattern-id': {
       if (cueSession) break;
+      if (typeof msg.id !== 'string' || msg.id.length > 64) break;
       const selection = selectionFromId(msg.id);
       if (!selection) break;
       if (myRole === 'screen') {
@@ -2123,7 +2268,9 @@ function handleMessage(msg) {
 
     case 'merge': {
       if (cueSession) break;
-      const selection = selectionFromIndices(msg.a, [msg.a, msg.b]);
+      if (!isFiniteNumber(msg.a) || !isFiniteNumber(msg.b)) break;
+      const a = clampInt(msg.a, 0, 100), b = clampInt(msg.b, 0, 100);
+      const selection = selectionFromIndices(a, [a, b]);
       if (!selection) break;
       if (myRole === 'screen') {
         if (!cueSession) prepareThenPromoteLive(selection);
@@ -2179,21 +2326,29 @@ function handleMessage(msg) {
       if (myRole === 'screen' && cueSession && msg.sessionId === cueSession.sessionId) cancelCueSession();
       return;
 
-    case 'cue-state':
-      if (msg.live?.ids?.length) {
-        liveProgram = copyProgramSelection(msg.live);
-        syncLegacyLiveProjection();
+    case 'cue-state': {
+      if (msg.live && typeof msg.live === 'object' && Array.isArray(msg.live.ids) && msg.live.ids.length && msg.live.ids.length <= 2 && msg.live.ids.every((id) => typeof id === 'string' && id.length <= 64)) {
+        const sel = copyProgramSelection(msg.live);
+        if (sel.ids.every((id) => SKETCHES.some((s) => s.id === id))) {
+          liveProgram = sel;
+          syncLegacyLiveProjection();
+        }
       }
-      if (msg.bands) applyCanonicalBandValues(msg.bands);
-      if (msg.liveParams) applyCanonicalLiveParamBank(msg.liveParams);
-      if (msg.committedParams && !(myRole === 'screen' && msg.windowId === myId)) {
+      if (msg.bands && typeof msg.bands === 'object' && !Array.isArray(msg.bands) && Object.keys(msg.bands).length <= 16) applyCanonicalBandValues(msg.bands);
+      if (msg.liveParams && typeof msg.liveParams === 'object' && !Array.isArray(msg.liveParams) && Object.keys(msg.liveParams).length <= 80) applyCanonicalLiveParamBank(msg.liveParams);
+      if (msg.committedParams && typeof msg.committedParams === 'object' && !Array.isArray(msg.committedParams) && Object.keys(msg.committedParams).length <= 80 && !(myRole === 'screen' && msg.windowId === myId)) {
         adoptVisualParamBank(msg.committedParams);
       }
-      applyReceivedCueState(msg.cue, msg.notice || '', {
-        takeRequestId: msg.takeRequestId || null,
-        rejectedTakeRequestId: msg.rejectedTakeRequestId || null,
+      const notice = typeof msg.notice === 'string' ? msg.notice.slice(0, 200) : '';
+      const cuePayload = msg.cue === null || (msg.cue && typeof msg.cue === 'object' && !Array.isArray(msg.cue)) ? msg.cue : null;
+      // forward audioOwner if present
+      if (typeof msg.audioOwner === 'boolean') { lastAudioOwnerBroadcast = msg.audioOwner; lastAudioStatusBroadcast = msg.audioStatus && typeof msg.audioStatus === 'object' ? msg.audioStatus : lastAudioStatusBroadcast; }
+      applyReceivedCueState(cuePayload, notice, {
+        takeRequestId: typeof msg.takeRequestId === 'string' ? msg.takeRequestId.slice(0, 128) : null,
+        rejectedTakeRequestId: typeof msg.rejectedTakeRequestId === 'string' ? msg.rejectedTakeRequestId.slice(0, 128) : null,
       });
       return;
+    }
 
     case 'devices':
       // Device ids are included explicitly; localStorage remains persistence,
@@ -2218,51 +2373,71 @@ function handleMessage(msg) {
       if (myRole === 'control' && panel) panel.setAudioStatus(lastAudioStatus);
       return;
 
-    case 'params':
+    case 'params': {
       // Legacy unscoped LIVE parameter requests are now screen-authoritative.
       // Controls deliberately do not mutate/persist on this raw message: a
       // CUE could have been accepted in the gap between a slider event and its
       // BroadcastChannel delivery. The screen answers accepted requests with
       // `live-params`, or rebroadcasts its canonical bank when it rejects one.
-      if (myRole !== 'screen' || !isKnownLiveParamId(msg.id) || !msg.values) return;
+      if (myRole !== 'screen' || typeof msg.id !== 'string' || msg.id.length > 64 || !msg.values || typeof msg.values !== 'object' || Array.isArray(msg.values) || Object.keys(msg.values).length > 16) return;
+      if (!isKnownLiveParamId(msg.id)) return;
+      // sanitize values: finite, clamped
+      const cleanParams = {};
+      for (const [k, v] of Object.entries(msg.values)) {
+        if (typeof k !== 'string' || k.length > 64) continue;
+        if (!Number.isFinite(v)) continue;
+        if (Math.abs(v) > 1e6) continue;
+        cleanParams[k] = v;
+      }
+      if (!Object.keys(cleanParams).length) return;
       if (cueSession && msg.id !== BANDS_ID) {
         broadcastCueState('LIVE PARAMETER IGNORED — CUE ACTIVE');
         return;
       }
-      applyAcceptedLiveParamValues(msg.id, msg.values);
-      broadcast({ type: 'live-params', id: msg.id, values: msg.values });
+      applyAcceptedLiveParamValues(msg.id, cleanParams);
+      broadcast({ type: 'live-params', id: msg.id, values: cleanParams });
       return;
+    }
 
-    case 'live-params':
-      // Only the output screen emits accepted LIVE values. Screen windows have
-      // already applied their source request and therefore ignore the echo.
-      if (myRole !== 'screen' && isKnownLiveParamId(msg.id) && msg.values) {
-        applyAcceptedLiveParamValues(msg.id, msg.values);
+    case 'live-params': {
+      if (myRole !== 'screen' && typeof msg.id === 'string' && msg.id.length <= 64 && isKnownLiveParamId(msg.id) && msg.values && typeof msg.values === 'object' && !Array.isArray(msg.values) && Object.keys(msg.values).length <= 16) {
+        const clean = {};
+        for (const [k, v] of Object.entries(msg.values)) { if (typeof k === 'string' && k.length <= 64 && Number.isFinite(v) && Math.abs(v) <= 1e6) clean[k] = v; }
+        if (Object.keys(clean).length) applyAcceptedLiveParamValues(msg.id, clean);
       }
       break;
+    }
 
-    case 'spectrum':
+    case 'spectrum': {
       // Compact EQ feed from the capture-owning control (~15fps). Forward and
       // return early — the full syncUI() dance is pointless churn at this rate.
-      if (myRole === 'control' && panel) panel.handleSpectrum(msg);
+      if (myRole === 'control' && panel) {
+        if (msg.freqs && msg.dbs && msg.freqs.length <= 1024 && msg.dbs.length <= 1024) panel.handleSpectrum(msg);
+      }
       return;
+    }
 
-    case 'analysis-frame':
+    case 'analysis-frame': {
       // Cleaned frequency + waveform snapshots flow control -> screen. Other
       // panels consume them too so every embedded preview follows the same mic.
-      if (myRole === 'screen') screenAudio.setFrame(msg.frame);
-      else previewAudio.setFrame(msg.frame);
+      // Basic frame shape check to avoid crash on malformed frames
+      if (msg.frame && typeof msg.frame === 'object' && !Array.isArray(msg.frame)) {
+        if (myRole === 'screen') screenAudio.setFrame(msg.frame);
+        else previewAudio.setFrame(msg.frame);
+      }
       return;
+    }
 
-    case 'noise-capture':
+    case 'noise-capture': {
       // Requests may originate in any panel; only the elected microphone owner
       // has the analyser buffers needed to run the sampler.
+      if (typeof msg.action !== 'string') return;
       if (isAudioOwner) {
         if (msg.action === 'start') {
           if (!audio.isStarted) {
             broadcast({ type: 'noise-floor', status: 'failed', reason: 'no-audio' });
           } else {
-            const seconds = typeof msg.seconds === 'number' ? msg.seconds : NOISE_CAPTURE_DEFAULT_SECONDS;
+            const seconds = clampInt(typeof msg.seconds === 'number' && Number.isFinite(msg.seconds) ? msg.seconds : NOISE_CAPTURE_DEFAULT_SECONDS, 1, 10);
             startNoiseCapture(seconds);
             noiseCaptureActive = true;
             lastNoiseProgressAt = 0;
@@ -2275,38 +2450,46 @@ function handleMessage(msg) {
         }
       }
       return;
+    }
 
-    case 'noise-floor':
+    case 'noise-floor': {
       // The profile itself lives in localStorage (written by the audio owner);
       // reload it so this window's subtraction / EQ curve stay in sync.
+      if (typeof msg.status !== 'string') return;
       if (msg.status === 'ready' || msg.status === 'cleared' || msg.status === 'cancelled') {
         loadNoiseFloor();
       }
       if (myRole === 'control' && panel) panel.setNoiseState(msg);
       return;
+    }
 
-    case 'reorder':
+    case 'reorder': {
       // The pad assignment changed in some window. Positions shift, so keep the
       // currently playing pattern selected (by id) and re-render the panel.
-      if (Array.isArray(msg.order) && msg.order.length) {
-        const idx = msg.order.indexOf(activeSketchId);
-        currentIndex = idx >= 0 ? idx : -1;
-        // A live merge selection is positional too — remap it by id so the
-        // next key event keeps pointing at the same effects.
-        if (mergeIndices && mergeIds) {
-          const a = msg.order.indexOf(mergeIds[0]);
-          const b = msg.order.indexOf(mergeIds[1]);
-          if (a >= 0 && b >= 0) mergeIndices = [a, b];
-          else {
-            // One merged pattern left the pad — end the merge selection
-            mergeIndices = null;
-            mergeIds = null;
-          }
+      if (!Array.isArray(msg.order) || !msg.order.length || msg.order.length > 80) break;
+      const cleanOrder = msg.order.filter((id) => typeof id === 'string' && id.length <= 64).slice(0, 10);
+      if (!cleanOrder.length) break;
+      const unique = [...new Set(cleanOrder)];
+      if (unique.length !== cleanOrder.length) break; // duplicate ids -> ignore
+      if (!unique.every((id) => SKETCHES.some((s) => s.id === id))) break;
+      const idx = unique.indexOf(activeSketchId);
+      currentIndex = idx >= 0 ? idx : -1;
+      // A live merge selection is positional too — remap it by id so the
+      // next key event keeps pointing at the same effects.
+      if (mergeIndices && mergeIds) {
+        const a = unique.indexOf(mergeIds[0]);
+        const b = unique.indexOf(mergeIds[1]);
+        if (a >= 0 && b >= 0) mergeIndices = [a, b];
+        else {
+          // One merged pattern left the pad — end the merge selection
+          mergeIndices = null;
+          mergeIds = null;
         }
-        if (liveProgram?.ids?.length) syncLegacyLiveProjection();
-        if (myRole === 'control' && panel) panel.setOrder();
       }
+      if (liveProgram?.ids?.length) syncLegacyLiveProjection();
+      if (myRole === 'control' && panel) panel.setOrder();
       break;
+    }
 
     case 'screen-closed':
       screenOnline = false;
@@ -2345,6 +2528,16 @@ let audioFrameSequence = 0;
 let noiseCaptureActive = false;
 let lastNoiseProgressAt = 0;
 
+let lastFreqDbBroadcast = null;
+let spectrumThrottleUntil = 0;
+function allocateBroadcastBuffers(frame) {
+  // reuse typed buffers for broadcast to reduce GC churn
+  if (!lastFreqDbBroadcast || lastFreqDbBroadcast.length !== frame.left.length) {
+    lastFreqDbBroadcast = new Float32Array(frame.left.length);
+  }
+  return lastFreqDbBroadcast;
+}
+
 function audioBroadcastLoop(now) {
   audioBroadcastRaf = 0;
   if (!isAudioOwner) return;
@@ -2354,11 +2547,22 @@ function audioBroadcastLoop(now) {
     const frame = audio.isStarted ? audio.getAnalysisFrame() : null;
     if (frame) {
       audioFrameSequence += 1;
-      broadcast({ type: 'analysis-frame', sequence: audioFrameSequence, frame });
-      if (now - lastSpectrumAt >= 66) {
-        lastSpectrumAt = now;
-        const spec = computeLogSpectrum(frame);
-        if (spec) broadcast({ type: 'spectrum', ...spec });
+      // throttle broadcast slightly if main thread is saturated (simple gate)
+      if (now >= spectrumThrottleUntil) {
+        broadcast({ type: 'analysis-frame', sequence: audioFrameSequence, frame });
+        if (now - lastSpectrumAt >= 66) {
+          lastSpectrumAt = now;
+          const spec = computeLogSpectrum(frame);
+          if (spec) {
+            // clone into reusable buffers where possible
+            const freqs = spec.freqs instanceof Float32Array ? new Float32Array(spec.freqs) : spec.freqs;
+            const dbs = spec.dbs instanceof Float32Array ? new Float32Array(spec.dbs) : spec.dbs;
+            broadcast({ type: 'spectrum', freqs, dbs, minHz: spec.minHz, maxHz: spec.maxHz });
+          }
+        }
+      } else {
+        // skip one frame under backpressure
+        spectrumThrottleUntil = now + 16;
       }
     }
   }
@@ -2405,8 +2609,8 @@ function stopAudioBroadcast() {
 function resumeAudioFromControlGesture() {
   if (myRole === 'control' && isAudioOwner && audio.isStarted) audio.resume(true);
 }
-window.addEventListener('pointerdown', resumeAudioFromControlGesture, { capture: true, passive: true });
-window.addEventListener('keydown', resumeAudioFromControlGesture, { capture: true });
+trackListener(window, 'pointerdown', resumeAudioFromControlGesture, { capture: true, passive: true });
+trackListener(window, 'keydown', resumeAudioFromControlGesture, { capture: true });
 
 // ---------------------------------------------------------------------------
 // Keyboard shortcuts (1-0) — active on control panel windows.
@@ -2429,7 +2633,7 @@ function shortcutIndexFromEvent(event) {
   return indexFromKey(event.key);
 }
 
-window.addEventListener('keydown', (e) => {
+trackListener(window, 'keydown', (e) => {
   if (myRole !== 'control') return;
 
   // Transport keys intentionally run before text-entry guards. Enter queues a
@@ -2525,7 +2729,7 @@ window.addEventListener('keydown', (e) => {
   // 2+ keys already held -> ignore extras
 });
 
-window.addEventListener('keyup', (e) => {
+trackListener(window, 'keyup', (e) => {
   if (myRole !== 'control') return;
 
   const pos = heldKeys.findIndex((held) => held.code === e.code);
@@ -2538,42 +2742,40 @@ window.addEventListener('keyup', (e) => {
 // If the control window loses focus mid-hold its keyup events are lost. The
 // latched selection is unaffected, but the held-key bookkeeping must reset so
 // the next press isn't mistaken for part of a stale gesture.
-window.addEventListener('blur', () => {
+trackListener(window, 'blur', () => {
   if (myRole !== 'control') return;
   heldKeys.length = 0;
   heldCueKeys.length = 0;
 });
 
+// disposer defined at top
+
 // Tell panels when the screen closes; capture ownership is released separately
 // so a queued control window can take over the microphone immediately.
-window.addEventListener('beforeunload', () => {
+trackListener(window, 'beforeunload', () => {
   if (singletonBlocked) return;
-  if (myRole === 'screen') channel.postMessage({ type: 'screen-closed' });
+  if (myRole === 'screen') try { channel.postMessage({ type: 'screen-closed' }); } catch {}
   if (myRole === 'control') endAudioOwnership();
   clearSingletonLease(myRole);
   stopSingletonHeartbeat();
-  // Don't rely solely on beforeunload; pagehide handles more cases.
 });
-window.addEventListener('pagehide', () => {
-  if (singletonBlocked) return;
+trackListener(window, 'pagehide', () => {
+  if (singletonBlocked) { disposeViz(); return; }
   clearSingletonLease(myRole);
   stopSingletonHeartbeat();
+  disposeViz();
 });
-window.addEventListener('visibilitychange', () => {
+trackListener(window, 'visibilitychange', () => {
   if (document.visibilityState === 'hidden' && !singletonBlocked && singletonIsOwner) {
-    // Keep lease fresh if heartbeat missed while hidden (browser throttles timers).
     writeSingletonLease(myRole);
   }
 });
-window.addEventListener('storage', (e) => {
+trackListener(window, 'storage', (e) => {
   if (singletonBlocked) return;
   if (singletonIsOwner && e.key === getSingletonKey(myRole) && e.newValue) {
     try {
       const lease = JSON.parse(e.newValue);
-      if (lease && lease.tabId !== TAB_ID) {
-        // Another owner appeared — shouldn't happen; keep our lease.
-        writeSingletonLease(myRole);
-      }
+      if (lease && lease.tabId !== TAB_ID) writeSingletonLease(myRole);
     } catch {}
   }
 });
@@ -2662,6 +2864,36 @@ function renderScreenToolbar() {
 }
 
 let singletonBlocked = false;
+
+// Early __viz stub so waitForFunction predicates never throw during singleton handshake
+(function initEarlyViz() {
+  try {
+    window.__viz = window.__viz || {};
+    const early = window.__viz;
+    if (!('audioOwner' in early)) Object.defineProperty(early, 'audioOwner', { get() { try { return typeof isAudioOwner !== 'undefined' ? isAudioOwner : false; } catch { return false; } }, configurable: true });
+    if (!('audioStatus' in early)) Object.defineProperty(early, 'audioStatus', { get() { try { return { ...lastAudioStatus }; } catch { return { status: 'idle' }; } }, configurable: true });
+    if (!('role' in early)) Object.defineProperty(early, 'role', { get() { try { return typeof myRole !== 'undefined' ? myRole : 'control'; } catch { return 'control'; } }, configurable: true });
+    if (!('pattern' in early)) Object.defineProperty(early, 'pattern', { get() { try { return typeof currentIndex !== 'undefined' ? currentIndex : -1; } catch { return -1; } }, configurable: true });
+    if (!('patternId' in early)) Object.defineProperty(early, 'patternId', { get() { try { return typeof activeSketchId !== 'undefined' ? activeSketchId : null; } catch { return null; } }, configurable: true });
+    if (!('noise' in early)) Object.defineProperty(early, 'noise', { get() {
+      try {
+        let profile = null;
+        try { profile = getNoiseFloorMeta(); } catch {}
+        if (!profile) {
+          try {
+            const raw = localStorage.getItem('viz2_noise_floor');
+            if (raw) { const j = JSON.parse(raw); if (j && j.v === 1 && Array.isArray(j.dbs)) profile = { binCount: j.dbs.length, sampleRate: j.sampleRate, fftSize: j.fftSize, capturedAt: j.capturedAt, seconds: j.seconds, frames: j.frames }; else if (j && typeof j.sampleRate === 'number') profile = j; }
+          } catch {}
+        }
+        return { capturing: (() => { try { return isNoiseCapturing(); } catch { return false; }})(), capture: (() => { try { return getNoiseCaptureState(); } catch { return { capturing: false }; }})(), profile, sampleDb: (hz) => { try { return sampleNoiseFloorDb(hz); } catch { return null; } } };
+      } catch { return { capturing: false, profile: null }; }
+    }, configurable: true });
+    if (!('eq' in early)) Object.defineProperty(early, 'eq', { get() { try { return typeof panel !== 'undefined' && panel ? { split: { ...panel.eqSplit }, drawn: panel.eqDrawn, spectrumAt: panel.lastSpectrumAt, lastSpectrum: panel.eqSpectrum } : null; } catch { return null; } }, configurable: true });
+    if (!('cue' in early)) Object.defineProperty(early, 'cue', { get() { try { return typeof cueStatePayload !== 'undefined' ? cueStatePayload() : null; } catch { return null; } }, configurable: true });
+    if (!('singletonBlocked' in early)) early.singletonBlocked = false;
+    if (!('singletonError' in early)) Object.defineProperty(early, 'singletonError', { get() { return singletonBlocked; }, configurable: true });
+  } catch {}
+})();
 
 // ---------------------------------------------------------------------------
 // Boot (gated by singleton check: no control/screen UI renders before this)

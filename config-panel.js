@@ -50,6 +50,17 @@ const ICON_X =
 const ICON_MONITOR =
   '<svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>';
 
+function escapeHtml(text) {
+  const d = document.createElement('div');
+  d.textContent = text == null ? '' : String(text);
+  return d.innerHTML;
+}
+
+function debounce(fn, ms) {
+  let t = 0;
+  return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
+}
+
 // Persist a <details> section's open state synchronously on the user's click.
 // The native `toggle` event is dispatched from a queued task, so a reload
 // racing the click can preempt it and lose the persisted state.
@@ -179,6 +190,12 @@ export class ConfigPanel {
     this.cueState = null;
     this.lastCueRevision = null;
     this.lastTransportNotice = '';
+    this._paramBroadcastRaf = 0;
+    this._paramBroadcastQueue = new Map();
+    this._persistDebounced = debounce(() => { try { this._flushPersist?.(); } catch {} }, 350);
+    this._listeners = [];
+    this._eqResizeObserver = null;
+    this._resizeRaf = 0;
 
     this.init();
   }
@@ -322,6 +339,8 @@ export class ConfigPanel {
     persistSectionOpen(this.panel.querySelector('#device-setup'), this.deviceSectionKey);
     persistSectionOpen(this.panel.querySelector('#post-fx'), this.postFxKey);
 
+    this._trackListener(window, 'pagehide', () => this.dispose());
+    this._trackListener(window, 'beforeunload', () => this.dispose());
     this.panel.querySelector('#refresh-devices-btn').onclick = () => this.refreshDevices();
     this.panel.querySelector('#setup-all-btn').onclick = () => this.requestPermissions();
 
@@ -332,9 +351,11 @@ export class ConfigPanel {
     const cuePrimary = this.panel.querySelector('#cue-primary');
     const cueCancel = this.panel.querySelector('#cue-cancel');
     if (cuePrimary) cuePrimary.onclick = () => {
+      this.flushPendingParamBroadcast();
       if (this.onCuePrimary) this.onCuePrimary();
     };
     if (cueCancel) cueCancel.onclick = () => {
+      this.flushPendingParamBroadcast();
       if (this.onCueCancel) this.onCueCancel();
     };
     this.renderTransport();
@@ -381,6 +402,42 @@ export class ConfigPanel {
   // panel only edits, displays and syncs the values.
   // ---------------------------------------------------------------------------
 
+  _queueParamChange(id, key, value) {
+    if (!this._paramBroadcastQueue.has(id)) this._paramBroadcastQueue.set(id, {});
+    this._paramBroadcastQueue.get(id)[key] = value;
+    if (this._paramBroadcastRaf) return;
+    this._paramBroadcastRaf = requestAnimationFrame(() => {
+      this._paramBroadcastRaf = 0;
+      this._flushParamBroadcast();
+    });
+  }
+  _flushParamBroadcast() {
+    if (this._paramBroadcastRaf) { cancelAnimationFrame(this._paramBroadcastRaf); this._paramBroadcastRaf = 0; }
+    if (!this._paramBroadcastQueue.size) return;
+    const batch = new Map(this._paramBroadcastQueue);
+    this._paramBroadcastQueue.clear();
+    for (const [id, values] of batch) {
+      for (const [k, v] of Object.entries(values)) {
+        if (this.onParamChange) this.onParamChange(id, k, v);
+      }
+    }
+    // debounce persistence if main.js exposes _flushPersist hook; otherwise localStorage is handled there
+    if (this._persistDebounced) this._persistDebounced();
+  }
+  flushPendingParamBroadcast() { this._flushParamBroadcast(); }
+  _trackListener(target, type, handler, opts) {
+    target.addEventListener(type, handler, opts);
+    this._listeners.push(() => target.removeEventListener(type, handler, opts));
+  }
+  dispose() {
+    if (this._paramBroadcastRaf) cancelAnimationFrame(this._paramBroadcastRaf);
+    if (this._resizeRaf) cancelAnimationFrame(this._resizeRaf);
+    if (this.eqWatchTimer) clearInterval(this.eqWatchTimer);
+    if (this._eqResizeObserver) try { this._eqResizeObserver.disconnect(); } catch {}
+    this._listeners.splice(0).forEach(fn => { try { fn(); } catch {} });
+    this._paramBroadcastQueue.clear();
+  }
+
   initPostFx() {
     const list = this.panel.querySelector('#post-fx-list');
     const resetBtn = this.panel.querySelector('#post-fx-reset-btn');
@@ -393,23 +450,32 @@ export class ConfigPanel {
 
       const row = document.createElement('div');
       row.className = 'param-row';
-      row.innerHTML = `
-        <div class="param-head">
-          <label for="postfx-${def.key}">${def.label}</label>
-          <span class="param-value" data-value="${def.key}">${formatPostFxValue(val)}</span>
-        </div>
-        <input type="range" id="postfx-${def.key}" data-key="${def.key}"
-               min="${def.min}" max="${def.max}" step="${def.step}" value="${val}">
-      `;
-
-      const input = row.querySelector('input');
-      const valueEl = row.querySelector('.param-value');
+      const head = document.createElement('div');
+      head.className = 'param-head';
+      const label = document.createElement('label');
+      label.htmlFor = `postfx-${def.key}`;
+      label.textContent = def.label;
+      const valueEl = document.createElement('span');
+      valueEl.className = 'param-value';
+      valueEl.dataset.value = def.key;
+      valueEl.textContent = formatPostFxValue(val);
+      head.append(label, valueEl);
+      const input = document.createElement('input');
+      input.type = 'range';
+      input.id = `postfx-${def.key}`;
+      input.dataset.key = def.key;
+      input.min = String(def.min);
+      input.max = String(def.max);
+      input.step = String(def.step);
+      input.value = String(val);
+      row.append(head, input);
 
       input.addEventListener('input', () => {
         const v = parseFloat(input.value);
         valueEl.textContent = formatPostFxValue(v);
-        if (this.onParamChange) this.onParamChange(POSTFX_ID, def.key, v);
+        this._queueParamChange(POSTFX_ID, def.key, v);
       });
+      input.addEventListener('change', () => this._flushParamBroadcast());
 
       list.appendChild(row);
     }
@@ -496,7 +562,18 @@ export class ConfigPanel {
       }
     });
 
-    window.addEventListener('resize', () => this.drawEq());
+    this._trackListener(window, 'resize', () => {
+      if (this._resizeRaf) return;
+      this._resizeRaf = requestAnimationFrame(() => { this._resizeRaf = 0; this.drawEq(); });
+    });
+    // ResizeObserver authoritative for CSS vs backing-store sync
+    if (this.eqCanvas) {
+      this._eqResizeObserver = new ResizeObserver(() => {
+        if (this._resizeRaf) return;
+        this._resizeRaf = requestAnimationFrame(() => { this._resizeRaf = 0; this.drawEq(); });
+      });
+      try { this._eqResizeObserver.observe(this.eqCanvas); } catch {}
+    }
 
     this.eqCanvas.addEventListener('pointerdown', (e) => {
       const { x, w } = this.eqPointerPos(e);
@@ -1107,7 +1184,7 @@ export class ConfigPanel {
   // Fixed 10-slot pad (keys 1-9, 0). Always visible; never scrolls.
   renderPatternPad() {
     const pad = this.panel.querySelector('#pattern-pad');
-    pad.innerHTML = '';
+    pad.replaceChildren();
 
     const ordered = getOrderedSketches();
     this.slotOrder = ordered.map((s) => s.id);
@@ -1119,7 +1196,17 @@ export class ConfigPanel {
       btn.dataset.id = sketch ? sketch.id : '';
       btn.dataset.index = String(i);
       btn.draggable = true;
-      btn.innerHTML = `<span class="pattern-key">${slotLabel(i)}</span><span class="pattern-name">${sketch ? sketch.name : '—'}</span><span class="drag-handle" title="Drag to swap slots">⠿</span>`;
+      const keySpan = document.createElement('span');
+      keySpan.className = 'pattern-key';
+      keySpan.textContent = slotLabel(i);
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'pattern-name';
+      nameSpan.textContent = sketch ? sketch.name : '—';
+      const handle = document.createElement('span');
+      handle.className = 'drag-handle';
+      handle.title = 'Drag to swap slots';
+      handle.textContent = '⠿';
+      btn.append(keySpan, nameSpan, handle);
 
       btn.title = 'Click to play live. Shift-click to stage this pattern as CUE.';
       btn.onclick = (event) => {
@@ -1165,14 +1252,29 @@ export class ConfigPanel {
         btn.draggable = true;
 
         const slotIdx = slotOf.get(sketch.id);
-        const badge =
-          slotIdx !== undefined
-            ? `<span class="slot-badge" title="Assigned to pad slot ${slotLabel(slotIdx)}">${slotLabel(slotIdx)}</span>`
-            : '';
-        const cam = sketch.camera
-          ? '<span class="camera-badge" title="Uses camera input">📷</span>'
-          : '';
-        btn.innerHTML = `<span class="pattern-name">${sketch.name}</span>${cam}${badge}<span class="drag-handle" title="Drag to pad slot">⠿</span>`;
+        const nameSpanLib = document.createElement('span');
+        nameSpanLib.className = 'pattern-name';
+        nameSpanLib.textContent = sketch.name;
+        btn.appendChild(nameSpanLib);
+        if (sketch.camera) {
+          const camEl = document.createElement('span');
+          camEl.className = 'camera-badge';
+          camEl.title = 'Uses camera input';
+          camEl.textContent = '📷';
+          btn.appendChild(camEl);
+        }
+        if (slotIdx !== undefined) {
+          const badgeEl = document.createElement('span');
+          badgeEl.className = 'slot-badge';
+          badgeEl.title = `Assigned to pad slot ${slotLabel(slotIdx)}`;
+          badgeEl.textContent = slotLabel(slotIdx);
+          btn.appendChild(badgeEl);
+        }
+        const handleLib = document.createElement('span');
+        handleLib.className = 'drag-handle';
+        handleLib.title = 'Drag to pad slot';
+        handleLib.textContent = '⠿';
+        btn.appendChild(handleLib);
 
         btn.title = 'Click to play live. Shift-click to stage this pattern as CUE.';
         btn.onclick = (event) => {
@@ -1350,26 +1452,34 @@ export class ConfigPanel {
 
     for (const def of defs) {
       const val = values[def.key] ?? def.default;
-
       const row = document.createElement('div');
       row.className = 'param-row';
-      row.innerHTML = `
-        <div class="param-head">
-          <label for="param-${def.key}">${def.label}</label>
-          <span class="param-value" data-value="${def.key}">${formatParamValue(val, def)}</span>
-        </div>
-        <input type="range" id="param-${def.key}" data-key="${def.key}"
-               min="${def.min}" max="${def.max}" step="${def.step}" value="${val}">
-      `;
-
-      const input = row.querySelector('input');
-      const valueEl = row.querySelector('.param-value');
+      const head = document.createElement('div');
+      head.className = 'param-head';
+      const label = document.createElement('label');
+      label.htmlFor = `param-${def.key}`;
+      label.textContent = def.label;
+      const valueEl = document.createElement('span');
+      valueEl.className = 'param-value';
+      valueEl.dataset.value = def.key;
+      valueEl.textContent = formatParamValue(val, def);
+      head.append(label, valueEl);
+      const input = document.createElement('input');
+      input.type = 'range';
+      input.id = `param-${def.key}`;
+      input.dataset.key = def.key;
+      input.min = String(def.min);
+      input.max = String(def.max);
+      input.step = String(def.step);
+      input.value = String(val);
+      row.append(head, input);
 
       input.addEventListener('input', () => {
         const v = parseFloat(input.value);
         valueEl.textContent = formatParamValue(v, def);
-        if (this.onParamChange) this.onParamChange(this.currentPatternId, def.key, v);
+        this._queueParamChange(this.currentPatternId, def.key, v);
       });
+      input.addEventListener('change', () => this._flushParamBroadcast());
 
       list.appendChild(row);
     }
@@ -1387,7 +1497,12 @@ export class ConfigPanel {
 
     const header = document.createElement('div');
     header.className = 'blend-header';
-    header.innerHTML = `<span>Blend</span><span class="blend-names">${nameA} + ${nameB}</span>`;
+    const hLabel = document.createElement('span');
+    hLabel.textContent = 'Blend';
+    const hNames = document.createElement('span');
+    hNames.className = 'blend-names';
+    hNames.textContent = `${nameA} + ${nameB}`;
+    header.append(hLabel, hNames);
     list.appendChild(header);
 
     const values = this.getParams ? this.getParams(BLEND_ID) : {};
@@ -1397,14 +1512,22 @@ export class ConfigPanel {
     // Mode toggle (Blend | Additive)
     const toggle = document.createElement('div');
     toggle.className = 'blend-mode-toggle';
-    toggle.innerHTML = `
-      <button type="button" class="blend-mode-btn${additive ? '' : ' active'}" data-mode="blend">Blend</button>
-      <button type="button" class="blend-mode-btn${additive ? ' active' : ''}" data-mode="additive">Additive</button>
-    `;
+    const blendBtn = document.createElement('button');
+    blendBtn.type = 'button';
+    blendBtn.className = `blend-mode-btn${additive ? '' : ' active'}`;
+    blendBtn.dataset.mode = 'blend';
+    blendBtn.textContent = 'Blend';
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = `blend-mode-btn${additive ? ' active' : ''}`;
+    addBtn.dataset.mode = 'additive';
+    addBtn.textContent = 'Additive';
+    toggle.append(blendBtn, addBtn);
     toggle.querySelectorAll('.blend-mode-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         const mode = btn.dataset.mode === 'additive' ? 1 : 0;
-        if (this.onParamChange) this.onParamChange(BLEND_ID, 'mode', mode);
+        this._queueParamChange(BLEND_ID, 'mode', mode);
+        this._flushParamBroadcast();
       });
     });
     list.appendChild(toggle);
@@ -1415,23 +1538,32 @@ export class ConfigPanel {
 
     const row = document.createElement('div');
     row.className = 'param-row';
-    row.innerHTML = `
-      <div class="param-head">
-        <label for="param-${activeDef.key}">${activeDef.label}</label>
-        <span class="param-value" data-value="${activeDef.key}">${formatParamValue(val, activeDef)}</span>
-      </div>
-      <input type="range" id="param-${activeDef.key}" data-key="${activeDef.key}"
-             min="${activeDef.min}" max="${activeDef.max}" step="${activeDef.step}" value="${val}">
-    `;
-
-    const input = row.querySelector('input');
-    const valueEl = row.querySelector('.param-value');
+    const head2 = document.createElement('div');
+    head2.className = 'param-head';
+    const label2 = document.createElement('label');
+    label2.htmlFor = `param-${activeDef.key}`;
+    label2.textContent = activeDef.label;
+    const valueEl = document.createElement('span');
+    valueEl.className = 'param-value';
+    valueEl.dataset.value = activeDef.key;
+    valueEl.textContent = formatParamValue(val, activeDef);
+    head2.append(label2, valueEl);
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.id = `param-${activeDef.key}`;
+    input.dataset.key = activeDef.key;
+    input.min = String(activeDef.min);
+    input.max = String(activeDef.max);
+    input.step = String(activeDef.step);
+    input.value = String(val);
+    row.append(head2, input);
 
     input.addEventListener('input', () => {
       const v = parseFloat(input.value);
       valueEl.textContent = formatParamValue(v, activeDef);
-      if (this.onParamChange) this.onParamChange(BLEND_ID, activeDef.key, v);
+      this._queueParamChange(BLEND_ID, activeDef.key, v);
     });
+    input.addEventListener('change', () => this._flushParamBroadcast());
 
     list.appendChild(row);
     this.updateCueEditLock();
