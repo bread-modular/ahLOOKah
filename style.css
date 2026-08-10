@@ -418,8 +418,8 @@ body.is-control #preview-pane .pattern-pad {
   flex-shrink: 0;
 }
 
-/* Column 2: only the library list scrolls; its title and usage hint remain
-   available, while the left preview/pad never moves. */
+/* Column 2: only the library list scrolls; its title remains available,
+   while the left preview/pad never moves. */
 body.is-control #library-pane {
   grid-row: 1;
   min-width: 0;
@@ -432,8 +432,7 @@ body.is-control #library-pane {
   border-right: 1px solid var(--border-gray);
 }
 
-body.is-control #library-pane > h3,
-body.is-control #library-pane > p {
+body.is-control #library-pane > h3 {
   flex-shrink: 0;
 }
 
@@ -450,11 +449,6 @@ body.is-control #library-pane .pattern-library {
   align-content: start;
   padding-right: 4px;
   margin-right: -4px;
-}
-
-body.is-control #library-pane > p {
-  margin: 12px 0 0;
-  overflow-wrap: anywhere;
 }
 
 /* Column 3: all existing parameters, EQ and device setup remain intact and
