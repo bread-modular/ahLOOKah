@@ -6,10 +6,13 @@ const CONTROL_URL = '/?role=control';
 // Drive a post-fx slider in the control panel (setting .value + firing the
 // input event is the same end state as a drag, minus the intermediate steps).
 async function setPostFx(control, key, value) {
+  await control.waitForSelector(`#post-fx-list input[data-key="${key}"]`, { state: 'attached' });
   await control.evaluate(({ key, value }) => {
     const input = document.querySelector(`#post-fx-list input[data-key="${key}"]`);
     input.value = String(value);
     input.dispatchEvent(new Event('input', { bubbles: true }));
+    // Also fire change to flush the coalesced param broadcast immediately
+    input.dispatchEvent(new Event('change', { bubbles: true }));
   }, { key, value });
 }
 

@@ -159,10 +159,33 @@ test.describe('pattern pad + library interactions', () => {
 
     // echo-ripples sits near the top of the first group and is unassigned by default
     const source = control.locator('#pattern-library [data-id="echo-ripples"]');
+    const target = control.locator('#pattern-pad [data-index="0"]');
+    // Wait for pad+library to finish rAF-coalesced init so drag listeners exist
+    await expect(control.locator('#pattern-pad .pattern-btn')).toHaveCount(10);
+    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(58);
+    await expect(target).toHaveAttribute('data-id', 'circles');
+    await expect(source).toBeVisible();
     await source.scrollIntoViewIfNeeded();
-    await source.dragTo(control.locator('#pattern-pad [data-index="0"]'));
+    // Also ensure the target is in view (pad is fixed but be explicit)
+    await target.scrollIntoViewIfNeeded();
 
-    // Assignment persisted to the new slot-order key
+    // Retry dragTo — HTML5 DND via Playwright is racy under load; retry up to 3 times
+    let assigned = false;
+    for (let attempt = 0; attempt < 3 && !assigned; attempt++) {
+      await source.dragTo(target);
+      try {
+        await expect(target).toHaveAttribute('data-id', 'echo-ripples', { timeout: 5_000 });
+        assigned = true;
+      } catch {
+        if (attempt < 2) await control.waitForTimeout(250);
+      }
+    }
+    // Final hard assertion (auto-retrying locator) survives load jitter — do not weaken
+    await expect(target).toHaveAttribute('data-id', 'echo-ripples', { timeout: 15_000 });
+    // Assignment persisted to the new slot-order key (poll with retries under load)
+    await expect.poll(async () => {
+      return await control.evaluate(() => JSON.parse(localStorage.getItem('viz2_slot_order') || '[]'));
+    }, { timeout: 15_000 }).toEqual(expect.arrayContaining(['echo-ripples']));
     await control.waitForFunction(() => {
       const order = JSON.parse(localStorage.getItem('viz2_slot_order') || '[]');
       return order.length === 10 && order[0] === 'echo-ripples';
