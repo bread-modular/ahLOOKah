@@ -1599,6 +1599,9 @@ function requestCuePrimary() {
 }
 
 function requestCueCancel() {
+  // A cancel ends the current Shift gesture; drop held-key bookkeeping so a
+  // later pattern input can't be read as part of the abandoned entry.
+  heldCueKeys.length = 0;
   if (!cueSession) {
     if (!cueEntryPending) return;
     const entryRequestId = cueEntryPending.requestId;
@@ -2241,6 +2244,9 @@ window.addEventListener('keydown', resumeAudioFromControlGesture, { capture: tru
 // Held keys are tracked by physical code, not character, so a Shift-modified
 // digit (whose `key` is punctuation on most layouts) can never corrupt a merge.
 const heldKeys = [];
+// CUE's Shift + number gesture tracks its own held keys so a LIVE merge hold
+// can never be mistaken for (or corrupted by) a CUE entry, and vice versa.
+const heldCueKeys = [];
 
 function shortcutIndexFromEvent(event) {
   const digit = /^Digit([0-9])$/.exec(event.code || '');
@@ -2306,8 +2312,24 @@ window.addEventListener('keydown', (e) => {
 
   if (e.shiftKey) {
     if (e.repeat) return;
+    // Reset LIVE merge bookkeeping so a stale hold can't leak into CUE. The
+    // CUE gesture tracks its own held keys below.
     heldKeys.length = 0;
-    requestCueSelection(selectionFromIndices(index));
+    // Shift + a number stages that one pattern; holding Shift and pressing a
+    // SECOND number while the first is still down stages a two-pattern blend,
+    // mirroring the unmodified hold-two-keys merge used for LIVE. The blend
+    // stays latched after release until the next pattern input.
+    if (heldCueKeys.some((held) => held.code === e.code)) return;
+    if (heldCueKeys.length === 0) {
+      heldCueKeys.push({ code: e.code, index });
+      requestCueSelection(selectionFromIndices(index));
+    } else if (heldCueKeys.length === 1) {
+      heldCueKeys.push({ code: e.code, index });
+      const lo = Math.min(heldCueKeys[0].index, index);
+      const hi = Math.max(heldCueKeys[0].index, index);
+      requestCueSelection(selectionFromIndices(lo, [lo, hi]));
+    }
+    // 2+ keys already held while Shift is down -> ignore extras
     e.preventDefault();
     return;
   }
@@ -2315,6 +2337,8 @@ window.addEventListener('keydown', (e) => {
   if (e.repeat || heldKeys.some((held) => held.code === e.code)) return;
 
   if (heldKeys.length === 0) {
+    // An unmodified gesture supersedes any in-flight Shift hold tracking.
+    heldCueKeys.length = 0;
     heldKeys.push({ code: e.code, index });
     requestSelection(selectionFromIndices(index));
   } else if (heldKeys.length === 1) {
@@ -2331,6 +2355,8 @@ window.addEventListener('keyup', (e) => {
 
   const pos = heldKeys.findIndex((held) => held.code === e.code);
   if (pos >= 0) heldKeys.splice(pos, 1);
+  const cuePos = heldCueKeys.findIndex((held) => held.code === e.code);
+  if (cuePos >= 0) heldCueKeys.splice(cuePos, 1);
   // No broadcast on release: a started blend is latched until the next press.
 });
 
@@ -2340,6 +2366,7 @@ window.addEventListener('keyup', (e) => {
 window.addEventListener('blur', () => {
   if (myRole !== 'control') return;
   heldKeys.length = 0;
+  heldCueKeys.length = 0;
 });
 
 // Tell panels when the screen closes; capture ownership is released separately
