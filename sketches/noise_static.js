@@ -1,91 +1,64 @@
-// Noise Static — analog TV snow. The static is generated as raw pixels in a
-// tiny offscreen buffer (one pixel per "block") and blitted upscaled, so it
-// stays cheap even on huge screens. A slow drifting "hold" band sells the
-// broken-tuner vibe. Audio pushes the static hotter.
-export default (audio, videoDeviceId, params) => (p) => {
-  let buf = null;
-  let level = 0;
+// Noise Static — analog TV snow. GPU fragment shader port.
+// Original per-pixel CPU path used a tiny offscreen buffer + loadPixels/updatePixels
+// and a drifting hold band. The shader replicates block-quantized hash per block,
+// independent R/G/B hashing for chroma mode, and the same hold band via valueNoise.
+import { AUDIO_SHADER_HEADER, makeAudioShader } from './shader-utils.js';
 
-  p.setup = () => {
-    p.createCanvas(p.windowWidth, p.windowHeight);
-    p.noStroke();
-  };
+const frag = `${AUDIO_SHADER_HEADER}
+  uniform float uIntensity;
+  uniform float uBlock;
+  uniform float uColorMode;
+  uniform float uPulse;
+  uniform float uLevel;
 
-  // Recreate the offscreen buffer only when the block size or window changes.
-  function ensureBuffer(block) {
-    const bw = Math.max(2, Math.ceil(p.width / block));
-    const bh = Math.max(2, Math.ceil(p.height / block));
-    if (!buf || buf.width !== bw || buf.height !== bh) {
-      buf = p.createGraphics(bw, bh);
-      buf.pixelDensity(1);
-    }
-  }
+  void main() {
+    float hot = clamp(uIntensity + uLevel * uPulse * 0.4, 0.0, 1.0);
+    vec2 fragCoord = vTexCoord * uResolution;
+    vec2 blockCoord = floor(fragCoord / max(uBlock, 1.0));
+    float frameSeed = mod(floor(uTime * 60.0), 4096.0);
 
-  // Smoothed overall loudness (0..1). Always safe when audio is unavailable.
-  function audioLevel() {
-    if (!audio || !audio.isStarted || typeof audio.getFrequencies !== 'function') return 0;
-    const freqs = audio.getFrequencies();
-    if (!freqs || !freqs.left) return 0;
-    let sum = 0;
-    for (let i = 0; i < freqs.left.length; i++) sum += freqs.left[i];
-    return sum / (freqs.left.length * 255);
-  }
-
-  p.draw = () => {
-    // Read live params every frame so slider changes apply immediately
-    const P = params || {};
-    const intensity = P.intensity ?? 0.7;
-    const block = Math.max(1, Math.round(P.density ?? 3));
-    const color = (P.color ?? 0) >= 0.5; // 0 = mono snow, 1 = chroma snow
-    const pulse = P.pulse ?? 1;
-
-    level = p.lerp(level, audioLevel(), 0.16);
-
-    // Audio-reactive intensity: the signal gets noisier as it gets louder
-    const hot = Math.min(1, Math.max(0, intensity + level * pulse * 0.4));
-
-    ensureBuffer(block);
-    buf.loadPixels();
-    const d = buf.pixels;
-    if (color) {
-      // Independent random channels produce crunchy chroma static
-      for (let i = 0; i < d.length; i += 4) {
-        d[i] = 128 + (Math.random() * 2 - 1) * 127 * hot;
-        d[i + 1] = 128 + (Math.random() * 2 - 1) * 127 * hot;
-        d[i + 2] = 128 + (Math.random() * 2 - 1) * 127 * hot;
-        d[i + 3] = 255;
-      }
+    vec3 base;
+    if (uColorMode > 0.5) {
+      float r = hash21(blockCoord + vec2(frameSeed, 17.0));
+      float g = hash21(blockCoord + vec2(frameSeed, 41.0));
+      float b = hash21(blockCoord + vec2(frameSeed, 79.0));
+      float cr = 0.50196 + (r * 2.0 - 1.0) * 0.498 * hot;
+      float cg = 0.50196 + (g * 2.0 - 1.0) * 0.498 * hot;
+      float cb = 0.50196 + (b * 2.0 - 1.0) * 0.498 * hot;
+      base = vec3(cr, cg, cb);
     } else {
-      for (let i = 0; i < d.length; i += 4) {
-        const v = 128 + (Math.random() * 2 - 1) * 127 * hot;
-        d[i] = v;
-        d[i + 1] = v;
-        d[i + 2] = v;
-        d[i + 3] = 255;
-      }
+      float h = hash21(blockCoord + vec2(frameSeed, 0.0));
+      float v = 0.50196 + (h * 2.0 - 1.0) * 0.498 * hot;
+      base = vec3(v);
     }
-    buf.updatePixels();
 
-    // Hard-pixel upscale keeps the blocks crisp (chunky analog snow)
-    const ctx = p.drawingContext;
-    ctx.imageSmoothingEnabled = false;
-    p.image(buf, 0, 0, p.width, p.height);
-    ctx.imageSmoothingEnabled = true;
+    float n = valueNoise(vec2(uTime * 0.24, 0.0));
+    float bandY = n * (uResolution.y + 160.0) - 80.0;
+    float bandH = 20.0 + uLevel * 40.0;
+    float fy = fragCoord.y;
+    vec3 col = base;
+    if (fy >= bandY && fy < bandY + bandH) {
+      col = mix(col, vec3(0.0), 46.0/255.0);
+    } else if (fy >= bandY + bandH && fy < bandY + bandH + 3.0) {
+      float ea = (20.0 + uLevel * 30.0)/255.0;
+      col = mix(col, vec3(1.0), ea);
+    }
 
-    // Drifting vertical-hold band: a dark smear with a bright leading edge
-    const bandY = p.noise(p.frameCount * 0.004) * (p.height + 160) - 80;
-    const bandH = 20 + level * 40;
-    p.fill(0, 0, 0, 46);
-    p.rect(0, bandY, p.width, bandH);
-    p.fill(255, 255, 255, 20 + level * 30);
-    p.rect(0, bandY + bandH, p.width, 3);
-  };
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
 
-  p.windowResized = () => {
-    p.resizeCanvas(p.windowWidth, p.windowHeight);
-  };
-
-  p.mousePressed = () => {
-    if (audio) audio.resume();
-  };
+export default (audio, videoDeviceId, params) => {
+  let level = 0;
+  return makeAudioShader(audio, params, frag, (P, bands) => {
+    const target = bands.energy;
+    level += (target - level) * 0.16;
+    return {
+      uIntensity: P.intensity ?? 0.7,
+      uBlock: Math.max(1, Math.round(P.density ?? 3)),
+      uColorMode: (P.color ?? 0) >= 0.5 ? 1 : 0,
+      uPulse: P.pulse ?? 1,
+      uLevel: level,
+    };
+  });
 };
