@@ -202,7 +202,7 @@ export class AudioManager {
       this.isStarted = true;
       this.reportContextStatus();
       // getUserMedia often permits this immediately. If autoplay policy keeps
-      // it suspended, a trusted click/key on the screen calls resume(true).
+      // it suspended, a trusted click/key in the owning control calls resume(true).
       this.resume();
       return token === this.requestToken && this.isStarted;
     } catch (err) {

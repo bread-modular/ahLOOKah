@@ -149,7 +149,9 @@ export class ConfigPanel {
     this.currentPattern = getPattern ? getPattern() : 0;
     this.currentPatternId = null;
     this.screenOnline = isScreen ? Boolean(isScreen()) : false;
-    this.audioStatus = { status: this.screenOnline ? 'idle' : 'offline' };
+    // Audio capture belongs to a control window and remains available even when
+    // no output screen is open, so its lifecycle is independent of screen state.
+    this.audioStatus = { status: 'idle' };
     // Merge mode state: two effects selected at once. currentPatternId becomes
     // BLEND_ID so the params list renders the global blend sliders instead.
     this.mergeMode = false;
@@ -398,10 +400,9 @@ export class ConfigPanel {
 
   // ---------------------------------------------------------------------------
   // Band-split EQ (Ableton-style log spectrum + draggable bass/mid/high borders)
-  // The screen broadcasts a compact log-spaced dB spectrum (~15fps); this
-  // section draws it with the three band regions and two draggable crossover
-  // handles. Moving a handle broadcasts the new crossover as the global
-  // BANDS_ID param set, and the screen retunes its feature extractor.
+  // The capture-owning control broadcasts a compact log-spaced spectrum
+  // (~15fps); this section draws it with three regions and two draggable
+  // crossover handles. Moving one updates every window's feature extractor.
   // ---------------------------------------------------------------------------
 
   initBandEq() {
@@ -423,8 +424,8 @@ export class ConfigPanel {
     this.lastEqBroadcastAt = 0;
     this.eqWatchTimer = 0;
 
-    // Noise-floor capture UI; live state arrives via 'noise-floor' broadcasts
-    // from the screen, the stored profile is read straight from localStorage.
+    // Noise-floor capture UI; live state arrives from the audio-owning panel,
+    // while the stored profile is read straight from localStorage.
     this.noiseStatusEl = this.panel.querySelector('#noise-status');
     this.noiseCaptureBtn = this.panel.querySelector('#noise-capture-btn');
     this.noiseClearBtn = this.panel.querySelector('#noise-clear-btn');
@@ -501,7 +502,7 @@ export class ConfigPanel {
   }
 
   // Redraw periodically while open so the "waiting for audio" overlay comes
-  // back if the spectrum feed stops (screen closed, audio device stopped).
+  // back if the capture owner closes or its audio device stops.
   startEqWatch() {
     if (this.eqWatchTimer) return;
     this.eqWatchTimer = setInterval(() => {
@@ -514,7 +515,7 @@ export class ConfigPanel {
     this.eqWatchTimer = 0;
   }
 
-  // Spectrum message from the screen (see main.js spectrum broadcast).
+  // Spectrum message from the capture-owning control (see main.js).
   handleSpectrum(msg) {
     if (!msg || !msg.freqs || !msg.dbs || msg.freqs.length !== msg.dbs.length || !msg.freqs.length) return;
     this.eqSpectrum = msg;
@@ -542,13 +543,13 @@ export class ConfigPanel {
 
   audioIdleMessage() {
     const status = this.audioStatus?.status || 'idle';
-    if (!this.screenOnline || status === 'offline') return 'Open a screen to enable audio.';
+    if (status === 'offline') return 'Waiting for an audio control panel…';
 
     if (status === 'unselected' || status === 'idle' || status === 'stopped') {
       return 'Select an audio input in Devices & Setup.';
     }
     if (status === 'starting') return 'Starting audio input…';
-    if (status === 'suspended') return 'Click the screen window to enable audio.';
+    if (status === 'suspended') return 'Click this control panel to enable audio.';
     if (status === 'running') {
       return this.audioStatus.fallback
         ? 'Using the default input — waiting for audio data…'
@@ -573,8 +574,8 @@ export class ConfigPanel {
     return 'Waiting for audio…';
   }
 
-  // Noise-floor lifecycle broadcast from the screen (capturing/ready/failed/
-  // cancelled/cleared). The profile itself is reloaded from localStorage by
+  // Noise-floor lifecycle broadcast from the capture owner (capturing/ready/
+  // failed/cancelled/cleared). The profile is reloaded from localStorage by
   // main.js before this runs.
   setNoiseState(msg = {}) {
     switch (msg.status) {
@@ -635,7 +636,7 @@ export class ConfigPanel {
     this.noiseStatusEl.classList.remove('noise-active');
     if (st === 'failed') {
       this.noiseStatusEl.textContent = this.noiseState.reason === 'no-audio'
-        ? 'Capture failed — the screen has no audio input running.'
+        ? 'Capture failed — no audio input is running in the control panel.'
         : 'Capture failed.';
     } else {
       this.noiseStatusEl.textContent =
@@ -1288,8 +1289,6 @@ export class ConfigPanel {
 
   setScreenOnline(online) {
     this.screenOnline = online;
-    if (!online) this.audioStatus = { status: 'offline' };
-    else if (this.audioStatus?.status === 'offline') this.audioStatus = { status: 'idle' };
     this.renderStatus();
     if (this.eqSection && this.eqSection.open) this.drawEq();
   }

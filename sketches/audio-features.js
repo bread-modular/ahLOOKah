@@ -70,7 +70,7 @@ export const EQ_DB_TOP = -20;
 export const EQ_DB_BOTTOM = -90;
 
 // Resample an analysis frame into a compact log-spaced dB spectrum for the
-// control panel EQ (screen broadcasts this; ~15 fps, a few hundred bytes).
+// control panel EQ (the capture owner broadcasts it at ~15fps).
 // Channels are mixed in the power domain exactly like the feature extractor.
 export function computeLogSpectrum(frame, points = 96, minHz = EQ_MIN_HZ, maxHz = EQ_MAX_HZ) {
   const left = frame?.left;

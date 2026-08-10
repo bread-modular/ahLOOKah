@@ -8,10 +8,10 @@ const EQ_MIN_HZ = 30;
 const EQ_MAX_HZ = 16000;
 const hzFrac = (hz) => Math.log(hz / EQ_MIN_HZ) / Math.log(EQ_MAX_HZ / EQ_MIN_HZ);
 
-// Deterministic analysis frame for the screen window — same technique as
-// audio-features.spec.js: swap the AudioManager frame source so the spectrum
-// broadcast runs without a real microphone.
+// Deterministic frame for the capture-owning control: swap its AudioManager
+// source so the control -> screen broadcast runs without a real microphone.
 async function injectToneFrame(page, { range = [40, 145], db = -20 } = {}) {
+  await page.waitForFunction(() => window.__viz.audioOwner);
   await page.evaluate(({ range, db }) => {
     const sampleRate = 48000;
     const fftSize = 2048;
@@ -23,8 +23,8 @@ async function injectToneFrame(page, { range = [40, 145], db = -20 } = {}) {
     const end = Math.floor(range[1] / binHz);
     for (let i = start; i <= end; i++) left[i] = right[i] = db;
     const frame = { left, right, sampleRate, fftSize, rms: 0.2 };
-    window.__viz.audio.isStarted = true;
-    window.__viz.audio.getAnalysisFrame = () => frame;
+    window.__viz.captureAudio.isStarted = true;
+    window.__viz.captureAudio.getAnalysisFrame = () => frame;
   }, { range, db });
 }
 
@@ -62,18 +62,20 @@ test.describe('band split EQ section', () => {
     await expect(control.locator('#band-eq')).toHaveAttribute('open', '');
   });
 
-  test('the screen broadcasts a live log spectrum and the control panel draws it', async ({ context, page }) => {
+  test('the control broadcasts live audio to the screen and draws its EQ spectrum', async ({ context, page }) => {
     await page.goto(SCREEN_URL);
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
 
-    // Idle until the screen has audio
+    // Idle until the control has audio
     await expect(control.locator('#band-eq-idle')).toBeVisible();
 
-    await injectToneFrame(page);
+    await injectToneFrame(control);
 
-    // The control panel receives spectrum messages and draws them
+    // The local EQ receives the compact feed, while the output receives the
+    // full frequency/waveform frame through its remote-audio facade.
     await control.waitForFunction(() => (window.__viz.eq?.drawn ?? 0) > 2);
+    await page.waitForFunction(() => window.__viz.audio.isStarted && window.__viz.audio.getAnalysisFrame());
     await expect(control.locator('#band-eq-idle')).toBeHidden();
   });
 
@@ -82,7 +84,7 @@ test.describe('band split EQ section', () => {
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
 
-    await injectToneFrame(page);
+    await injectToneFrame(control);
     await control.waitForFunction(() => (window.__viz.eq?.drawn ?? 0) > 0);
 
     // The controls pane scrolls; make sure the canvas is in the viewport so
