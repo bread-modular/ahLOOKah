@@ -59,7 +59,7 @@ export default (audio, videoDeviceId, params) => (p) => {
       c *= 0.9 + 0.1 * sin(uv.y * 10.0 + tm * 1.6);
       if (uv.y > 0.70) {
         float wave = sin(uv.x * 42.0 - tm * 9.0);
-        float line = smoothstep(0.018, 0.0, abs(uv.y - 0.80 - wave * 0.05));
+        float line = 1.0 - smoothstep(0.0, 0.018, abs(uv.y - 0.80 - wave * 0.05));
         c = mix(c * 0.22, vec3(0.35, 1.0, 0.72), line);
         float chk = mod(floor(uv.x * 22.0) + floor((uv.y - tm * 0.12) * 22.0), 2.0);
         c = mix(c, vec3(0.10 + chk * 0.14), smoothstep(0.88, 0.92, uv.y));
@@ -100,8 +100,8 @@ export default (audio, videoDeviceId, params) => (p) => {
         // Roll bar sweeping down the tube
         float rollY = fract(uTime * (0.06 + uRoll * 0.13));
         float d = abs(uv.y - rollY);
-        col += vec3(0.85, 0.92, 1.0) * uRoll * 0.15 * smoothstep(0.10, 0.0, d);
-        col *= 1.0 - uRoll * 0.20 * smoothstep(0.16, 0.0, d);
+        col += vec3(0.85, 0.92, 1.0) * uRoll * 0.15 * (1.0 - smoothstep(0.0, 0.10, d));
+        col *= 1.0 - uRoll * 0.20 * (1.0 - smoothstep(0.0, 0.16, d));
 
         // Grain
         col += (hash21(uv * uResolution + fract(uTime) * 91.7) - 0.5) * 0.05;

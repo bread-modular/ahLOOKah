@@ -2,6 +2,8 @@
 // dance over a starlit horizon. Bass lifts the curtain ceiling, mids drive
 // the rippling folds, and highs ignite the curtain-edge shimmer. A short
 // vertical ray march gives the ribbons genuine atmospheric depth and parallax.
+// GLSL lint: smoothstep must be smoothstep(low, high, x) with low < high.
+// For falloffs use 1.0 - smoothstep(low, high, x), never smoothstep(high, low, x) (undefined).
 import { AUDIO_SHADER_HEADER, makeAudioShader } from './shader-utils.js';
 
 const frag = `${AUDIO_SHADER_HEADER}

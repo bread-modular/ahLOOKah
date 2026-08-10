@@ -52,7 +52,7 @@ const frag = `${AUDIO_SHADER_HEADER}
         * (0.35 + uCurtain * 0.25 + uMid * 0.15);
 
       float sheet = exp(-abs(q.x - sin(time * 0.4 + fi * 1.3) * 0.15) * (7.0 + uCurtain * 5.0));
-      sheet *= smoothstep(1.2, 0.1, abs(q.y));
+      sheet *= 1.0 - smoothstep(0.1, 1.2, abs(q.y));
       // Vertical striations like real aurora rays.
       float rays = 0.55 + 0.45 * sin(q.y * (18.0 + fi * 3.0) - time * 2.5 + fbm4(q) * 6.0);
       sheet *= rays;
