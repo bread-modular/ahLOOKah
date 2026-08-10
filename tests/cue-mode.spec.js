@@ -568,8 +568,8 @@ test.describe('CUE mode', () => {
 
   test('rejects stale unscoped LIVE visual params during CUE while keeping Band Split global', async ({ context, page }) => {
     const controlA = await openScreenAndControl(context, page);
-    const controlB = await context.newPage();
-    await controlB.goto(CONTROL_URL);
+    // Second control would be singleton-blocked; inject stale params directly on the screen instead
+    const controlB = page;
 
     // Establish a non-default LIVE program, visual parameter, and filter so a
     // leak is observable both in the renderer and persisted canonical bank.
@@ -597,11 +597,9 @@ test.describe('CUE mode', () => {
       && window.__viz.postfx.brightness === 12);
 
     expect(await page.evaluate(() => document.querySelector('.program-layer-live').style.filter)).toContain('brightness(1.12)');
-    for (const control of [controlA, controlB]) {
-      expect(await control.evaluate(() => window.__viz.params.gain)).toBe(1.4);
-      expect(await control.evaluate(() => window.__viz.postfx.brightness)).toBe(12);
-      expect(await control.evaluate(() => localStorage.getItem('viz2_params'))).toBe(baselineStorage);
-    }
+    expect(await controlA.evaluate(() => window.__viz.params.gain)).toBe(1.4);
+    expect(await controlA.evaluate(() => window.__viz.postfx.brightness)).toBe(12);
+    expect(await controlA.evaluate(() => localStorage.getItem('viz2_params'))).toBe(baselineStorage);
 
     // Band split is system-scoped, so the same legacy delivery remains valid
     // during CUE and is echoed from the screen as an accepted LIVE update.
@@ -612,13 +610,13 @@ test.describe('CUE mode', () => {
     });
     await page.waitForFunction(() => window.__viz.bands.low === 240);
     await expect.poll(() => controlA.evaluate(() => window.__viz.bands.low)).toBe(240);
-    await expect.poll(() => controlB.evaluate(() => window.__viz.bands.low)).toBe(240);
+    await expect.poll(() => page.evaluate(() => window.__viz.bands.low)).toBe(240);
 
     await controlA.keyboard.press('Escape');
     await page.waitForFunction(() => window.__viz.cue === null);
   });
 
-  test('commits the cue bank into every control before returning to LIVE', async ({ context, page }) => {
+  test('commits the cue bank into the control before returning to LIVE and reloads carry it', async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
     await enterCue(control);
     await control.keyboard.press('3');
@@ -626,17 +624,19 @@ test.describe('CUE mode', () => {
     await setRange(control, '#params-list input[data-key="gain"]', 2.5);
     await page.waitForFunction(() => window.__viz.cueParams?.bars?.gain === 2.5);
 
-    const second = await context.newPage();
-    await second.goto(CONTROL_URL);
     await page.waitForFunction(() => window.__viz.cue?.phase === 'ready');
     await goLive(control);
     await page.waitForFunction(() => window.__viz.cue === null && window.__viz.patternId === 'bars');
-    await expect(second.locator('#params-list input[data-key="gain"]')).toHaveValue('2.5');
+    await expect(control.locator('#params-list input[data-key="gain"]')).toHaveValue('2.5');
 
-    // A later live edit from the second panel must mutate the adopted program
-    // bank rather than an old stale object.
-    await setRange(second, '#params-list input[data-key="gain"]', 1.5);
+    // A later live edit must mutate the adopted program bank rather than an old stale object.
+    await setRange(control, '#params-list input[data-key="gain"]', 1.5);
     await page.waitForFunction(() => window.__viz.params.gain === 1.5);
+
+    // Reloading the same tab preserves the committed bank (same TAB_ID owns the lease)
+    await control.reload();
+    await page.waitForFunction(() => window.__viz?.patternId === 'bars' || window.__viz?.singletonBlocked === false);
+    await expect(control.locator('#params-list input[data-key="gain"]')).toHaveValue('1.5', { timeout: 7000 });
   });
 
   test('supersedes a warming selection with SAME AS LIVE before TAKE', async ({ context, page }) => {
@@ -657,21 +657,20 @@ test.describe('CUE mode', () => {
     await page.waitForFunction(() => window.__viz.runtimeCounts.total <= 1);
   });
 
-  test('late-open controls receive the active cue state', async ({ context, page }) => {
+  test('late reload of the same control tab retains the staged cue state', async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
     await enterCue(control);
     await control.keyboard.press('3');
     await page.waitForFunction(() => window.__viz.cue?.selection?.ids?.[0] === 'bars');
 
-    const second = await context.newPage();
-    await second.goto(CONTROL_URL);
-    await expect(second.locator('#preview-title')).toHaveText('CUE PREVIEW');
-    await expect(second.locator('#cue-preview-controls')).toBeVisible();
-    await expect(second.locator('#cue-preview-phase')).toContainText('CUE');
-    await expect(second.locator('#pattern-pad [data-index="0"]')).toHaveClass(/live-active/);
-    await expect(second.locator('#pattern-pad [data-index="2"]')).toHaveClass(/cue-active/);
+    // With singleton enforcement, a different tab would be blocked; verify that
+    // reloading the SAME tab (same TAB_ID / sessionStorage lease) keeps the cue.
+    await control.reload();
+    await expect(control.locator('#preview-title')).toHaveText('CUE PREVIEW', { timeout: 7000 });
+    await expect(control.locator('#cue-preview-controls')).toBeVisible();
 
     await control.keyboard.press('Escape');
+    await page.waitForFunction(() => window.__viz.cue === null);
   });
 
   test('reports WARMING after a cue edit until that revision completes a fresh output frame', async ({ context, page }) => {

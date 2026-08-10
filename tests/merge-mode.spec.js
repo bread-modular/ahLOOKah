@@ -200,7 +200,7 @@ test.describe('dual-effect merge mode', () => {
     await control.keyboard.up('5');
   });
 
-  test('a control panel opened during a merge syncs to blend mode', async ({ context, page }) => {
+  test('a second control panel is blocked while a merge is active (singleton)', async ({ context, page }) => {
     await page.goto(SCREEN_URL); // screen window
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
@@ -209,12 +209,12 @@ test.describe('dual-effect merge mode', () => {
     await control.keyboard.down('3');
     await page.waitForFunction(() => JSON.stringify(window.__viz.merge) === '[0,2]');
 
-    // A second control panel boots and picks up the live merge state
+    // A second control panel must be blocked, not synced
     const control2 = await context.newPage();
     await control2.goto(CONTROL_URL);
-    await expect(control2.locator('#params-list input[data-key="mix"]')).toBeVisible();
-    await expect(control2.locator('.pattern-btn[data-index="0"]')).toHaveClass(/merge-active/);
-    await expect(control2.locator('.pattern-btn[data-index="2"]')).toHaveClass(/merge-active/);
+    await expect(control2.locator('#singleton-error')).toBeVisible({ timeout: 7000 });
+    await expect(control2.locator('#singleton-error')).toContainText('Control Panel Already Open');
+    await expect(control2.locator('#config-panel')).toHaveCount(0);
 
     await control.keyboard.up('1');
     await control.keyboard.up('3');
