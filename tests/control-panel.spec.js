@@ -200,20 +200,30 @@ test.describe('pattern pad + library interactions', () => {
     await expect(control.locator('#pattern-pad [data-index="1"]')).toHaveAttribute('data-id', 'circles');
   });
 
-  test('pad changes sync to other control windows', async ({ context }) => {
+  test('second control window is blocked (singleton)', async ({ context }) => {
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
+    await expect(control.locator('#config-panel')).toBeVisible();
+    await control.waitForFunction(() => window.__viz && !window.__viz.singletonBlocked);
+
     const control2 = await context.newPage();
     await control2.goto(CONTROL_URL);
+    // Second control with same role must show blocking error and not render panel/canvas
+    await expect(control2.locator('#singleton-error')).toBeVisible({ timeout: 7000 });
+    await expect(control2.locator('#singleton-error')).toContainText('Control Panel Already Open');
+    await expect(control2.locator('#singleton-error')).toContainText('direct URL');
+    await expect(control2.locator('#config-panel')).toHaveCount(0);
+    await expect(control2.locator('#preview-stage canvas')).toHaveCount(0);
 
-    await control.locator('#pattern-pad [data-index="0"]').dragTo(control.locator('#pattern-pad [data-index="1"]'));
-    await control.waitForFunction(
-      () => JSON.parse(localStorage.getItem('viz2_slot_order') || '[]')[0] === 'circles-ch1'
-    );
+    // Direct reload still blocked while first is alive
+    await control2.reload();
+    await expect(control2.locator('#singleton-error')).toBeVisible();
 
-    // The second control window re-renders its pad to match the assignment
-    await expect(control2.locator('#pattern-pad [data-index="0"]')).toHaveAttribute('data-id', 'circles-ch1');
-    await expect(control2.locator('#pattern-pad [data-index="1"]')).toHaveAttribute('data-id', 'circles');
+    // Closing the first control frees the lease; second can reload and become the singleton
+    await control.close();
+    await control2.reload();
+    await expect(control2.locator('#config-panel')).toBeVisible();
+    await expect(control2.locator('#singleton-error')).toHaveCount(0);
   });
 
   test('legacy viz2_effect_order migrates into the first 10 pad slots', async ({ context }) => {

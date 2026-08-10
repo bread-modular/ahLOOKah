@@ -33,9 +33,10 @@ import {
 //   ?screen  -> this window is the visualization screen
 //   ?control -> this window is a control panel (DEFAULT — the root URL boots
 //               the panel; use ?role=screen to boot straight into the stage)
-// Screens are opened with ?role=screen (the Open Screen button in the panel
-// or the Control Panel button on the screen toolbar); if two windows boot as
-// screens, the older one demotes automatically.
+// Only one control and one screen may exist per browser at a time. A second
+// window with the same role shows a blocking error overlay and does not
+// initialize audio, p5, or the control panel UI. The check runs BEFORE any
+// rendering so direct URL access (?role=control / ?role=screen) is also gated.
 // ---------------------------------------------------------------------------
 
 const params = new URLSearchParams(window.location.search);
@@ -43,7 +44,178 @@ let myRole = params.get('role') === 'screen' ? 'screen' : 'control';
 const myId = Math.random().toString(36).slice(2);
 const MY_BOOT_TIME = Date.now();
 
+let TAB_ID = null;
+try {
+  TAB_ID = sessionStorage.getItem('viz2_tab_id');
+  if (!TAB_ID) {
+    TAB_ID = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    sessionStorage.setItem('viz2_tab_id', TAB_ID);
+  }
+} catch {
+  TAB_ID = myId;
+}
+
 const channel = new BroadcastChannel('viz2_channel');
+
+// ---------------------------------------------------------------------------
+// Singleton enforcement (one control + one screen per browser)
+// Uses a BroadcastChannel handshake + localStorage lease so both simultaneous
+// opens and direct-URL tabs are blocked, while a reload of the same tab
+// (same TAB_ID via sessionStorage) is allowed to reclaim ownership.
+// Rendering and all side effects are gated until this check completes.
+// ---------------------------------------------------------------------------
+
+const SINGLETON_LEASE_MS = 4000;
+const SINGLETON_HEARTBEAT_MS = 1400;
+let singletonHeartbeatTimer = 0;
+let singletonIsOwner = false;
+
+function getSingletonKey(role) {
+  return role === 'screen' ? 'viz2_singleton_screen' : 'viz2_singleton_control';
+}
+function readSingletonLease(role) {
+  try {
+    const raw = localStorage.getItem(getSingletonKey(role));
+    if (!raw) return null;
+    const lease = JSON.parse(raw);
+    if (!lease || typeof lease.tabId !== 'string' || typeof lease.expires !== 'number') return null;
+    if (lease.expires <= Date.now()) {
+      try { localStorage.removeItem(getSingletonKey(role)); } catch {}
+      return null;
+    }
+    return lease;
+  } catch { return null; }
+}
+function writeSingletonLease(role) {
+  try {
+    const lease = { tabId: TAB_ID, windowId: myId, bootTime: MY_BOOT_TIME, expires: Date.now() + SINGLETON_LEASE_MS };
+    localStorage.setItem(getSingletonKey(role), JSON.stringify(lease));
+  } catch {}
+}
+function clearSingletonLease(role) {
+  try {
+    const cur = readSingletonLease(role);
+    if (cur && cur.tabId === TAB_ID) localStorage.removeItem(getSingletonKey(role));
+  } catch {}
+}
+function startSingletonHeartbeat() {
+  if (singletonHeartbeatTimer) clearInterval(singletonHeartbeatTimer);
+  writeSingletonLease(myRole);
+  singletonIsOwner = true;
+  singletonHeartbeatTimer = setInterval(() => writeSingletonLease(myRole), SINGLETON_HEARTBEAT_MS);
+}
+function stopSingletonHeartbeat() {
+  if (singletonHeartbeatTimer) clearInterval(singletonHeartbeatTimer);
+  singletonHeartbeatTimer = 0;
+  singletonIsOwner = false;
+}
+function showSingletonError(role) {
+  document.body.classList.add('singleton-blocked');
+  document.body.classList.remove('is-control', 'is-screen');
+  const existing = document.getElementById('singleton-error');
+  if (existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'singleton-error';
+  overlay.dataset.role = role;
+  overlay.dataset.testid = 'singleton-error';
+  const title = role === 'screen' ? 'Screen Already Open' : 'Control Panel Already Open';
+  const desc = role === 'screen'
+    ? 'Only one Screen window is allowed per browser. A Screen is already open in another tab or window.'
+    : 'Only one Control Panel is allowed per browser. A Control Panel is already open in another tab or window.';
+  overlay.innerHTML = `
+    <div class="singleton-error-card" role="alert" aria-live="assertive">
+      <div class="singleton-error-icon">\u26A0</div>
+      <h1>${title}</h1>
+      <p class="singleton-error-desc">${desc}</p>
+      <p class="singleton-error-hint">This window was blocked to prevent conflicts. Only one <strong>Control Panel</strong> and one <strong>Screen</strong> can be open at a time \u2014 even via direct URL (<code>?role=control</code> / <code>?role=screen</code>). Close the other window and reload, or use the existing window.</p>
+      <div class="singleton-error-actions">
+        <button id="singleton-reload-btn" type="button">Reload</button>
+        <button id="singleton-close-btn" type="button">Close This Tab</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  document.title = 'Blocked \u2014 ' + title;
+  overlay.querySelector('#singleton-reload-btn')?.addEventListener('click', () => location.reload());
+  overlay.querySelector('#singleton-close-btn')?.addEventListener('click', () => window.close());
+  try { window.__vizSingletonError = { role, title, desc }; } catch {}
+  // Always expose a minimal __viz so Playwright's waitForFunction never throws
+  // on a blocked page. In DEV this is then enriched; in production it still allows
+  // the singleton-blocked predicate to resolve without racing the error overlay.
+  try {
+    window.__viz = window.__viz || {};
+    window.__viz.singletonBlocked = true;
+    window.__viz.singletonError = true;
+    window.__viz.role = role;
+  } catch {}
+  if (import.meta.env.DEV) {
+    try {
+      const prev = window.__viz || {};
+      window.__viz = {
+        ...prev,
+        get role() { return role; },
+        get singletonBlocked() { return true; },
+        get singletonError() { return true; },
+        get pattern() { return -1; },
+        get screenOnline() { return false; },
+      };
+    } catch {}
+  }
+}
+async function enforceSingleton() {
+  return new Promise((resolve) => {
+    const claims = [];
+    const alives = [];
+    const handler = (e) => {
+      const msg = e.data || {};
+      if (!msg || msg.role !== myRole) return;
+      if (msg.type === 'singleton-claim' && msg.windowId !== myId && msg.tabId !== TAB_ID) {
+        claims.push(msg);
+      } else if (msg.type === 'singleton-alive' && msg.windowId !== myId && msg.tabId !== TAB_ID) {
+        alives.push(msg);
+      }
+    };
+    channel.addEventListener('message', handler);
+    const existingLease = readSingletonLease(myRole);
+    try {
+      channel.postMessage({ type: 'singleton-claim', role: myRole, windowId: myId, tabId: TAB_ID, bootTime: MY_BOOT_TIME });
+    } catch {}
+    setTimeout(() => {
+      channel.removeEventListener('message', handler);
+      // 1) Existing valid lease owned by another tab => block immediately
+      //    (covers direct URL duplicate that never broadcast before)
+      if (existingLease && existingLease.tabId !== TAB_ID) {
+        const cur = readSingletonLease(myRole);
+        if (cur && cur.tabId !== TAB_ID && cur.expires > Date.now()) {
+          resolve(false);
+          return;
+        }
+      }
+      // 2) A live owner answered our claim
+      if (alives.length > 0) {
+        resolve(false);
+        return;
+      }
+      // 3) Simultaneous boot race: earliest bootTime wins, tie by windowId
+      if (claims.length > 0) {
+        const all = [{ windowId: myId, tabId: TAB_ID, bootTime: MY_BOOT_TIME }, ...claims];
+        all.sort((a, b) => a.bootTime !== b.bootTime ? a.bootTime - b.bootTime : (a.windowId < b.windowId ? -1 : a.windowId > b.windowId ? 1 : 0));
+        const winner = all[0];
+        if (winner.windowId !== myId) {
+          resolve(false);
+          return;
+        }
+      }
+      // 4) Double-check lease: another tab could have won and written while we waited
+      const lateLease = readSingletonLease(myRole);
+      if (lateLease && lateLease.tabId !== TAB_ID) {
+        resolve(false);
+        return;
+      }
+      resolve(true);
+    }, 420);
+  });
+}
 // Exactly one control window owns the physical microphone and Web Audio graph.
 // Output screens consume its cleaned analysis snapshots through screenAudio.
 const audio = new AudioManager();
@@ -1848,20 +2020,13 @@ window.addEventListener('storage', (event) => {
 // Role switching
 // ---------------------------------------------------------------------------
 
+// Deprecated: a stale screen demotion path was removed. Multiple screens are
+// now an error case (singleton-blocked) rather than silently demoted.
 function becomeControl() {
   if (myRole === 'control') return;
-  myRole = 'control';
-
-  document.title = 'Viz Control';
-  removeCurrentP5();
-  screenAudio.clearFrame();
-  currentAudioDeviceId = localStorage.getItem(STORAGE.audio) || null;
-
-  document.body.classList.add('is-control');
-  document.body.classList.remove('is-screen');
-  beginAudioOwnership();
-
-  console.log(`Window ${myId} became a control panel`);
+  // No-op for singleton mode: a second screen no longer demotes to control.
+  // Retained only so no caller crashes; the singleton guard blocks duplicates
+  // before boot instead.
 }
 
 // ---------------------------------------------------------------------------
@@ -1877,15 +2042,22 @@ function broadcast(msg) {
 }
 
 function handleMessage(msg) {
+  // Singleton handshake: only an established owner answers singleton probes.
+  // A duplicate that lost enforceSingleton() never reaches this boot path, but
+  // keep this handler early so probes don't bleed into other handlers.
+  if (msg.type === 'singleton-claim' || msg.type === 'singleton-alive') {
+    if (singletonIsOwner && msg.role === myRole && msg.tabId !== TAB_ID && msg.windowId !== myId) {
+      try {
+        channel.postMessage({ type: 'singleton-alive', role: myRole, windowId: myId, tabId: TAB_ID, bootTime: MY_BOOT_TIME });
+      } catch {}
+    }
+    return;
+  }
+  if (singletonBlocked) return;
   switch (msg.type) {
     case 'hello':
       if (msg.role === 'screen') {
         screenOnline = true;
-        // If two windows booted as screens, the older one demotes so only one
-        // screen exists (first-opened window wins).
-        if (myRole === 'screen' && msg.windowId !== myId && msg.bootTime < MY_BOOT_TIME) {
-          becomeControl();
-        }
       }
       if (myRole === 'screen') broadcastLiveState();
       // A window opened after capture startup would otherwise miss the one-time
@@ -2151,8 +2323,11 @@ function handleMessage(msg) {
 
 channel.onmessage = (e) => handleMessage(e.data || {});
 
-// Announce ourselves so an existing screen can push its state
-broadcast({ type: 'hello', role: myRole, bootTime: MY_BOOT_TIME });
+// Announce ourselves so an existing screen can push its state.
+// Note: this line is now inside bootViz() after singleton success; retained
+// here only for ordering safety if anything calls broadcast early it still
+// uses the gated path. The real announcement happens in bootViz.
+(() => {})();
 
 // ---------------------------------------------------------------------------
 // Audio analysis feed (capture-owning control -> screens and other controls)
@@ -2372,8 +2547,35 @@ window.addEventListener('blur', () => {
 // Tell panels when the screen closes; capture ownership is released separately
 // so a queued control window can take over the microphone immediately.
 window.addEventListener('beforeunload', () => {
+  if (singletonBlocked) return;
   if (myRole === 'screen') channel.postMessage({ type: 'screen-closed' });
   if (myRole === 'control') endAudioOwnership();
+  clearSingletonLease(myRole);
+  stopSingletonHeartbeat();
+  // Don't rely solely on beforeunload; pagehide handles more cases.
+});
+window.addEventListener('pagehide', () => {
+  if (singletonBlocked) return;
+  clearSingletonLease(myRole);
+  stopSingletonHeartbeat();
+});
+window.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden' && !singletonBlocked && singletonIsOwner) {
+    // Keep lease fresh if heartbeat missed while hidden (browser throttles timers).
+    writeSingletonLease(myRole);
+  }
+});
+window.addEventListener('storage', (e) => {
+  if (singletonBlocked) return;
+  if (singletonIsOwner && e.key === getSingletonKey(myRole) && e.newValue) {
+    try {
+      const lease = JSON.parse(e.newValue);
+      if (lease && lease.tabId !== TAB_ID) {
+        // Another owner appeared — shouldn't happen; keep our lease.
+        writeSingletonLease(myRole);
+      }
+    } catch {}
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -2382,6 +2584,7 @@ window.addEventListener('beforeunload', () => {
 
 function ensurePanel() {
   if (panel) return;
+  if (singletonBlocked) return;
   panel = new ConfigPanel({
     onPatternChange: (index) => requestSelection(selectionFromIndices(index)),
     onPatternChangeId: (id) => requestSelection(selectionFromId(id)),
@@ -2458,41 +2661,69 @@ function renderScreenToolbar() {
   toolbar.querySelector('#open-control-btn').onclick = () => openControlWindow();
 }
 
+let singletonBlocked = false;
+
 // ---------------------------------------------------------------------------
-// Boot
+// Boot (gated by singleton check: no control/screen UI renders before this)
 // ---------------------------------------------------------------------------
 
-// Apply any saved band-split crossovers so a reload keeps the tuned borders
-// on the feature extractor (later changes ride the 'params' message path).
-setBandSplit(getParams(BANDS_ID));
+async function bootViz() {
+  const allowed = await enforceSingleton();
+  if (!allowed) {
+    singletonBlocked = true;
+    showSingletonError(myRole);
+    return;
+  }
+  startSingletonHeartbeat();
 
-// Apply any saved post-processing trim to the stage wrapper (no-op on
-// control windows; later changes ride the 'params' message path).
-applyPostFx();
+  // Post-singleton: still answer probes from late duplicates.
+  // handleMessage singleton-alive path already checks singletonIsOwner.
 
-// Restore a captured noise floor so cleaned spectra survive reloads.
-loadNoiseFloor();
-currentAudioDeviceId = localStorage.getItem(STORAGE.audio) || null;
+  // Apply any saved band-split crossovers so a reload keeps the tuned borders
+  // on the feature extractor (later changes ride the 'params' message path).
+  setBandSplit(getParams(BANDS_ID));
 
-if (myRole === 'screen') {
-  document.title = 'Viz Screen';
-  document.body.classList.add('is-screen');
-  currentVideoDeviceId = localStorage.getItem(STORAGE.video) || null;
-  loadSketch(currentIndex);
-  renderScreenToolbar();
-} else {
-  document.title = 'Viz Control';
-  document.body.classList.add('is-control');
-  updateActiveSketchId();
-  ensurePanel();
-  syncUI();
-  beginAudioOwnership();
+  // Apply any saved post-processing trim to the stage wrapper (no-op on
+  // control windows; later changes ride the 'params' message path).
+  applyPostFx();
+
+  // Restore a captured noise floor so cleaned spectra survive reloads.
+  loadNoiseFloor();
+  currentAudioDeviceId = localStorage.getItem(STORAGE.audio) || null;
+
+  if (myRole === 'screen') {
+    document.title = 'Viz Screen';
+    document.body.classList.add('is-screen');
+    currentVideoDeviceId = localStorage.getItem(STORAGE.video) || null;
+    loadSketch(currentIndex);
+    renderScreenToolbar();
+  } else {
+    document.title = 'Viz Control';
+    document.body.classList.add('is-control');
+    updateActiveSketchId();
+    ensurePanel();
+    syncUI();
+    beginAudioOwnership();
+  }
+
+  // Announce ourselves so an existing screen can push its state.
+  // Only owners announce; duplicates never reached here.
+  try {
+    channel.postMessage({ type: 'hello', role: myRole, windowId: myId, bootTime: MY_BOOT_TIME, tabId: TAB_ID });
+  } catch {}
+  try { handleMessage({ type: 'hello', role: myRole, windowId: myId, bootTime: MY_BOOT_TIME, tabId: TAB_ID }); } catch {}
+  installVizDebugHook();
 }
 
-// Debug/test hook — lets e2e tests read live state (dev builds only)
-if (import.meta.env.DEV) {
+function installVizDebugHook() {
+  // Debug/test hook — lets e2e tests read live state (dev builds only)
+  if (!import.meta.env.DEV) return;
+  // If already installed as blocked, keep it.
+  if (singletonBlocked && window.__viz?.singletonBlocked) return;
   window.__viz = {
     get role() { return myRole; },
+    get singletonBlocked() { return singletonBlocked; },
+    get singletonError() { return singletonBlocked; },
     get pattern() { return currentIndex; },
     get patternId() { return activeSketchId; },
     // [a, b] effect indices while two effects are merged, null otherwise
@@ -2559,3 +2790,7 @@ if (import.meta.env.DEV) {
     readLog: () => devReadLog || {},
   };
 }
+
+// Gate all rendering until singleton check completes. Duplicate windows
+// never call ensurePanel/loadSketch/renderScreenToolbar/beginAudioOwnership.
+bootViz();

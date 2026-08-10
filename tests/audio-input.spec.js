@@ -42,18 +42,19 @@ test.describe('audio input lifecycle', () => {
     await expect(control.locator('#band-eq-idle')).toBeHidden();
   });
 
-  test('elects one capture panel and hands ownership to another when it closes', async ({ context, page }) => {
+  test('second control is singleton-blocked and becomes active when the first closes', async ({ context, page }) => {
     await page.goto(CONTROL_URL);
-    await page.waitForFunction(() => window.__viz.audioOwner);
+    await page.waitForFunction(() => window.__viz && !window.__viz.singletonBlocked && window.__viz.audioOwner);
 
     const second = await context.newPage();
     await second.goto(CONTROL_URL);
-    await second.waitForFunction(() => window.__viz && !window.__viz.audioOwner);
-    expect(await page.evaluate(() => window.__viz.audioOwner)).toBe(true);
+    await expect(second.locator('#singleton-error')).toBeVisible({ timeout: 7000 });
+    await expect(second.locator('#config-panel')).toHaveCount(0);
 
     await page.close();
-    await second.waitForFunction(() => window.__viz.audioOwner);
-    expect(await second.evaluate(() => window.__viz.captureAudio.isStarted)).toBe(false);
+    await second.reload();
+    await expect(second.locator('#config-panel')).toBeVisible({ timeout: 7000 });
+    await second.waitForFunction(() => window.__viz && window.__viz.audioOwner);
   });
 
   test('a control-panel click resumes suspended Web Audio and restores the EQ feed', async ({ context, page }) => {
