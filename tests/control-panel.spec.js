@@ -78,13 +78,15 @@ test.describe('control panel window', () => {
     await expect(control.locator('#pattern-library [data-id="circles"] .slot-badge')).toHaveText('1');
     await expect(control.locator('#pattern-library [data-id="plasma-waves"] .slot-badge')).toHaveCount(0);
 
-    // The pad is fixed and separate from the scrollable library
+    // The first column stays fixed while the library gets its own scroll area.
     await expect(control.locator('#pattern-pad')).toBeVisible();
+    await expect(control.locator('#preview-pane')).toHaveCSS('overflow-y', 'hidden');
     await expect(control.locator('#pattern-library')).toHaveCSS('overflow-y', 'auto');
+    await expect(control.locator('#preview-stage canvas')).toBeVisible();
 
     await expect(control.locator('#status-line .badge-control')).toBeVisible();
-    // No p5 stage canvas in control mode — only the band-split EQ canvas
-    await expect(control.locator('canvas')).toHaveCount(1);
+    // Control mode now has a real p5 preview plus the band-split EQ canvas.
+    await expect(control.locator('canvas')).toHaveCount(2);
     await expect(control.locator('#band-eq-canvas')).toBeVisible();
   });
 
@@ -422,69 +424,80 @@ test.describe('param slider interactions (e2e)', () => {
   });
 });
 
-test.describe('effects pane divider resize', () => {
-  const cols = (page) =>
-    page.locator('.library-group-grid').first().evaluate((el) => {
-      const t = getComputedStyle(el).gridTemplateColumns;
-      return t.split(' ').filter(Boolean).length;
-    });
-
-  test('divider drag resizes the pane, adds library columns, and persists', async ({ context }) => {
+test.describe('three-column control layout', () => {
+  test('keeps the preview and 1–0 pad fixed while library and controls scroll without horizontal overflow', async ({ context }) => {
     const control = await context.newPage();
+    await control.setViewportSize({ width: 1260, height: 760 });
     await control.goto(CONTROL_URL);
 
-    const pane = control.locator('#effects-pane');
-    await expect(pane).toHaveCSS('width', '460px');
-    expect(await cols(control)).toBe(2);
+    await expect(control.locator('#preview-pane')).toBeVisible();
+    await expect(control.locator('#library-pane')).toBeVisible();
+    await expect(control.locator('#controls-pane')).toBeVisible();
+    await expect(control.locator('#preview-stage canvas')).toBeVisible();
 
-    // Drag the divider 200px to the right
-    const resizer = control.locator('#effects-resizer');
-    const box = await resizer.boundingBox();
-    await control.mouse.move(box.x + box.width / 2, box.y + 100);
-    await control.mouse.down();
-    await control.mouse.move(box.x + box.width / 2 + 200, box.y + 100, { steps: 5 });
-    await control.mouse.up();
+    const desktop = await control.evaluate(() => {
+      const panel = document.querySelector('#config-panel');
+      const preview = document.querySelector('#preview-pane');
+      const library = document.querySelector('#library-pane');
+      const controls = document.querySelector('#controls-pane');
+      const stage = document.querySelector('#preview-stage');
+      const canvas = stage.querySelector('canvas');
+      const panelColumns = getComputedStyle(panel).gridTemplateColumns.split(' ').filter(Boolean);
+      const stageRect = stage.getBoundingClientRect();
+      const canvasRect = canvas.getBoundingClientRect();
+      return {
+        columns: panelColumns.length,
+        previewOverflow: getComputedStyle(preview).overflowY,
+        libraryOverflow: getComputedStyle(document.querySelector('#pattern-library')).overflowY,
+        controlsOverflow: getComputedStyle(controls).overflowY,
+        ordered: preview.getBoundingClientRect().right <= library.getBoundingClientRect().left + 0.5
+          && library.getBoundingClientRect().right <= controls.getBoundingClientRect().left + 0.5,
+        canvasInsidePreview: canvasRect.left >= stageRect.left - 0.5
+          && canvasRect.right <= stageRect.right + 0.5
+          && canvasRect.top >= stageRect.top - 0.5
+          && canvasRect.bottom <= stageRect.bottom + 0.5,
+        noHorizontalOverflow: document.documentElement.scrollWidth <= document.documentElement.clientWidth
+          && document.body.scrollWidth <= document.body.clientWidth
+          && panel.scrollWidth <= panel.clientWidth,
+      };
+    });
 
-    // Pane widened + more columns fit per row (each stays >= 200px wide)
-    await expect(pane).toHaveCSS('width', '660px');
-    expect(await cols(control)).toBe(3);
+    expect(desktop.columns).toBe(3);
+    expect(desktop.previewOverflow).toBe('hidden');
+    expect(desktop.libraryOverflow).toBe('auto');
+    expect(desktop.controlsOverflow).toBe('auto');
+    expect(desktop.ordered).toBe(true);
+    expect(desktop.canvasInsidePreview).toBe(true);
+    expect(desktop.noHorizontalOverflow).toBe(true);
 
-    // Persisted across reloads
-    await control.waitForFunction(() => localStorage.getItem('viz2_effects_width') === '660');
-    await control.reload();
-    await expect(control.locator('#effects-pane')).toHaveCSS('width', '660px');
+    // The same guarantee holds when all three columns have to compress.
+    await control.setViewportSize({ width: 700, height: 600 });
+    await control.waitForTimeout(100);
+    const narrowHasNoHorizontalOverflow = await control.evaluate(() => {
+      const panel = document.querySelector('#config-panel');
+      return document.documentElement.scrollWidth <= document.documentElement.clientWidth
+        && document.body.scrollWidth <= document.body.clientWidth
+        && panel.scrollWidth <= panel.clientWidth;
+    });
+    expect(narrowHasNoHorizontalOverflow).toBe(true);
   });
 
-  test('divider drag far left clamps at the 2-column pad floor — no overflow onto the divider/controls', async ({ context }) => {
+  test('the embedded renderer follows selected 2D and WebGL patterns', async ({ context }) => {
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
 
-    const pane = control.locator('#effects-pane');
-    await expect(pane).toHaveCSS('width', '460px');
+    await expect(control.locator('#preview-stage canvas[data-preview-sketch="circles"]')).toBeVisible();
 
-    // Drag the divider far to the left
-    const resizer = control.locator('#effects-resizer');
-    const box = await resizer.boundingBox();
-    await control.mouse.move(box.x + box.width / 2, box.y + 100);
-    await control.mouse.down();
-    await control.mouse.move(box.x + box.width / 2 - 600, box.y + 100, { steps: 10 });
-    await control.mouse.up();
+    // Techno 3D is a genuine WEBGL sketch. The control preview must render the
+    // same factory into the clipped panel stage rather than a static thumbnail.
+    await control.locator('#pattern-pad [data-index="3"]').click();
+    const preview = control.locator('#preview-stage canvas[data-preview-sketch="techno3d"]');
+    await expect(preview).toBeVisible();
+    expect(await preview.evaluate((canvas) => Boolean(canvas.getContext('webgl2') || canvas.getContext('webgl')))).toBe(true);
 
-    // Pane stops at the pad floor (2 x 200px buttons + 6px gap + 40px padding);
-    // the divider stops with it instead of letting content slide over.
-    await expect(pane).toHaveCSS('width', '446px');
-
-    // Regression: no pad button may extend past the pane's right edge
-    // (previously the grid's min-width:auto columns overflowed onto the
-    // divider and the controls pane).
-    const withinPane = await control.evaluate(() => {
-      const paneEl = document.querySelector('#effects-pane');
-      const paneRight = paneEl.getBoundingClientRect().right;
-      return [...document.querySelectorAll('#pattern-pad .pattern-btn')].every(
-        (b) => b.getBoundingClientRect().right <= paneRight + 0.5
-      );
-    });
-    expect(withinPane).toBe(true);
+    // Library-only patterns also replace the live preview.
+    await control.locator('#pattern-library [data-id="plasma-waves"]').click();
+    await expect(control.locator('#preview-stage canvas[data-preview-sketch="plasma-waves"]')).toBeVisible();
   });
 });
 
@@ -497,8 +510,8 @@ test.describe('default UI + opening screens', () => {
     await expect(page.locator('#config-panel')).toBeVisible();
     await page.waitForFunction(() => window.__viz.role === 'control');
 
-    // No fullstage p5 canvas in control mode — only the band-split EQ canvas
-    await expect(page.locator('canvas.p5Canvas')).toHaveCount(0);
+    // Control mode owns one clipped p5 preview canvas, not a full-screen stage.
+    await expect(page.locator('#preview-stage canvas.p5Canvas')).toHaveCount(1);
 
     // With no screen open yet the status reads SCREEN OFFLINE and the
     // Open Screen action sits beside it

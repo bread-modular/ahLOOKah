@@ -112,6 +112,8 @@ export class ConfigPanel {
     onNoiseCapture,
     onNoiseCancel,
     onNoiseClear,
+    onPreviewReady,
+    onPreviewChange,
     getParams,
     getPattern,
     isScreen,
@@ -126,6 +128,8 @@ export class ConfigPanel {
     this.onNoiseCapture = onNoiseCapture;
     this.onNoiseCancel = onNoiseCancel;
     this.onNoiseClear = onNoiseClear;
+    this.onPreviewReady = onPreviewReady;
+    this.onPreviewChange = onPreviewChange;
     this.getParams = getParams;
     this.getPattern = getPattern;
     this.isScreen = isScreen;
@@ -184,15 +188,26 @@ export class ConfigPanel {
     const postFxOpen = localStorage.getItem(this.postFxKey) !== '0';
 
     this.panel.innerHTML = `
-      <div id="effects-pane">
-        <h3>Pattern Pad <span class="pad-hint">1–0</span></h3>
-        <div id="pattern-pad" class="pattern-pad"></div>
+      <div id="preview-pane">
+        <section class="preview-section" aria-labelledby="preview-title">
+          <div class="preview-heading">
+            <h3 id="preview-title">Live Preview</h3>
+            <span class="preview-renderer">Live Render</span>
+          </div>
+          <div id="preview-stage" class="preview-stage" aria-label="Live visualization preview"></div>
+        </section>
+
+        <section class="pad-section" aria-labelledby="pad-title">
+          <h3 id="pad-title">Pattern Pad <span class="pad-hint">1–0</span></h3>
+          <div id="pattern-pad" class="pattern-pad"></div>
+        </section>
+      </div>
+
+      <div id="library-pane">
         <h3>Pattern Library</h3>
         <div id="pattern-library" class="pattern-library"></div>
         <p>Drag a pattern from the library onto a pad slot to assign it; drag a slot onto another slot to swap. Keys 1–9 / 0 play a slot. Hold two keys together to blend them — the blend persists until you pick another. While blending: + / − adjust the level, Tab switches Blend / Additive.</p>
       </div>
-
-      <div id="effects-resizer" class="effects-resizer" title="Drag to resize"></div>
 
       <div id="controls-pane">
         <h3 class="panel-title">VIZ CONTROL</h3>
@@ -265,6 +280,8 @@ export class ConfigPanel {
       </div>
     `;
 
+    if (this.onPreviewReady) this.onPreviewReady(this.panel.querySelector('#preview-stage'));
+
     this.renderAll();
 
     // Persist only real user toggles (the programmatic open from
@@ -275,7 +292,6 @@ export class ConfigPanel {
     this.panel.querySelector('#refresh-devices-btn').onclick = () => this.refreshDevices();
     this.panel.querySelector('#setup-all-btn').onclick = () => this.requestPermissions();
 
-    this.initResizer();
     this.initPostFx();
     this.initBandEq();
 
@@ -313,53 +329,6 @@ export class ConfigPanel {
   hideSetupNotice() {
     const notice = this.panel.querySelector('#setup-notice');
     if (notice) notice.style.display = 'none';
-  }
-
-  // Draggable divider between the effects list and the controls.
-  // The effects pane width is persisted so the split survives reloads.
-  initResizer() {
-    const resizer = this.panel.querySelector('#effects-resizer');
-    const pane = this.panel.querySelector('#effects-pane');
-    if (!resizer || !pane) return;
-
-    // 446 = the Pattern Pad's fixed 2-column grid floor: 2 x 200px buttons +
-    // 6px gap + 40px pane padding. The pad is repeat(2, 1fr), so below this the
-    // buttons can't shrink (grid min-width:auto) and would overflow the pane
-    // onto the divider / controls — the divider must stop right here with it.
-    const MIN_WIDTH = 446;
-    const CONTROL_MIN_WIDTH = 340; // keep the controls column usable
-
-    const saved = parseInt(localStorage.getItem('viz2_effects_width') || '', 10);
-    // Default fits exactly 2 columns of 200px+ buttons (2 * 200 + 8 gap + 40 padding)
-    // Clamp persisted widths: an old pre-446 value must not recreate the overflow.
-    // Write the clamped value back so it isn't re-clamped on every load.
-    this.effectsWidth = Number.isFinite(saved) && saved > 0 ? Math.max(saved, MIN_WIDTH) : 460;
-    if (saved !== this.effectsWidth) localStorage.setItem('viz2_effects_width', String(this.effectsWidth));
-    pane.style.width = `${this.effectsWidth}px`;
-
-    resizer.addEventListener('mousedown', (e) => {
-      e.preventDefault();
-      const startX = e.clientX;
-      const startW = this.effectsWidth;
-      const maxW = Math.max(MIN_WIDTH, this.panel.clientWidth - CONTROL_MIN_WIDTH);
-
-      const onMove = (ev) => {
-        const w = Math.min(maxW, Math.max(MIN_WIDTH, startW + (ev.clientX - startX)));
-        this.effectsWidth = w;
-        pane.style.width = `${w}px`;
-        localStorage.setItem('viz2_effects_width', String(w));
-      };
-
-      const onUp = () => {
-        document.body.classList.remove('resizing');
-        window.removeEventListener('mousemove', onMove);
-        window.removeEventListener('mouseup', onUp);
-      };
-
-      document.body.classList.add('resizing');
-      window.addEventListener('mousemove', onMove);
-      window.addEventListener('mouseup', onUp);
-    });
   }
 
   // ---------------------------------------------------------------------------
@@ -1095,6 +1064,16 @@ export class ConfigPanel {
     if (this.renderedKey !== key) {
       this.renderedKey = key;
       this.renderParams();
+      if (this.onPreviewChange) {
+        this.onPreviewChange({
+          ids: this.mergeMode
+            ? this.mergePatternIds.filter(Boolean)
+            : this.currentPatternId
+              ? [this.currentPatternId]
+              : [],
+          merge: this.mergeMode,
+        });
+      }
     }
   }
 
