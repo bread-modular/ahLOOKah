@@ -20,17 +20,73 @@ export class AudioManager {
     this.fftSize = 2048;
     this.requestToken = 0;
     this.resumePromise = null;
+    this.requestedDeviceId = null;
+    this.activeDeviceId = null;
+    this.usedFallback = false;
+    this.lastError = null;
+    this.onStatusChange = null;
+    this.lastStatus = {
+      status: 'idle',
+      state: 'closed',
+      deviceId: null,
+      activeDeviceId: null,
+      fallback: false,
+    };
+  }
+
+  setStatusListener(listener) {
+    this.onStatusChange = typeof listener === 'function' ? listener : null;
+    if (this.onStatusChange) this.onStatusChange(this.getStatus());
+  }
+
+  getStatus() {
+    return { ...this.lastStatus };
+  }
+
+  reportStatus(status, extra = {}) {
+    const previous = this.lastStatus;
+    const next = {
+      status,
+      state: this.getState(),
+      deviceId: this.requestedDeviceId,
+      activeDeviceId: this.activeDeviceId,
+      fallback: this.usedFallback,
+      ...extra,
+    };
+    this.lastStatus = next;
+
+    // getAnalysisFrame may retry resume() every frame while autoplay is blocked.
+    // Do not flood BroadcastChannel with an unchanged "suspended" status.
+    const changed = !previous
+      || previous.status !== next.status
+      || previous.state !== next.state
+      || previous.deviceId !== next.deviceId
+      || previous.activeDeviceId !== next.activeDeviceId
+      || previous.fallback !== next.fallback
+      || previous.error?.name !== next.error?.name
+      || previous.error?.message !== next.error?.message;
+    if (changed && this.onStatusChange) this.onStatusChange(this.getStatus());
+  }
+
+  reportContextStatus(extra = {}) {
+    const state = this.getState();
+    const status = state === 'running'
+      ? 'running'
+      : (state === 'suspended' || state === 'interrupted' ? 'suspended' : 'stopped');
+    this.reportStatus(status, extra);
   }
 
   async releaseCurrentStream() {
     this.isStarted = false;
     if (this.stream) {
-      this.stream.getTracks().forEach((track) => track.stop());
+      const stream = this.stream;
       this.stream = null;
+      stream.getTracks().forEach((track) => track.stop());
     }
     if (this.audioContext) {
       const context = this.audioContext;
       this.audioContext = null;
+      context.onstatechange = null;
       await context.close().catch(() => {});
     }
     this.resumePromise = null;
@@ -38,6 +94,7 @@ export class AudioManager {
     this.splitter = null;
     this.analyserL = null;
     this.analyserR = null;
+    this.activeDeviceId = null;
   }
 
   configureAnalyser(analyser) {
@@ -66,29 +123,47 @@ export class AudioManager {
     this.floatFreqDataR = new Float32Array(frequencyBins);
   }
 
+  audioConstraints(deviceId, exact = true) {
+    const audio = {
+      echoCancellation: false,
+      autoGainControl: false,
+      noiseSuppression: false,
+      channelCount: { ideal: 2 },
+    };
+    if (exact && deviceId) audio.deviceId = { exact: deviceId };
+    return { audio };
+  }
+
   async startStream(deviceId) {
     const token = ++this.requestToken;
+    this.requestedDeviceId = deviceId || null;
+    this.usedFallback = false;
+    this.lastError = null;
+    this.reportStatus('starting');
     await this.releaseCurrentStream();
-
-    const constraints = {
-      audio: {
-        deviceId: { exact: deviceId },
-        echoCancellation: false,
-        autoGainControl: false,
-        noiseSuppression: false,
-        channelCount: { ideal: 2 },
-      },
-    };
 
     let stream = null;
     try {
-      stream = await navigator.mediaDevices.getUserMedia(constraints);
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(this.audioConstraints(deviceId));
+      } catch (err) {
+        // Persisted device ids can become stale after an interface is unplugged,
+        // the browser restarts, or permissions are reset. Recover with the
+        // default input rather than leaving the EQ silently stuck forever.
+        const canFallback = deviceId && (err?.name === 'OverconstrainedError' || err?.name === 'NotFoundError');
+        if (!canFallback) throw err;
+        this.usedFallback = true;
+        stream = await navigator.mediaDevices.getUserMedia(this.audioConstraints(null, false));
+      }
+
       if (token !== this.requestToken) {
         stream.getTracks().forEach((track) => track.stop());
         return false;
       }
 
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) throw new Error('Web Audio is not supported by this browser.');
+
       this.audioContext = new AudioContextClass({ latencyHint: 'interactive' });
       this.stream = stream;
       this.source = this.audioContext.createMediaStreamSource(stream);
@@ -104,13 +179,30 @@ export class AudioManager {
       // Many DJ interfaces advertise one channel even when stereo was
       // requested. Mirror channel 1 in that case instead of feeding every
       // right-channel-aware effect a silent spectrum.
-      const channelCount = stream.getAudioTracks()[0]?.getSettings?.().channelCount || 1;
+      const audioTrack = stream.getAudioTracks()[0];
+      const settings = audioTrack?.getSettings?.() || {};
+      const channelCount = settings.channelCount || 1;
+      this.activeDeviceId = settings.deviceId || null;
       this.splitter.connect(this.analyserR, channelCount > 1 ? 1 : 0);
       this.allocateBuffers();
 
+      this.audioContext.onstatechange = () => {
+        if (token === this.requestToken && this.audioContext) this.reportContextStatus();
+      };
+      if (audioTrack) {
+        audioTrack.addEventListener('ended', () => {
+          if (token !== this.requestToken || this.stream !== stream) return;
+          this.isStarted = false;
+          this.reportStatus('error', {
+            error: { name: 'DeviceEndedError', message: 'The selected audio input disconnected.' },
+          });
+        }, { once: true });
+      }
+
       this.isStarted = true;
+      this.reportContextStatus();
       // getUserMedia often permits this immediately. If autoplay policy keeps
-      // it suspended, the next click/tap on the screen calls resume() again.
+      // it suspended, a trusted click/key on the screen calls resume(true).
       this.resume();
       return token === this.requestToken && this.isStarted;
     } catch (err) {
@@ -121,6 +213,12 @@ export class AudioManager {
       // already finished connecting.
       if (token === this.requestToken) {
         await this.releaseCurrentStream();
+        this.lastError = {
+          name: err?.name || 'AudioError',
+          message: err?.message || 'Unable to start the selected audio input.',
+          constraint: err?.constraint || null,
+        };
+        this.reportStatus('error', { error: this.lastError });
         console.error('Error starting audio stream:', err);
       }
       return false;
@@ -131,23 +229,29 @@ export class AudioManager {
     this.requestToken += 1;
     this.isStarted = false;
     if (this.stream) {
-      this.stream.getTracks().forEach((track) => track.stop());
+      const stream = this.stream;
       this.stream = null;
+      stream.getTracks().forEach((track) => track.stop());
     }
     if (this.audioContext) {
-      this.audioContext.close().catch(() => {});
+      const context = this.audioContext;
       this.audioContext = null;
+      context.onstatechange = null;
+      context.close().catch(() => {});
     }
     this.resumePromise = null;
     this.source = null;
     this.splitter = null;
     this.analyserL = null;
     this.analyserR = null;
+    this.activeDeviceId = null;
+    this.reportStatus('stopped');
   }
 
   resume(force = false) {
-    if (this.audioContext && this.audioContext.state === 'suspended') {
-      // A genuine screen click gets a fresh resume call even if an earlier
+    const state = this.audioContext?.state;
+    if (this.audioContext && (state === 'suspended' || state === 'interrupted')) {
+      // A genuine screen interaction gets a fresh resume call even if an earlier
       // autoplay-blocked promise is still pending.
       if (force || navigator.userActivation?.isActive) this.resumePromise = null;
       if (!this.resumePromise) {
@@ -155,11 +259,15 @@ export class AudioManager {
         this.resumePromise = context.resume()
           .catch(() => {})
           .finally(() => {
-            if (this.audioContext === context) this.resumePromise = null;
+            if (this.audioContext === context) {
+              this.resumePromise = null;
+              this.reportContextStatus();
+            }
           });
       }
       return this.resumePromise;
     }
+    if (this.audioContext) this.reportContextStatus();
     return Promise.resolve();
   }
 

@@ -64,6 +64,8 @@ let currentVideoDeviceId = null;
 let currentAudioDeviceId = null;
 let screenOnline = myRole === 'screen';
 let panel = null;
+let lastAudioStatus = audio.getStatus();
+let audioRestartTimer = 0;
 
 const STORAGE = {
   audio: 'viz2_audio_device_id',
@@ -563,22 +565,46 @@ function updateActiveSketchId() {
   }
 }
 
-function startAudio() {
-  const savedAudioId = localStorage.getItem(STORAGE.audio);
-  if (savedAudioId && (savedAudioId !== currentAudioDeviceId || !audio.isStarted)) {
-    currentAudioDeviceId = savedAudioId;
-    audio.startStream(savedAudioId);
+function handleAudioManagerStatus(status) {
+  lastAudioStatus = { ...status };
+  if (myRole === 'screen') broadcast({ type: 'audio-status', ...lastAudioStatus });
+
+  // An unplugged interface normally raises both track "ended" and
+  // mediaDevices "devicechange". Keep the ended path as a fallback for
+  // browsers that only send one of them.
+  if (myRole === 'screen' && status?.error?.name === 'DeviceEndedError') {
+    scheduleAudioRecovery();
   }
 }
 
-// Re-read device selection from localStorage and apply it (screen only)
-function applyDevices() {
-  const savedAudioId = localStorage.getItem(STORAGE.audio);
-  const savedVideoId = localStorage.getItem(STORAGE.video);
+audio.setStatusListener(handleAudioManagerStatus);
+
+function startAudio(deviceId = localStorage.getItem(STORAGE.audio)) {
+  if (!deviceId) {
+    currentAudioDeviceId = null;
+    audio.reportStatus('unselected');
+    return Promise.resolve(false);
+  }
+
+  currentAudioDeviceId = deviceId;
+  return audio.startStream(deviceId);
+}
+
+// Apply an explicit selection from the control panel. The ids ride the message
+// itself instead of relying on cross-process localStorage propagation timing.
+function applyDevices(selection = {}) {
+  const explicitAudioId = typeof selection.audioDeviceId === 'string' ? selection.audioDeviceId : null;
+  const explicitVideoId = typeof selection.videoDeviceId === 'string' ? selection.videoDeviceId : null;
+  const savedAudioId = explicitAudioId || localStorage.getItem(STORAGE.audio);
+  const savedVideoId = explicitVideoId || localStorage.getItem(STORAGE.video);
+
+  if (explicitAudioId) localStorage.setItem(STORAGE.audio, explicitAudioId);
+  if (explicitVideoId) localStorage.setItem(STORAGE.video, explicitVideoId);
 
   if (savedAudioId && (savedAudioId !== currentAudioDeviceId || !audio.isStarted)) {
-    currentAudioDeviceId = savedAudioId;
-    audio.startStream(savedAudioId);
+    startAudio(savedAudioId);
+  } else if (!savedAudioId) {
+    audio.reportStatus('unselected');
   }
 
   if (savedVideoId && savedVideoId !== currentVideoDeviceId) {
@@ -594,6 +620,33 @@ function applyDevices() {
   }
 }
 
+function scheduleAudioRecovery() {
+  if (audioRestartTimer || myRole !== 'screen' || !currentAudioDeviceId) return;
+  audioRestartTimer = window.setTimeout(async () => {
+    audioRestartTimer = 0;
+    if (myRole !== 'screen' || !currentAudioDeviceId) return;
+
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const inputs = devices.filter((device) => device.kind === 'audioinput');
+      const preferredAvailable = inputs.some((device) => device.deviceId === currentAudioDeviceId);
+      const activeTrack = audio.stream?.getAudioTracks?.()[0];
+      const shouldRestorePreferred = preferredAvailable
+        && audio.usedFallback
+        && audio.activeDeviceId !== currentAudioDeviceId;
+      if (!preferredAvailable || !activeTrack || activeTrack.readyState === 'ended' || shouldRestorePreferred) {
+        // AudioManager retries without deviceId.exact if the preferred interface
+        // disappeared, while keeping the preference ready for a later reconnect.
+        startAudio(currentAudioDeviceId);
+      }
+    } catch (err) {
+      console.error('Unable to refresh audio devices:', err);
+    }
+  }, 250);
+}
+
+navigator.mediaDevices?.addEventListener?.('devicechange', scheduleAudioRecovery);
+
 // ---------------------------------------------------------------------------
 // Role switching
 // ---------------------------------------------------------------------------
@@ -604,6 +657,8 @@ function becomeControl() {
 
   document.title = 'Viz Control';
   removeCurrentP5();
+  if (audioRestartTimer) clearTimeout(audioRestartTimer);
+  audioRestartTimer = 0;
   audio.stop();
   stopSpectrumBroadcast();
   currentAudioDeviceId = null;
@@ -639,6 +694,9 @@ function handleMessage(msg) {
       }
       if (myRole === 'screen') {
         broadcast({ type: 'state', pattern: currentIndex, merge: mergeIndices, patternId: activeSketchId });
+        // A panel opened after audio startup would otherwise miss the one-time
+        // starting/running/suspended event and keep its generic idle message.
+        broadcast({ type: 'audio-status', ...lastAudioStatus });
       }
       break;
 
@@ -692,9 +750,18 @@ function handleMessage(msg) {
       break;
 
     case 'devices':
-      // Devices changed in some window (localStorage is the source of truth)
-      if (myRole === 'screen') applyDevices();
+      // Device ids are included explicitly; localStorage remains persistence,
+      // not an inter-window delivery mechanism.
+      if (myRole === 'screen') applyDevices(msg);
       break;
+
+    case 'audio-status':
+      if (myRole === 'control' && panel) {
+        screenOnline = true;
+        panel.setScreenOnline(true);
+        panel.setAudioStatus(msg);
+      }
+      return;
 
     case 'params':
       // A param slider moved somewhere — merge into the live store (both
@@ -786,6 +853,7 @@ function handleMessage(msg) {
 
     case 'screen-closed':
       screenOnline = false;
+      if (myRole === 'control' && panel) panel.setAudioStatus({ status: 'offline' });
       break;
   }
 
@@ -859,6 +927,14 @@ function stopSpectrumBroadcast() {
   if (spectrumRaf) cancelAnimationFrame(spectrumRaf);
   spectrumRaf = 0;
 }
+
+// Web Audio autoplay permission belongs to the screen window. Resume from any
+// trusted interaction there, regardless of which sketch/canvas is active.
+function resumeAudioFromScreenGesture() {
+  if (myRole === 'screen' && audio.isStarted) audio.resume(true);
+}
+window.addEventListener('pointerdown', resumeAudioFromScreenGesture, { capture: true, passive: true });
+window.addEventListener('keydown', resumeAudioFromScreenGesture, { capture: true });
 
 // ---------------------------------------------------------------------------
 // Keyboard shortcuts (1-0) — active on control panel windows.
@@ -968,7 +1044,7 @@ function ensurePanel() {
       // Library-only pattern (not on the pad) — play by id
       broadcast({ type: 'pattern-id', id });
     },
-    onDevicesChange: () => broadcast({ type: 'devices' }),
+    onDevicesChange: (selection) => broadcast({ type: 'devices', ...(selection || {}) }),
     onOpenScreen: () => openScreenWindow(),
     onParamChange: (id, key, value) => {
       // Local dispatch (via broadcast) updates the store + saves + syncs UI
@@ -1108,6 +1184,8 @@ if (import.meta.env.DEV) {
     // Exposed only in Vite development mode so integration tests can inject a
     // deterministic spectrum without requiring microphone permissions.
     audio,
+    get audioStatus() { return { ...lastAudioStatus }; },
+    get audioDeviceId() { return currentAudioDeviceId; },
     // DEV only: { key -> last read timestamp } of params the sketch accesses
     readLog: () => devReadLog || {},
   };
