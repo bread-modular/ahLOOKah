@@ -1,87 +1,81 @@
-// Film Grain — a tinted color field with subtle animated grain, like an old
-// film print held on a title card. Grain specks live in a small offscreen
-// buffer that is refreshed at a filmic cadence (the speed param), and a
-// soft flicker + vignette complete the look. Needs no audio to feel alive.
-import { vignette } from './viz-utils.js';
+// Film Grain — tinted color field with subtle animated grain. GPU shader port.
+// Replicates HSB background (hue tint, saturation 0.45, flicker) plus block-quantized
+// grain specks with amount-driven alpha, speed-cadenced refresh, and a soft upscale.
+import { AUDIO_SHADER_HEADER, makeAudioShader } from './shader-utils.js';
 
-export default (audio, videoDeviceId, params) => (p) => {
-  let buf = null;
-  let lastGrainFrame = -999;
-  let level = 0;
+const frag = `${AUDIO_SHADER_HEADER}
+  uniform float uTint;
+  uniform float uBgBri;
+  uniform float uAmount;
+  uniform float uSize;
+  uniform float uSpeed;
 
-  p.setup = () => {
-    p.createCanvas(p.windowWidth, p.windowHeight);
-    p.colorMode(p.HSB, 1, 1, 1);
-    p.noStroke();
-  };
+  void main() {
+    float flicker = 1.0 + (valueNoise(vec2(uTime * 3.0, 0.0)) - 0.5) * 0.14 + uEnergy * 0.08;
+    float bBri = clamp(uBgBri * flicker, 0.0, 1.0);
+    vec3 bg = hsv2rgb(vec3(uTint, 0.45, bBri));
 
-  // Recreate the grain buffer only when grain size or window size changes.
-  function ensureBuffer(size) {
-    const bw = Math.max(2, Math.ceil(p.width / size));
-    const bh = Math.max(2, Math.ceil(p.height / size));
-    if (!buf || buf.width !== bw || buf.height !== bh) {
-      buf = p.createGraphics(bw, bh);
-      buf.pixelDensity(1);
-      buf.clear();
-    }
+    // Grain refresh cadence: interval = max(1, round(4/speed)); grain holds for interval frames.
+    float interval = max(1.0, floor(4.0 / max(uSpeed, 0.05) + 0.5));
+    float grainFrame = mod(floor(uTime * 60.0 / interval), 4096.0);
+    float eff = clamp(uAmount + uEnergy * 0.3, 0.0, 1.0);
+
+    // Bilinear interpolation of neighbouring block specks (matches imageSmoothingEnabled=true)
+    vec2 fragCoord = vTexCoord * uResolution;
+    vec2 gv = fragCoord / max(uSize, 1.0);
+    vec2 i = floor(gv);
+    vec2 f = fract(gv);
+
+    float a00 = hash21(i + vec2(0.0,0.0) + vec2(grainFrame*7.0, 0.0));
+    float a10 = hash21(i + vec2(1.0,0.0) + vec2(grainFrame*7.0, 0.0));
+    float a01 = hash21(i + vec2(0.0,1.0) + vec2(grainFrame*7.0, 0.0));
+    float a11 = hash21(i + vec2(1.0,1.0) + vec2(grainFrame*7.0, 0.0));
+
+    float b00 = hash21(i + vec2(0.0,0.0) + vec2(grainFrame*13.0, 19.0));
+    float b10 = hash21(i + vec2(1.0,0.0) + vec2(grainFrame*13.0, 19.0));
+    float b01 = hash21(i + vec2(0.0,1.0) + vec2(grainFrame*13.0, 19.0));
+    float b11 = hash21(i + vec2(1.0,1.0) + vec2(grainFrame*13.0, 19.0));
+
+    float s00 = step(0.5, a00);
+    float s10 = step(0.5, a10);
+    float s01 = step(0.5, a01);
+    float s11 = step(0.5, a11);
+
+    float al00 = b00 * eff;
+    float al10 = b10 * eff;
+    float al01 = b01 * eff;
+    float al11 = b11 * eff;
+
+    float s0 = mix(s00, s10, f.x);
+    float s1 = mix(s01, s11, f.x);
+    float speck = mix(s0, s1, f.y);
+
+    float a0 = mix(al00, al10, f.x);
+    float a1 = mix(al01, al11, f.x);
+    float grainAlpha = mix(a0, a1, f.y);
+
+    vec3 grainCol = vec3(speck);
+    vec3 col = mix(bg, grainCol, grainAlpha);
+
+    // Vignette strength 0.4
+    vec2 uv = vTexCoord * 2.0 - 1.0;
+    uv.x *= uResolution.x / max(uResolution.y, 1.0);
+    float vig = 1.0 - smoothstep(0.7, 1.52, length(uv * vec2(0.72, 1.0)));
+    col *= 0.6 + 0.4 * vig;
+
+    gl_FragColor = vec4(col, 1.0);
   }
+`;
 
-  // Smoothed overall loudness (0..1). Always safe when audio is unavailable.
-  function audioLevel() {
-    if (!audio || !audio.isStarted || typeof audio.getFrequencies !== 'function') return 0;
-    const freqs = audio.getFrequencies();
-    if (!freqs || !freqs.left) return 0;
-    let sum = 0;
-    for (let i = 0; i < freqs.left.length; i++) sum += freqs.left[i];
-    return sum / (freqs.left.length * 255);
-  }
-
-  p.draw = () => {
-    // Read live params every frame so slider changes apply immediately
-    const P = params || {};
-    const amount = P.amount ?? 0.5;
-    const size = Math.max(1, Math.round(P.size ?? 2));
-    const tint = ((P.tint ?? 0.08) % 1 + 1) % 1;
-    const bgBri = P.bgBrightness ?? 0.25;
-    const speed = P.speed ?? 1;
-
-    level = p.lerp(level, audioLevel(), 0.1);
-
-    // Tinted background with a gentle projector flicker (noise + audio lift)
-    const flicker = 1 + (p.noise(p.frameCount * 0.05) - 0.5) * 0.14 + level * 0.08;
-    p.background(tint, 0.45, Math.min(1, Math.max(0, bgBri * flicker)));
-
-    // Refresh the grain at a film-like cadence; speed controls the shutter
-    ensureBuffer(size);
-    const interval = Math.max(1, Math.round(4 / Math.max(0.05, speed)));
-    if (p.frameCount - lastGrainFrame >= interval) {
-      lastGrainFrame = p.frameCount;
-      const eff = Math.min(1, amount + level * 0.3);
-      buf.loadPixels();
-      const d = buf.pixels;
-      for (let i = 0; i < d.length; i += 4) {
-        // Bright and dark specks mixed, alpha scaled by grain amount
-        const v = Math.random() > 0.5 ? 255 : 0;
-        d[i] = v;
-        d[i + 1] = v;
-        d[i + 2] = v;
-        d[i + 3] = Math.random() * 255 * eff;
-      }
-      buf.updatePixels();
-    }
-
-    // Soft upscale keeps the grain filmic rather than pixelated
-    p.drawingContext.imageSmoothingEnabled = true;
-    p.image(buf, 0, 0, p.width, p.height);
-
-    vignette(p, 0.4);
-  };
-
-  p.windowResized = () => {
-    p.resizeCanvas(p.windowWidth, p.windowHeight);
-  };
-
-  p.mousePressed = () => {
-    if (audio) audio.resume();
-  };
-};
+export default (audio, videoDeviceId, params) => makeAudioShader(
+  audio,
+  params,
+  frag,
+  (P) => ({
+    uTint: ((P.tint ?? 0.08) % 1 + 1) % 1,
+    uBgBri: P.bgBrightness ?? 0.25,
+    uAmount: P.amount ?? 0.5,
+    uSize: Math.max(1, Math.round(P.size ?? 2)),
+    uSpeed: P.speed ?? 1,
+  }),
+);
