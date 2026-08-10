@@ -240,7 +240,6 @@ export class ConfigPanel {
       <div id="library-pane">
         <h3>Pattern Library</h3>
         <div id="pattern-library" class="pattern-library"></div>
-        <p>Drag a pattern from the library onto a pad slot to assign it; drag a slot onto another slot to swap. Keys 1–9 / 0 play a slot. Shift-click a pattern or press Shift + 1–0 to stage a CUE; hold Shift + two number keys together to stage a two-pattern CUE blend. Enter goes live and Esc cancels. Hold two unmodified number keys together to blend them — the blend persists until you pick another. While blending: + / − adjust the level, Tab switches Blend / Additive.</p>
       </div>
 
       <div id="controls-pane">
