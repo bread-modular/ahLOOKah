@@ -76,8 +76,17 @@ export class AudioManager {
     this.reportStatus(status, extra);
   }
 
+  _disconnectGraph() {
+    try { this.source?.disconnect(); } catch {}
+    try { this.splitter?.disconnect(); } catch {}
+    try { this.analyserL?.disconnect(); } catch {}
+    try { this.analyserR?.disconnect(); } catch {}
+    // fft is the analyser in this graph; disconnecting analyser covers it
+  }
+
   async releaseCurrentStream() {
     this.isStarted = false;
+    this._disconnectGraph();
     if (this.stream) {
       const stream = this.stream;
       this.stream = null;
@@ -152,6 +161,8 @@ export class AudioManager {
         // default input rather than leaving the EQ silently stuck forever.
         const canFallback = deviceId && (err?.name === 'OverconstrainedError' || err?.name === 'NotFoundError');
         if (!canFallback) throw err;
+        // If a newer start/stop has superseded this request, do not attempt fallback
+        if (token !== this.requestToken) throw err;
         this.usedFallback = true;
         stream = await navigator.mediaDevices.getUserMedia(this.audioConstraints(null, false));
       }
@@ -164,17 +175,16 @@ export class AudioManager {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       if (!AudioContextClass) throw new Error('Web Audio is not supported by this browser.');
 
-      this.audioContext = new AudioContextClass({ latencyHint: 'interactive' });
-      this.stream = stream;
-      this.source = this.audioContext.createMediaStreamSource(stream);
-      this.splitter = this.audioContext.createChannelSplitter(2);
-      this.analyserL = this.audioContext.createAnalyser();
-      this.analyserR = this.audioContext.createAnalyser();
-      this.configureAnalyser(this.analyserL);
-      this.configureAnalyser(this.analyserR);
+      const context = new AudioContextClass({ latencyHint: 'interactive' });
+      const source = context.createMediaStreamSource(stream);
+      const splitter = context.createChannelSplitter(2);
+      const analyserL = context.createAnalyser();
+      const analyserR = context.createAnalyser();
+      this.configureAnalyser(analyserL);
+      this.configureAnalyser(analyserR);
 
-      this.source.connect(this.splitter);
-      this.splitter.connect(this.analyserL, 0);
+      source.connect(splitter);
+      splitter.connect(analyserL, 0);
 
       // Many DJ interfaces advertise one channel even when stereo was
       // requested. Mirror channel 1 in that case instead of feeding every
@@ -182,9 +192,53 @@ export class AudioManager {
       const audioTrack = stream.getAudioTracks()[0];
       const settings = audioTrack?.getSettings?.() || {};
       const channelCount = settings.channelCount || 1;
-      this.activeDeviceId = settings.deviceId || null;
-      this.splitter.connect(this.analyserR, channelCount > 1 ? 1 : 0);
+      const activeDeviceId = settings.deviceId || null;
+      splitter.connect(analyserR, channelCount > 1 ? 1 : 0);
+
+      // Wire to instance only after confirming token is still current, to avoid
+      // a stale async start replacing the current input. If we lost the race,
+      // destroy the losing acquisition fully before returning.
+      if (token !== this.requestToken) {
+        try { source.disconnect(); } catch {}
+        try { splitter.disconnect(); } catch {}
+        try { analyserL.disconnect(); } catch {}
+        try { analyserR.disconnect(); } catch {}
+        stream.getTracks().forEach((track) => track.stop());
+        await context.close().catch(() => {});
+        return false;
+      }
+
+      this.audioContext = context;
+      this.stream = stream;
+      this.source = source;
+      this.splitter = splitter;
+      this.analyserL = analyserL;
+      this.analyserR = analyserR;
+      this.activeDeviceId = activeDeviceId;
       this.allocateBuffers();
+
+      // Final token check after wiring: a concurrent stop/start may have
+      // incremented the token while we were wiring. Destroy the stale graph
+      // before it leaks the microphone.
+      if (token !== this.requestToken) {
+        this._disconnectGraph();
+        const staleStream = this.stream;
+        const staleContext = this.audioContext;
+        this.stream = null;
+        this.audioContext = null;
+        this.source = null;
+        this.splitter = null;
+        this.analyserL = null;
+        this.analyserR = null;
+        this.isStarted = false;
+        this.activeDeviceId = null;
+        if (staleStream) staleStream.getTracks().forEach((t) => t.stop());
+        if (staleContext) {
+          staleContext.onstatechange = null;
+          await staleContext.close().catch(() => {});
+        }
+        return false;
+      }
 
       this.audioContext.onstatechange = () => {
         if (token === this.requestToken && this.audioContext) this.reportContextStatus();
@@ -228,6 +282,7 @@ export class AudioManager {
   stop() {
     this.requestToken += 1;
     this.isStarted = false;
+    this._disconnectGraph();
     if (this.stream) {
       const stream = this.stream;
       this.stream = null;
@@ -312,13 +367,15 @@ export class AudioManager {
       sampleRate: this.audioContext.sampleRate,
       fftSize: this.fftSize,
       time: this.audioContext.currentTime,
+      deviceId: this.activeDeviceId,
+      channels: this.stream?.getAudioTracks?.()[0]?.getSettings?.().channelCount || 1,
     };
 
     // Noise floor: sample the RAW signature while a capture is running, then
     // subtract the stored profile in place so every consumer (musical feature
     // extractor, band-split EQ broadcast) sees the cleaned spectrum.
     feedNoiseCapture(frame);
-    applyNoiseFloor(frame.left, frame.right, frame.sampleRate, frame.fftSize);
+    applyNoiseFloor(frame);
 
     return frame;
   }
