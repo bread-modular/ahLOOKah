@@ -212,6 +212,36 @@ function onsetFromFlux(stat, flux, dt, gate) {
   return onset;
 }
 
+// ---------------------------------------------------------------------------
+// Shared feature frame — single scan per update, reused across consumers
+// ---------------------------------------------------------------------------
+// Multiple sketches (LIVE + CUE, or a 2-way merge) consume the same analysis
+// frame each tick. Computing the full spectral scan and transient envelopes
+// twice wastes CPU and makes beat decisions diverge if instances have slightly
+// different histories. getSharedFeatures computes one feature object per
+// update and reuses it, so all consumers sharing the same frame see
+// identical beat/band state with one scan.
+const sharedFeatureCache = new WeakMap();
+let sharedAnalyser = null;
+
+export function getSharedFeatures(frame, params = {}, deltaSeconds = 1 / 60) {
+  if (!frame) return null;
+  const dt = clamp(Number.isFinite(deltaSeconds) ? deltaSeconds : 1 / 60, 1 / 240, 0.1);
+  const key = JSON.stringify(params || {});
+  const cached = sharedFeatureCache.get(frame);
+  if (cached && Math.abs(cached.dt - dt) < 1e-9 && cached.key === key) {
+    return { ...cached.features };
+  }
+  if (!sharedAnalyser) sharedAnalyser = makeAudioFeatures();
+  const features = sharedAnalyser(frame, params, dt);
+  sharedFeatureCache.set(frame, { dt, key, features: { ...features } });
+  return { ...features };
+}
+
+export function clearSharedFeaturesCache() {
+  sharedAnalyser = null;
+}
+
 // Returns a stateful analyser. Create one per running effect so its envelopes
 // reset cleanly when the DJ switches looks.
 export function makeAudioFeatures() {
@@ -232,15 +262,25 @@ export function makeAudioFeatures() {
     hat: { mean: 0, deviation: 0 },
   };
 
+  // Per-instance memo: dedup repeated calls with same frame object & dt &
+  // params within the same tick so a single analyser doesn't double-scan
+  // if called twice with the same frame (e.g., two uniforms reading it).
+  let lastFrame = null;
+  let lastDt = null;
+  let lastKey = null;
+  let lastOut = null;
+
   return (frame, params = {}, deltaSeconds = 1 / 60) => {
     const dt = clamp(Number.isFinite(deltaSeconds) ? deltaSeconds : 1 / 60, 1 / 240, 0.1);
-    elapsed += dt;
+    const key = JSON.stringify(params || {});
+    if (frame && frame === lastFrame && dt === lastDt && key === lastKey && lastOut) {
+      return { ...lastOut };
+    }
 
     const left = frame?.left;
     const right = frame?.right;
     if (!left?.length && !right?.length) {
-      // Normally the shader runtime uses its musical idle loop when there is no
-      // frame. Decay here too so direct consumers never retain a stale hit.
+      elapsed += dt;
       levels.sub = follow(levels.sub, 0, 0.02, 0.16, dt);
       levels.mid = follow(levels.mid, 0, 0.025, 0.2, dt);
       levels.high = follow(levels.high, 0, 0.012, 0.11, dt);
@@ -249,7 +289,7 @@ export function makeAudioFeatures() {
       envelopes.snare *= Math.exp(-dt / 0.12);
       envelopes.hat *= Math.exp(-dt / 0.075);
       envelopes.beat *= Math.exp(-dt / 0.21);
-      return {
+      const out = {
         ...makeSilentFeatures(),
         sub: levels.sub,
         mid: levels.mid,
@@ -261,6 +301,11 @@ export function makeAudioFeatures() {
         beat: envelopes.beat,
         impact: Math.max(envelopes.kick, envelopes.snare * 0.72, envelopes.hat * 0.42),
       };
+      lastFrame = frame;
+      lastDt = dt;
+      lastKey = key;
+      lastOut = out;
+      return { ...out };
     }
 
     const binCount = Math.max(left?.length || 0, right?.length || 0);
@@ -270,6 +315,8 @@ export function makeAudioFeatures() {
       spectrumPower = new Float32Array(binCount);
       frameCount = 0;
     }
+
+    elapsed += dt;
 
     const channelCount = left?.length && right?.length ? 2 : 1;
     for (let i = 0; i < binCount; i++) {
@@ -289,6 +336,8 @@ export function makeAudioFeatures() {
       sampleRate,
       fftSize,
     ));
+    // waveformRms respects frame.rms override; noise-floor's applyNoiseFloor
+    // cleans both spectral bins and waveform RMS so this path is noise-gated.
     const rms = waveformRms(frame) ?? spectrumRms;
     const rmsDb = 20 * Math.log10(Math.max(rms, EPSILON));
 
@@ -390,7 +439,7 @@ export function makeAudioFeatures() {
       1.6,
     );
 
-    return {
+    const out = {
       sub,
       mid,
       high,
@@ -402,5 +451,10 @@ export function makeAudioFeatures() {
       impact: Math.max(kick, snare * 0.72, hat * 0.42),
       inputLevel: clamp(smoothstep(-60, -10, rmsDb + autoGainDb), 0, 1),
     };
+    lastFrame = frame;
+    lastDt = dt;
+    lastKey = key;
+    lastOut = out;
+    return { ...out };
   };
 }

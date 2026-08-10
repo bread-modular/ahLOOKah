@@ -29,6 +29,9 @@ export class PreviewAudio {
     this.liveFrameAt = 0;
     this.lastFrequencyFrame = null;
     this.lastWaveformFrame = null;
+    // Owner/sequence validation to reject stale/out-of-order frames
+    this._seq = -1;
+    this._owner = null;
 
     this.frequencyLeft = new Uint8Array(FREQ_BINS);
     this.frequencyRight = new Uint8Array(FREQ_BINS);
@@ -50,8 +53,34 @@ export class PreviewAudio {
   // BroadcastChannel clones typed arrays for receiving windows, so retaining the
   // latest frame is safe. The sending control window also dispatches locally and
   // intentionally shares AudioManager's reusable buffers until the next tick.
-  setFrame(frame) {
+  setFrame(frame, sequence, ownerId) {
     if (!frame || (!frame.left?.length && !frame.right?.length)) return;
+
+    // Resolve sequence/owner from explicit args or frame metadata
+    let seq = null;
+    let owner = null;
+    if (Number.isFinite(sequence)) seq = Number(sequence);
+    else if (Number.isFinite(frame.sequence)) seq = Number(frame.sequence);
+    else if (Number.isFinite(frame.seq)) seq = Number(frame.seq);
+    else if (Number.isFinite(frame.time) && Number.isFinite(this.liveFrame?.time) && !this._isFrameStale()) {
+      // Use time as monotonic sequence when no explicit sequence.
+      // Only apply when the previous frame is still fresh; after a stale
+      // expiry (e.g. owning control reloads and currentTime resets near 0),
+      // accept the first fresh frame regardless of its time value.
+      if (frame.time < this.liveFrame.time) return;
+    }
+
+    if (ownerId) owner = String(ownerId);
+    else if (frame.ownerId) owner = String(frame.ownerId);
+    else if (frame.deviceId) owner = String(frame.deviceId);
+
+    // Validate sequence monotonicity
+    if (seq !== null) {
+      if (seq <= this._seq) return;
+      this._seq = seq;
+    }
+
+    if (owner !== null) this._owner = owner;
 
     this.liveFrame = {
       left: frame.left,
@@ -62,6 +91,8 @@ export class PreviewAudio {
       fftSize: Number(frame.fftSize) || FFT_SIZE,
       time: Number(frame.time) || performance.now() / 1000,
       rms: Number.isFinite(frame.rms) ? frame.rms : undefined,
+      sequence: seq,
+      ownerId: owner,
     };
     this.liveFrameAt = performance.now();
     this.lastFrequencyFrame = null;
@@ -75,14 +106,27 @@ export class PreviewAudio {
     this.lastFrequencyFrame = null;
     this.lastWaveformFrame = null;
     this.isStarted = this.idleSignal;
+    this._seq = -1;
+    this._owner = null;
   }
 
   hasLiveFrame() {
     // Allow a short grace period so an occasional dropped message does not make
     // previews jump to idle or output screens briefly stop reacting.
     const live = !!this.liveFrame && performance.now() - this.liveFrameAt < this.staleAfterMs;
-    if (!live && !this.idleSignal) this.isStarted = false;
+    if (!live) {
+      if (!this.idleSignal) this.isStarted = false;
+      // Expire stale frame so getters fall back to neutral values instead of hot data
+      if (this.liveFrame && performance.now() - this.liveFrameAt >= this.staleAfterMs) {
+        this.lastFrequencyFrame = null;
+        this.lastWaveformFrame = null;
+      }
+    }
     return live;
+  }
+
+  _isFrameStale() {
+    return !this.liveFrame || performance.now() - this.liveFrameAt >= this.staleAfterMs;
   }
 
   getAnalysisFrame() {
@@ -95,6 +139,14 @@ export class PreviewAudio {
   getFrequencies() {
     const frame = this.getAnalysisFrame();
     if (!frame) return null;
+    // When stale, hasLiveFrame already expired; for idleSignal true we return idle, for false we returned null above.
+    // Additional TTL guard: if liveFrame is stale, ensure we don't return hot cached bytes
+    if (frame !== this.idleFrame && this._isFrameStale()) {
+      // Fall back to neutral zeros rather than hot stale data
+      this.frequencyLeft.fill(0);
+      this.frequencyRight.fill(0);
+      return { left: this.frequencyLeft, right: this.frequencyRight };
+    }
     if (frame === this.idleFrame) {
       // updateIdleFrame already filled the byte-domain buffers.
       return { left: this.frequencyLeft, right: this.frequencyRight };
@@ -111,6 +163,11 @@ export class PreviewAudio {
   getWaveforms() {
     const frame = this.getAnalysisFrame();
     if (!frame) return null;
+    if (frame !== this.idleFrame && this._isFrameStale()) {
+      this.waveformLeft.fill(128);
+      this.waveformRight.fill(128);
+      return { left: this.waveformLeft, right: this.waveformRight };
+    }
     if (frame === this.idleFrame) {
       return { left: this.waveformLeft, right: this.waveformRight };
     }
@@ -126,6 +183,10 @@ export class PreviewAudio {
   getAmplitudes() {
     const frame = this.getAnalysisFrame();
     if (!frame || frame === this.idleFrame) return this.idleAmplitude;
+    if (this._isFrameStale()) {
+      // Fall back to neutral zeros when stale, not hot amplitude
+      return { left: 0, right: 0 };
+    }
     return {
       left: this.waveformAmplitude(frame.waveformLeft),
       right: this.waveformAmplitude(frame.waveformRight || frame.waveformLeft),
@@ -160,6 +221,9 @@ export class PreviewAudio {
 
   waveformAmplitude(source) {
     if (!source?.length) return 0;
+    // TTL: if underlying live frame is stale, return neutral 0 instead of stale hot value
+    if (this._isFrameStale() && this.liveFrame && source === this.liveFrame.waveformLeft) return 0;
+    if (this._isFrameStale() && this.liveFrame && source === this.liveFrame.waveformRight) return 0;
     let sum = 0;
     for (let i = 0; i < source.length; i++) {
       const sample = Number.isFinite(source[i]) ? source[i] : 0;
