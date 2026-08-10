@@ -109,8 +109,10 @@ export default (audio, videoDeviceId, params, runtime) => (p) => {
 
     capture = runtime?.createCapture(p, constraints, () => {
       isCaptureReady = true;
+      runtime?.reportMediaReady?.();
     }) || p.createCapture(constraints, () => {
       isCaptureReady = true;
+      runtime?.reportMediaReady?.();
     });
     capture.hide();
   };
@@ -130,7 +132,7 @@ export default (audio, videoDeviceId, params, runtime) => (p) => {
 
   p.draw = () => {
     p.background(0);
-    if (!isCaptureReady || !capture.loadedmetadata) return;
+    if (!isCaptureReady || !capture?.loadedmetadata) return;
 
     const freqs = audio.getFrequencies();
     const amps = audio.getAmplitudes();

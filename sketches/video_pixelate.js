@@ -83,8 +83,10 @@ export default (audio, videoDeviceId, params, runtime) => (p) => {
 
     capture = runtime?.createCapture(p, constraints, () => {
       isCaptureReady = true;
+      runtime?.reportMediaReady?.();
     }) || p.createCapture(constraints, () => {
       isCaptureReady = true;
+      runtime?.reportMediaReady?.();
     });
     capture.hide();
   };
@@ -95,7 +97,7 @@ export default (audio, videoDeviceId, params, runtime) => (p) => {
     elapsed += dt;
 
     p.background(0);
-    if (!isCaptureReady || !capture.loadedmetadata || !capture.width) return;
+    if (!isCaptureReady || !capture?.loadedmetadata || !capture?.width) return;
 
     const frame = audio && audio.isStarted && typeof audio.getAnalysisFrame === 'function'
       ? audio.getAnalysisFrame()

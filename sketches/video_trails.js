@@ -7,6 +7,7 @@ export default (audio, videoDeviceId, params, runtime) => (p) => {
   let capture;
   let isCaptureReady = false;
   let smoothSub = 0;
+  let trailBuffer = null;
 
   p.setup = () => {
     p.createCanvas(p.windowWidth, p.windowHeight);
@@ -25,10 +26,24 @@ export default (audio, videoDeviceId, params, runtime) => (p) => {
 
     capture = runtime?.createCapture(p, constraints, () => {
       isCaptureReady = true;
+      runtime?.reportMediaReady?.();
     }) || p.createCapture(constraints, () => {
       isCaptureReady = true;
+      runtime?.reportMediaReady?.();
     });
     capture.hide();
+
+    if (runtime?.addCleanup) {
+      runtime.addCleanup(() => {
+        try { capture?.elt?.pause?.(); } catch {}
+        try { capture = null; } catch {}
+        isCaptureReady = false;
+        if (trailBuffer) {
+          try { trailBuffer.remove(); } catch {}
+          trailBuffer = null;
+        }
+      });
+    }
   };
 
   // Smoothed sub-bass level (0..1); always safe when audio is unavailable.
@@ -49,7 +64,7 @@ export default (audio, videoDeviceId, params, runtime) => (p) => {
     const blendSel = Math.round(P.blend ?? 0);
     const audioDecay = P.audioDecay ?? 1;
 
-    if (!isCaptureReady || !capture.loadedmetadata || !capture.width) {
+    if (!isCaptureReady || !capture?.loadedmetadata || !capture?.width) {
       p.blendMode(p.BLEND);
       p.background(0);
       return;
