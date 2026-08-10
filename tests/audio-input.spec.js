@@ -8,6 +8,7 @@ async function openScreenAndControl(context, screen) {
   const control = await context.newPage();
   await control.goto(CONTROL_URL);
   await expect(control.locator('#status-line .badge-online')).toBeVisible();
+  await control.waitForFunction(() => window.__viz.audioOwner);
   return control;
 }
 
@@ -20,7 +21,7 @@ async function ensureAudioOptions(control) {
 }
 
 test.describe('audio input lifecycle', () => {
-  test('an online screen starts the explicitly selected input and feeds the EQ', async ({ context, page }) => {
+  test('the control starts the selected input, feeds its EQ, and sends frames to the screen', async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
 
     await expect(control.locator('#band-eq-idle')).toHaveText('Select an audio input in Devices & Setup.');
@@ -29,19 +30,36 @@ test.describe('audio input lifecycle', () => {
     expect(selectedId).toBeTruthy();
     await control.locator('#audio-select').selectOption(selectedId);
 
-    await page.waitForFunction((deviceId) => (
-      window.__viz.audioDeviceId === deviceId
+    await control.waitForFunction((deviceId) => (
+      window.__viz.audioOwner
+      && window.__viz.audioDeviceId === deviceId
       && window.__viz.audioStatus.status === 'running'
-      && window.__viz.audio.isStarted
+      && window.__viz.captureAudio.isStarted
     ), selectedId);
     await control.waitForFunction(() => (window.__viz.eq?.drawn ?? 0) > 1);
+    await page.waitForFunction(() => window.__viz.audio.isStarted);
+    expect(await page.evaluate(() => window.__viz.captureAudio.isStarted)).toBe(false);
     await expect(control.locator('#band-eq-idle')).toBeHidden();
   });
 
-  test('a screen-wide click resumes suspended Web Audio and restores the EQ feed', async ({ context, page }) => {
+  test('elects one capture panel and hands ownership to another when it closes', async ({ context, page }) => {
+    await page.goto(CONTROL_URL);
+    await page.waitForFunction(() => window.__viz.audioOwner);
+
+    const second = await context.newPage();
+    await second.goto(CONTROL_URL);
+    await second.waitForFunction(() => window.__viz && !window.__viz.audioOwner);
+    expect(await page.evaluate(() => window.__viz.audioOwner)).toBe(true);
+
+    await page.close();
+    await second.waitForFunction(() => window.__viz.audioOwner);
+    expect(await second.evaluate(() => window.__viz.captureAudio.isStarted)).toBe(false);
+  });
+
+  test('a control-panel click resumes suspended Web Audio and restores the EQ feed', async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
 
-    await page.evaluate(() => {
+    await control.evaluate(() => {
       const sampleRate = 48_000;
       const fftSize = 2_048;
       const bins = fftSize / 2;
@@ -58,7 +76,7 @@ test.describe('audio input lifecycle', () => {
         currentTime: 0,
         onstatechange: null,
       };
-      const audio = window.__viz.audio;
+      const audio = window.__viz.captureAudio;
       audio.audioContext = context;
       audio.analyserL = analyser();
       audio.analyserR = analyser();
@@ -78,11 +96,11 @@ test.describe('audio input lifecycle', () => {
       audio.reportStatus('suspended');
     });
 
-    await expect(control.locator('#band-eq-idle')).toHaveText('Click the screen window to enable audio.');
-    await page.locator('canvas.p5Canvas').first().click({ position: { x: 20, y: 20 } });
+    await expect(control.locator('#band-eq-idle')).toHaveText('Click this control panel to enable audio.');
+    await control.locator('#preview-stage').click({ position: { x: 20, y: 20 } });
 
-    await page.waitForFunction(() => (
-      window.__viz.audio.getState() === 'running'
+    await control.waitForFunction(() => (
+      window.__viz.captureAudio.getState() === 'running'
       && window.__resumeCalls.includes(true)
     ));
     await control.waitForFunction(() => (window.__viz.eq?.drawn ?? 0) > 1);
@@ -92,27 +110,27 @@ test.describe('audio input lifecycle', () => {
   test('a denied microphone reports the real blocker instead of waiting forever', async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
 
-    const started = await page.evaluate(async () => {
+    const started = await control.evaluate(async () => {
       Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {
         configurable: true,
         value: async () => {
           throw new DOMException('Permission denied for test', 'NotAllowedError');
         },
       });
-      return window.__viz.audio.startStream('blocked-input');
+      return window.__viz.captureAudio.startStream('blocked-input');
     });
 
     expect(started).toBe(false);
     await expect(control.locator('#band-eq-idle')).toHaveText(
       'Microphone access denied. Re-initialize Devices & Setup.',
     );
-    expect(await page.evaluate(() => window.__viz.audioStatus.error?.name)).toBe('NotAllowedError');
+    expect(await control.evaluate(() => window.__viz.audioStatus.error?.name)).toBe('NotAllowedError');
   });
 
   test('a stale selected device falls back to the default audio input', async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
 
-    const started = await page.evaluate(async () => {
+    const started = await control.evaluate(async () => {
       const mediaDevices = navigator.mediaDevices;
       const realGetUserMedia = mediaDevices.getUserMedia.bind(mediaDevices);
       window.__getUserMediaConstraints = [];
@@ -126,12 +144,12 @@ test.describe('audio input lifecycle', () => {
           return realGetUserMedia(constraints);
         },
       });
-      return window.__viz.audio.startStream('stale-device-id');
+      return window.__viz.captureAudio.startStream('stale-device-id');
     });
 
     expect(started).toBe(true);
-    await page.waitForFunction(() => window.__viz.audioStatus.status === 'running');
-    const result = await page.evaluate(() => ({
+    await control.waitForFunction(() => window.__viz.audioStatus.status === 'running');
+    const result = await control.evaluate(() => ({
       status: window.__viz.audioStatus,
       calls: window.__getUserMediaConstraints,
     }));

@@ -1,15 +1,15 @@
-// A lightweight audio facade for the in-panel preview stage.
+// A lightweight audio facade for analysis frames shared between windows.
 //
-// The actual screen window owns microphone capture. It broadcasts cleaned
-// analysis frames to control windows, which are consumed here. Before a screen
-// (or audio input) is available, this class supplies a deterministic musical
-// idle signal so every legacy and WebGL visual can be previewed instead of
-// rendering a blank canvas.
+// Control-panel previews use the default musical idle signal when no input is
+// available. Output screens construct the same facade with `idleSignal: false`,
+// so they stay quiet until a control panel sends real microphone analysis.
 
 const SAMPLE_RATE = 48_000;
 const FFT_SIZE = 2_048;
 const FREQ_BINS = FFT_SIZE / 2;
-const WAVE_SAMPLES = FFT_SIZE;
+// AudioManager's legacy byte-waveform API uses analyser.frequencyBinCount,
+// while high-resolution analysis frames retain the full FFT window.
+const WAVE_SAMPLES = FFT_SIZE / 2;
 const MIN_DB = -100;
 const MAX_DB = -30;
 
@@ -18,10 +18,13 @@ const dbToByte = (db) => Math.round(clamp(((Number.isFinite(db) ? db : MIN_DB) -
 const waveToByte = (sample) => Math.round(clamp((Number.isFinite(sample) ? sample : 0) * 128 + 128, 0, 255));
 
 export class PreviewAudio {
-  constructor() {
-    // Legacy sketches gate their draw loops on this flag. Keep it true so the
-    // preview stays active with the musical idle signal while no screen exists.
-    this.isStarted = true;
+  constructor({ idleSignal = true, staleAfterMs = 1_500 } = {}) {
+    this.idleSignal = Boolean(idleSignal);
+    this.staleAfterMs = Math.max(100, Number(staleAfterMs) || 1_500);
+    // Legacy sketches gate their draw loops on this flag. Panel previews remain
+    // active with the idle signal; quiet output screens become active on receipt
+    // of their first live frame.
+    this.isStarted = this.idleSignal;
     this.liveFrame = null;
     this.liveFrameAt = 0;
     this.lastFrequencyFrame = null;
@@ -44,8 +47,9 @@ export class PreviewAudio {
     this.idleAmplitude = { left: 0, right: 0 };
   }
 
-  // BroadcastChannel clones the typed arrays for us, so retaining this frame is
-  // safe and keeps the preview tied to the screen's cleaned analysis data.
+  // BroadcastChannel clones typed arrays for receiving windows, so retaining the
+  // latest frame is safe. The sending control window also dispatches locally and
+  // intentionally shares AudioManager's reusable buffers until the next tick.
   setFrame(frame) {
     if (!frame || (!frame.left?.length && !frame.right?.length)) return;
 
@@ -57,27 +61,40 @@ export class PreviewAudio {
       sampleRate: Number(frame.sampleRate) || SAMPLE_RATE,
       fftSize: Number(frame.fftSize) || FFT_SIZE,
       time: Number(frame.time) || performance.now() / 1000,
+      rms: Number.isFinite(frame.rms) ? frame.rms : undefined,
     };
     this.liveFrameAt = performance.now();
     this.lastFrequencyFrame = null;
     this.lastWaveformFrame = null;
+    this.isStarted = true;
+  }
+
+  clearFrame() {
+    this.liveFrame = null;
+    this.liveFrameAt = 0;
+    this.lastFrequencyFrame = null;
+    this.lastWaveformFrame = null;
+    this.isStarted = this.idleSignal;
   }
 
   hasLiveFrame() {
-    // A screen broadcasts about 15 analysis frames per second. Give the stream
-    // a short grace period so an occasional dropped message does not make the
-    // preview visibly jump back to its idle choreography.
-    return !!this.liveFrame && performance.now() - this.liveFrameAt < 1_500;
+    // Allow a short grace period so an occasional dropped message does not make
+    // previews jump to idle or output screens briefly stop reacting.
+    const live = !!this.liveFrame && performance.now() - this.liveFrameAt < this.staleAfterMs;
+    if (!live && !this.idleSignal) this.isStarted = false;
+    return live;
   }
 
   getAnalysisFrame() {
     if (this.hasLiveFrame()) return this.liveFrame;
+    if (!this.idleSignal) return null;
     this.updateIdleFrame();
     return this.idleFrame;
   }
 
   getFrequencies() {
     const frame = this.getAnalysisFrame();
+    if (!frame) return null;
     if (frame === this.idleFrame) {
       // updateIdleFrame already filled the byte-domain buffers.
       return { left: this.frequencyLeft, right: this.frequencyRight };
@@ -93,6 +110,7 @@ export class PreviewAudio {
 
   getWaveforms() {
     const frame = this.getAnalysisFrame();
+    if (!frame) return null;
     if (frame === this.idleFrame) {
       return { left: this.waveformLeft, right: this.waveformRight };
     }
@@ -107,15 +125,15 @@ export class PreviewAudio {
 
   getAmplitudes() {
     const frame = this.getAnalysisFrame();
-    if (frame === this.idleFrame) return this.idleAmplitude;
+    if (!frame || frame === this.idleFrame) return this.idleAmplitude;
     return {
       left: this.waveformAmplitude(frame.waveformLeft),
       right: this.waveformAmplitude(frame.waveformRight || frame.waveformLeft),
     };
   }
 
-  // Preview canvases call p.mousePressed(), which asks their audio provider to
-  // resume. The screen owns real capture, so this intentionally stays a no-op.
+  // Sketch canvases may ask their audio provider to resume. Real Web Audio lives
+  // in the capture-owning control window, so a frame receiver is always a no-op.
   resume() {
     return Promise.resolve();
   }

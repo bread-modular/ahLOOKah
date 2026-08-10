@@ -13,10 +13,11 @@ const BIN_HZ = SAMPLE_RATE / FFT_SIZE;
 const NOISE_BIN = Math.round(100 / BIN_HZ);
 const TONE_BIN = Math.round(1000 / BIN_HZ);
 
-// Replace the analysers with deterministic fakes so the REAL getAnalysisFrame
-// path (capture feed + in-place subtraction) runs without a microphone. The
-// tone is gated by window.__musicOn so the capture samples silence + hum only.
+// Replace the owning control's analysers with deterministic fakes so the REAL
+// getAnalysisFrame path runs without a microphone. The tone is gated by
+// window.__musicOn so the capture samples silence + hum only.
 async function installFakeAnalysers(page) {
+  await page.waitForFunction(() => window.__viz.audioOwner);
   await page.evaluate(({ sampleRate, fftSize }) => {
     const bins = fftSize / 2;
     const binHz = sampleRate / fftSize;
@@ -31,7 +32,7 @@ async function installFakeAnalysers(page) {
       getFloatFrequencyData: (arr) => fill(arr),
       getFloatTimeDomainData: (arr) => arr.fill(0.0005),
     });
-    const a = window.__viz.audio;
+    const a = window.__viz.captureAudio;
     a.audioContext = { state: 'running', sampleRate, currentTime: 0, resume: () => Promise.resolve() };
     a.analyserL = mkAnalyser();
     a.analyserR = mkAnalyser();
@@ -91,12 +92,12 @@ test.describe('noise floor capture & subtraction', () => {
     expect(res.stored).toBe(true);
   });
 
-  test('control panel captures via the screen, spectrum is cleaned everywhere, clear restores', async ({ context, page }) => {
+  test('control panel captures locally, sends cleaned audio to the screen, and clear restores', async ({ context, page }) => {
     await page.goto(SCREEN_URL);
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
 
-    await installFakeAnalysers(page);
+    await installFakeAnalysers(control);
 
     // Before capture the raw signature rides the spectrum broadcast
     await control.waitForFunction(() => (window.__viz.eq?.drawn ?? 0) > 1);
@@ -114,16 +115,16 @@ test.describe('noise floor capture & subtraction', () => {
     await control.locator('#noise-capture-btn').click();
     await expect(control.locator('#noise-status')).toContainText('Capturing');
 
-    // Screen finalises after the requested duration and broadcasts ready
+    // The capture-owning control finalises and broadcasts the ready profile
     await expect(control.locator('#noise-status')).toContainText('Noise floor active', { timeout: 15000 });
     expect(await page.evaluate(() => window.__viz.noise.profile)).toBeTruthy();
 
     // Now the music starts — the tone must survive the subtraction
-    await page.evaluate(() => { window.__musicOn = true; });
+    await control.evaluate(() => { window.__musicOn = true; });
 
-    // The live analysis frame on the screen is now cleaned in place
-    const cleaned = await page.evaluate(({ noiseBin, toneBin }) => {
-      const f = window.__viz.audio.getAnalysisFrame();
+    // The owning control cleans the source frame before broadcasting it
+    const cleaned = await control.evaluate(({ noiseBin, toneBin }) => {
+      const f = window.__viz.captureAudio.getAnalysisFrame();
       return { noise: f.left[noiseBin], tone: f.left[toneBin] };
     }, { noiseBin: NOISE_BIN, toneBin: TONE_BIN });
     expect(cleaned.noise).toBeLessThan(-75);
@@ -144,8 +145,8 @@ test.describe('noise floor capture & subtraction', () => {
     await control.locator('#noise-clear-btn').click();
     await expect(control.locator('#noise-status')).toContainText('No noise profile');
     expect(await page.evaluate(() => window.__viz.noise.profile)).toBeNull();
-    const restored = await page.evaluate(({ noiseBin }) => {
-      const f = window.__viz.audio.getAnalysisFrame();
+    const restored = await control.evaluate(({ noiseBin }) => {
+      const f = window.__viz.captureAudio.getAnalysisFrame();
       return f.left[noiseBin];
     }, { noiseBin: NOISE_BIN });
     expect(restored).toBeGreaterThan(-55);

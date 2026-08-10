@@ -42,9 +42,12 @@ const myId = Math.random().toString(36).slice(2);
 const MY_BOOT_TIME = Date.now();
 
 const channel = new BroadcastChannel('viz2_channel');
+// Exactly one control window owns the physical microphone and Web Audio graph.
+// Output screens consume its cleaned analysis snapshots through screenAudio.
 const audio = new AudioManager();
-// Control windows render their own lightweight stage using the screen's
-// broadcast analysis (or a musical idle signal until a screen is available).
+const screenAudio = new PreviewAudio({ idleSignal: false, staleAfterMs: 750 });
+// Control previews use those same snapshots, with a musical idle signal before
+// an input is selected or while no capture-owning panel is available.
 const previewAudio = new PreviewAudio();
 
 let currentP5 = null;
@@ -66,6 +69,17 @@ let screenOnline = myRole === 'screen';
 let panel = null;
 let lastAudioStatus = audio.getStatus();
 let audioRestartTimer = 0;
+let isAudioOwner = false;
+let wantsAudioOwnership = false;
+let audioOwnershipTask = null;
+let audioOwnershipAbort = null;
+let releaseAudioOwnershipLock = null;
+let audioLockHeld = false;
+let fallbackLeaseTimer = 0;
+
+const AUDIO_LOCK_NAME = 'viz2_audio_capture_owner';
+const AUDIO_LEASE_KEY = 'viz2_audio_capture_lease';
+const AUDIO_LEASE_MS = 3_000;
 
 const STORAGE = {
   audio: 'viz2_audio_device_id',
@@ -195,8 +209,8 @@ function loadMerged(indexA, indexB) {
   const skA = ordered[indexA];
   const skB = ordered[indexB];
 
-  const p5A = new p5(skA.factory(audio, currentVideoDeviceId, getParams(skA.id)));
-  const p5B = new p5(skB.factory(audio, currentVideoDeviceId, getParams(skB.id)));
+  const p5A = new p5(skA.factory(screenAudio, currentVideoDeviceId, getParams(skA.id)));
+  const p5B = new p5(skB.factory(screenAudio, currentVideoDeviceId, getParams(skB.id)));
 
   mergeP5 = [p5A, p5B];
   adoptCanvas(p5A);
@@ -514,8 +528,8 @@ function loadSketch(index, merge = null) {
     mergeIds = [skA.id, skB.id];
     activeSketchId = skA.id;
 
-    // Inject audio, current video device ID, and the LIVE params object so the
-    // sketch reads updated param values every frame.
+    // Inject received audio, the video device ID, and each LIVE params object so
+    // both sketches update every frame without either opening the microphone.
     currentP5 = loadMerged(merge[0], merge[1]);
 
     console.log(`Loaded merged sketch ${skA.name} + ${skB.name}`);
@@ -525,9 +539,9 @@ function loadSketch(index, merge = null) {
     const sketch = ordered[index];
     activeSketchId = sketch.id;
 
-    // Inject audio, current video device ID, and the LIVE params object so the
-    // sketch reads updated param values every frame.
-    currentP5 = new p5(sketch.factory(audio, currentVideoDeviceId, getParams(sketch.id)));
+    // Inject remote audio, current video device ID, and the LIVE params object
+    // so the sketch reads updated values every frame without owning a mic.
+    currentP5 = new p5(sketch.factory(screenAudio, currentVideoDeviceId, getParams(sketch.id)));
     adoptCanvas(currentP5);
 
     console.log(`Loaded sketch ${index + 1} (${sketch.name})`);
@@ -548,7 +562,7 @@ function loadSketchById(id) {
   mergeIds = null;
   activeSketchId = id;
 
-  currentP5 = new p5(sketch.factory(audio, currentVideoDeviceId, getParams(id)));
+  currentP5 = new p5(sketch.factory(screenAudio, currentVideoDeviceId, getParams(id)));
   adoptCanvas(currentP5);
   console.log(`Loaded sketch ${sketch.name}`);
 }
@@ -567,12 +581,12 @@ function updateActiveSketchId() {
 
 function handleAudioManagerStatus(status) {
   lastAudioStatus = { ...status };
-  if (myRole === 'screen') broadcast({ type: 'audio-status', ...lastAudioStatus });
+  if (isAudioOwner) broadcast({ type: 'audio-status', ...lastAudioStatus });
 
   // An unplugged interface normally raises both track "ended" and
   // mediaDevices "devicechange". Keep the ended path as a fallback for
   // browsers that only send one of them.
-  if (myRole === 'screen' && status?.error?.name === 'DeviceEndedError') {
+  if (isAudioOwner && status?.error?.name === 'DeviceEndedError') {
     scheduleAudioRecovery();
   }
 }
@@ -580,6 +594,7 @@ function handleAudioManagerStatus(status) {
 audio.setStatusListener(handleAudioManagerStatus);
 
 function startAudio(deviceId = localStorage.getItem(STORAGE.audio)) {
+  if (!isAudioOwner) return Promise.resolve(false);
   if (!deviceId) {
     currentAudioDeviceId = null;
     audio.reportStatus('unselected');
@@ -590,24 +605,27 @@ function startAudio(deviceId = localStorage.getItem(STORAGE.audio)) {
   return audio.startStream(deviceId);
 }
 
-// Apply an explicit selection from the control panel. The ids ride the message
-// itself instead of relying on cross-process localStorage propagation timing.
+// Apply explicit selections from any panel. Audio is acted on only by the one
+// capture-owning control window; video remains owned by the output screen.
 function applyDevices(selection = {}) {
   const explicitAudioId = typeof selection.audioDeviceId === 'string' ? selection.audioDeviceId : null;
   const explicitVideoId = typeof selection.videoDeviceId === 'string' ? selection.videoDeviceId : null;
-  const savedAudioId = explicitAudioId || localStorage.getItem(STORAGE.audio);
-  const savedVideoId = explicitVideoId || localStorage.getItem(STORAGE.video);
-
   if (explicitAudioId) localStorage.setItem(STORAGE.audio, explicitAudioId);
   if (explicitVideoId) localStorage.setItem(STORAGE.video, explicitVideoId);
 
-  if (savedAudioId && (savedAudioId !== currentAudioDeviceId || !audio.isStarted)) {
-    startAudio(savedAudioId);
-  } else if (!savedAudioId) {
-    audio.reportStatus('unselected');
+  const savedAudioId = explicitAudioId || localStorage.getItem(STORAGE.audio);
+  const savedVideoId = explicitVideoId || localStorage.getItem(STORAGE.video);
+  currentAudioDeviceId = savedAudioId || null;
+
+  if (isAudioOwner) {
+    if (savedAudioId && (savedAudioId !== audio.requestedDeviceId || !audio.isStarted)) {
+      startAudio(savedAudioId);
+    } else if (!savedAudioId) {
+      audio.reportStatus('unselected');
+    }
   }
 
-  if (savedVideoId && savedVideoId !== currentVideoDeviceId) {
+  if (myRole === 'screen' && savedVideoId && savedVideoId !== currentVideoDeviceId) {
     currentVideoDeviceId = savedVideoId;
     // Reload the current sketch only if it's a webcam-dependent one — this
     // covers both pad-based and library-only (id-based) camera effects, and
@@ -621,10 +639,10 @@ function applyDevices(selection = {}) {
 }
 
 function scheduleAudioRecovery() {
-  if (audioRestartTimer || myRole !== 'screen' || !currentAudioDeviceId) return;
+  if (audioRestartTimer || !isAudioOwner || !currentAudioDeviceId) return;
   audioRestartTimer = window.setTimeout(async () => {
     audioRestartTimer = 0;
-    if (myRole !== 'screen' || !currentAudioDeviceId) return;
+    if (!isAudioOwner || !currentAudioDeviceId) return;
 
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
@@ -647,6 +665,116 @@ function scheduleAudioRecovery() {
 
 navigator.mediaDevices?.addEventListener?.('devicechange', scheduleAudioRecovery);
 
+function takeAudioOwnership() {
+  if (isAudioOwner || !wantsAudioOwnership || myRole !== 'control') return;
+  isAudioOwner = true;
+  currentAudioDeviceId = localStorage.getItem(STORAGE.audio) || null;
+  startAudioBroadcast();
+  startAudio(currentAudioDeviceId);
+  // Ensure newly opened peers receive a status even if AudioManager's state did
+  // not change enough to trigger its de-duplicated listener.
+  broadcast({ type: 'audio-status', ...audio.getStatus() });
+}
+
+function relinquishAudioOwnership() {
+  if (!isAudioOwner) return;
+  isAudioOwner = false;
+  if (audioRestartTimer) clearTimeout(audioRestartTimer);
+  audioRestartTimer = 0;
+  stopAudioBroadcast();
+  if (noiseCaptureActive) {
+    cancelNoiseCapture();
+    noiseCaptureActive = false;
+    broadcast({ type: 'noise-floor', status: 'cancelled' });
+  }
+  audio.stop();
+}
+
+// Web Locks provide an atomic, browser-managed owner election across same-origin
+// windows. A queued panel takes over automatically when the current owner closes.
+function beginAudioOwnership() {
+  wantsAudioOwnership = true;
+  if (myRole !== 'control' || audioOwnershipTask || fallbackLeaseTimer) return;
+
+  if (navigator.locks?.request) {
+    audioOwnershipAbort = new AbortController();
+    audioOwnershipTask = navigator.locks.request(
+      AUDIO_LOCK_NAME,
+      { mode: 'exclusive', signal: audioOwnershipAbort.signal },
+      async () => {
+        audioLockHeld = true;
+        if (!wantsAudioOwnership || myRole !== 'control') {
+          audioLockHeld = false;
+          return;
+        }
+        takeAudioOwnership();
+        await new Promise((resolve) => { releaseAudioOwnershipLock = resolve; });
+        releaseAudioOwnershipLock = null;
+        relinquishAudioOwnership();
+        audioLockHeld = false;
+      },
+    ).catch((err) => {
+      if (err?.name !== 'AbortError') console.error('Audio ownership lock failed:', err);
+    }).finally(() => {
+      audioOwnershipTask = null;
+      audioOwnershipAbort = null;
+      audioLockHeld = false;
+      if (wantsAudioOwnership && myRole === 'control') beginAudioOwnership();
+    });
+    return;
+  }
+
+  // Fallback for browsers without Web Locks: a short localStorage lease. The
+  // verify-after-write step resolves simultaneous claims; the lease heartbeat
+  // also lets another panel recover after a crash.
+  refreshFallbackAudioLease();
+}
+
+function readFallbackAudioLease() {
+  try {
+    const lease = JSON.parse(localStorage.getItem(AUDIO_LEASE_KEY) || 'null');
+    return lease && typeof lease.id === 'string' && Number.isFinite(lease.expires) ? lease : null;
+  } catch {
+    return null;
+  }
+}
+
+function refreshFallbackAudioLease() {
+  if (fallbackLeaseTimer) clearTimeout(fallbackLeaseTimer);
+  fallbackLeaseTimer = 0;
+  if (!wantsAudioOwnership || myRole !== 'control' || navigator.locks?.request) return;
+
+  const now = Date.now();
+  const lease = readFallbackAudioLease();
+  if (!lease || lease.id === myId || lease.expires <= now) {
+    localStorage.setItem(AUDIO_LEASE_KEY, JSON.stringify({ id: myId, expires: now + AUDIO_LEASE_MS }));
+  }
+
+  const confirmed = readFallbackAudioLease();
+  if (confirmed?.id === myId) takeAudioOwnership();
+  else relinquishAudioOwnership();
+  fallbackLeaseTimer = window.setTimeout(refreshFallbackAudioLease, AUDIO_LEASE_MS / 3);
+}
+
+function endAudioOwnership() {
+  wantsAudioOwnership = false;
+  if (fallbackLeaseTimer) clearTimeout(fallbackLeaseTimer);
+  fallbackLeaseTimer = 0;
+
+  const lease = readFallbackAudioLease();
+  if (lease?.id === myId) localStorage.removeItem(AUDIO_LEASE_KEY);
+
+  if (audioLockHeld && releaseAudioOwnershipLock) releaseAudioOwnershipLock();
+  else if (audioOwnershipAbort) audioOwnershipAbort.abort();
+  relinquishAudioOwnership();
+}
+
+window.addEventListener('storage', (event) => {
+  if (event.key === AUDIO_LEASE_KEY && wantsAudioOwnership && !navigator.locks?.request) {
+    refreshFallbackAudioLease();
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Role switching
 // ---------------------------------------------------------------------------
@@ -657,14 +785,12 @@ function becomeControl() {
 
   document.title = 'Viz Control';
   removeCurrentP5();
-  if (audioRestartTimer) clearTimeout(audioRestartTimer);
-  audioRestartTimer = 0;
-  audio.stop();
-  stopSpectrumBroadcast();
-  currentAudioDeviceId = null;
+  screenAudio.clearFrame();
+  currentAudioDeviceId = localStorage.getItem(STORAGE.audio) || null;
 
   document.body.classList.add('is-control');
   document.body.classList.remove('is-screen');
+  beginAudioOwnership();
 
   console.log(`Window ${myId} became a control panel`);
 }
@@ -694,8 +820,10 @@ function handleMessage(msg) {
       }
       if (myRole === 'screen') {
         broadcast({ type: 'state', pattern: currentIndex, merge: mergeIndices, patternId: activeSketchId });
-        // A panel opened after audio startup would otherwise miss the one-time
-        // starting/running/suspended event and keep its generic idle message.
+      }
+      // A window opened after capture startup would otherwise miss the one-time
+      // starting/running/suspended event. The capture owner answers every hello.
+      if (isAudioOwner && msg.windowId !== myId) {
         broadcast({ type: 'audio-status', ...lastAudioStatus });
       }
       break;
@@ -751,16 +879,25 @@ function handleMessage(msg) {
 
     case 'devices':
       // Device ids are included explicitly; localStorage remains persistence,
-      // not an inter-window delivery mechanism.
-      if (myRole === 'screen') applyDevices(msg);
+      // not an inter-window delivery mechanism. Every window stores the choice,
+      // but only the audio-owner control and the output screen act on it.
+      applyDevices(msg);
       break;
 
     case 'audio-status':
-      if (myRole === 'control' && panel) {
-        screenOnline = true;
-        panel.setScreenOnline(true);
-        panel.setAudioStatus(msg);
+      lastAudioStatus = {
+        status: msg.status,
+        state: msg.state,
+        deviceId: msg.deviceId,
+        activeDeviceId: msg.activeDeviceId,
+        fallback: Boolean(msg.fallback),
+        error: msg.error || null,
+      };
+      if (msg.status !== 'running') {
+        if (myRole === 'screen') screenAudio.clearFrame();
+        else previewAudio.clearFrame();
       }
+      if (myRole === 'control' && panel) panel.setAudioStatus(lastAudioStatus);
       return;
 
     case 'params':
@@ -787,30 +924,31 @@ function handleMessage(msg) {
       break;
 
     case 'spectrum':
-      // High-frequency log-spectrum feed for the control panel's band-split
-      // EQ (broadcast by the screen ~15fps). Forward and return early — the
-      // full syncUI() dance is pointless churn at this message rate.
+      // Compact EQ feed from the capture-owning control (~15fps). Forward and
+      // return early — the full syncUI() dance is pointless churn at this rate.
       if (myRole === 'control' && panel) panel.handleSpectrum(msg);
       return;
 
     case 'analysis-frame':
-      // Full-size cleaned frequency + waveform frame for the embedded preview.
-      // This deliberately stays separate from the compact EQ spectrum above.
-      if (myRole === 'control') previewAudio.setFrame(msg.frame);
+      // Cleaned frequency + waveform snapshots flow control -> screen. Other
+      // panels consume them too so every embedded preview follows the same mic.
+      if (myRole === 'screen') screenAudio.setFrame(msg.frame);
+      else previewAudio.setFrame(msg.frame);
       return;
 
     case 'noise-capture':
-      // Capture requests come from control panels; only the screen owns the
-      // audio analyser, so only it runs the sampler.
-      if (myRole === 'screen') {
+      // Requests may originate in any panel; only the elected microphone owner
+      // has the analyser buffers needed to run the sampler.
+      if (isAudioOwner) {
         if (msg.action === 'start') {
           if (!audio.isStarted) {
             broadcast({ type: 'noise-floor', status: 'failed', reason: 'no-audio' });
           } else {
-            startNoiseCapture(typeof msg.seconds === 'number' ? msg.seconds : NOISE_CAPTURE_DEFAULT_SECONDS);
+            const seconds = typeof msg.seconds === 'number' ? msg.seconds : NOISE_CAPTURE_DEFAULT_SECONDS;
+            startNoiseCapture(seconds);
             noiseCaptureActive = true;
             lastNoiseProgressAt = 0;
-            broadcast({ type: 'noise-floor', status: 'capturing', progress: 0, elapsed: 0, seconds: NOISE_CAPTURE_DEFAULT_SECONDS });
+            broadcast({ type: 'noise-floor', status: 'capturing', progress: 0, elapsed: 0, seconds });
           }
         } else if (msg.action === 'cancel') {
           cancelNoiseCapture();
@@ -821,7 +959,7 @@ function handleMessage(msg) {
       return;
 
     case 'noise-floor':
-      // The profile itself lives in localStorage (written by the screen);
+      // The profile itself lives in localStorage (written by the audio owner);
       // reload it so this window's subtraction / EQ curve stay in sync.
       if (msg.status === 'ready' || msg.status === 'cleared' || msg.status === 'cancelled') {
         loadNoiseFloor();
@@ -853,7 +991,7 @@ function handleMessage(msg) {
 
     case 'screen-closed':
       screenOnline = false;
-      if (myRole === 'control' && panel) panel.setAudioStatus({ status: 'offline' });
+      if (myRole === 'control' && panel) panel.setScreenOnline(false);
       break;
   }
 
@@ -866,31 +1004,37 @@ channel.onmessage = (e) => handleMessage(e.data || {});
 broadcast({ type: 'hello', role: myRole, bootTime: MY_BOOT_TIME });
 
 // ---------------------------------------------------------------------------
-// Band-split EQ spectrum feed (screen -> control panels)
-// The screen owns the audio analyser; control panels have none. While this
-// window is the screen it resamples the analysis frame into a compact
-// log-spaced dB spectrum and broadcasts it (~15fps) so the control panel's
-// EQ section can draw the live spectrum.
+// Audio analysis feed (capture-owning control -> screens and other controls)
+// Full cleaned snapshots run at ~30fps for responsive visuals. The EQ receives
+// a compact log-spaced spectrum at ~15fps. Only the latest snapshot is retained
+// by each consumer, so there is no application-level frame queue.
 // ---------------------------------------------------------------------------
 
-let spectrumRaf = 0;
+let audioBroadcastRaf = 0;
+let lastAnalysisAt = 0;
 let lastSpectrumAt = 0;
-// True while this screen is running a noise-floor capture; the loop watches
-// the sampler for completion and streams progress to the control panels.
+let audioFrameSequence = 0;
+// True while the capture owner is running a noise-floor sample; this same loop
+// watches the sampler for completion and broadcasts progress to every panel.
 let noiseCaptureActive = false;
 let lastNoiseProgressAt = 0;
 
-function spectrumLoop(now) {
-  spectrumRaf = 0;
-  if (myRole !== 'screen') return;
-  if (now - lastSpectrumAt >= 66) {
-    lastSpectrumAt = now;
+function audioBroadcastLoop(now) {
+  audioBroadcastRaf = 0;
+  if (!isAudioOwner) return;
+
+  if (now - lastAnalysisAt >= 33) {
+    lastAnalysisAt = now;
     const frame = audio.isStarted ? audio.getAnalysisFrame() : null;
-    const spec = frame ? computeLogSpectrum(frame) : null;
-    if (spec) broadcast({ type: 'spectrum', ...spec });
-    // The live preview needs the full resolution analysis frame (including
-    // waveforms); the EQ uses only the much smaller log-spectrum above.
-    if (frame) broadcast({ type: 'analysis-frame', frame });
+    if (frame) {
+      audioFrameSequence += 1;
+      broadcast({ type: 'analysis-frame', sequence: audioFrameSequence, frame });
+      if (now - lastSpectrumAt >= 66) {
+        lastSpectrumAt = now;
+        const spec = computeLogSpectrum(frame);
+        if (spec) broadcast({ type: 'spectrum', ...spec });
+      }
+    }
   }
 
   if (noiseCaptureActive) {
@@ -916,25 +1060,27 @@ function spectrumLoop(now) {
     }
   }
 
-  spectrumRaf = requestAnimationFrame(spectrumLoop);
+  audioBroadcastRaf = requestAnimationFrame(audioBroadcastLoop);
 }
 
-function startSpectrumBroadcast() {
-  if (!spectrumRaf) spectrumRaf = requestAnimationFrame(spectrumLoop);
+function startAudioBroadcast() {
+  if (!audioBroadcastRaf) audioBroadcastRaf = requestAnimationFrame(audioBroadcastLoop);
 }
 
-function stopSpectrumBroadcast() {
-  if (spectrumRaf) cancelAnimationFrame(spectrumRaf);
-  spectrumRaf = 0;
+function stopAudioBroadcast() {
+  if (audioBroadcastRaf) cancelAnimationFrame(audioBroadcastRaf);
+  audioBroadcastRaf = 0;
+  lastAnalysisAt = 0;
+  lastSpectrumAt = 0;
 }
 
-// Web Audio autoplay permission belongs to the screen window. Resume from any
-// trusted interaction there, regardless of which sketch/canvas is active.
-function resumeAudioFromScreenGesture() {
-  if (myRole === 'screen' && audio.isStarted) audio.resume(true);
+// Web Audio autoplay permission belongs to the capture-owning control window.
+// Resume from any trusted interaction in that panel, regardless of the target.
+function resumeAudioFromControlGesture() {
+  if (myRole === 'control' && isAudioOwner && audio.isStarted) audio.resume(true);
 }
-window.addEventListener('pointerdown', resumeAudioFromScreenGesture, { capture: true, passive: true });
-window.addEventListener('keydown', resumeAudioFromScreenGesture, { capture: true });
+window.addEventListener('pointerdown', resumeAudioFromControlGesture, { capture: true, passive: true });
+window.addEventListener('keydown', resumeAudioFromControlGesture, { capture: true });
 
 // ---------------------------------------------------------------------------
 // Keyboard shortcuts (1-0) — active on control panel windows.
@@ -1022,11 +1168,11 @@ window.addEventListener('blur', () => {
   heldKeys.length = 0;
 });
 
-// Tell everyone when the screen window closes
+// Tell panels when the screen closes; capture ownership is released separately
+// so a queued control window can take over the microphone immediately.
 window.addEventListener('beforeunload', () => {
-  if (myRole === 'screen') {
-    channel.postMessage({ type: 'screen-closed' });
-  }
+  if (myRole === 'screen') channel.postMessage({ type: 'screen-closed' });
+  if (myRole === 'control') endAudioOwnership();
 });
 
 // ---------------------------------------------------------------------------
@@ -1068,6 +1214,7 @@ function ensurePanel() {
     isScreen: () => myRole === 'screen',
     isScreenOnline: () => screenOnline,
   });
+  panel.setAudioStatus(lastAudioStatus);
 }
 
 function syncUI() {
@@ -1127,21 +1274,21 @@ applyPostFx();
 
 // Restore a captured noise floor so cleaned spectra survive reloads.
 loadNoiseFloor();
+currentAudioDeviceId = localStorage.getItem(STORAGE.audio) || null;
 
 if (myRole === 'screen') {
   document.title = 'Viz Screen';
   document.body.classList.add('is-screen');
   currentVideoDeviceId = localStorage.getItem(STORAGE.video) || null;
   loadSketch(currentIndex);
-  startAudio();
   renderScreenToolbar();
-  startSpectrumBroadcast();
 } else {
   document.title = 'Viz Control';
   document.body.classList.add('is-control');
   updateActiveSketchId();
   ensurePanel();
   syncUI();
+  beginAudioOwnership();
 }
 
 // Debug/test hook — lets e2e tests read live state (dev builds only)
@@ -1168,7 +1315,7 @@ if (import.meta.env.DEV) {
         split: { ...panel.eqSplit },
         drawn: panel.eqDrawn,
         spectrumAt: panel.lastSpectrumAt,
-        // Last spectrum message received (cleaned by the screen's noise floor)
+        // Last spectrum received from the capture owner after noise subtraction
         lastSpectrum: panel.eqSpectrum,
       };
     },
@@ -1181,9 +1328,11 @@ if (import.meta.env.DEV) {
         sampleDb: (hz) => sampleNoiseFloorDb(hz),
       };
     },
-    // Exposed only in Vite development mode so integration tests can inject a
-    // deterministic spectrum without requiring microphone permissions.
-    audio,
+    // Role-facing provider: local AudioManager in controls, received-frame
+    // facade on screens. captureAudio always exposes the physical-input manager.
+    get audio() { return myRole === 'screen' ? screenAudio : audio; },
+    captureAudio: audio,
+    get audioOwner() { return isAudioOwner; },
     get audioStatus() { return { ...lastAudioStatus }; },
     get audioDeviceId() { return currentAudioDeviceId; },
     // DEV only: { key -> last read timestamp } of params the sketch accesses

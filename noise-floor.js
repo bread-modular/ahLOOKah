@@ -9,7 +9,7 @@
 //
 // The profile persists in localStorage, so a calibrated setup survives
 // reloads. The screen window owns the capture (it owns the audio); other
-// windows reload the profile when the screen broadcasts the change.
+// windows reload the profile when the capture-owning control broadcasts changes.
 
 const STORAGE_KEY = 'viz2_noise_floor';
 const MIN_DB = -120;

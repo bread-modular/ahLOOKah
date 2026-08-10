@@ -108,10 +108,11 @@ test.describe('musical audio feature extraction', () => {
     await page.goto(SCREEN_URL);
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
+    await control.waitForFunction(() => window.__viz.audioOwner);
     await control.locator('.pattern-btn[data-id="event-horizon"]').click();
     await page.waitForFunction(() => window.__viz.patternId === 'event-horizon');
 
-    await page.evaluate(() => {
+    await control.evaluate(() => {
       const sampleRate = 48000;
       const fftSize = 2048;
       const bins = fftSize / 2;
@@ -131,33 +132,33 @@ test.describe('musical audio feature extraction', () => {
         makeFrame,
         current: makeFrame(),
       };
-      window.__viz.audio.isStarted = true;
-      window.__viz.audio.getAnalysisFrame = () => window.__audioTestFrames.current;
+      window.__viz.captureAudio.isStarted = true;
+      window.__viz.captureAudio.getAnalysisFrame = () => window.__audioTestFrames.current;
     });
 
     // Prime previous-spectrum and adaptive-threshold state.
     await page.waitForTimeout(180);
 
-    await page.evaluate(() => {
+    await control.evaluate(() => {
       window.__audioTestFrames.current = window.__audioTestFrames.makeFrame([40, 145]);
     });
     await page.waitForFunction(() => window.__viz.audioFeatures?.kick > 0.15);
     await expect.poll(() => page.evaluate(() => window.__viz.audioFeatures.live)).toBe(true);
 
-    await page.evaluate(() => {
+    await control.evaluate(() => {
       window.__audioTestFrames.current = window.__audioTestFrames.makeFrame();
     });
     await page.waitForTimeout(240);
-    await page.evaluate(() => {
+    await control.evaluate(() => {
       window.__audioTestFrames.current = window.__audioTestFrames.makeFrame([350, 2200]);
     });
     await page.waitForFunction(() => window.__viz.audioFeatures?.snare > 0.15);
 
-    await page.evaluate(() => {
+    await control.evaluate(() => {
       window.__audioTestFrames.current = window.__audioTestFrames.makeFrame();
     });
     await page.waitForTimeout(200);
-    await page.evaluate(() => {
+    await control.evaluate(() => {
       window.__audioTestFrames.current = window.__audioTestFrames.makeFrame([6000, 12000]);
     });
     await page.waitForFunction(() => window.__viz.audioFeatures?.hat > 0.15);
