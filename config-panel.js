@@ -148,6 +148,8 @@ export class ConfigPanel {
     this.devices = [];
     this.currentPattern = getPattern ? getPattern() : 0;
     this.currentPatternId = null;
+    this.screenOnline = isScreen ? Boolean(isScreen()) : false;
+    this.audioStatus = { status: this.screenOnline ? 'idle' : 'offline' };
     // Merge mode state: two effects selected at once. currentPatternId becomes
     // BLEND_ID so the params list renders the global blend sliders instead.
     this.mergeMode = false;
@@ -517,7 +519,58 @@ export class ConfigPanel {
     if (!msg || !msg.freqs || !msg.dbs || msg.freqs.length !== msg.dbs.length || !msg.freqs.length) return;
     this.eqSpectrum = msg;
     this.lastSpectrumAt = performance.now();
+    // The status event may have been emitted before this panel opened. A real
+    // spectrum is definitive proof that capture + Web Audio are both running.
+    if (this.audioStatus?.status !== 'running') {
+      this.audioStatus = { ...this.audioStatus, status: 'running', state: 'running' };
+    }
     if (this.eqSection && this.eqSection.open) this.drawEq();
+  }
+
+  setAudioStatus(msg = {}) {
+    if (typeof msg.status !== 'string') return;
+    this.audioStatus = {
+      status: msg.status,
+      state: msg.state,
+      deviceId: msg.deviceId,
+      activeDeviceId: msg.activeDeviceId,
+      fallback: Boolean(msg.fallback),
+      error: msg.error || null,
+    };
+    if (this.eqSection && this.eqSection.open) this.drawEq();
+  }
+
+  audioIdleMessage() {
+    const status = this.audioStatus?.status || 'idle';
+    if (!this.screenOnline || status === 'offline') return 'Open a screen to enable audio.';
+
+    if (status === 'unselected' || status === 'idle' || status === 'stopped') {
+      return 'Select an audio input in Devices & Setup.';
+    }
+    if (status === 'starting') return 'Starting audio input…';
+    if (status === 'suspended') return 'Click the screen window to enable audio.';
+    if (status === 'running') {
+      return this.audioStatus.fallback
+        ? 'Using the default input — waiting for audio data…'
+        : 'Audio connected — waiting for audio data…';
+    }
+
+    if (status === 'error') {
+      const name = this.audioStatus.error?.name || 'AudioError';
+      if (name === 'NotAllowedError' || name === 'SecurityError') {
+        return 'Microphone access denied. Re-initialize Devices & Setup.';
+      }
+      if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+        return 'Selected audio input unavailable. Choose another input.';
+      }
+      if (name === 'NotReadableError' || name === 'AbortError' || name === 'TrackStartError') {
+        return 'Audio input is busy or unavailable. Close other audio apps and retry.';
+      }
+      if (name === 'DeviceEndedError') return 'Audio input disconnected — reconnecting…';
+      return `Audio input failed (${name}). Select the device again.`;
+    }
+
+    return 'Waiting for audio…';
   }
 
   // Noise-floor lifecycle broadcast from the screen (capturing/ready/failed/
@@ -800,8 +853,12 @@ export class ConfigPanel {
     drawSeparator(lowX, EQ_COLORS.bass);
     drawSeparator(highX, EQ_COLORS.high);
 
-    // 5) Idle overlay when the spectrum feed is missing/stale
-    if (this.eqIdle) this.eqIdle.hidden = !idle;
+    // 5) Idle overlay when the spectrum feed is missing/stale. Explain the
+    // actual blocker instead of leaving every failure as "Waiting for audio".
+    if (this.eqIdle) {
+      this.eqIdle.hidden = !idle;
+      if (idle) this.eqIdle.textContent = this.audioIdleMessage();
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1231,7 +1288,10 @@ export class ConfigPanel {
 
   setScreenOnline(online) {
     this.screenOnline = online;
+    if (!online) this.audioStatus = { status: 'offline' };
+    else if (this.audioStatus?.status === 'offline') this.audioStatus = { status: 'idle' };
     this.renderStatus();
+    if (this.eqSection && this.eqSection.open) this.drawEq();
   }
 
   renderStatus() {
@@ -1312,12 +1372,12 @@ export class ConfigPanel {
   handleAudioChange(id) {
     if (!id) return;
     localStorage.setItem(this.audioKey, id);
-    if (this.onDevicesChange) this.onDevicesChange();
+    if (this.onDevicesChange) this.onDevicesChange({ audioDeviceId: id });
   }
 
   handleVideoChange(id) {
     if (!id) return;
     localStorage.setItem(this.videoKey, id);
-    if (this.onDevicesChange) this.onDevicesChange();
+    if (this.onDevicesChange) this.onDevicesChange({ videoDeviceId: id });
   }
 }

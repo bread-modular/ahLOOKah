@@ -1,0 +1,145 @@
+import { test, expect } from '@playwright/test';
+
+const SCREEN_URL = '/?role=screen';
+const CONTROL_URL = '/?role=control';
+
+async function openScreenAndControl(context, screen) {
+  await screen.goto(SCREEN_URL);
+  const control = await context.newPage();
+  await control.goto(CONTROL_URL);
+  await expect(control.locator('#status-line .badge-online')).toBeVisible();
+  return control;
+}
+
+async function ensureAudioOptions(control) {
+  await control.waitForFunction(() => document.querySelectorAll('#audio-select option').length > 0);
+  if (await control.locator('#audio-select option').count() < 2) {
+    await control.locator('#setup-all-btn').click();
+    await control.waitForFunction(() => document.querySelectorAll('#audio-select option').length > 1);
+  }
+}
+
+test.describe('audio input lifecycle', () => {
+  test('an online screen starts the explicitly selected input and feeds the EQ', async ({ context, page }) => {
+    const control = await openScreenAndControl(context, page);
+
+    await expect(control.locator('#band-eq-idle')).toHaveText('Select an audio input in Devices & Setup.');
+    await ensureAudioOptions(control);
+    const selectedId = await control.locator('#audio-select option').nth(1).getAttribute('value');
+    expect(selectedId).toBeTruthy();
+    await control.locator('#audio-select').selectOption(selectedId);
+
+    await page.waitForFunction((deviceId) => (
+      window.__viz.audioDeviceId === deviceId
+      && window.__viz.audioStatus.status === 'running'
+      && window.__viz.audio.isStarted
+    ), selectedId);
+    await control.waitForFunction(() => (window.__viz.eq?.drawn ?? 0) > 1);
+    await expect(control.locator('#band-eq-idle')).toBeHidden();
+  });
+
+  test('a screen-wide click resumes suspended Web Audio and restores the EQ feed', async ({ context, page }) => {
+    const control = await openScreenAndControl(context, page);
+
+    await page.evaluate(() => {
+      const sampleRate = 48_000;
+      const fftSize = 2_048;
+      const bins = fftSize / 2;
+      const analyser = () => ({
+        frequencyBinCount: bins,
+        getFloatFrequencyData: (target) => target.fill(-58),
+        getFloatTimeDomainData: (target) => target.fill(0.04),
+        getByteFrequencyData: (target) => target.fill(120),
+        getByteTimeDomainData: (target) => target.fill(133),
+      });
+      const context = {
+        state: 'suspended',
+        sampleRate,
+        currentTime: 0,
+        onstatechange: null,
+      };
+      const audio = window.__viz.audio;
+      audio.audioContext = context;
+      audio.analyserL = analyser();
+      audio.analyserR = analyser();
+      audio.requestedDeviceId = 'test-input';
+      audio.activeDeviceId = 'test-input';
+      audio.isStarted = true;
+      audio.allocateBuffers();
+      window.__resumeCalls = [];
+      audio.resume = (force = false) => {
+        window.__resumeCalls.push(force);
+        if (force) {
+          context.state = 'running';
+          audio.reportContextStatus();
+        }
+        return Promise.resolve();
+      };
+      audio.reportStatus('suspended');
+    });
+
+    await expect(control.locator('#band-eq-idle')).toHaveText('Click the screen window to enable audio.');
+    await page.locator('canvas.p5Canvas').first().click({ position: { x: 20, y: 20 } });
+
+    await page.waitForFunction(() => (
+      window.__viz.audio.getState() === 'running'
+      && window.__resumeCalls.includes(true)
+    ));
+    await control.waitForFunction(() => (window.__viz.eq?.drawn ?? 0) > 1);
+    await expect(control.locator('#band-eq-idle')).toBeHidden();
+  });
+
+  test('a denied microphone reports the real blocker instead of waiting forever', async ({ context, page }) => {
+    const control = await openScreenAndControl(context, page);
+
+    const started = await page.evaluate(async () => {
+      Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {
+        configurable: true,
+        value: async () => {
+          throw new DOMException('Permission denied for test', 'NotAllowedError');
+        },
+      });
+      return window.__viz.audio.startStream('blocked-input');
+    });
+
+    expect(started).toBe(false);
+    await expect(control.locator('#band-eq-idle')).toHaveText(
+      'Microphone access denied. Re-initialize Devices & Setup.',
+    );
+    expect(await page.evaluate(() => window.__viz.audioStatus.error?.name)).toBe('NotAllowedError');
+  });
+
+  test('a stale selected device falls back to the default audio input', async ({ context, page }) => {
+    const control = await openScreenAndControl(context, page);
+
+    const started = await page.evaluate(async () => {
+      const mediaDevices = navigator.mediaDevices;
+      const realGetUserMedia = mediaDevices.getUserMedia.bind(mediaDevices);
+      window.__getUserMediaConstraints = [];
+      Object.defineProperty(mediaDevices, 'getUserMedia', {
+        configurable: true,
+        value: async (constraints) => {
+          window.__getUserMediaConstraints.push(constraints);
+          if (constraints?.audio?.deviceId?.exact) {
+            throw new DOMException('Selected device is gone', 'OverconstrainedError');
+          }
+          return realGetUserMedia(constraints);
+        },
+      });
+      return window.__viz.audio.startStream('stale-device-id');
+    });
+
+    expect(started).toBe(true);
+    await page.waitForFunction(() => window.__viz.audioStatus.status === 'running');
+    const result = await page.evaluate(() => ({
+      status: window.__viz.audioStatus,
+      calls: window.__getUserMediaConstraints,
+    }));
+    expect(result.calls).toHaveLength(2);
+    expect(result.calls[0].audio.deviceId.exact).toBe('stale-device-id');
+    expect(result.calls[1].audio.deviceId).toBeUndefined();
+    expect(result.status.fallback).toBe(true);
+    await control.waitForFunction(() => (window.__viz.eq?.drawn ?? 0) > 1);
+    await expect(control.locator('#band-eq-idle')).toBeHidden();
+  });
+});

@@ -523,7 +523,10 @@ body.is-screen #config-container {
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 12px;
+  text-align: center;
   font-size: 0.68rem;
+  line-height: 1.45;
   letter-spacing: 0.08rem;
   text-transform: uppercase;
   color: var(--text-dim);
