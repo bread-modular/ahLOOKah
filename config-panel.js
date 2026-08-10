@@ -105,6 +105,8 @@ export class ConfigPanel {
   constructor({
     onPatternChange,
     onPatternChangeId,
+    onCuePatternChange,
+    onCuePatternChangeId,
     onDevicesChange,
     onOpenScreen,
     onCuePrimary,
@@ -123,6 +125,8 @@ export class ConfigPanel {
   }) {
     this.onPatternChange = onPatternChange;
     this.onPatternChangeId = onPatternChangeId;
+    this.onCuePatternChange = onCuePatternChange;
+    this.onCuePatternChangeId = onCuePatternChangeId;
     this.onDevicesChange = onDevicesChange;
     this.onOpenScreen = onOpenScreen;
     this.onCuePrimary = onCuePrimary;
@@ -204,32 +208,27 @@ export class ConfigPanel {
     const postFxOpen = localStorage.getItem(this.postFxKey) !== '0';
 
     this.panel.innerHTML = `
-      <section id="transport-bar" class="transport-bar" aria-label="Program transport controls">
-        <div class="transport-program transport-live-program">
-          <span class="transport-label">LIVE</span>
-          <strong id="transport-live-name">Loading…</strong>
-        </div>
-        <div class="transport-program transport-cue-program">
-          <span class="transport-label">CUE</span>
-          <strong id="transport-cue-name">Idle</strong>
-          <span id="transport-cue-phase" class="transport-phase">CUE IDLE</span>
-        </div>
-        <button id="cue-primary" class="cue-primary" type="button" title="Each physical Caps Lock press cues or takes live; your OS lock state/LED may still change.">
-          <span class="transport-action">CUE</span><kbd>CAPS LOCK</kbd>
-        </button>
-        <button id="cue-cancel" class="cue-cancel" type="button" disabled>
-          <span class="transport-action">CANCEL</span><kbd>ESC</kbd>
-        </button>
-        <div id="cue-live-region" class="sr-only" aria-live="polite" aria-atomic="true"></div>
-      </section>
-
       <div id="preview-pane">
         <section class="preview-section" aria-labelledby="preview-title">
           <div class="preview-heading">
             <h3 id="preview-title">LIVE PREVIEW</h3>
             <span id="preview-renderer" class="preview-renderer">LIVE RENDER</span>
           </div>
-          <div id="preview-stage" class="preview-stage" aria-label="Live visualization preview"></div>
+          <div class="preview-surface">
+            <div id="preview-stage" class="preview-stage" aria-label="Live visualization preview"></div>
+            <div id="cue-preview-controls" class="cue-preview-controls" aria-label="Cue transport controls" hidden>
+              <span id="cue-preview-phase" class="cue-preview-phase">CUE / WARMING</span>
+              <div class="cue-preview-actions">
+                <button id="cue-primary" class="cue-primary" type="button" disabled>
+                  <span class="transport-action">GO LIVE</span><kbd>ENTER</kbd>
+                </button>
+                <button id="cue-cancel" class="cue-cancel" type="button" disabled>
+                  <span class="transport-action">CANCEL</span><kbd>ESC</kbd>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div id="cue-live-region" class="sr-only" aria-live="polite" aria-atomic="true"></div>
         </section>
 
         <section class="pad-section" aria-labelledby="pad-title">
@@ -241,7 +240,7 @@ export class ConfigPanel {
       <div id="library-pane">
         <h3>Pattern Library</h3>
         <div id="pattern-library" class="pattern-library"></div>
-        <p>Drag a pattern from the library onto a pad slot to assign it; drag a slot onto another slot to swap. Keys 1–9 / 0 play a slot. Hold two keys together to blend them — the blend persists until you pick another. While blending: + / − adjust the level, Tab switches Blend / Additive.</p>
+        <p>Drag a pattern from the library onto a pad slot to assign it; drag a slot onto another slot to swap. Keys 1–9 / 0 play a slot. Shift-click a pattern or press Shift + 1–0 to stage a CUE; Enter goes live and Esc cancels. Hold two unmodified number keys together to blend them — the blend persists until you pick another. While blending: + / − adjust the level, Tab switches Blend / Additive.</p>
       </div>
 
       <div id="controls-pane">
@@ -1000,11 +999,8 @@ export class ConfigPanel {
     if (!this.panel) return;
     const cue = this.cueState;
     const online = Boolean(this.screenOnline);
-    const liveName = this.selectionName(this.liveSelection);
-    const cueName = cue ? this.selectionName(cue.selection) : 'Idle';
-    const liveEl = this.panel.querySelector('#transport-live-name');
-    const cueEl = this.panel.querySelector('#transport-cue-name');
-    const phaseEl = this.panel.querySelector('#transport-cue-phase');
+    const controls = this.panel.querySelector('#cue-preview-controls');
+    const phaseEl = this.panel.querySelector('#cue-preview-phase');
     const primary = this.panel.querySelector('#cue-primary');
     const cancel = this.panel.querySelector('#cue-cancel');
     const previewTitle = this.panel.querySelector('#preview-title');
@@ -1013,29 +1009,25 @@ export class ConfigPanel {
     const paramsHeading = this.panel.querySelector('#params-heading');
     const liveRegion = this.panel.querySelector('#cue-live-region');
 
-    if (liveEl) liveEl.textContent = liveName;
-    if (cueEl) cueEl.textContent = cueName;
-
-    let action = 'CUE';
-    let phase = online ? 'CUE IDLE' : 'OUTPUT OFFLINE';
-    let disabled = !online;
+    // CUE entry is gesture-driven (Shift + a pattern), so the transport controls
+    // only appear over the preview once a staged candidate actually exists.
+    let action = 'GO LIVE';
+    let phase = 'CUE / WARMING';
+    let disabled = !cue || !online;
     if (cue) {
       switch (cue.phase) {
         case 'same':
-          action = 'TAKE LIVE';
           phase = 'CUE / SAME AS LIVE';
           break;
         case 'warming':
-          action = 'TAKE WHEN READY';
           phase = 'CUE / WARMING';
           break;
         case 'ready':
-          action = 'TAKE LIVE';
           phase = 'CUE / READY';
           break;
         case 'take-pending':
-          action = 'TAKE PENDING';
-          phase = 'LOCKED CANDIDATE / WARMING';
+          action = 'GOING LIVE';
+          phase = 'GOING LIVE / WARMING';
           disabled = true;
           break;
         case 'error':
@@ -1047,6 +1039,7 @@ export class ConfigPanel {
       }
     }
 
+    if (controls) controls.hidden = !cue;
     if (phaseEl) {
       phaseEl.textContent = phase;
       phaseEl.classList.toggle('is-ready', cue?.phase === 'ready' || cue?.phase === 'same');
@@ -1055,17 +1048,19 @@ export class ConfigPanel {
     if (primary) {
       primary.querySelector('.transport-action').textContent = action;
       primary.disabled = disabled;
-      primary.setAttribute('aria-label', `${action}; Caps Lock`);
+      primary.setAttribute('aria-label', `${action}; Enter`);
+      primary.title = `${action} with the cued program (Enter)`;
     }
     if (cancel) {
       cancel.disabled = !cue;
       cancel.setAttribute('aria-label', 'Cancel cue; Escape');
+      cancel.title = 'Cancel cue (Escape)';
     }
 
     this.panel.classList.toggle('cue-active', Boolean(cue));
     this.panel.classList.toggle('cue-pending', cue?.phase === 'take-pending');
     if (previewTitle) previewTitle.textContent = cue ? 'CUE PREVIEW' : 'LIVE PREVIEW';
-    if (previewRenderer) previewRenderer.textContent = cue ? phase.replace('CUE / ', '') : 'LIVE RENDER';
+    if (previewRenderer) previewRenderer.textContent = cue ? phase.replace(/^CUE \/ /, '') : 'LIVE RENDER';
     if (previewStage) {
       previewStage.classList.toggle('cue-preview', Boolean(cue));
       previewStage.setAttribute('aria-label', cue ? 'Cue visualization preview' : 'Live visualization preview');
@@ -1127,9 +1122,14 @@ export class ConfigPanel {
       btn.draggable = true;
       btn.innerHTML = `<span class="pattern-key">${slotLabel(i)}</span><span class="pattern-name">${sketch ? sketch.name : '—'}</span><span class="drag-handle" title="Drag to swap slots">⠿</span>`;
 
-      btn.onclick = () => {
+      btn.title = 'Click to play live. Shift-click to stage this pattern as CUE.';
+      btn.onclick = (event) => {
         if (!sketch || this.cueState?.takePending) return;
-        if (this.onPatternChange) this.onPatternChange(i);
+        if (event.shiftKey) {
+          if (this.onCuePatternChange) this.onCuePatternChange(i);
+        } else if (this.onPatternChange) {
+          this.onPatternChange(i);
+        }
       };
       this.attachDrag(btn);
       pad.appendChild(btn);
@@ -1175,13 +1175,21 @@ export class ConfigPanel {
           : '';
         btn.innerHTML = `<span class="pattern-name">${sketch.name}</span>${cam}${badge}<span class="drag-handle" title="Drag to pad slot">⠿</span>`;
 
-        btn.onclick = () => {
+        btn.title = 'Click to play live. Shift-click to stage this pattern as CUE.';
+        btn.onclick = (event) => {
           if (this.cueState?.takePending) return;
           if (slotIdx !== undefined) {
-            // Assigned pattern -> play/cue through its pad slot (keeps indices in sync)
-            if (this.onPatternChange) this.onPatternChange(slotIdx);
+            // Assigned patterns retain their stable pad identity for both LIVE
+            // and CUE actions, even after the operator has reordered slots.
+            if (event.shiftKey) {
+              if (this.onCuePatternChange) this.onCuePatternChange(slotIdx);
+            } else if (this.onPatternChange) {
+              this.onPatternChange(slotIdx);
+            }
+          } else if (event.shiftKey) {
+            if (this.onCuePatternChangeId) this.onCuePatternChangeId(sketch.id);
           } else if (this.onPatternChangeId) {
-            // Unassigned pattern -> play/cue by stable id
+            // Unassigned pattern -> play live by stable id.
             this.onPatternChangeId(sketch.id);
           }
         };

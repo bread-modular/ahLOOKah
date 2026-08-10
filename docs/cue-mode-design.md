@@ -1,18 +1,19 @@
 # CUE Mode and Warm Effect Switching — Design Handoff
 
-**Status:** Approved direction; implementation not started  
-**Date:** 2026-08-10  
+**Status:** CUE runtime implemented; input and panel mapping revised
+**Date:** 2026-08-10
 **Scope of this document:** Product behavior, runtime architecture, cross-window protocol, UI requirements, implementation sequence, and acceptance criteria.
 
 ## 1. Decision summary
 
 Add a global CUE workflow with these transport controls:
 
-- **Caps Lock while LIVE:** enter CUE mode.
-- **Caps Lock while CUE is ready:** TAKE the cued program LIVE.
-- **Caps Lock while CUE is still warming:** queue the TAKE; the current LIVE program remains visible until the cue is ready, then promotion happens automatically.
+- **Shift-click a pattern** or press **Shift + 1–0** to enter CUE with that pattern as the candidate.
+- The Shift-entry request carries the stable sketch ID, so the screen can start CUE atomically without a transient LIVE selection change.
+- **Enter while CUE is ready:** GO LIVE with the cued program.
+- **Enter while CUE is still warming:** queue GO LIVE; the current LIVE program remains visible until the cue is ready, then promotion happens automatically.
 - **Escape while CUE is active:** cancel the cue and leave LIVE unchanged.
-- The same actions must be available as large, always-visible **CUE / TAKE LIVE** and **CANCEL** buttons.
+- While CUE is active, **GO LIVE** and **CANCEL** appear as an overlay on the panel preview; there is no persistent top transport bar.
 
 The output screen must keep separate LIVE and CUE renderer slots. The CUE slot is created at the real output resolution, behind the LIVE slot, and warmed before a TAKE. A TAKE promotes the already-running CUE renderer instead of destroying it and constructing it again.
 
@@ -70,20 +71,20 @@ The existing merge implementation is useful groundwork: it already runs two p5 i
 
 ### 4.1 Normal LIVE state
 
-- The top transport bar shows the current LIVE effect or merge pair.
-- The primary transport button reads **CUE — CAPS LOCK**.
-- The adjacent **CANCEL — ESC** button remains visible but disabled.
+- There is no persistent CUE transport bar.
+- Shift-clicking any pad/library pattern or pressing **Shift + 1–0** starts CUE with that pattern selected.
 - The preview title reads **LIVE PREVIEW**.
 - Pattern, merge, parameter, blend, and post-processing edits retain their current live behavior.
 - Direct live effect changes should eventually use the same prepare-then-promote runtime path so they no longer tear down the old output first.
 
 ### 4.2 Enter CUE
 
-The operator presses Caps Lock once or clicks CUE.
+The operator Shift-clicks a pattern or presses Shift + a number key.
 
-- The screen creates a cue session from an exact snapshot of the current live program and visual parameter bank.
+- The control sends the selected stable sketch ID together with the CUE-entry request.
+- The screen creates a cue session from an exact snapshot of the current live program and visual parameter bank, with that requested selection as the initial candidate.
 - Every control panel enters CUE mode after the screen accepts the session.
-- The top bar, preview frame, and selection markers change to a strong CUE treatment.
+- The preview frame and selection markers change to a strong CUE treatment; the preview overlay exposes GO LIVE and CANCEL.
 - The panel preview changes from LIVE PREVIEW to **CUE PREVIEW**.
 - The current LIVE renderer continues unchanged.
 - If the candidate is still identical to LIVE, it may be treated as **READY — SAME AS LIVE** without constructing a duplicate renderer. The first cue edit creates the staged runtime.
@@ -101,12 +102,12 @@ While CUE is active:
 - LIVE selection and LIVE visual values remain visibly marked in the pad/library so the operator can always see both states.
 - Selection changes rebuild the hidden CUE runtime. Parameter-only changes mutate its existing cue parameter objects and request a fresh staged frame; they must not rebuild the renderer.
 
-### 4.4 TAKE LIVE
+### 4.4 GO LIVE
 
 When the screen has a valid staged frame:
 
-- The primary button reads **TAKE LIVE — CAPS LOCK**.
-- Pressing Caps Lock or clicking TAKE LIVE requests a cut.
+- The preview overlay shows an enabled **GO LIVE — ENTER** button.
+- Pressing Enter or clicking GO LIVE requests a cut.
 - The screen resumes the staged runtime if it was parked, waits for one fresh completed frame, then swaps the LIVE/CUE layer roles in one animation frame.
 - The promoted runtime remains intact and becomes the new LIVE runtime.
 - Only after promotion is confirmed are cue values made canonical and persisted.
@@ -115,7 +116,7 @@ When the screen has a valid staged frame:
 
 ### 4.5 TAKE requested while warming
 
-A second Caps Lock press must still have deterministic behavior if the cue is compiling/loading:
+An Enter press must still have deterministic behavior if the cue is compiling/loading:
 
 - Change the state to **TAKE PENDING — WARMING**.
 - Keep LIVE visible.
@@ -124,7 +125,7 @@ A second Caps Lock press must still have deterministic behavior if the cue is co
 - Escape/CANCEL remains available and aborts the pending TAKE.
 - If warm-up fails, clear TAKE PENDING, retain LIVE, and show CUE ERROR.
 
-This behavior is preferable to exposing a blank output or silently ignoring the second Caps Lock press.
+This behavior is preferable to exposing a blank output or silently ignoring a GO LIVE request.
 
 ### 4.6 CANCEL
 
@@ -142,44 +143,41 @@ Escape does nothing special when no cue is active.
 
 ## 5. Keyboard contract
 
-Use the physical key identity, not Caps Lock's operating-system state:
+Use Shift as a momentary modifier and physical digit codes for Shift-modified number keys:
 
-- Detect Caps Lock with `KeyboardEvent.code === "CapsLock"`.
-- Trigger only on the non-repeating `keydown` edge.
-- Do not derive app state from `getModifierState("CapsLock")`.
-- Ignore repeated keydown events.
-- CUE state survives window blur; blur must not cancel it.
-- The shortcut works only while a control window has browser focus. Web pages cannot provide a reliable global shortcut while unfocused.
-- Handle Caps Lock and active-CUE Escape before the existing text-entry and number-key guards so they remain transport controls even when a slider/button/select has focus.
-- Consume Escape only while CUE is active. When LIVE, preserve normal browser/control behavior.
+- Shift-clicking a pad or library pattern starts/updates CUE with that pattern.
+- Detect Shift + 1–0 from `KeyboardEvent.shiftKey` and `KeyboardEvent.code` (`Digit1` through `Digit0`), because `KeyboardEvent.key` becomes punctuation on many keyboard layouts.
+- A Shift + digit starts CUE with one selected effect; it does not participate in the two-number merge gesture.
+- Handle a non-repeating `KeyboardEvent.code === "Enter"` while CUE is active before text-entry guards. It requests GO LIVE, including queued TAKE while warming.
+- Handle active-CUE Escape before text-entry guards. Escape cancels CUE; when LIVE, preserve normal browser/control behavior.
+- Ignore repeated entry/take keydown events.
+- CUE state survives window blur; blur must not cancel it. Blur only clears held-key bookkeeping for normal merge gestures.
+- Shortcuts work only while a control window has browser focus. Web pages cannot provide reliable global shortcuts while unfocused.
 - Keep all CUE transport shortcuts disabled in output-screen windows.
-
-**Platform caveat:** the browser cannot reliably prevent the OS Caps Lock state or hardware LED from toggling. Each physical press is an app transport action regardless of whether capitalization is currently on or off. The UI must explain this in a tooltip/help hint, and target platforms must be manually tested.
+- Caps Lock has no CUE behavior.
 
 ## 6. High-visibility UI design
 
-### 6.1 Persistent transport bar
+### 6.1 Preview-overlay transport
 
-Add a transport bar spanning all three control-panel columns at the top of the window. It must never scroll away.
+Do not reserve a top transport row. CUE begins from the Shift pattern gesture, and transport controls appear only while a candidate exists.
 
-Suggested content, left to right:
+The preview overlay contains:
 
-- **LIVE** status block with current effect name or merge pair.
-- **CUE** status block with candidate name/pair and phase: SAME AS LIVE, WARMING, READY, TAKE PENDING, or ERROR.
-- Large primary **CUE / TAKE LIVE** button with **CAPS LOCK** key hint.
-- Large adjacent **CANCEL** button with **ESC** key hint.
+- A textual CUE phase: SAME AS LIVE, WARMING, READY, GOING LIVE, or ERROR.
+- A primary **GO LIVE** button with an **ENTER** key hint.
+- A secondary **CANCEL** button with an **ESC** key hint.
 
 State-specific presentation:
 
-| State | Primary action | Cancel | Required status |
-| --- | --- | --- | --- |
-| LIVE | CUE | Visible, disabled | LIVE name; CUE idle |
-| CUE, same as live | TAKE LIVE | Enabled | CUE / SAME AS LIVE |
-| CUE warming | TAKE WHEN READY | Enabled | CUE / WARMING |
-| CUE ready | TAKE LIVE | Enabled | CUE / READY |
-| Take pending | TAKE PENDING | Enabled | Locked candidate / WARMING |
-| Cue error | RETRY CUE | Enabled | Error summary; LIVE SAFE |
-| Screen offline | CUE disabled | Disabled | OUTPUT OFFLINE |
+| State | Overlay | Primary action | Cancel | Required status |
+| --- | --- | --- | --- | --- |
+| LIVE | Hidden | — | — | LIVE PREVIEW |
+| CUE, same as live | Visible | GO LIVE | Enabled | CUE / SAME AS LIVE |
+| CUE warming | Visible | GO LIVE | Enabled | CUE / WARMING |
+| CUE ready | Visible | GO LIVE | Enabled | CUE / READY |
+| Take pending | Visible | GOING LIVE, disabled | Enabled | GOING LIVE / WARMING |
+| Cue error | Visible | RETRY CUE | Enabled | Error summary; LIVE SAFE |
 
 Color semantics should follow familiar production language while retaining text/icon labels:
 
@@ -192,9 +190,9 @@ Do not use animation as the only signal. Respect `prefers-reduced-motion` if a w
 
 ### 6.2 Layout impact
 
-`#config-panel` is currently a three-column, full-height grid and each pane uses `height: 100vh`. The transport bar should become a full-width first grid row, with the three panes in a `minmax(0, 1fr)` second row. The pane heights must then fill that row rather than each claiming another full viewport height.
+`#config-panel` remains a three-column, single-row full-height grid. The preview renderer host and the CUE control overlay are siblings inside a positioned preview surface, so preview re-renders cannot delete the controls and the overlay consumes no layout height.
 
-Preserve `min-width: 0` and `min-height: 0` on every grid child so the new row does not reintroduce horizontal overflow or break independent pane scrolling.
+Preserve `min-width: 0` and `min-height: 0` on every grid child so the panes continue to avoid horizontal overflow and preserve independent scrolling.
 
 ### 6.3 Preview treatment
 
@@ -202,7 +200,8 @@ While CUE is active:
 
 - Rename the heading to **CUE PREVIEW**.
 - Add a thick amber border and an explicit CUE badge/watermark.
-- Show WARMING/READY/ERROR in the preview heading.
+- Show WARMING/READY/ERROR in the preview heading and the transport overlay.
+- Keep GO LIVE and CANCEL above the preview canvas as an absolutely positioned sibling, never as children cleared by the renderer.
 - Continue rendering the local low-resolution preview from the cue selection and cue parameter bank.
 - Treat the screen's CUE READY acknowledgement as authoritative. A local preview frame does not prove that the output renderer is warmed.
 
@@ -224,7 +223,7 @@ The Parameters heading should also say **CUE Parameters — [effect]** while edi
 - Use native buttons, visible focus states, and text labels in addition to color.
 - Announce CUE READY, TAKE PENDING, CUE CANCELED, CUE TAKEN LIVE, and CUE ERROR through a polite `aria-live` status region.
 - Expose button state with `disabled` and/or `aria-disabled` as appropriate.
-- Keyboard activation of focused buttons must continue to work independently of Caps Lock/Escape.
+- Keyboard activation of focused buttons must continue to work independently of Enter/Escape transport handling.
 
 ## 7. What belongs to a cue
 
@@ -272,7 +271,7 @@ The screen window is the transaction coordinator and source of truth for active 
 
 ### State transitions
 
-- LIVE + Enter CUE → CUE WARMING or CUE READY/SAME AS LIVE.
+- LIVE + Shift pattern selection → CUE WARMING or CUE READY/SAME AS LIVE.
 - CUE + selection/visual edit → increment revision; stage that revision.
 - CUE WARMING + TAKE → TAKE PENDING for the current revision.
 - CUE READY + TAKE → promote → LIVE.
@@ -463,14 +462,14 @@ Rules:
 - Add cue session state and BroadcastChannel handlers.
 - Extend the `state` handshake for late-open controls.
 - Route the existing number/merge keyboard actions by current transport scope.
-- Handle Caps Lock and Escape before number-key processing.
+- Handle Enter and active-CUE Escape before number-key processing; route Shift + digit through physical digit codes into atomic CUE entry.
 - Extend the DEV `window.__viz` hook with cue state, revisions, readiness, and live/cue runtime diagnostics.
 
 Prefer moving renderer lifecycle into a dedicated module instead of making the existing large `main.js` switch more stateful.
 
 ### `config-panel.js`
 
-- Add the persistent transport row and callbacks for enter/take/cancel.
+- Add Shift-click callbacks for atomic CUE selection and preview-overlay GO LIVE/CANCEL callbacks.
 - Maintain separate LIVE and CUE selection markers.
 - Make `refreshSelection()` render against the active editing scope without overwriting LIVE identity.
 - Resolve Parameters and preview selection against the cue bank while CUE is active.
@@ -479,8 +478,7 @@ Prefer moving renderer lifecycle into a dedicated module instead of making the e
 
 ### `style.css`
 
-- Add the full-width transport grid row.
-- Adjust pane heights to the remaining grid row.
+- Keep the single-row three-pane grid and add a positioned preview overlay that consumes no layout height.
 - Add cue-active, live-marker, cue-marker, ready, pending, error, and disabled styles.
 - Add preview CUE framing and accessible reduced-motion behavior.
 - Add screen program-layer isolation and role styles.
@@ -504,7 +502,7 @@ Prefer moving renderer lifecycle into a dedicated module instead of making the e
 4. **Add separate LIVE/CUE screen layers and runtime slots.** Enforce generation tokens and instance/context caps.
 5. **Add isolated cue program/parameter state.** Verify cancel causes no live or storage mutation.
 6. **Add the screen-authoritative BroadcastChannel transaction protocol.** Include multiple-control and stale-message behavior.
-7. **Add the transport bar, dual markers, preview mode, Caps Lock, and Escape interactions.**
+7. **Add Shift-driven CUE entry, preview-overlay GO LIVE/CANCEL controls, dual markers, preview mode, Enter, and Escape interactions.**
 8. **Add shared camera ownership/readiness.** Test camera-to-camera, camera-to-shader, and shader-to-camera cues.
 9. **Add warm-standby policy and profile it.** Tune only from measured frame times.
 10. **Complete end-to-end, lifecycle, accessibility, and regression testing.**
@@ -520,9 +518,9 @@ Do not start with only the UI toggle. Without isolated params and a prepared scr
 - CUE parameter changes alter the CUE preview/staged frame but not LIVE A.
 - CUE changes do not update persisted visual values before TAKE.
 - Escape at any cue phase returns the panel preview to A, destroys B's staged runtime, and leaves saved/live values unchanged.
-- When B is READY, Caps Lock promotes the same B runtime on the next animation frame.
+- When B is READY, Enter or the GO LIVE overlay promotes the same B runtime on the next animation frame.
 - The old A runtime is disposed only after B is visible.
-- Pressing Caps Lock while warming queues a safe TAKE and never shows an empty stage.
+- Pressing Enter while warming queues a safe TAKE and never shows an empty stage.
 - A failed B remains in CUE ERROR and A stays LIVE.
 
 ### Selection and merge behavior
@@ -534,10 +532,10 @@ Do not start with only the UI toggle. Without isolated params and a prepared scr
 
 ### Keyboard and UI
 
-- Non-repeat Caps Lock enters CUE and the next non-repeat Caps Lock takes/queues TAKE.
-- Escape cancels only while CUE is active.
+- Shift-clicking a pad/library pattern and Shift + 1–0 enter CUE with the requested stable-id candidate.
+- Non-repeat Enter takes/queues GO LIVE only while CUE is active; Escape cancels only while CUE is active.
 - Blur does not cancel the cue or cause stale held-key behavior.
-- Transport controls remain visible at every scroll position and usable at supported viewport sizes.
+- The preview overlay remains visible and usable throughout CUE without adding a layout row.
 - Status is understandable without color and announced accessibly.
 - Screen-offline and warm-up-error states cannot trigger an unsafe TAKE.
 
@@ -587,9 +585,9 @@ Playwright should assert state and lifecycle deterministically through these hoo
 | Stale async p5 canvas appears after cancel/change | Session, revision, and runtime generation checks on every attach/readiness callback. |
 | TAKE occurs before a useful frame | Screen-authoritative readiness contract and TAKE PENDING; never tear down LIVE first. |
 | Camera capture duplicates or gets stolen | Screen-owned shared camera source with reference counting and explicit readiness. |
-| Caps Lock OS state/LED is confusing | Treat every press as an edge action; show strong app state and key hints; document/test platform behavior. |
+| Shift-modified digits become punctuation on many keyboard layouts | Parse `KeyboardEvent.code` (`Digit1`–`Digit0`) rather than `key`; keep Shift input outside the normal merge gesture. |
 | Multiple control windows conflict | One screen-coordinated cue transaction with revisions; all panels mirror accepted state. |
-| New transport row breaks the fixed three-pane layout | Use a dedicated top grid row, preserve `min-width: 0` / `min-height: 0`, and change panes from viewport height to row height. |
+| Preview re-render removes overlay controls | Keep the renderer host and transport overlay as positioned siblings; preserve `min-width: 0` / `min-height: 0` on the three-pane grid. |
 
 ## 18. Definition of done
 

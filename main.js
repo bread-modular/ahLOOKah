@@ -84,6 +84,10 @@ let cueMutationInFlight = null;
 let queuedCueSelection = null;
 let queuedCueParams = new Map();
 let queuedCueTake = false;
+// A Shift + pattern gesture starts CUE with the selected stable id in the same
+// request. Until the screen acknowledges it, keep later input out of LIVE.
+let cueEntryPending = null;
+const canceledCueEntryRequests = new Set();
 // The initiating control locks edits as soon as the operator presses TAKE,
 // including while its last slider/selection mutation is still in flight. The
 // screen echoes the request id when it accepts, rejects, or completes TAKE.
@@ -376,6 +380,16 @@ function selectionFromIndices(index, merge = null) {
 
 function selectionFromId(id) {
   return SKETCHES.some((sketch) => sketch.id === id) ? singleSelection(id) : null;
+}
+
+// Validate a selection sent with the atomic CUE-entry request. Canonical sketch
+// ids keep the request stable if a control's pad order changes in transit.
+function validCueSelection(selection) {
+  const candidate = copyProgramSelection(selection);
+  const ids = candidate.ids || [];
+  if (!ids.length || !ids.every((id) => SKETCHES.some((sketch) => sketch.id === id))) return null;
+  if (candidate.merge ? ids.length !== 2 : ids.length !== 1) return null;
+  return candidate;
 }
 
 function selectionIndices(selection) {
@@ -869,6 +883,7 @@ function cueStatePayload() {
   }
   return {
     sessionId: cueSession.sessionId,
+    entryRequestId: cueSession.entryRequestId || null,
     revision: cueSession.revision,
     selection: copyProgramSelection(cueSession.selection),
     phase: cueSession.phase,
@@ -979,6 +994,7 @@ function applyReceivedCueState(payload, notice = '', acknowledgement = {}) {
   }
 
   if (cueSession?.sessionId === payload.sessionId) {
+    cueSession.entryRequestId = payload.entryRequestId || cueSession.entryRequestId || null;
     cueSession.revision = payload.revision;
     cueSession.selection = copyProgramSelection(payload.selection);
     cueSession.phase = payload.phase;
@@ -993,6 +1009,7 @@ function applyReceivedCueState(payload, notice = '', acknowledgement = {}) {
   } else {
     cueSession = {
       sessionId: payload.sessionId,
+      entryRequestId: payload.entryRequestId || null,
       revision: payload.revision,
       selection: copyProgramSelection(payload.selection),
       params: cloneCueBank(payload.selection),
@@ -1008,6 +1025,24 @@ function applyReceivedCueState(payload, notice = '', acknowledgement = {}) {
     };
     mergeCueParamsInPlace(cueSession.params, payload.params);
   }
+
+  // A Shift gesture may be followed by another pattern input before the screen
+  // has created the session. Keep that latest target cue-scoped and flush it
+  // only after the matching entry acknowledgement arrives.
+  if (myRole === 'control' && cueEntryPending) {
+    const pending = cueEntryPending;
+    if (payload.entryRequestId === pending.requestId) {
+      cueEntryPending = null;
+      if (!selectionsEqual(payload.selection, pending.selection)) {
+        queueCueSelectionChange(pending.selection);
+      }
+    } else if (payload.entryRequestId) {
+      // Another control owns the accepted CUE transaction; never let this
+      // panel's pre-ack gesture fall through to an unintended LIVE switch.
+      cueEntryPending = null;
+    }
+  }
+
   settleCueTakeIntent(payload, acknowledgement);
   acknowledgeCueMutation(payload);
   applyPostFx();
@@ -1017,8 +1052,10 @@ function applyReceivedCueState(payload, notice = '', acknowledgement = {}) {
   }
 }
 
-function enterCueSession(initiatorId) {
+function enterCueSession(initiatorId, requestedSelection = null, entryRequestId = null) {
   if (myRole !== 'screen' || cueSession || !liveRuntime) return;
+  if (entryRequestId && canceledCueEntryRequests.delete(entryRequestId)) return;
+
   // Manual CUE takes ownership of the only hidden slot. Abort an in-flight
   // automatic/direct replacement before creating the session to preserve the
   // strict LIVE + one CUE context cap.
@@ -1027,9 +1064,12 @@ function enterCueSession(initiatorId) {
   disposeRuntime(retiringRuntime);
   incomingRuntime = null;
   retiringRuntime = null;
-  const selection = currentLiveSelection();
+  // Shift + selection supplies a stable-id candidate up front, avoiding an
+  // intermediate same-as-live session and any opportunity to mutate LIVE.
+  const selection = validCueSelection(requestedSelection) || currentLiveSelection();
   cueSession = {
     sessionId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    entryRequestId,
     revision: 0,
     initiatorId,
     selection,
@@ -1046,9 +1086,15 @@ function enterCueSession(initiatorId) {
     error: null,
     runtimeRequired: false,
   };
-  recordCueTiming('cue-entered', { sessionId: cueSession.sessionId });
+  cueSession.runtimeRequired = cueRequiresRuntime(cueSession);
+  if (cueSession.runtimeRequired) {
+    cueSession.phase = 'warming';
+    cueSession.renderedRevision = null;
+  }
+  recordCueTiming('cue-entered', { sessionId: cueSession.sessionId, ids: selection.ids });
   applyPostFx();
   broadcastCueState();
+  if (cueSession.runtimeRequired) queueCueRuntime();
 }
 
 function isAcceptedCueRequest(msg) {
@@ -1196,21 +1242,11 @@ function updateCueSelection(msg) {
     resyncRejectedCueRequest(msg);
     return;
   }
-  const selection = msg.selection;
-  if (!selection?.ids?.length || !selection.ids.every((id) => SKETCHES.some((sketch) => sketch.id === id))) {
+  const nextSelection = validCueSelection(msg.selection);
+  if (!nextSelection) {
     broadcastCueState();
     return;
   }
-  if (selection.merge && selection.ids.length !== 2) {
-    broadcastCueState();
-    return;
-  }
-  if (!selection.merge && selection.ids.length !== 1) {
-    broadcastCueState();
-    return;
-  }
-
-  const nextSelection = copyProgramSelection(selection);
   if (selectionsEqual(nextSelection, cueSession.selection)) {
     // Acknowledge duplicate/coalesced controls with a new monotonic revision
     // without rebuilding the renderer. If a prior edit was still freshening,
@@ -1318,6 +1354,20 @@ function cancelCueSession(notice = 'CUE CANCELED') {
   recordCueTiming('cue-canceled');
   broadcastCueState(notice);
   broadcastLiveState();
+}
+
+function cancelCueEntryRequest(entryRequestId) {
+  if (myRole !== 'screen' || !entryRequestId) return;
+  if (cueSession?.entryRequestId === entryRequestId) {
+    cancelCueSession();
+    return;
+  }
+  // BroadcastChannel ordering normally makes this unnecessary, but retain a
+  // short bounded tombstone so an Escape that races an entry never creates CUE.
+  canceledCueEntryRequests.add(entryRequestId);
+  while (canceledCueEntryRequests.size > 32) {
+    canceledCueEntryRequests.delete(canceledCueEntryRequests.values().next().value);
+  }
 }
 
 async function takeCueSession(session = cueSession, takeRequestId = null) {
@@ -1496,15 +1546,42 @@ function queueCueParamChange(id, values) {
   scheduleCueMutationFlush();
 }
 
-function requestCuePrimary() {
-  if (!cueSession) {
-    // Never carry an in-progress two-number gesture across a transport mode
-    // boundary; blur already performs the same bookkeeping-only reset.
-    heldKeys.length = 0;
-    if (screenOnline) broadcast({ type: 'cue-enter', initiatorId: myId });
+// Start CUE with the requested stable-id selection in one screen-authoritative
+// transaction. This avoids a transient LIVE change between entering CUE and
+// selecting its first candidate.
+function requestCueSelection(selection) {
+  const candidate = validCueSelection(selection);
+  if (!candidate || cueEditsLocked()) return;
+  if (cueSession) {
+    queueCueSelectionChange(candidate);
     return;
   }
-  if (cueEditsLocked()) return;
+  if (!screenOnline) return;
+
+  // A fast follow-up pattern action stays in this pending transaction instead
+  // of falling through to requestSelection() and unexpectedly replacing LIVE.
+  if (cueEntryPending) {
+    cueEntryPending.selection = candidate;
+    return;
+  }
+
+  heldKeys.length = 0;
+  cueEntryPending = {
+    requestId: `${myId}-cue-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+    selection: candidate,
+  };
+  broadcast({
+    type: 'cue-enter',
+    initiatorId: myId,
+    entryRequestId: cueEntryPending.requestId,
+    selection: candidate,
+  });
+}
+
+function requestCuePrimary() {
+  // There is intentionally no standalone CUE action. Shift + a pattern enters
+  // CUE; this overlay action only takes (or retries) an existing candidate.
+  if (!cueSession || cueEditsLocked()) return;
 
   // RETRY CUE rebuilds a failed candidate; it is not a TAKE intent and should
   // not lock out the operator's next corrective edit.
@@ -1522,7 +1599,13 @@ function requestCuePrimary() {
 }
 
 function requestCueCancel() {
-  if (!cueSession) return;
+  if (!cueSession) {
+    if (!cueEntryPending) return;
+    const entryRequestId = cueEntryPending.requestId;
+    cueEntryPending = null;
+    broadcast({ type: 'cue-cancel-entry', entryRequestId });
+    return;
+  }
   clearCueMutationQueue();
   broadcast({ type: 'cue-cancel', sessionId: cueSession.sessionId });
 }
@@ -1531,6 +1614,10 @@ function requestSelection(selection) {
   if (!selection?.ids?.length) return;
   if (cueSession) {
     queueCueSelectionChange(selection);
+    return;
+  }
+  if (cueEntryPending) {
+    cueEntryPending.selection = copyProgramSelection(selection);
     return;
   }
 
@@ -1551,6 +1638,9 @@ function requestParamChange(id, values) {
     queueCueParamChange(id, values);
     return;
   }
+  // Do not let a slider gesture made while Shift-entry is still crossing the
+  // channel mutate LIVE. Its first CUE frame will inherit the current bank.
+  if (cueEntryPending) return;
   broadcast({ type: 'params', id, values });
 }
 
@@ -1870,7 +1960,17 @@ function handleMessage(msg) {
     }
 
     case 'cue-enter':
-      if (myRole === 'screen') enterCueSession(msg.initiatorId || msg.windowId);
+      if (myRole === 'screen') {
+        enterCueSession(
+          msg.initiatorId || msg.windowId,
+          msg.selection,
+          msg.entryRequestId || null,
+        );
+      }
+      return;
+
+    case 'cue-cancel-entry':
+      if (myRole === 'screen') cancelCueEntryRequest(msg.entryRequestId || null);
       return;
 
     case 'cue-selection':
@@ -2037,6 +2137,7 @@ function handleMessage(msg) {
       screenOnline = false;
       // A cue is unsafe without its screen-side warmed runtime. Controls discard
       // it rather than retaining a stale TAKE action after screen loss.
+      if (myRole === 'control') cueEntryPending = null;
       if (myRole === 'control' && cueSession) applyReceivedCueState(null, 'CUE CANCELED — OUTPUT OFFLINE');
       if (myRole === 'control' && panel) panel.setScreenOnline(false);
       break;
@@ -2131,28 +2232,33 @@ window.addEventListener('keydown', resumeAudioFromControlGesture, { capture: tru
 
 // ---------------------------------------------------------------------------
 // Keyboard shortcuts (1-0) — active on control panel windows.
-// Gesture model (latched): the FIRST key pressed selects that effect; if a
-// SECOND key is pressed while the first is still held, both effects merge and
-// the blend STAYS (latched) even after the keys are released. A later single
-// key press ends the blend; two overlapping presses start a new one. Extra
-// held keys (3+) are ignored to keep the blend target stable.
+// Shift + a number starts/updates CUE with that one stable pad selection.
+// Unmodified number keys retain the latched merge gesture: the FIRST key
+// selects an effect; if a SECOND key is pressed while the first is still held,
+// both effects merge and the blend stays until a later single-key selection.
 // ---------------------------------------------------------------------------
 
-// Indices of currently held shortcut keys, in press order.
+// Held keys are tracked by physical code, not character, so a Shift-modified
+// digit (whose `key` is punctuation on most layouts) can never corrupt a merge.
 const heldKeys = [];
+
+function shortcutIndexFromEvent(event) {
+  const digit = /^Digit([0-9])$/.exec(event.code || '');
+  if (digit) return digit[1] === '0' ? 9 : Number(digit[1]) - 1;
+  return indexFromKey(event.key);
+}
 
 window.addEventListener('keydown', (e) => {
   if (myRole !== 'control') return;
 
-  // Transport keys intentionally run before text-entry guards. `code` tracks
-  // the physical key and does not derive behavior from the OS Caps Lock state.
-  if (e.code === 'CapsLock') {
-    if (e.repeat) return;
+  // Transport keys intentionally run before text-entry guards. Enter queues a
+  // safe TAKE while warming; Escape remains the abort path even during entry.
+  if (e.code === 'Enter' && cueSession) {
     e.preventDefault();
-    requestCuePrimary();
+    if (!e.repeat) requestCuePrimary();
     return;
   }
-  if (e.code === 'Escape' && cueSession) {
+  if (e.code === 'Escape' && (cueSession || cueEntryPending)) {
     e.preventDefault();
     requestCueCancel();
     return;
@@ -2194,18 +2300,27 @@ window.addEventListener('keydown', (e) => {
     }
   }
 
-  const index = indexFromKey(e.key);
-  // Only the first 10 positions have shortcuts (1-9, 0)
+  const index = shortcutIndexFromEvent(e);
+  // Only the first 10 positions have shortcuts (1-9, 0).
   if (index < 0 || index >= getOrderedSketches().length) return;
-  if (e.repeat || heldKeys.includes(index)) return;
+
+  if (e.shiftKey) {
+    if (e.repeat) return;
+    heldKeys.length = 0;
+    requestCueSelection(selectionFromIndices(index));
+    e.preventDefault();
+    return;
+  }
+
+  if (e.repeat || heldKeys.some((held) => held.code === e.code)) return;
 
   if (heldKeys.length === 0) {
-    heldKeys.push(index);
+    heldKeys.push({ code: e.code, index });
     requestSelection(selectionFromIndices(index));
   } else if (heldKeys.length === 1) {
-    heldKeys.push(index);
-    const lo = Math.min(heldKeys[0], index);
-    const hi = Math.max(heldKeys[0], index);
+    heldKeys.push({ code: e.code, index });
+    const lo = Math.min(heldKeys[0].index, index);
+    const hi = Math.max(heldKeys[0].index, index);
     requestSelection(selectionFromIndices(lo, [lo, hi]));
   }
   // 2+ keys already held -> ignore extras
@@ -2214,10 +2329,9 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('keyup', (e) => {
   if (myRole !== 'control') return;
 
-  const index = indexFromKey(e.key);
-  const pos = heldKeys.indexOf(index);
+  const pos = heldKeys.findIndex((held) => held.code === e.code);
   if (pos >= 0) heldKeys.splice(pos, 1);
-  // No broadcast on release: an started blend is latched until the next press
+  // No broadcast on release: a started blend is latched until the next press.
 });
 
 // If the control window loses focus mid-hold its keyup events are lost. The
@@ -2244,6 +2358,8 @@ function ensurePanel() {
   panel = new ConfigPanel({
     onPatternChange: (index) => requestSelection(selectionFromIndices(index)),
     onPatternChangeId: (id) => requestSelection(selectionFromId(id)),
+    onCuePatternChange: (index) => requestCueSelection(selectionFromIndices(index)),
+    onCuePatternChangeId: (id) => requestCueSelection(selectionFromId(id)),
     onDevicesChange: (selection) => broadcast({ type: 'devices', ...(selection || {}) }),
     onOpenScreen: () => openScreenWindow(),
     onCuePrimary: () => requestCuePrimary(),
