@@ -8,7 +8,7 @@ async function openScreenAndControl(context, page) {
   const control = await context.newPage();
   await control.goto(CONTROL_URL);
   await page.waitForFunction(() => window.__viz.patternId === 'circles');
-  await expect(control.locator('#cue-primary')).toBeVisible();
+  await expect(control.locator('#cue-preview-controls')).toBeHidden();
   return control;
 }
 
@@ -17,6 +17,20 @@ async function setRange(control, selector, value) {
     el.value = String(next);
     el.dispatchEvent(new Event('input', { bubbles: true }));
   }, value);
+}
+
+async function cueWithShift(control, key) {
+  await control.keyboard.down('Shift');
+  await control.keyboard.press(key);
+  await control.keyboard.up('Shift');
+}
+
+async function enterCue(control) {
+  await cueWithShift(control, '1');
+}
+
+async function goLive(control) {
+  await control.keyboard.press('Enter');
 }
 
 // Hold compositor callbacks on the output only. This makes the revision gate
@@ -320,10 +334,11 @@ test.describe('CUE mode', () => {
     const control = await openScreenAndControl(context, page);
     const storageBefore = await control.evaluate(() => localStorage.getItem('viz2_params'));
 
-    await control.keyboard.press('CapsLock');
+    await enterCue(control);
     await page.waitForFunction(() => window.__viz.cue?.phase === 'same');
     await expect(control.locator('#preview-title')).toHaveText('CUE PREVIEW');
-    await expect(control.locator('#cue-primary .transport-action')).toHaveText('TAKE LIVE');
+    await expect(control.locator('#cue-preview-controls')).toBeVisible();
+    await expect(control.locator('#cue-primary .transport-action')).toHaveText('GO LIVE');
 
     // CUE Bars (slot 3); Circles remains the screen program while it warms.
     await control.keyboard.press('3');
@@ -337,7 +352,7 @@ test.describe('CUE mode', () => {
     expect(await control.evaluate(() => localStorage.getItem('viz2_params'))).toBe(storageBefore);
 
     await page.waitForFunction(() => window.__viz.cue?.phase === 'ready');
-    await control.keyboard.press('CapsLock');
+    await goLive(control);
     await page.waitForFunction(() => window.__viz.cue === null && window.__viz.patternId === 'bars');
     await page.waitForFunction(() => window.__viz.params.gain === 3);
     await control.waitForFunction(() => {
@@ -347,11 +362,59 @@ test.describe('CUE mode', () => {
     await expect(control.locator('#preview-title')).toHaveText('LIVE PREVIEW');
   });
 
+  test('uses Shift pattern selection and preview-overlay transport without a top bar', async ({ context, page }) => {
+    const control = await openScreenAndControl(context, page);
+
+    await expect(control.locator('#transport-bar')).toHaveCount(0);
+    await control.keyboard.press('CapsLock');
+    expect(await page.evaluate(() => window.__viz.cue)).toBeNull();
+
+    await control.locator('#pattern-pad [data-index="2"]').click({ modifiers: ['Shift'] });
+    await page.waitForFunction(() => window.__viz.cue?.selection?.ids?.[0] === 'bars');
+    expect(await page.evaluate(() => window.__viz.patternId)).toBe('circles');
+    await expect(control.locator('#cue-preview-controls')).toBeVisible();
+    await expect(control.locator('#cue-primary .transport-action')).toHaveText('GO LIVE');
+    await expect(control.locator('#cue-cancel')).toBeEnabled();
+
+    const overlayLayout = await control.evaluate(() => {
+      const preview = document.querySelector('.preview-surface').getBoundingClientRect();
+      const overlay = document.querySelector('#cue-preview-controls');
+      const overlayRect = overlay.getBoundingClientRect();
+      const previewPane = document.querySelector('#preview-pane').getBoundingClientRect();
+      const libraryPane = document.querySelector('#library-pane').getBoundingClientRect();
+      return {
+        position: getComputedStyle(overlay).position,
+        insidePreview: overlayRect.left >= preview.left
+          && overlayRect.right <= preview.right
+          && overlayRect.top >= preview.top
+          && overlayRect.bottom <= preview.bottom,
+        panesShareTop: Math.abs(previewPane.top - libraryPane.top) < 1,
+      };
+    });
+    expect(overlayLayout).toEqual({ position: 'absolute', insidePreview: true, panesShareTop: true });
+
+    // A library-only Shift-click also begins/updates CUE and preview re-renders
+    // must not remove the sibling overlay controls.
+    await control.locator('#pattern-library [data-id="plasma-waves"]').click({ modifiers: ['Shift'] });
+    await page.waitForFunction(() => window.__viz.cue?.selection?.ids?.[0] === 'plasma-waves');
+    await expect(control.locator('#cue-preview-controls')).toBeVisible();
+    await expect(control.locator('#cue-primary')).toHaveCount(1);
+
+    await control.locator('#cue-cancel').click();
+    await page.waitForFunction(() => window.__viz.cue === null);
+    await expect(control.locator('#cue-preview-controls')).toBeHidden();
+
+    await cueWithShift(control, '3');
+    await page.waitForFunction(() => window.__viz.cue?.phase === 'ready');
+    await control.locator('#cue-primary').click();
+    await page.waitForFunction(() => window.__viz.cue === null && window.__viz.patternId === 'bars');
+  });
+
   test('Escape cancels a staged candidate without changing LIVE or storage', async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
     const storageBefore = await control.evaluate(() => localStorage.getItem('viz2_params'));
 
-    await control.keyboard.press('CapsLock');
+    await enterCue(control);
     await control.keyboard.press('3');
     await page.waitForFunction(() => window.__viz.cue?.selection?.ids?.[0] === 'bars');
     await setRange(control, '#params-list input[data-key="gain"]', 2.5);
@@ -369,7 +432,7 @@ test.describe('CUE mode', () => {
     const control = await openScreenAndControl(context, page);
     const storedBefore = await control.evaluate(() => localStorage.getItem('viz2_params'));
 
-    await control.keyboard.press('CapsLock');
+    await enterCue(control);
     await setRange(control, '#post-fx-list input[data-key="brightness"]', 25);
     await page.waitForFunction(() => window.__viz.cueParams?.__postfx?.brightness === 25);
     expect(await control.evaluate(() => localStorage.getItem('viz2_params'))).toBe(storedBefore);
@@ -379,7 +442,7 @@ test.describe('CUE mode', () => {
       return cue && cue.style.filter.includes('brightness(1.25)');
     });
 
-    await control.keyboard.press('CapsLock');
+    await goLive(control);
     await page.waitForFunction(() => window.__viz.cue === null && window.__viz.postfx.brightness === 25);
     await page.waitForFunction(() => document.getElementById('screen-wrap').style.filter.includes('brightness(1.25)'));
   });
@@ -388,7 +451,7 @@ test.describe('CUE mode', () => {
     const control = await openScreenAndControl(context, page);
     const liveBlend = await page.evaluate(() => ({ ...window.__viz.blend }));
 
-    await control.keyboard.press('CapsLock');
+    await enterCue(control);
     await control.keyboard.down('1');
     await control.keyboard.down('3');
     await page.waitForFunction(() => JSON.stringify(window.__viz.cue?.selection?.ids) === '["circles","bars"]');
@@ -409,10 +472,10 @@ test.describe('CUE mode', () => {
   test('a TAKE requested while warming remains safe and promotes once ready', async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
 
-    await control.keyboard.press('CapsLock');
+    await enterCue(control);
     await control.keyboard.press('3');
     await page.waitForFunction(() => window.__viz.cue?.phase === 'warming' || window.__viz.cue?.phase === 'ready');
-    await control.keyboard.press('CapsLock');
+    await goLive(control);
 
     // Whether this was already READY or still warming, the old LIVE program is
     // never removed before the staged one becomes visible.
@@ -424,7 +487,7 @@ test.describe('CUE mode', () => {
 
   test('serializes burst cue edits and batches Post-FX reset values', async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
-    await control.keyboard.press('CapsLock');
+    await enterCue(control);
     await control.keyboard.press('3');
     await page.waitForFunction(() => window.__viz.cue?.selection?.ids?.[0] === 'bars');
 
@@ -451,7 +514,7 @@ test.describe('CUE mode', () => {
 
   test('rejects stale cue revisions without mutating the staged bank', async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
-    await control.keyboard.press('CapsLock');
+    await enterCue(control);
     await control.keyboard.press('3');
     await page.waitForFunction(() => window.__viz.cue?.selection?.ids?.[0] === 'bars');
     await page.waitForFunction(() => Boolean(window.__viz.cueParams?.bars));
@@ -489,8 +552,7 @@ test.describe('CUE mode', () => {
       && window.__viz.postfx.brightness === 12);
     const baselineStorage = await controlA.evaluate(() => localStorage.getItem('viz2_params'));
 
-    await controlA.keyboard.press('CapsLock');
-    await controlA.keyboard.press('1'); // CUE Circles; Bars remains LIVE.
+    await cueWithShift(controlA, '1'); // CUE Circles; Bars remains LIVE.
     await page.waitForFunction(() => window.__viz.cue?.selection?.ids?.[0] === 'circles');
 
     // Mimic a delayed legacy sender that did not know CUE was already accepted.
@@ -529,7 +591,7 @@ test.describe('CUE mode', () => {
 
   test('commits the cue bank into every control before returning to LIVE', async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
-    await control.keyboard.press('CapsLock');
+    await enterCue(control);
     await control.keyboard.press('3');
     await page.waitForFunction(() => window.__viz.cue?.selection?.ids?.[0] === 'bars');
     await setRange(control, '#params-list input[data-key="gain"]', 2.5);
@@ -538,7 +600,7 @@ test.describe('CUE mode', () => {
     const second = await context.newPage();
     await second.goto(CONTROL_URL);
     await page.waitForFunction(() => window.__viz.cue?.phase === 'ready');
-    await control.keyboard.press('CapsLock');
+    await goLive(control);
     await page.waitForFunction(() => window.__viz.cue === null && window.__viz.patternId === 'bars');
     await expect(second.locator('#params-list input[data-key="gain"]')).toHaveValue('2.5');
 
@@ -550,7 +612,7 @@ test.describe('CUE mode', () => {
 
   test('supersedes a warming selection with SAME AS LIVE before TAKE', async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
-    await control.keyboard.press('CapsLock');
+    await enterCue(control);
     await control.keyboard.press('3');
     await page.waitForFunction(() => window.__viz.cue?.selection?.ids?.[0] === 'bars');
 
@@ -561,21 +623,22 @@ test.describe('CUE mode', () => {
       window.__viz.cue?.phase === 'same'
       && window.__viz.cue?.selection?.ids?.[0] === 'circles'
     );
-    await control.keyboard.press('CapsLock');
+    await goLive(control);
     await page.waitForFunction(() => window.__viz.cue === null && window.__viz.patternId === 'circles');
     await page.waitForFunction(() => window.__viz.runtimeCounts.total <= 1);
   });
 
   test('late-open controls receive the active cue state', async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
-    await control.keyboard.press('CapsLock');
+    await enterCue(control);
     await control.keyboard.press('3');
     await page.waitForFunction(() => window.__viz.cue?.selection?.ids?.[0] === 'bars');
 
     const second = await context.newPage();
     await second.goto(CONTROL_URL);
     await expect(second.locator('#preview-title')).toHaveText('CUE PREVIEW');
-    await expect(second.locator('#transport-cue-name')).toContainText('Bars');
+    await expect(second.locator('#cue-preview-controls')).toBeVisible();
+    await expect(second.locator('#cue-preview-phase')).toContainText('CUE');
     await expect(second.locator('#pattern-pad [data-index="0"]')).toHaveClass(/live-active/);
     await expect(second.locator('#pattern-pad [data-index="2"]')).toHaveClass(/cue-active/);
 
@@ -584,7 +647,7 @@ test.describe('CUE mode', () => {
 
   test('reports WARMING after a cue edit until that revision completes a fresh output frame', async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
-    await control.keyboard.press('CapsLock');
+    await enterCue(control);
     await control.keyboard.press('3');
     await page.waitForFunction(() => window.__viz.cue?.phase === 'ready');
     const readyRevision = await page.evaluate(() => window.__viz.cue.revision);
@@ -612,21 +675,21 @@ test.describe('CUE mode', () => {
 
   test('locks edits immediately for queued TAKE and preserves the final queued change', async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
-    await control.keyboard.press('CapsLock');
+    await enterCue(control);
     await control.keyboard.press('3');
     await page.waitForFunction(() => window.__viz.cue?.phase === 'ready');
 
-    // Keep the input and CAPS LOCK edge in one control-window task. The range
-    // mutation is still queued locally when TAKE is requested, so this asserts
-    // the immediate local transaction lock rather than a later screen reply.
+    // Keep the input and Enter edge in one control-window task. The range
+    // mutation is still queued locally when GO LIVE is requested, so this
+    // asserts the immediate local transaction lock rather than a later reply.
     await holdScreenAnimationFrames(page);
     try {
       await control.locator('#params-list input[data-key="gain"]').evaluate((input) => {
         input.value = '2.7';
         input.dispatchEvent(new Event('input', { bubbles: true }));
         window.dispatchEvent(new KeyboardEvent('keydown', {
-          key: 'CapsLock',
-          code: 'CapsLock',
+          key: 'Enter',
+          code: 'Enter',
           bubbles: true,
           cancelable: true,
         }));
@@ -646,7 +709,7 @@ test.describe('CUE mode', () => {
 
   test('CANCEL remains available while a revision-bound TAKE is pending', async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
-    await control.keyboard.press('CapsLock');
+    await enterCue(control);
     await control.keyboard.press('3');
     await page.waitForFunction(() => window.__viz.cue?.phase === 'ready');
 
@@ -654,7 +717,7 @@ test.describe('CUE mode', () => {
     try {
       await setRange(control, '#params-list input[data-key="gain"]', 2.3);
       await page.waitForFunction(() => window.__viz.cue?.phase === 'warming');
-      await control.keyboard.press('CapsLock');
+      await goLive(control);
       await page.waitForFunction(() => window.__viz.cue?.phase === 'take-pending');
       await expect(control.locator('#cue-cancel')).toBeEnabled();
       await control.keyboard.press('Escape');
