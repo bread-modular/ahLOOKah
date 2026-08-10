@@ -12,6 +12,7 @@ import {
 } from './sketch-registry.js';
 import { ConfigPanel } from './config-panel.js';
 import { AudioManager } from './audio-manager.js';
+import { PreviewAudio } from './preview-audio.js';
 import { setBandSplit, computeLogSpectrum } from './sketches/audio-features.js';
 import {
   loadNoiseFloor,
@@ -42,6 +43,9 @@ const MY_BOOT_TIME = Date.now();
 
 const channel = new BroadcastChannel('viz2_channel');
 const audio = new AudioManager();
+// Control windows render their own lightweight stage using the screen's
+// broadcast analysis (or a musical idle signal until a screen is available).
+const previewAudio = new PreviewAudio();
 
 let currentP5 = null;
 let currentIndex = 0;
@@ -306,6 +310,189 @@ function adoptCanvas(inst) {
   requestAnimationFrame(tick);
 }
 
+// ---------------------------------------------------------------------------
+// Embedded control-panel preview
+// ---------------------------------------------------------------------------
+// A preview is a real, isolated p5 instance of the selected visual. Sketches
+// were written for a full output window and call createCanvas(windowWidth,
+// windowHeight), so the wrapper below intercepts create/resizeCanvas and
+// substitutes the preview host's dimensions. This keeps all existing 2D and
+// WebGL sketches unchanged while ensuring their canvas never escapes the panel.
+
+let previewStage = null;
+let previewP5 = [];
+let previewSelection = { ids: [], merge: false };
+let previewResizeObserver = null;
+let previewRenderRaf = 0;
+let previewResizeRaf = 0;
+let previewGeneration = 0;
+
+function getPreviewSize() {
+  if (!previewStage) return [1, 1];
+  return [
+    Math.max(1, Math.round(previewStage.clientWidth)),
+    Math.max(1, Math.round(previewStage.clientHeight)),
+  ];
+}
+
+function applyPreviewCompositing() {
+  if (!previewStage) return;
+
+  // Match the output stage's post-processing trim without touching the
+  // full-screen #screen-wrap that belongs only to the output window.
+  previewStage.style.filter = postFxFilterString();
+
+  previewP5.forEach((inst, index) => {
+    const canvas = inst && inst.canvas;
+    if (!canvas) return;
+    canvas.style.zIndex = String(index);
+    if (previewP5.length === 2 && index === 1) {
+      const blend = getParams(BLEND_ID);
+      const additive = blend.mode === 1;
+      canvas.style.mixBlendMode = additive ? 'screen' : 'normal';
+      canvas.style.opacity = String(additive ? (blend.add ?? 0.5) : (blend.mix ?? 0.5));
+    } else {
+      canvas.style.mixBlendMode = 'normal';
+      canvas.style.opacity = '1';
+    }
+  });
+}
+
+function attachPreviewCanvas(inst, sketch, layer, generation) {
+  const attach = () => {
+    if (generation !== previewGeneration || !previewStage || inst._removed) return;
+    if (!inst.canvas) {
+      requestAnimationFrame(attach);
+      return;
+    }
+
+    const canvas = inst.canvas;
+    if (canvas.parentElement !== previewStage) previewStage.appendChild(canvas);
+    canvas.classList.add('preview-canvas');
+    canvas.dataset.previewSketch = sketch.id;
+    canvas.style.zIndex = String(layer);
+    canvas.style.pointerEvents = 'none';
+    applyPreviewCompositing();
+  };
+  attach();
+}
+
+function createPreviewInstance(sketch, layer, generation) {
+  if (!previewStage) return null;
+
+  const factory = sketch.factory(previewAudio, null, getParams(sketch.id));
+  const wrappedSketch = (p) => {
+    // Each legacy sketch asks p5 for window-sized canvases on setup and resize.
+    // Substitute only those calls, keeping every drawing API and renderer mode
+    // (including WEBGL) identical to the output-stage implementation.
+    const createCanvas = p.createCanvas.bind(p);
+    const resizeCanvas = p.resizeCanvas.bind(p);
+    p.createCanvas = (_width, _height, ...rest) => {
+      const [width, height] = getPreviewSize();
+      return createCanvas(width, height, ...rest);
+    };
+    p.resizeCanvas = (_width, _height, ...rest) => {
+      const [width, height] = getPreviewSize();
+      return resizeCanvas(width, height, ...rest);
+    };
+    factory(p);
+  };
+
+  // Passing the stage as p5's parent ensures setup-created canvases start inside
+  // the clipped host. attachPreviewCanvas also handles p5 2.x's async canvas.
+  const inst = new p5(wrappedSketch, previewStage);
+  previewP5.push(inst);
+  attachPreviewCanvas(inst, sketch, layer, generation);
+  return inst;
+}
+
+function clearPreview() {
+  previewGeneration += 1;
+  previewP5.forEach((inst) => inst.remove());
+  previewP5 = [];
+  if (previewStage) {
+    previewStage.replaceChildren();
+    previewStage.style.filter = 'none';
+    delete previewStage.dataset.previewSketches;
+  }
+}
+
+function renderPreview() {
+  if (!previewStage) return;
+  clearPreview();
+
+  const ids = [...new Set((previewSelection.ids || []).filter(Boolean))];
+  const sketches = ids.map((id) => SKETCHES.find((sketch) => sketch.id === id)).filter(Boolean);
+  previewStage.dataset.previewSketches = sketches.map((sketch) => sketch.id).join(',');
+
+  if (!sketches.length) {
+    previewStage.innerHTML = '<div class="preview-empty">Select a pattern to start the preview.</div>';
+    return;
+  }
+
+  // A control window must not open a second camera capture (which can steal the
+  // selected device from the output screen). Keep the output behavior intact and
+  // clearly label this one intentional preview-only exception.
+  const cameraSketches = sketches.filter((sketch) => sketch.camera);
+  const renderable = sketches.filter((sketch) => !sketch.camera);
+  if (!renderable.length) {
+    previewStage.innerHTML = '<div class="preview-empty">Camera effect — live video remains on the output screen.</div>';
+    return;
+  }
+
+  const active = previewSelection.merge ? renderable.slice(0, 2) : renderable.slice(0, 1);
+  const generation = previewGeneration;
+  active.forEach((sketch, layer) => createPreviewInstance(sketch, layer, generation));
+
+  if (cameraSketches.length) {
+    const note = document.createElement('div');
+    note.className = 'preview-camera-note';
+    note.textContent = 'Camera layer stays on the output screen.';
+    previewStage.appendChild(note);
+  }
+  applyPreviewCompositing();
+}
+
+function queuePreviewRender() {
+  if (previewRenderRaf) cancelAnimationFrame(previewRenderRaf);
+  previewRenderRaf = requestAnimationFrame(() => {
+    previewRenderRaf = 0;
+    renderPreview();
+  });
+}
+
+function resizePreview() {
+  if (previewResizeRaf) return;
+  previewResizeRaf = requestAnimationFrame(() => {
+    previewResizeRaf = 0;
+    const [width, height] = getPreviewSize();
+    previewP5.forEach((inst) => {
+      if (inst && !inst._removed && (inst.width !== width || inst.height !== height)) {
+        // The instance method is our wrapped resizeCanvas, so it ignores these
+        // nominal arguments and always uses the measured preview host size.
+        inst.resizeCanvas(width, height);
+      }
+    });
+  });
+}
+
+function initPreviewStage(stage) {
+  if (previewResizeObserver) previewResizeObserver.disconnect();
+  clearPreview();
+  previewStage = stage;
+  previewResizeObserver = new ResizeObserver(resizePreview);
+  previewResizeObserver.observe(stage);
+  queuePreviewRender();
+}
+
+function setPreviewSelection(selection = {}) {
+  previewSelection = {
+    ids: Array.isArray(selection.ids) ? selection.ids : [],
+    merge: Boolean(selection.merge),
+  };
+  queuePreviewRender();
+}
+
 function loadSketch(index, merge = null) {
   const ordered = getOrderedSketches();
   if (index < 0 || index >= ordered.length) return;
@@ -515,12 +702,19 @@ function handleMessage(msg) {
       if (typeof msg.id === 'string' && msg.values) {
         Object.assign(getParams(msg.id), msg.values);
         saveParamValues();
-        // Blend sliders drive the overlay canvas styles on the screen
-        if (msg.id === BLEND_ID && myRole === 'screen') applyBlendStyles();
+        // Blend sliders drive the overlay canvas styles on the output and
+        // the matching mini-stage inside control windows.
+        if (msg.id === BLEND_ID) {
+          if (myRole === 'screen') applyBlendStyles();
+          if (myRole === 'control') applyPreviewCompositing();
+        }
         // Band-split crossovers retune the musical feature extractor
         if (msg.id === BANDS_ID) setBandSplit(getParams(BANDS_ID));
-        // Post-processing trim restyles the stage wrapper on the screen
-        if (msg.id === POSTFX_ID) applyPostFx();
+        // Post-processing trim restyles the output wrapper and the panel preview.
+        if (msg.id === POSTFX_ID) {
+          applyPostFx();
+          if (myRole === 'control') applyPreviewCompositing();
+        }
         if (myRole === 'control' && panel) panel.applyParam(msg.id, msg.values);
       }
       break;
@@ -530,6 +724,12 @@ function handleMessage(msg) {
       // EQ (broadcast by the screen ~15fps). Forward and return early — the
       // full syncUI() dance is pointless churn at this message rate.
       if (myRole === 'control' && panel) panel.handleSpectrum(msg);
+      return;
+
+    case 'analysis-frame':
+      // Full-size cleaned frequency + waveform frame for the embedded preview.
+      // This deliberately stays separate from the compact EQ spectrum above.
+      if (myRole === 'control') previewAudio.setFrame(msg.frame);
       return;
 
     case 'noise-capture':
@@ -620,6 +820,9 @@ function spectrumLoop(now) {
     const frame = audio.isStarted ? audio.getAnalysisFrame() : null;
     const spec = frame ? computeLogSpectrum(frame) : null;
     if (spec) broadcast({ type: 'spectrum', ...spec });
+    // The live preview needs the full resolution analysis frame (including
+    // waveforms); the EQ uses only the much smaller log-spectrum above.
+    if (frame) broadcast({ type: 'analysis-frame', frame });
   }
 
   if (noiseCaptureActive) {
@@ -782,6 +985,8 @@ function ensurePanel() {
       clearNoiseFloor();
       broadcast({ type: 'noise-floor', status: 'cleared' });
     },
+    onPreviewReady: (stage) => initPreviewStage(stage),
+    onPreviewChange: (selection) => setPreviewSelection(selection),
     getParams,
     getPattern: () => currentIndex,
     isScreen: () => myRole === 'screen',

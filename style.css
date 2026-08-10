@@ -11,11 +11,18 @@
   --band-high: #5b9dff;
 }
 
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 html,
 body {
   margin: 0;
   padding: 0;
   overflow: hidden;
+  overflow-x: hidden;
   background: var(--bg-dark);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   width: 100vw;
@@ -25,6 +32,11 @@ body {
 
 canvas {
   display: block;
+}
+
+/* Only output-stage canvases are full-screen. Panel canvases (the EQ and the
+   embedded preview) remain in their own layout containers. */
+body.is-screen canvas {
   position: fixed;
   top: 0;
   left: 0;
@@ -79,19 +91,17 @@ body.is-control {
   pointer-events: auto;
 }
 
-/* In control mode the panel is a full-page, two-column layout: a fixed-width
-   scrollable effects list on the left, and the controls (params, devices,
-   actions) always visible on the right. The page itself never scrolls. */
+/* In control mode the panel is a full-page, three-column workspace. The
+   left preview/pad column is intentionally fixed in place; the pattern library
+   and controls each own their vertical overflow. The page itself never scrolls
+   in either direction. */
 body.is-control #config-container {
   position: static;
   width: 100%;
   height: 100vh;
   min-height: 0;
-  display: flex;
-  justify-content: flex-start;
-  align-items: stretch;
+  display: block;
   padding: 0;
-  box-sizing: border-box;
 }
 
 body.is-control #config-panel {
@@ -99,90 +109,204 @@ body.is-control #config-panel {
   width: 100%;
   max-width: none;
   max-height: none;
-  overflow-x: auto;
-  overflow-y: hidden;
+  height: 100vh;
+  overflow: hidden;
   padding: 0;
   border: none;
   border-radius: 0;
   box-shadow: none;
-  display: flex;
-  flex-direction: row;
+  display: grid;
+  grid-template-columns: minmax(0, 1.03fr) minmax(0, 0.96fr) minmax(0, 1.04fr);
   align-items: stretch;
 }
 
-/* Effects list column — fixed width, scrolls independently of the controls.
-   The width is live-edited by the resizer (viz2_effects_width in localStorage);
-   460px here is just the pre-JS default (2 columns of 200px+ buttons). */
-body.is-control #effects-pane {
+/* Column 1: the live rendering surface and 1–0 pad stay visible at all times. */
+body.is-control #preview-pane {
+  min-width: 0;
+  min-height: 0;
+  height: 100vh;
+  display: grid;
+  grid-template-rows: minmax(120px, 1fr) auto;
+  gap: 16px;
+  overflow: hidden;
+  padding: 18px;
+  border-right: 1px solid var(--border-gray);
+}
+
+.preview-section,
+.pad-section {
+  min-width: 0;
+  min-height: 0;
+}
+
+.preview-section {
   display: flex;
   flex-direction: column;
-  width: 320px;
-  flex-shrink: 0;
-  height: 100vh;
-  padding: 20px;
-  box-sizing: border-box;
 }
 
-/* Draggable divider between the effects list and the controls */
-#effects-resizer {
-  display: none;
-}
-
-body.is-control #effects-resizer {
-  display: block;
-  flex-shrink: 0;
-  width: 6px;
-  height: 100vh;
-  cursor: col-resize;
-  background: transparent;
-  border-right: 1px solid var(--border-gray);
-  transition: background var(--transition-speed) ease-out;
-}
-
-body.is-control #effects-resizer:hover,
-body.is-control #effects-resizer:active {
-  background: rgba(77, 163, 255, 0.35);
-  border-right-color: var(--accent);
-}
-
-body.resizing {
-  cursor: col-resize;
-  user-select: none;
-}
-
-body.is-control #effects-pane .pattern-pad {
-  flex-shrink: 0; /* the pad is FIXED — never scrolls away */
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 6px;
-}
-
-body.is-control #effects-pane h3 {
+.preview-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
   flex-shrink: 0;
 }
 
-body.is-control #effects-pane .pattern-library {
+.preview-heading h3 {
+  margin-top: 0;
+}
+
+.preview-renderer {
+  flex-shrink: 0;
+  color: var(--accent);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.preview-stage {
+  position: relative;
   flex: 1 1 auto;
-  min-height: 0; /* allow the library to shrink so it can scroll */
+  min-height: 0;
+  overflow: hidden;
+  isolation: isolate;
+  border: 1px solid rgba(77, 163, 255, 0.35);
+  border-radius: 6px;
+  background:
+    radial-gradient(circle at 50% 45%, rgba(77, 163, 255, 0.12), transparent 54%),
+    #030405;
+  box-shadow: inset 0 0 34px rgba(0, 0, 0, 0.8);
+}
+
+.preview-stage canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  pointer-events: none;
+}
+
+.preview-camera-note,
+.preview-empty {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  color: var(--text-dim);
+  font-size: 0.7rem;
+  line-height: 1.45;
+  text-align: center;
+  background: linear-gradient(135deg, rgba(5, 7, 10, 0.7), rgba(8, 14, 22, 0.45));
+  pointer-events: none;
+}
+
+.preview-camera-note {
+  inset: auto 8px 8px;
+  display: block;
+  padding: 5px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 4px;
+  background: rgba(5, 7, 10, 0.74);
+  font-size: 0.62rem;
+}
+
+.pad-section {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pad-section h3 {
+  flex-shrink: 0;
+  margin-top: 0;
+}
+
+body.is-control #preview-pane .pattern-pad {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+/* Column 2: only the library list scrolls; its title and usage hint remain
+   available, while the left preview/pad never moves. */
+body.is-control #library-pane {
+  min-width: 0;
+  min-height: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 18px;
+  border-right: 1px solid var(--border-gray);
+}
+
+body.is-control #library-pane > h3,
+body.is-control #library-pane > p {
+  flex-shrink: 0;
+}
+
+body.is-control #library-pane > h3 {
+  margin-top: 0;
+}
+
+body.is-control #library-pane .pattern-library {
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-x: hidden;
   overflow-y: auto;
   align-content: start;
   padding-right: 4px;
   margin-right: -4px;
 }
 
-body.is-control #effects-pane > p {
-  margin: 12px 0 0 0;
-  flex-shrink: 0;
+body.is-control #library-pane > p {
+  margin: 12px 0 0;
+  overflow-wrap: anywhere;
 }
 
-/* Controls column — takes the remaining width, scrolls only if too tall.\n   Like the effects pane, it never squishes below a usable width; on narrow\n   windows the whole panel scrolls sideways instead (desktop tool, not mobile). */
+/* Column 3: all existing parameters, EQ and device setup remain intact and
+   independently vertically scrollable. */
 body.is-control #controls-pane {
-  flex: 1 1 auto;
-  min-width: 360px;
+  min-width: 0;
+  min-height: 0;
   height: 100vh;
+  overflow-x: hidden;
   overflow-y: auto;
-  padding: 20px 24px;
-  box-sizing: border-box;
+  padding: 18px 20px;
+}
+
+@media (max-width: 800px) {
+  body.is-control #preview-pane,
+  body.is-control #library-pane {
+    padding: 12px;
+  }
+
+  body.is-control #controls-pane {
+    padding: 12px;
+  }
+
+  body.is-control #preview-pane {
+    gap: 12px;
+  }
+}
+
+@media (max-height: 620px) {
+  body.is-control #preview-pane {
+    grid-template-rows: minmax(96px, 1fr) auto;
+    gap: 10px;
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
 }
 
 /* Hide the panel when this window is the screen */

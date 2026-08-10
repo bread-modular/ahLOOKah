@@ -2,10 +2,15 @@ Initializing workspace from: /home/arunoda/projects/bread_viz
 Installing npm modules...
 Found local node_modules cache, copying...
 
-up to date, audited 45 packages in 849ms
+up to date, audited 45 packages in 658ms
 
 12 packages are looking for funding
   run `npm fund` for details
 
-found 0 vulnerabilities
+1 high severity vulnerability
+
+To address all issues, run:
+  npm audit fix
+
+Run `npm audit` for details.
 Workspace initialization complete!
