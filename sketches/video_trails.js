@@ -3,7 +3,7 @@
 // fresh capture through an ADD / LIGHTEST / DARKEST blend with a hue tint, so
 // movement leaves glowing wakes. Bass stretches the trails and zooms the feed
 // outward for a classic feedback spiral feel.
-export default (audio, videoDeviceId, params) => (p) => {
+export default (audio, videoDeviceId, params, runtime) => (p) => {
   let capture;
   let isCaptureReady = false;
   let smoothSub = 0;
@@ -23,7 +23,9 @@ export default (audio, videoDeviceId, params) => (p) => {
       audio: false,
     };
 
-    capture = p.createCapture(constraints, () => {
+    capture = runtime?.createCapture(p, constraints, () => {
+      isCaptureReady = true;
+    }) || p.createCapture(constraints, () => {
       isCaptureReady = true;
     });
     capture.hide();

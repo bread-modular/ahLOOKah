@@ -107,6 +107,8 @@ export class ConfigPanel {
     onPatternChangeId,
     onDevicesChange,
     onOpenScreen,
+    onCuePrimary,
+    onCueCancel,
     onParamChange,
     onReorder,
     onNoiseCapture,
@@ -123,6 +125,8 @@ export class ConfigPanel {
     this.onPatternChangeId = onPatternChangeId;
     this.onDevicesChange = onDevicesChange;
     this.onOpenScreen = onOpenScreen;
+    this.onCuePrimary = onCuePrimary;
+    this.onCueCancel = onCueCancel;
     this.onParamChange = onParamChange;
     this.onReorder = onReorder;
     this.onNoiseCapture = onNoiseCapture;
@@ -163,6 +167,14 @@ export class ConfigPanel {
     this.dragSource = null;
     // Current 10 pad ids (kept in sync with the pad render).
     this.slotOrder = [];
+    // The screen owns these snapshots. `currentPattern*` above represent the
+    // current editing scope; these two selections are retained independently so
+    // operators can always see LIVE and CUE at the same time.
+    const initialId = getOrderedSketches()[this.currentPattern]?.id || null;
+    this.liveSelection = initialId ? { ids: [initialId], merge: false } : { ids: [], merge: false };
+    this.cueState = null;
+    this.lastCueRevision = null;
+    this.lastTransportNotice = '';
 
     this.init();
   }
@@ -192,11 +204,30 @@ export class ConfigPanel {
     const postFxOpen = localStorage.getItem(this.postFxKey) !== '0';
 
     this.panel.innerHTML = `
+      <section id="transport-bar" class="transport-bar" aria-label="Program transport controls">
+        <div class="transport-program transport-live-program">
+          <span class="transport-label">LIVE</span>
+          <strong id="transport-live-name">Loading…</strong>
+        </div>
+        <div class="transport-program transport-cue-program">
+          <span class="transport-label">CUE</span>
+          <strong id="transport-cue-name">Idle</strong>
+          <span id="transport-cue-phase" class="transport-phase">CUE IDLE</span>
+        </div>
+        <button id="cue-primary" class="cue-primary" type="button" title="Each physical Caps Lock press cues or takes live; your OS lock state/LED may still change.">
+          <span class="transport-action">CUE</span><kbd>CAPS LOCK</kbd>
+        </button>
+        <button id="cue-cancel" class="cue-cancel" type="button" disabled>
+          <span class="transport-action">CANCEL</span><kbd>ESC</kbd>
+        </button>
+        <div id="cue-live-region" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+      </section>
+
       <div id="preview-pane">
         <section class="preview-section" aria-labelledby="preview-title">
           <div class="preview-heading">
-            <h3 id="preview-title">Live Preview</h3>
-            <span class="preview-renderer">Live Render</span>
+            <h3 id="preview-title">LIVE PREVIEW</h3>
+            <span id="preview-renderer" class="preview-renderer">LIVE RENDER</span>
           </div>
           <div id="preview-stage" class="preview-stage" aria-label="Live visualization preview"></div>
         </section>
@@ -217,7 +248,7 @@ export class ConfigPanel {
         <h3 class="panel-title">VIZ CONTROL</h3>
         <div id="status-line" class="status-line"></div>
 
-        <h3>Parameters</h3>
+        <h3 id="params-heading">Parameters</h3>
         <div id="params-list" class="params-list"></div>
 
         <details id="post-fx" class="config-section"${postFxOpen ? ' open' : ''}>
@@ -300,6 +331,15 @@ export class ConfigPanel {
     this.initBandEq();
 
     this.renderStatus();
+    const cuePrimary = this.panel.querySelector('#cue-primary');
+    const cueCancel = this.panel.querySelector('#cue-cancel');
+    if (cuePrimary) cuePrimary.onclick = () => {
+      if (this.onCuePrimary) this.onCuePrimary();
+    };
+    if (cueCancel) cueCancel.onclick = () => {
+      if (this.onCueCancel) this.onCueCancel();
+    };
+    this.renderTransport();
 
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
@@ -863,6 +903,203 @@ export class ConfigPanel {
   }
 
   // ---------------------------------------------------------------------------
+  // CUE transport + dual LIVE/CUE selection state
+  // ---------------------------------------------------------------------------
+
+  normalizeSelection(selection = {}) {
+    const ids = Array.isArray(selection.ids) ? selection.ids.filter(Boolean).slice(0, 2) : [];
+    return { ids, merge: Boolean(selection.merge && ids.length === 2) };
+  }
+
+  selectionName(selection) {
+    const names = this.normalizeSelection(selection).ids
+      .map((id) => SKETCHES.find((sketch) => sketch.id === id)?.name || id);
+    return names.join(selection?.merge ? ' + ' : '') || 'No program';
+  }
+
+  setTransportState({ live, cue = null, screenOnline, notice = '' } = {}) {
+    if (live) this.liveSelection = this.normalizeSelection(live);
+    this.cueState = cue
+      ? {
+        ...cue,
+        selection: this.normalizeSelection(cue.selection),
+        params: cue.params || {},
+      }
+      : null;
+
+    const editing = this.cueState?.selection || this.liveSelection;
+    this.setEditingSelection(editing);
+    this.setScreenOnline(Boolean(screenOnline));
+    this.renderTransport(notice);
+    this.updateCueDeviceLock();
+    this.updateCueEditLock();
+
+    // Do not rebuild sliders on each screen acknowledgement: doing so would
+    // destroy a range input during a drag. Update the existing elements in place.
+    const bank = this.cueState?.params;
+    if (bank) {
+      this.setPostFx(bank[POSTFX_ID] || this.getParams?.(POSTFX_ID) || {});
+      const activeId = this.currentPatternId;
+      const values = bank[activeId];
+      if (values) {
+        if (this.mergeMode && typeof values.mode === 'number' && values.mode !== this.renderedBlendMode) {
+          this.renderParams();
+        } else {
+          this.applyParam(activeId, values);
+        }
+      }
+    } else {
+      this.setPostFx(this.getParams?.(POSTFX_ID) || {});
+    }
+  }
+
+  // Kept as a small public compatibility surface for state delivery code and
+  // future integrations that only have cue data to update.
+  setCueState(cue, live = this.liveSelection, notice = '') {
+    this.setTransportState({ live, cue, screenOnline: this.screenOnline, notice });
+  }
+
+  setEditingSelection(selection) {
+    const next = this.normalizeSelection(selection);
+    const ordered = getOrderedSketches();
+    const indices = next.ids.map((id) => ordered.findIndex((sketch) => sketch.id === id));
+    this.mergeMode = next.merge;
+    this.mergePatternIds = next.merge ? [...next.ids] : null;
+    this.mergeIndices = next.merge ? indices : null;
+    this.currentPattern = indices[0] ?? -1;
+    this.currentPatternId = next.merge ? BLEND_ID : (next.ids[0] || null);
+    this.refreshSelection();
+  }
+
+  selectionButtons(selection) {
+    const normalized = this.normalizeSelection(selection);
+    const out = [];
+    for (const id of normalized.ids) {
+      const slotIndex = this.slotOrder.indexOf(id);
+      if (slotIndex >= 0) {
+        const slot = this.panel.querySelector(`#pattern-pad .pattern-btn[data-index="${slotIndex}"]`);
+        if (slot) out.push(slot);
+      } else {
+        this.panel.querySelectorAll(`#pattern-library .pattern-btn[data-id="${id}"]`).forEach((button) => out.push(button));
+      }
+    }
+    return out;
+  }
+
+  markProgramSelection(selection, scope) {
+    const normalized = this.normalizeSelection(selection);
+    if (!normalized.ids.length) return;
+    const isLive = scope === 'live';
+    const classes = normalized.merge
+      ? (isLive ? ['live-merge-active', 'merge-active'] : ['cue-merge-active'])
+      : (isLive ? ['live-active', 'active'] : ['cue-active']);
+    this.selectionButtons(normalized).forEach((button) => button.classList.add(...classes));
+  }
+
+  renderTransport(notice = '') {
+    if (!this.panel) return;
+    const cue = this.cueState;
+    const online = Boolean(this.screenOnline);
+    const liveName = this.selectionName(this.liveSelection);
+    const cueName = cue ? this.selectionName(cue.selection) : 'Idle';
+    const liveEl = this.panel.querySelector('#transport-live-name');
+    const cueEl = this.panel.querySelector('#transport-cue-name');
+    const phaseEl = this.panel.querySelector('#transport-cue-phase');
+    const primary = this.panel.querySelector('#cue-primary');
+    const cancel = this.panel.querySelector('#cue-cancel');
+    const previewTitle = this.panel.querySelector('#preview-title');
+    const previewRenderer = this.panel.querySelector('#preview-renderer');
+    const previewStage = this.panel.querySelector('#preview-stage');
+    const paramsHeading = this.panel.querySelector('#params-heading');
+    const liveRegion = this.panel.querySelector('#cue-live-region');
+
+    if (liveEl) liveEl.textContent = liveName;
+    if (cueEl) cueEl.textContent = cueName;
+
+    let action = 'CUE';
+    let phase = online ? 'CUE IDLE' : 'OUTPUT OFFLINE';
+    let disabled = !online;
+    if (cue) {
+      switch (cue.phase) {
+        case 'same':
+          action = 'TAKE LIVE';
+          phase = 'CUE / SAME AS LIVE';
+          break;
+        case 'warming':
+          action = 'TAKE WHEN READY';
+          phase = 'CUE / WARMING';
+          break;
+        case 'ready':
+          action = 'TAKE LIVE';
+          phase = 'CUE / READY';
+          break;
+        case 'take-pending':
+          action = 'TAKE PENDING';
+          phase = 'LOCKED CANDIDATE / WARMING';
+          disabled = true;
+          break;
+        case 'error':
+          action = 'RETRY CUE';
+          phase = `CUE ERROR — ${cue.error || 'LIVE SAFE'}`;
+          break;
+        default:
+          phase = 'CUE / WARMING';
+      }
+    }
+
+    if (phaseEl) {
+      phaseEl.textContent = phase;
+      phaseEl.classList.toggle('is-ready', cue?.phase === 'ready' || cue?.phase === 'same');
+      phaseEl.classList.toggle('is-error', cue?.phase === 'error');
+    }
+    if (primary) {
+      primary.querySelector('.transport-action').textContent = action;
+      primary.disabled = disabled;
+      primary.setAttribute('aria-label', `${action}; Caps Lock`);
+    }
+    if (cancel) {
+      cancel.disabled = !cue;
+      cancel.setAttribute('aria-label', 'Cancel cue; Escape');
+    }
+
+    this.panel.classList.toggle('cue-active', Boolean(cue));
+    this.panel.classList.toggle('cue-pending', cue?.phase === 'take-pending');
+    if (previewTitle) previewTitle.textContent = cue ? 'CUE PREVIEW' : 'LIVE PREVIEW';
+    if (previewRenderer) previewRenderer.textContent = cue ? phase.replace('CUE / ', '') : 'LIVE RENDER';
+    if (previewStage) {
+      previewStage.classList.toggle('cue-preview', Boolean(cue));
+      previewStage.setAttribute('aria-label', cue ? 'Cue visualization preview' : 'Live visualization preview');
+    }
+    if (paramsHeading) {
+      paramsHeading.textContent = cue
+        ? `CUE Parameters — ${this.selectionName(cue.selection)}`
+        : 'Parameters';
+    }
+    if (notice && notice !== this.lastTransportNotice && liveRegion) {
+      this.lastTransportNotice = notice;
+      liveRegion.textContent = notice;
+    }
+  }
+
+  updateCueDeviceLock() {
+    const videoSelect = this.panel?.querySelector('#video-select');
+    if (!videoSelect) return;
+    if (this.cueState) videoSelect.disabled = true;
+    else if (videoSelect.options.length > 1) videoSelect.disabled = false;
+  }
+
+  updateCueEditLock() {
+    const locked = Boolean(this.cueState?.takePending);
+    this.panel?.querySelectorAll(
+      '#pattern-pad button, #pattern-library button, #params-list input, #params-list button, #post-fx-list input, #post-fx button',
+    ).forEach((element) => {
+      // These controls are normally enabled; the narrow selector intentionally
+      // excludes transport CANCEL and system/global setup controls.
+      element.disabled = locked;
+    });
+  }
+
+  // ---------------------------------------------------------------------------
   // Pattern pad + library rendering
   // ---------------------------------------------------------------------------
 
@@ -891,8 +1128,7 @@ export class ConfigPanel {
       btn.innerHTML = `<span class="pattern-key">${slotLabel(i)}</span><span class="pattern-name">${sketch ? sketch.name : '—'}</span><span class="drag-handle" title="Drag to swap slots">⠿</span>`;
 
       btn.onclick = () => {
-        if (!sketch) return;
-        this.setPattern(i);
+        if (!sketch || this.cueState?.takePending) return;
         if (this.onPatternChange) this.onPatternChange(i);
       };
       this.attachDrag(btn);
@@ -940,14 +1176,13 @@ export class ConfigPanel {
         btn.innerHTML = `<span class="pattern-name">${sketch.name}</span>${cam}${badge}<span class="drag-handle" title="Drag to pad slot">⠿</span>`;
 
         btn.onclick = () => {
+          if (this.cueState?.takePending) return;
           if (slotIdx !== undefined) {
-            // Assigned pattern -> play through its pad slot (keeps indices in sync)
-            this.setPattern(slotIdx);
+            // Assigned pattern -> play/cue through its pad slot (keeps indices in sync)
             if (this.onPatternChange) this.onPatternChange(slotIdx);
-          } else {
-            // Unassigned pattern -> play by id (stays outside the pad)
-            this.setPatternById(sketch.id);
-            if (this.onPatternChangeId) this.onPatternChangeId(sketch.id);
+          } else if (this.onPatternChangeId) {
+            // Unassigned pattern -> play/cue by stable id
+            this.onPatternChangeId(sketch.id);
           }
         };
         this.attachDrag(btn);
@@ -1028,110 +1263,54 @@ export class ConfigPanel {
 
   setOrder() {
     this.renderAll();
-
-    if (this.mergeMode && this.mergePatternIds) {
-      const ordered = getOrderedSketches();
-      const a = ordered.findIndex((s) => s.id === this.mergePatternIds[0]);
-      const b = ordered.findIndex((s) => s.id === this.mergePatternIds[1]);
-      if (a >= 0 && b >= 0) this.setMerge([a, b]);
-      return;
-    }
-
-    const activeId = this.currentPatternId;
-    if (!activeId || activeId === BLEND_ID) return;
-    const idx = getOrderedSketches().findIndex((s) => s.id === activeId);
-    if (idx >= 0) this.setPattern(idx);
-    else this.setPatternById(activeId);
+    this.setEditingSelection(this.cueState?.selection || this.liveSelection);
+    this.renderTransport();
   }
 
-  // Re-apply whatever the current selection is (single effect or a merge)
+  // Re-apply whatever the current editing selection is after a DOM rebuild.
   applySelection() {
-    if (this.mergeMode && this.mergeIndices) {
-      this.setMerge(this.mergeIndices);
-    } else if (this.currentPattern >= 0) {
-      this.setPattern(this.currentPattern);
-    } else if (this.currentPatternId) {
-      this.setPatternById(this.currentPatternId);
-    }
+    this.setEditingSelection(this.cueState?.selection || this.liveSelection);
   }
 
-  // Select a pad slot (clears any merge)
+  // Legacy public helpers remain useful to existing callers; they now change
+  // the editing selection only. The screen state still decides LIVE versus CUE.
   setPattern(index) {
-    this.currentPattern = index;
-    this.mergeMode = false;
-    this.mergeIndices = null;
-    this.mergePatternIds = null;
-    const ordered = getOrderedSketches();
-    this.currentPatternId = ordered[index] ? ordered[index].id : null;
-    this.refreshSelection();
+    const id = getOrderedSketches()[index]?.id;
+    this.setEditingSelection({ ids: id ? [id] : [], merge: false });
   }
 
-  // Select a library-only pattern by id (clears any merge)
   setPatternById(id) {
-    this.currentPattern = -1;
-    this.mergeMode = false;
-    this.mergeIndices = null;
-    this.mergePatternIds = null;
-    this.currentPatternId = id;
-    this.refreshSelection();
+    this.setEditingSelection({ ids: id ? [id] : [], merge: false });
   }
 
-  // Select two effects to merge. The params list switches to the global blend
-  // sliders (currentPatternId -> BLEND_ID) and both pad slots highlight.
   setMerge(merge) {
     if (!merge || merge.length !== 2) return;
-    this.mergeMode = true;
-    this.mergeIndices = [...merge];
-    const ordered = getOrderedSketches();
-    this.mergePatternIds = merge.map((i) => (ordered[i] ? ordered[i].id : null));
-    this.currentPattern = merge[0];
-    this.currentPatternId = BLEND_ID;
-    this.refreshSelection();
+    const ids = merge.map((index) => getOrderedSketches()[index]?.id).filter(Boolean);
+    this.setEditingSelection({ ids, merge: ids.length === 2 });
   }
 
-  // Highlight the right buttons and rebuild the sliders only when the
-  // selection actually changed. syncUI() calls the setters after EVERY
-  // broadcast message — including the 'params' message a slider drag itself
-  // emits — and rebuilding the list destroys the <input type="range">
-  // mid-drag, so click-and-drag used to stop after a single step.
+  // Draw two independent markers. LIVE retains the old active/merge-active
+  // classes for backward compatibility, while CUE receives its own amber class.
+  // A single button can carry both when the candidate equals the program.
   refreshSelection() {
     this.panel.querySelectorAll('.pattern-btn').forEach((btn) => {
-      btn.classList.remove('active', 'merge-active');
+      btn.classList.remove(
+        'active', 'merge-active', 'live-active', 'live-merge-active',
+        'cue-active', 'cue-merge-active', 'live-cue-active',
+      );
     });
 
-    if (this.mergeMode && this.mergeIndices) {
-      // Both pad slots in the blend get the purple highlight
-      this.panel.querySelectorAll('#pattern-pad .pattern-btn').forEach((btn) => {
-        const idx = parseInt(btn.dataset.index, 10);
-        btn.classList.toggle('merge-active', this.mergeIndices.includes(idx));
-      });
-    } else if (this.currentPatternId) {
-      // Single selection: highlight the slot it lives in, or the library item
-      const slotIdx = this.slotOrder.indexOf(this.currentPatternId);
-      if (slotIdx >= 0) {
-        const slot = this.panel.querySelector(`#pattern-pad .pattern-btn[data-index="${slotIdx}"]`);
-        if (slot) slot.classList.add('active');
-      } else {
-        this.panel
-          .querySelectorAll(`#pattern-library .pattern-btn[data-id="${this.currentPatternId}"]`)
-          .forEach((btn) => btn.classList.add('active'));
-      }
-    }
+    this.markProgramSelection(this.liveSelection, 'live');
+    if (this.cueState?.selection) this.markProgramSelection(this.cueState.selection, 'cue');
+    this.panel.querySelectorAll('.pattern-btn.live-active.cue-active, .pattern-btn.live-merge-active.cue-merge-active')
+      .forEach((button) => button.classList.add('live-cue-active'));
 
-    const key = this.mergeMode ? `merge:${this.mergeIndices.join(',')}` : `single:${this.currentPatternId}`;
+    const editing = this.cueState?.selection || this.liveSelection;
+    const key = `${this.cueState ? 'cue' : 'live'}:${editing.merge ? 'merge' : 'single'}:${editing.ids.join(',')}`;
     if (this.renderedKey !== key) {
       this.renderedKey = key;
       this.renderParams();
-      if (this.onPreviewChange) {
-        this.onPreviewChange({
-          ids: this.mergeMode
-            ? this.mergePatternIds.filter(Boolean)
-            : this.currentPatternId
-              ? [this.currentPatternId]
-              : [],
-          merge: this.mergeMode,
-        });
-      }
+      if (this.onPreviewChange) this.onPreviewChange(editing);
     }
   }
 
@@ -1147,6 +1326,7 @@ export class ConfigPanel {
       this.renderBlendParams(list);
       return;
     }
+    this.renderedBlendMode = null;
 
     const ordered = getOrderedSketches();
     const sketch =
@@ -1186,6 +1366,7 @@ export class ConfigPanel {
 
       list.appendChild(row);
     }
+    this.updateCueEditLock();
   }
 
   // Blend controls replace the individual effect params while merging: a
@@ -1193,8 +1374,9 @@ export class ConfigPanel {
   // mode is active (crossfade mix or additive strength).
   renderBlendParams(list) {
     const ordered = getOrderedSketches();
-    const nameA = ordered[this.mergeIndices[0]] ? ordered[this.mergeIndices[0]].name : 'Effect';
-    const nameB = ordered[this.mergeIndices[1]] ? ordered[this.mergeIndices[1]].name : 'Effect';
+    const nameFor = (index, id) => ordered[index]?.name || SKETCHES.find((sketch) => sketch.id === id)?.name || 'Effect';
+    const nameA = nameFor(this.mergeIndices?.[0], this.mergePatternIds?.[0]);
+    const nameB = nameFor(this.mergeIndices?.[1], this.mergePatternIds?.[1]);
 
     const header = document.createElement('div');
     header.className = 'blend-header';
@@ -1203,6 +1385,7 @@ export class ConfigPanel {
 
     const values = this.getParams ? this.getParams(BLEND_ID) : {};
     const additive = values.mode === 1;
+    this.renderedBlendMode = additive ? 1 : 0;
 
     // Mode toggle (Blend | Additive)
     const toggle = document.createElement('div');
@@ -1244,6 +1427,7 @@ export class ConfigPanel {
     });
 
     list.appendChild(row);
+    this.updateCueEditLock();
   }
 
   // Sync slider positions/values for a param change coming from another window
@@ -1263,7 +1447,7 @@ export class ConfigPanel {
     if (id !== this.currentPatternId) return;
 
     // Mode switches swap which level slider is shown — rebuild the blend section
-    if (this.mergeMode && 'mode' in values) {
+    if (this.mergeMode && 'mode' in values && values.mode !== this.renderedBlendMode) {
       this.renderParams();
       return;
     }
@@ -1290,6 +1474,7 @@ export class ConfigPanel {
   setScreenOnline(online) {
     this.screenOnline = online;
     this.renderStatus();
+    this.renderTransport();
     if (this.eqSection && this.eqSection.open) this.drawEq();
   }
 
@@ -1366,6 +1551,7 @@ export class ConfigPanel {
 
     audioSelect.onchange = (e) => this.handleAudioChange(e.target.value);
     videoSelect.onchange = (e) => this.handleVideoChange(e.target.value);
+    this.updateCueDeviceLock();
   }
 
   handleAudioChange(id) {
@@ -1375,7 +1561,7 @@ export class ConfigPanel {
   }
 
   handleVideoChange(id) {
-    if (!id) return;
+    if (!id || this.cueState) return;
     localStorage.setItem(this.videoKey, id);
     if (this.onDevicesChange) this.onDevicesChange({ videoDeviceId: id });
   }

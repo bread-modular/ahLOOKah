@@ -11,6 +11,8 @@ import {
   saveSlotOrder,
 } from './sketch-registry.js';
 import { ConfigPanel } from './config-panel.js';
+import { ProgramRuntime, copyProgramSelection, selectionsEqual } from './program-runtime.js';
+import { SharedCameraSource } from './shared-camera-source.js';
 import { AudioManager } from './audio-manager.js';
 import { PreviewAudio } from './preview-audio.js';
 import { setBandSplit, computeLogSpectrum } from './sketches/audio-features.js';
@@ -50,19 +52,47 @@ const screenAudio = new PreviewAudio({ idleSignal: false, staleAfterMs: 750 });
 // an input is selected or while no capture-owning panel is available.
 const previewAudio = new PreviewAudio();
 
+// Legacy selection fields remain as a compatibility projection for the panel,
+// existing messages and DEV probes. Rendering itself is owned by ProgramRuntime
+// instances below, never by these globals.
 let currentP5 = null;
 let currentIndex = 0;
-// Stable id of the currently loaded sketch — survives reorders
 let activeSketchId = null;
-// Merge mode: two effects selected to blend (latched via the keyboard
-// gesture). Both run simultaneously and are blended on screen. null = single
-// effect.
 let mergeIndices = null;
-// Ids of the running merge pair — survives reorders (positions shift).
 let mergeIds = null;
-// The two p5 instances backing a merge (base + overlay). currentP5 is the
-// base instance; these are tracked so teardown removes BOTH canvases.
 let mergeP5 = [];
+
+// Screen-side program slots. The output always has at most one LIVE runtime and
+// one prepared CUE/incoming runtime, so a merge-to-merge switch caps at four p5
+// instances. Controls mirror the screen-authored cue transaction but create no
+// full-resolution program runtimes.
+let liveRuntime = null;
+let cueRuntime = null;
+let incomingRuntime = null;
+let retiringRuntime = null;
+let liveProgram = null;
+let cueSession = null;
+let screenStage = null;
+let stageLiveLayer = null;
+let stageCueLayer = null;
+let cueStageRaf = 0;
+// Control-originated cue mutations are serialized against the screen's
+// revision. Slider input can outpace BroadcastChannel acknowledgements, so a
+// local queue batches the latest values instead of dropping stale revisions.
+let cueMutationRaf = 0;
+let cueMutationInFlight = null;
+let queuedCueSelection = null;
+let queuedCueParams = new Map();
+let queuedCueTake = false;
+// The initiating control locks edits as soon as the operator presses TAKE,
+// including while its last slider/selection mutation is still in flight. The
+// screen echoes the request id when it accepts, rejects, or completes TAKE.
+let cueTakeIntent = null;
+let runtimeGeneration = 0;
+let directGeneration = 0;
+let lastCueTimings = [];
+const cameraSource = new SharedCameraSource();
+const CUE_WARM_TIMEOUT_MS = 12_000;
 let currentVideoDeviceId = null;
 let currentAudioDeviceId = null;
 let screenOnline = myRole === 'screen';
@@ -99,7 +129,7 @@ let paramValues = loadParamValues();
 
 // Raw (non-proxied) counterparts, used for serialization only — JSON.stringify
 // of a Proxy would hit its get-trap and pollute the DEV read-log below.
-const paramRawValues = { ...paramValues };
+let paramRawValues = { ...paramValues };
 
 // DEV only: records which params the RUNNING sketch actually reads each frame.
 // Lets e2e tests verify slider changes reach the sketch in realtime (a sketch
@@ -186,144 +216,338 @@ function getParams(id) {
   return paramValues[id];
 }
 
+// CUE owns a separate, plain-object parameter bank. Do not clone DEV Proxy
+// wrappers: the output runtime needs real object references that can later be
+// adopted as the canonical LIVE bank without a second renderer construction.
+function visualParamId(id) {
+  return id !== BANDS_ID;
+}
+
+function cloneCueBank(selection) {
+  const bank = {};
+  for (const [id, values] of Object.entries(paramRawValues)) {
+    if (visualParamId(id) && values && typeof values === 'object') bank[id] = { ...values };
+  }
+  const ids = Array.isArray(selection?.ids) ? selection.ids : [];
+  ids.forEach((id) => {
+    if (!bank[id]) bank[id] = { ...defaultParamValues(id) };
+  });
+  if (!bank[BLEND_ID]) bank[BLEND_ID] = { ...defaultParamValues(BLEND_ID) };
+  if (!bank[POSTFX_ID]) bank[POSTFX_ID] = { ...defaultParamValues(POSTFX_ID) };
+  return bank;
+}
+
+function getCueParams(id) {
+  if (!cueSession) return getParams(id);
+  if (id === BANDS_ID) return getParams(BANDS_ID);
+  if (!cueSession.params[id]) cueSession.params[id] = { ...defaultParamValues(id) };
+  return cueSession.params[id];
+}
+
+function getEditingParams(id) {
+  return cueSession ? getCueParams(id) : getParams(id);
+}
+
+function copyVisualParamBank(bank = {}) {
+  const copy = {};
+  for (const [id, values] of Object.entries(bank)) {
+    if (visualParamId(id) && values && typeof values === 'object') copy[id] = { ...values };
+  }
+  return copy;
+}
+
+function adoptVisualParamBank(bank, { preserveReferences = false } = {}) {
+  if (!bank) return;
+  // Band split remains a system/global setting and never becomes cue-scoped.
+  const bands = getParams(BANDS_ID);
+  const adopted = preserveReferences ? bank : copyVisualParamBank(bank);
+  adopted[BANDS_ID] = bands;
+  paramValues = adopted;
+  paramRawValues = adopted;
+  saveParamValues();
+}
+
+function adoptCueBank(session) {
+  if (!session?.params) return;
+  // The promoted runtime already reads these exact objects, so preserve them in
+  // the screen process. Remote controls receive a cloned committed bank.
+  adoptVisualParamBank(session.params, { preserveReferences: true });
+}
+
+function canonicalLiveParamBank() {
+  return copyVisualParamBank(paramRawValues);
+}
+
+function canonicalBandValues() {
+  return { ...(paramRawValues[BANDS_ID] || defaultParamValues(BANDS_ID)) };
+}
+
+function applyCanonicalBandValues(values) {
+  if (myRole === 'screen' || !values || typeof values !== 'object') return false;
+  const current = getParams(BANDS_ID);
+  if (paramObjectsEqual(current, values)) return false;
+  Object.assign(current, values);
+  saveParamValues();
+  setBandSplit(current);
+  if (myRole === 'control' && panel) panel.applyParam(BANDS_ID, current);
+  return true;
+}
+
+function visualParamBanksEqual(left, right) {
+  const lhs = copyVisualParamBank(left);
+  const rhs = copyVisualParamBank(right);
+  const ids = new Set([...Object.keys(lhs), ...Object.keys(rhs)]);
+  return [...ids].every((id) => paramObjectsEqual(lhs[id] || {}, rhs[id] || {}));
+}
+
+// The screen owns canonical LIVE values. Controls only adopt this snapshot when
+// it differs, so ordinary CUE state broadcasts do not rewrite localStorage just
+// by reserializing unchanged values. A rejected legacy live-param message can
+// therefore be rolled back deterministically in every control window.
+function applyCanonicalLiveParamBank(bank) {
+  if (myRole === 'screen' || !bank || typeof bank !== 'object') return false;
+  if (visualParamBanksEqual(paramRawValues, bank)) return false;
+  adoptVisualParamBank(bank);
+  if (myRole === 'control' && panel && !cueSession) {
+    panel.applyParam(POSTFX_ID, getParams(POSTFX_ID));
+    if (panel.currentPatternId) panel.applyParam(panel.currentPatternId, getParams(panel.currentPatternId));
+  }
+  return true;
+}
+
+function isKnownLiveParamId(id) {
+  return id === BLEND_ID
+    || id === BANDS_ID
+    || id === POSTFX_ID
+    || SKETCHES.some((sketch) => sketch.id === id);
+}
+
+function applyAcceptedLiveParamValues(id, values) {
+  Object.assign(getParams(id), values);
+  saveParamValues();
+  const editingCue = Boolean(cueSession);
+  // Blend sliders drive the overlay canvas styles on the output and the
+  // matching mini-stage inside control windows. A CUE preview must keep its
+  // isolated values if an earlier accepted LIVE message arrives late.
+  if (id === BLEND_ID) {
+    if (myRole === 'screen') applyBlendStyles();
+    if (myRole === 'control' && !editingCue) applyPreviewCompositing();
+  }
+  // Band-split crossovers are the one system-scoped param group that remains
+  // editable while CUE is active.
+  if (id === BANDS_ID) setBandSplit(getParams(BANDS_ID));
+  // Post-processing is a visual program value, so raw legacy messages for it
+  // are screened out during CUE; accepted LIVE updates style the right surface.
+  if (id === POSTFX_ID) {
+    applyPostFx();
+    if (myRole === 'control' && !editingCue) applyPreviewCompositing();
+  }
+  if (myRole === 'control' && panel && (!editingCue || id === BANDS_ID)) {
+    panel.applyParam(id, values);
+  }
+}
+
+function recordCueTiming(name, detail = {}) {
+  const entry = { name, at: performance.now(), ...detail };
+  lastCueTimings.push(entry);
+  if (lastCueTimings.length > 30) lastCueTimings.shift();
+}
+
 // ---------------------------------------------------------------------------
 // Screen runtime
 // ---------------------------------------------------------------------------
 
-// Tear down whatever is running: a single sketch or both merge instances.
-function removeCurrentP5() {
-  if (currentP5) {
-    currentP5.remove();
-    currentP5 = null;
-  }
-  mergeP5.forEach((inst) => inst.remove());
-  mergeP5 = [];
+function singleSelection(id) {
+  return { ids: id ? [id] : [], merge: false };
 }
 
-// Run two sketches side by side as stacked canvases and blend them purely in
-// the GPU compositor: the overlay canvas' opacity drives the crossfade and
-// mix-blend-mode:screen layers it additively. No per-frame pixel readback, so
-// WEBGL/shader effects stay at full speed.
-function loadMerged(indexA, indexB) {
+function mergeSelection(ids) {
+  return { ids: Array.isArray(ids) ? ids.filter(Boolean).slice(0, 2) : [], merge: true };
+}
+
+function selectionFromIndices(index, merge = null) {
   const ordered = getOrderedSketches();
-  const skA = ordered[indexA];
-  const skB = ordered[indexB];
-
-  const p5A = new p5(skA.factory(screenAudio, currentVideoDeviceId, getParams(skA.id)));
-  const p5B = new p5(skB.factory(screenAudio, currentVideoDeviceId, getParams(skB.id)));
-
-  mergeP5 = [p5A, p5B];
-  adoptCanvas(p5A);
-  adoptCanvas(p5B);
-  // p5 creates the canvas when setup() runs — after the constructor returns —
-  // so tag each canvas as soon as it exists.
-  tagMergeCanvas(p5A, '0');
-  tagMergeCanvas(p5B, '1');
-  applyBlendStyles();
-
-  return p5A;
-}
-
-// Tag a merge sketch's canvas for stacking + tests. p5 2.x creates the canvas
-// asynchronously (first frame), so retry until it appears.
-function tagMergeCanvas(inst, zIndex) {
-  const tag = () => {
-    if (!inst.canvas || inst.canvas.__mergeTagged) return;
-    inst.canvas.__mergeTagged = true;
-    inst.canvas.classList.add('merge-canvas');
-    // Both canvases are position:fixed via CSS; make the stacking explicit.
-    inst.canvas.style.zIndex = zIndex;
-    // Keep the stage clickable: the toolbar sits at z-index 2000.
-    inst.canvas.style.pointerEvents = 'auto';
-    applyBlendStyles();
-  };
-  tag();
-  if (inst.canvas) return;
-  const tick = () => {
-    if (inst.canvas) {
-      tag();
-    } else {
-      requestAnimationFrame(tick);
-    }
-  };
-  requestAnimationFrame(tick);
-}
-
-// Push the current blend params onto the overlay canvas styles. Called when a
-// merge loads and whenever a blend slider moves on any window.
-function applyBlendStyles() {
-  if (mergeP5.length !== 2) return;
-  const [p5A, p5B] = mergeP5;
-  if (!p5A.canvas || !p5B.canvas) return;
-
-  const bp = getParams(BLEND_ID);
-  const additive = bp.mode === 1;
-  const mix = typeof bp.mix === 'number' ? bp.mix : 0.5;
-  const add = typeof bp.add === 'number' ? bp.add : 0.5;
-
-  if (additive) {
-    // Additive layering: overlay is screened on top of the base
-    p5B.canvas.style.mixBlendMode = 'screen';
-    p5B.canvas.style.opacity = String(add);
-  } else {
-    // Crossfade: opacity 0 -> base only, 1 -> overlay only
-    p5B.canvas.style.mixBlendMode = 'normal';
-    p5B.canvas.style.opacity = String(mix);
+  if (Array.isArray(merge) && merge.length === 2) {
+    const ids = merge.map((position) => ordered[position]?.id);
+    return ids.every(Boolean) ? mergeSelection(ids) : null;
   }
+  return ordered[index] ? singleSelection(ordered[index].id) : null;
 }
 
-// ---------------------------------------------------------------------------
-// Post-processing (global output trim: brightness / contrast / saturation)
-// The screen moves its stage canvases into #screen-wrap and applies the trim
-// as a CSS filter on the wrapper — GPU-composited AFTER the merge blend, no
-// pixel readback, and it survives sketch teardown (canvases come and go, the
-// wrapper stays). Sliders ride the shared param store under POSTFX_ID.
-// ---------------------------------------------------------------------------
+function selectionFromId(id) {
+  return SKETCHES.some((sketch) => sketch.id === id) ? singleSelection(id) : null;
+}
 
-function ensureScreenWrap() {
+function selectionIndices(selection) {
+  const ordered = getOrderedSketches();
+  return selection?.ids?.map((id) => ordered.findIndex((sketch) => sketch.id === id)) || [];
+}
+
+function selectionName(selection) {
+  const names = (selection?.ids || [])
+    .map((id) => SKETCHES.find((sketch) => sketch.id === id)?.name || id)
+    .filter(Boolean);
+  return names.join(selection?.merge ? ' + ' : '') || 'No program';
+}
+
+function paramObjectsEqual(left = {}, right = {}) {
+  const keys = new Set([...Object.keys(left || {}), ...Object.keys(right || {})]);
+  return [...keys].every((key) => key.startsWith('__') || left[key] === right[key]);
+}
+
+// A selection matching LIVE can still need a staged runtime when its selected
+// effect params, merge mix, or post-processing bank differ from the program.
+function cueRequiresRuntime(session) {
+  if (!session?.selection) return false;
+  if (!selectionsEqual(session.selection, currentLiveSelection())) return true;
+  for (const id of session.selection.ids || []) {
+    if (!paramObjectsEqual(session.params?.[id], getParams(id))) return true;
+  }
+  if (session.selection.merge && !paramObjectsEqual(session.params?.[BLEND_ID], getParams(BLEND_ID))) return true;
+  return !paramObjectsEqual(session.params?.[POSTFX_ID], getParams(POSTFX_ID));
+}
+
+function syncLegacyLiveProjection() {
+  const selection = liveProgram;
+  if (!selection?.ids?.length) return;
+  const indices = selectionIndices(selection);
+  activeSketchId = selection.ids[0] || null;
+  if (selection.merge && indices.length === 2 && indices.every((index) => index >= 0)) {
+    currentIndex = indices[0];
+    mergeIndices = indices;
+    mergeIds = [...selection.ids];
+  } else {
+    currentIndex = indices[0] ?? -1;
+    mergeIndices = null;
+    mergeIds = null;
+  }
+  currentP5 = liveRuntime?.primary || null;
+  mergeP5 = liveRuntime?.merge ? [...liveRuntime.instances] : [];
+}
+
+function currentLiveSelection() {
+  if (liveProgram?.ids?.length) return copyProgramSelection(liveProgram);
+  return selectionFromIndices(currentIndex, mergeIndices) || singleSelection(activeSketchId || getOrderedSketches()[0]?.id);
+}
+
+function ensureScreenStage() {
+  if (screenStage && stageLiveLayer && stageCueLayer) return screenStage;
   let wrap = document.getElementById('screen-wrap');
   if (!wrap) {
     wrap = document.createElement('div');
     wrap.id = 'screen-wrap';
     document.body.appendChild(wrap);
   }
+  wrap.classList.add('program-stage');
+
+  let liveLayer = wrap.querySelector('[data-program-slot="live"]');
+  let cueLayer = wrap.querySelector('[data-program-slot="cue"]');
+  if (!liveLayer) {
+    liveLayer = document.createElement('div');
+    liveLayer.dataset.programSlot = 'live';
+    wrap.appendChild(liveLayer);
+  }
+  if (!cueLayer) {
+    cueLayer = document.createElement('div');
+    cueLayer.dataset.programSlot = 'cue';
+    wrap.appendChild(cueLayer);
+  }
+  liveLayer.className = 'program-layer program-layer-live';
+  cueLayer.className = 'program-layer program-layer-cue';
+  screenStage = wrap;
+  stageLiveLayer = liveLayer;
+  stageCueLayer = cueLayer;
   return wrap;
 }
 
-// Map the -100..+100 offsets onto CSS filter functions around the natural
-// level (0 -> 1.0, +100 -> 2.0, -100 -> 0.0).
-function postFxFilterString() {
-  const p = getParams(POSTFX_ID);
+function setLayerRoles(liveLayer, cueLayer) {
+  if (liveLayer) {
+    liveLayer.classList.remove('program-layer-cue', 'program-layer-retiring');
+    liveLayer.classList.add('program-layer-live');
+    liveLayer.dataset.programRole = 'live';
+  }
+  if (cueLayer) {
+    cueLayer.classList.remove('program-layer-live', 'program-layer-retiring');
+    cueLayer.classList.add('program-layer-cue');
+    cueLayer.dataset.programRole = 'cue';
+  }
+}
+
+function createRuntime(selection, getBankParams, layer, reason = 'cue') {
+  return new ProgramRuntime({
+    p5Constructor: p5,
+    selection,
+    sketches: SKETCHES,
+    audio: screenAudio,
+    videoDeviceId: currentVideoDeviceId,
+    getParams: getBankParams,
+    layer,
+    cameraSource,
+    generation: ++runtimeGeneration,
+    warmTimeoutMs: CUE_WARM_TIMEOUT_MS,
+    onTiming: (name, detail) => recordCueTiming(name, { reason, ...detail }),
+  });
+}
+
+function disposeRuntime(runtime) {
+  if (!runtime) return;
+  runtime.dispose();
+}
+
+// Retained for the role-switch lifecycle. It deliberately tears down all slots
+// only when this window stops being a screen; normal program changes prepare
+// their replacement first and never call this path.
+function removeCurrentP5() {
+  if (cueStageRaf) cancelAnimationFrame(cueStageRaf);
+  cueStageRaf = 0;
+  disposeRuntime(incomingRuntime);
+  disposeRuntime(cueRuntime);
+  disposeRuntime(retiringRuntime);
+  disposeRuntime(liveRuntime);
+  incomingRuntime = null;
+  cueRuntime = null;
+  retiringRuntime = null;
+  liveRuntime = null;
+  currentP5 = null;
+  mergeP5 = [];
+  cameraSource.dispose();
+}
+
+// Push blend values onto a supplied program layer. The old no-argument shape is
+// intentionally preserved for existing callers and DEV/manual checks.
+function applyBlendStyles(runtime = liveRuntime) {
+  runtime?.applyBlendStyles();
+}
+
+// ---------------------------------------------------------------------------
+// Post-processing (brightness / contrast / saturation)
+// ---------------------------------------------------------------------------
+
+function postFxFilterString(resolve = getParams) {
+  const p = resolve(POSTFX_ID) || {};
   const b = Number(p.brightness) || 0;
   const c = Number(p.contrast) || 0;
   const s = Number(p.saturation) || 0;
-  if (!b && !c && !s) return 'none'; // natural level — skip the GPU pass
+  if (!b && !c && !s) return 'none';
   return `brightness(${(100 + b) / 100}) contrast(${(100 + c) / 100}) saturate(${(100 + s) / 100})`;
 }
 
 function applyPostFx() {
   if (myRole !== 'screen') return;
-  ensureScreenWrap().style.filter = postFxFilterString();
-}
-
-// Move a sketch's canvas into the filter wrapper once p5 creates it (p5 2.x
-// creates the canvas asynchronously, on the first frame — retry until it
-// exists). Idempotent; safe for both single sketches and merge pairs.
-function adoptCanvas(inst) {
-  const adopt = () => {
-    if (!inst.canvas || inst.canvas.__postfxAdopted) return;
-    inst.canvas.__postfxAdopted = true;
-    // The wrapper disables hit-testing; keep the stage itself interactive.
-    inst.canvas.style.pointerEvents = 'auto';
-    ensureScreenWrap().appendChild(inst.canvas);
-  };
-  adopt();
-  if (inst.canvas || inst._removed) return;
-  const tick = () => {
-    if (inst.canvas) adopt();
-    else if (!inst._removed) requestAnimationFrame(tick);
-  };
-  requestAnimationFrame(tick);
+  const wrap = ensureScreenStage();
+  if (cueSession) {
+    // Separate filters are what make post-processing a cue-scoped visual value.
+    wrap.style.filter = 'none';
+    liveRuntime?.setFilter(postFxFilterString(getParams));
+    cueRuntime?.setFilter(postFxFilterString(getCueParams));
+    incomingRuntime?.setFilter(postFxFilterString(getParams));
+  } else {
+    // Keep the legacy wrapper filter in normal LIVE mode for the existing stage
+    // contract, while every runtime layer itself remains unfiltered.
+    wrap.style.filter = postFxFilterString(getParams);
+    liveRuntime?.setFilter('none');
+    incomingRuntime?.setFilter('none');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -354,16 +578,16 @@ function getPreviewSize() {
 function applyPreviewCompositing() {
   if (!previewStage) return;
 
-  // Match the output stage's post-processing trim without touching the
-  // full-screen #screen-wrap that belongs only to the output window.
-  previewStage.style.filter = postFxFilterString();
+  // The embedded preview follows the current editing scope: LIVE normally and
+  // the isolated CUE bank while a cue transaction is active.
+  previewStage.style.filter = postFxFilterString(getEditingParams);
 
   previewP5.forEach((inst, index) => {
     const canvas = inst && inst.canvas;
     if (!canvas) return;
     canvas.style.zIndex = String(index);
     if (previewP5.length === 2 && index === 1) {
-      const blend = getParams(BLEND_ID);
+      const blend = getEditingParams(BLEND_ID);
       const additive = blend.mode === 1;
       canvas.style.mixBlendMode = additive ? 'screen' : 'normal';
       canvas.style.opacity = String(additive ? (blend.add ?? 0.5) : (blend.mix ?? 0.5));
@@ -396,7 +620,7 @@ function attachPreviewCanvas(inst, sketch, layer, generation) {
 function createPreviewInstance(sketch, layer, generation) {
   if (!previewStage) return null;
 
-  const factory = sketch.factory(previewAudio, null, getParams(sketch.id));
+  const factory = sketch.factory(previewAudio, null, getEditingParams(sketch.id));
   const wrappedSketch = (p) => {
     // Each legacy sketch asks p5 for window-sized canvases on setup and resize.
     // Substitute only those calls, keeping every drawing API and renderer mode
@@ -452,7 +676,7 @@ function renderPreview() {
   const cameraSketches = sketches.filter((sketch) => sketch.camera);
   const renderable = sketches.filter((sketch) => !sketch.camera);
   if (!renderable.length) {
-    previewStage.innerHTML = '<div class="preview-empty">Camera effect — live video remains on the output screen.</div>';
+    previewStage.innerHTML = `<div class="preview-empty">${cueSession ? 'CAMERA CUE STAGED ON OUTPUT' : 'Camera effect — live video remains on the output screen.'}</div>`;
     return;
   }
 
@@ -463,7 +687,7 @@ function renderPreview() {
   if (cameraSketches.length) {
     const note = document.createElement('div');
     note.className = 'preview-camera-note';
-    note.textContent = 'Camera layer stays on the output screen.';
+    note.textContent = cueSession ? 'CAMERA CUE STAGED ON OUTPUT' : 'Camera layer stays on the output screen.';
     previewStage.appendChild(note);
   }
   applyPreviewCompositing();
@@ -509,74 +733,825 @@ function setPreviewSelection(selection = {}) {
   queuePreviewRender();
 }
 
+function initialLiveRuntime(selection) {
+  ensureScreenStage();
+  liveProgram = copyProgramSelection(selection);
+  setLayerRoles(stageLiveLayer, stageCueLayer);
+  const runtime = createRuntime(selection, getParams, stageLiveLayer, 'initial-live');
+  liveRuntime = runtime;
+  syncLegacyLiveProjection();
+  applyPostFx();
+  runtime.prepare()
+    .then(() => {
+      if (runtime !== liveRuntime) return;
+      applyPostFx();
+      broadcastLiveState();
+    })
+    .catch((error) => {
+      console.error('Unable to start live program:', error);
+    });
+}
+
+async function promotePreparedRuntime(runtime, { directToken = null, cue = null, onPromoted = null } = {}) {
+  try {
+    await runtime.requestFreshFrame();
+  } catch (error) {
+    throw error;
+  }
+
+  return new Promise((resolve, reject) => {
+    requestAnimationFrame(() => {
+      if (runtime.disposed) {
+        reject(new Error('Prepared program was disposed before promotion.'));
+        return;
+      }
+      if (directToken !== null && directToken !== directGeneration) {
+        reject(new Error('Prepared program was superseded.'));
+        return;
+      }
+      if (cue && (cueSession !== cue
+        || cueRuntime !== runtime
+        || cue.revision !== cue.pendingRevision
+        || cue.renderedRevision !== cue.pendingRevision
+        || cue.selectionGeneration !== cue.pendingSelectionGeneration
+        || !selectionsEqual(cue.selection, runtime.selection))) {
+        reject(new Error('Cue promotion was superseded.'));
+        return;
+      }
+
+      const oldLive = liveRuntime;
+      const oldLiveLayer = stageLiveLayer;
+      const promotedLayer = runtime.layer;
+      liveRuntime = runtime;
+      incomingRuntime = incomingRuntime === runtime ? null : incomingRuntime;
+      cueRuntime = cueRuntime === runtime ? null : cueRuntime;
+      stageLiveLayer = promotedLayer;
+      stageCueLayer = oldLiveLayer;
+      setLayerRoles(stageLiveLayer, stageCueLayer);
+      liveProgram = copyProgramSelection(runtime.selection);
+      syncLegacyLiveProjection();
+      recordCueTiming('role-visibility-swap', { ids: runtime.selection.ids });
+      // A cue bank becomes canonical only after the role swap is committed.
+      // Doing this before styling prevents one frame of old LIVE post-FX.
+      onPromoted?.();
+      applyPostFx();
+
+      // The promoted canvas is visible before its predecessor is removed. The
+      // next frame keeps normal switches from ever exposing an empty stage.
+      retiringRuntime = oldLive && oldLive !== runtime ? oldLive : null;
+      requestAnimationFrame(() => {
+        if (retiringRuntime === oldLive) {
+          disposeRuntime(oldLive);
+          retiringRuntime = null;
+        }
+      });
+      resolve(runtime);
+    });
+  });
+}
+
+function prepareThenPromoteLive(selection, { force = false } = {}) {
+  if (myRole !== 'screen' || !selection?.ids?.length) return;
+  if (!liveRuntime) {
+    initialLiveRuntime(selection);
+    return;
+  }
+  if (!force && selectionsEqual(selection, liveProgram) && !incomingRuntime) return;
+
+  ensureScreenStage();
+  const token = ++directGeneration;
+  disposeRuntime(incomingRuntime);
+  disposeRuntime(retiringRuntime);
+  retiringRuntime = null;
+  incomingRuntime = createRuntime(selection, getParams, stageCueLayer, 'direct-live');
+  applyPostFx();
+  const runtime = incomingRuntime;
+  runtime.prepare()
+    .then(() => promotePreparedRuntime(runtime, { directToken: token }))
+    .then(() => {
+      if (token !== directGeneration) return;
+      broadcastLiveState();
+    })
+    .catch((error) => {
+      if (runtime.disposed || token !== directGeneration) return;
+      console.error('Unable to prepare requested live program:', error);
+      disposeRuntime(runtime);
+      if (incomingRuntime === runtime) incomingRuntime = null;
+      applyPostFx();
+      broadcastLiveState();
+    });
+}
+
 function loadSketch(index, merge = null) {
-  const ordered = getOrderedSketches();
-  if (index < 0 || index >= ordered.length) return;
-
-  removeCurrentP5();
-
-  currentIndex = index;
-  const canMerge =
-    merge && merge.length === 2 &&
-    merge[0] >= 0 && merge[0] < ordered.length &&
-    merge[1] >= 0 && merge[1] < ordered.length;
-
-  if (canMerge) {
-    mergeIndices = [...merge];
-    const skA = ordered[merge[0]];
-    const skB = ordered[merge[1]];
-    mergeIds = [skA.id, skB.id];
-    activeSketchId = skA.id;
-
-    // Inject received audio, the video device ID, and each LIVE params object so
-    // both sketches update every frame without either opening the microphone.
-    currentP5 = loadMerged(merge[0], merge[1]);
-
-    console.log(`Loaded merged sketch ${skA.name} + ${skB.name}`);
-  } else {
-    mergeIndices = null;
-    mergeIds = null;
-    const sketch = ordered[index];
-    activeSketchId = sketch.id;
-
-    // Inject remote audio, current video device ID, and the LIVE params object
-    // so the sketch reads updated values every frame without owning a mic.
-    currentP5 = new p5(sketch.factory(screenAudio, currentVideoDeviceId, getParams(sketch.id)));
-    adoptCanvas(currentP5);
-
-    console.log(`Loaded sketch ${index + 1} (${sketch.name})`);
-  }
+  const selection = selectionFromIndices(index, merge);
+  if (!selection) return;
+  prepareThenPromoteLive(selection);
 }
 
-// Load a pattern by id — used for library-only patterns that are not assigned
-// to any pad slot. The pad index bookkeeping is reset (-1) so the screen knows
-// the selection is id-based, not slot-based.
 function loadSketchById(id) {
-  const sketch = SKETCHES.find((s) => s.id === id);
-  if (!sketch) return;
-
-  removeCurrentP5();
-
-  currentIndex = -1;
-  mergeIndices = null;
-  mergeIds = null;
-  activeSketchId = id;
-
-  currentP5 = new p5(sketch.factory(screenAudio, currentVideoDeviceId, getParams(id)));
-  adoptCanvas(currentP5);
-  console.log(`Loaded sketch ${sketch.name}`);
+  const selection = selectionFromId(id);
+  if (!selection) return;
+  prepareThenPromoteLive(selection);
 }
 
-// Keep activeSketchId in sync for ALL windows (the screen sets it in loadSketch;
-// control windows derive it from the current ordered list). Pad edits shift
-// positions, so the id is what survives an order change.
 function updateActiveSketchId() {
-  const ordered = getOrderedSketches();
-  if (mergeIndices && ordered[mergeIndices[0]]) {
-    activeSketchId = ordered[mergeIndices[0]].id;
-  } else if (currentIndex >= 0 && ordered[currentIndex]) {
-    activeSketchId = ordered[currentIndex].id;
+  const selection = selectionFromIndices(currentIndex, mergeIndices);
+  if (!selection) return;
+  activeSketchId = selection.ids[0] || null;
+  mergeIds = selection.merge ? [...selection.ids] : null;
+}
+
+function cueStatePayload() {
+  if (!cueSession) return null;
+  const params = {};
+  for (const [id, values] of Object.entries(cueSession.params || {})) {
+    if (id !== BANDS_ID) params[id] = { ...values };
   }
+  return {
+    sessionId: cueSession.sessionId,
+    revision: cueSession.revision,
+    selection: copyProgramSelection(cueSession.selection),
+    phase: cueSession.phase,
+    takePending: Boolean(cueSession.takePending),
+    takeRequestId: cueSession.takeRequestId || null,
+    renderedRevision: cueSession.renderedRevision ?? null,
+    pendingRevision: cueSession.pendingRevision ?? null,
+    selectionGeneration: cueSession.selectionGeneration || 0,
+    pendingSelectionGeneration: cueSession.pendingSelectionGeneration ?? null,
+    error: cueSession.error || null,
+    params,
+  };
+}
+
+function broadcastLiveState() {
+  const selection = currentLiveSelection();
+  const indices = selectionIndices(selection);
+  broadcast({
+    type: 'state',
+    pattern: selection.merge ? indices[0] : (indices[0] ?? -1),
+    merge: selection.merge ? indices : null,
+    patternId: selection.ids[0] || null,
+    live: copyProgramSelection(selection),
+    // Snapshot is screen-authored: it repairs a control that received a stale
+    // unscoped LIVE parameter message after CUE began.
+    liveParams: canonicalLiveParamBank(),
+    bands: canonicalBandValues(),
+    cue: cueStatePayload(),
+  });
+}
+
+function broadcastCueState(notice = '', committedParams = null, acknowledgement = {}) {
+  broadcast({
+    type: 'cue-state',
+    cue: cueStatePayload(),
+    notice,
+    live: currentLiveSelection(),
+    liveParams: canonicalLiveParamBank(),
+    bands: canonicalBandValues(),
+    committedParams: committedParams ? copyVisualParamBank(committedParams) : null,
+    takeRequestId: acknowledgement.takeRequestId || cueSession?.takeRequestId || null,
+    rejectedTakeRequestId: acknowledgement.rejectedTakeRequestId || null,
+  });
+}
+
+function mergeCueParamsInPlace(target, source) {
+  const incoming = source || {};
+  Object.keys(target).forEach((id) => {
+    if (id !== BANDS_ID && !(id in incoming)) delete target[id];
+  });
+  for (const [id, values] of Object.entries(incoming)) {
+    if (id === BANDS_ID) continue;
+    if (!target[id]) target[id] = {};
+    for (const key of Object.keys(target[id])) {
+      if (!(key in values)) delete target[id][key];
+    }
+    Object.assign(target[id], values);
+  }
+}
+
+function cueEditsLocked() {
+  return Boolean(
+    cueSession?.takePending
+    || (myRole === 'control'
+      && cueTakeIntent
+      && cueTakeIntent.sessionId === cueSession?.sessionId),
+  );
+}
+
+function panelCueState() {
+  const payload = cueStatePayload();
+  if (!payload || !cueTakeIntent || cueTakeIntent.sessionId !== payload.sessionId || payload.takePending) return payload;
+  // The initiating panel has committed to TAKE even before the screen's
+  // acknowledgement crosses the BroadcastChannel. Render the same locked UI
+  // immediately, while retaining CANCEL as the one available escape hatch.
+  return {
+    ...payload,
+    takePending: true,
+    phase: 'take-pending',
+  };
+}
+
+function settleCueTakeIntent(payload, acknowledgement = {}) {
+  if (myRole !== 'control' || !cueTakeIntent) return;
+  const requestId = cueTakeIntent.requestId;
+  if (!payload || payload.sessionId !== cueTakeIntent.sessionId) {
+    cueTakeIntent = null;
+    return;
+  }
+  if (payload.takeRequestId === requestId
+    || acknowledgement.takeRequestId === requestId
+    || acknowledgement.rejectedTakeRequestId === requestId
+    || payload.phase === 'error') {
+    cueTakeIntent = null;
+  }
+}
+
+function applyReceivedCueState(payload, notice = '', acknowledgement = {}) {
+  if (!payload) {
+    cueSession = null;
+    clearCueMutationQueue();
+    if (myRole === 'control') {
+      queuePreviewRender();
+      syncUI(notice);
+    }
+    applyPostFx();
+    return;
+  }
+
+  if (cueSession?.sessionId === payload.sessionId) {
+    cueSession.revision = payload.revision;
+    cueSession.selection = copyProgramSelection(payload.selection);
+    cueSession.phase = payload.phase;
+    cueSession.takePending = Boolean(payload.takePending);
+    cueSession.takeRequestId = payload.takeRequestId || null;
+    cueSession.renderedRevision = payload.renderedRevision ?? cueSession.renderedRevision ?? null;
+    cueSession.pendingRevision = payload.pendingRevision;
+    cueSession.selectionGeneration = payload.selectionGeneration ?? cueSession.selectionGeneration ?? 0;
+    cueSession.pendingSelectionGeneration = payload.pendingSelectionGeneration ?? null;
+    cueSession.error = payload.error || null;
+    mergeCueParamsInPlace(cueSession.params, payload.params);
+  } else {
+    cueSession = {
+      sessionId: payload.sessionId,
+      revision: payload.revision,
+      selection: copyProgramSelection(payload.selection),
+      params: cloneCueBank(payload.selection),
+      phase: payload.phase,
+      takePending: Boolean(payload.takePending),
+      takeRequestId: payload.takeRequestId || null,
+      renderedRevision: payload.renderedRevision ?? null,
+      pendingRevision: payload.pendingRevision,
+      selectionGeneration: payload.selectionGeneration || 0,
+      pendingSelectionGeneration: payload.pendingSelectionGeneration ?? null,
+      error: payload.error || null,
+      runtimeRequired: !selectionsEqual(payload.selection, currentLiveSelection()),
+    };
+    mergeCueParamsInPlace(cueSession.params, payload.params);
+  }
+  settleCueTakeIntent(payload, acknowledgement);
+  acknowledgeCueMutation(payload);
+  applyPostFx();
+  if (myRole === 'control') {
+    queuePreviewRender();
+    syncUI(notice);
+  }
+}
+
+function enterCueSession(initiatorId) {
+  if (myRole !== 'screen' || cueSession || !liveRuntime) return;
+  // Manual CUE takes ownership of the only hidden slot. Abort an in-flight
+  // automatic/direct replacement before creating the session to preserve the
+  // strict LIVE + one CUE context cap.
+  directGeneration += 1;
+  disposeRuntime(incomingRuntime);
+  disposeRuntime(retiringRuntime);
+  incomingRuntime = null;
+  retiringRuntime = null;
+  const selection = currentLiveSelection();
+  cueSession = {
+    sessionId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    revision: 0,
+    initiatorId,
+    selection,
+    params: cloneCueBank(selection),
+    phase: 'same',
+    takePending: false,
+    takeRequestId: null,
+    // The revision known to have a complete output frame. It gates READY and
+    // TAKE after parameter edits without rebuilding the existing runtime.
+    renderedRevision: 0,
+    pendingRevision: null,
+    selectionGeneration: 0,
+    pendingSelectionGeneration: null,
+    error: null,
+    runtimeRequired: false,
+  };
+  recordCueTiming('cue-entered', { sessionId: cueSession.sessionId });
+  applyPostFx();
+  broadcastCueState();
+}
+
+function isAcceptedCueRequest(msg) {
+  return myRole === 'screen'
+    && cueSession
+    && msg.sessionId === cueSession.sessionId
+    && (msg.baseRevision === undefined || msg.baseRevision === cueSession.revision)
+    && !cueSession.takePending;
+}
+
+function isCueVisualParamId(session, id) {
+  if (!session || typeof id !== 'string' || id === BANDS_ID) return false;
+  if (id === POSTFX_ID) return true;
+  if (id === BLEND_ID) return Boolean(session.selection?.merge);
+  return Boolean(session.selection?.ids?.includes(id));
+}
+
+function queueCueRuntime() {
+  if (myRole !== 'screen' || !cueSession) return;
+  if (cueStageRaf) cancelAnimationFrame(cueStageRaf);
+  cueStageRaf = requestAnimationFrame(() => {
+    cueStageRaf = 0;
+    stageCueRuntime();
+  });
+}
+
+function isCurrentCueRuntime(session, runtime, selectionGeneration, revision = null) {
+  return cueSession === session
+    && cueRuntime === runtime
+    && !runtime.disposed
+    && session.selectionGeneration === selectionGeneration
+    && selectionsEqual(session.selection, runtime.selection)
+    && (revision === null || session.revision === revision);
+}
+
+function failCueRuntime(session, runtime, selectionGeneration, revision, error) {
+  if (!isCurrentCueRuntime(session, runtime, selectionGeneration, revision)) return;
+  disposeRuntime(runtime);
+  if (cueRuntime === runtime) cueRuntime = null;
+  session.takePending = false;
+  session.takeRequestId = null;
+  session.pendingRevision = null;
+  session.pendingSelectionGeneration = null;
+  session.promoting = false;
+  session.phase = 'error';
+  session.error = error?.message || 'Cue warm-up failed.';
+  recordCueTiming('cue-error', { sessionId: session.sessionId, revision: session.revision, message: session.error });
+  applyPostFx();
+  broadcastCueState('CUE ERROR');
+}
+
+function settleCueRuntimeRevision(session, runtime, selectionGeneration) {
+  if (!isCurrentCueRuntime(session, runtime, selectionGeneration)) return;
+  // A runtime's initial READY is insufficient after a later parameter edit:
+  // `renderedRevision` must identify the exact candidate revision that drew.
+  if (!runtime.ready || session.renderedRevision !== session.revision) {
+    session.phase = session.takePending ? 'take-pending' : 'warming';
+    broadcastCueState();
+    return;
+  }
+
+  // The hidden program may only be parked once its readiness contract is true,
+  // including camera media-ready followed by a drawing pass. A queued fresh
+  // frame takes precedence over noLoop so an old edit cannot pause a newer one.
+  if (!runtime.hasPendingFreshFrame) runtime.pause();
+
+  if (session.takePending) {
+    session.phase = 'take-pending';
+    broadcastCueState('TAKE PENDING — WARMING');
+    if (session.pendingRevision === session.revision
+      && session.pendingSelectionGeneration === selectionGeneration) {
+      takeCueSession(session, session.takeRequestId);
+    }
+    return;
+  }
+
+  session.phase = 'ready';
+  recordCueTiming('cue-ready', { sessionId: session.sessionId, revision: session.revision });
+  broadcastCueState('CUE READY');
+}
+
+function requestCueRevisionFrame(session, runtime, selectionGeneration, revision) {
+  runtime.applyBlendStyles();
+  applyPostFx();
+  // ProgramRuntime refuses to park until its own readiness contract is met.
+  // This keeps a warming camera looping until a current media frame has been
+  // observed and subsequently drawn.
+  runtime.requestFreshFrame(4_000, { parkAfter: true })
+    .then(() => {
+      // Completion belongs to the exact accepted revision. An older coalesced
+      // frame must never turn a newer slider value READY or trigger its TAKE.
+      if (!isCurrentCueRuntime(session, runtime, selectionGeneration, revision)) return;
+      session.renderedRevision = revision;
+      settleCueRuntimeRevision(session, runtime, selectionGeneration);
+    })
+    .catch((error) => failCueRuntime(session, runtime, selectionGeneration, revision, error));
+}
+
+function stageCueRuntime() {
+  if (myRole !== 'screen' || !cueSession) return;
+  const session = cueSession;
+  const revision = session.revision;
+  const selectionGeneration = session.selectionGeneration || 0;
+  const sameAsLive = selectionsEqual(session.selection, currentLiveSelection()) && !session.runtimeRequired;
+
+  disposeRuntime(cueRuntime);
+  cueRuntime = null;
+  if (sameAsLive) {
+    session.phase = 'same';
+    session.renderedRevision = session.revision;
+    session.error = null;
+    applyPostFx();
+    broadcastCueState();
+    return;
+  }
+
+  ensureScreenStage();
+  session.phase = session.takePending ? 'take-pending' : 'warming';
+  session.renderedRevision = null;
+  session.error = null;
+  const runtime = createRuntime(session.selection, getCueParams, stageCueLayer, 'cue');
+  cueRuntime = runtime;
+  applyPostFx();
+  broadcastCueState();
+  recordCueTiming('cue-runtime-requested', { sessionId: session.sessionId, revision });
+
+  runtime.prepare()
+    .then(() => {
+      // Parameter edits may advance the revision while this same selection is
+      // warming. The initial readiness draw only proves the construction
+      // revision; later edits install their own fresh-frame gate below.
+      if (!isCurrentCueRuntime(session, runtime, selectionGeneration)) return;
+      if (session.revision === revision) session.renderedRevision = revision;
+      settleCueRuntimeRevision(session, runtime, selectionGeneration);
+    })
+    .catch((error) => failCueRuntime(session, runtime, selectionGeneration, revision, error));
+}
+
+function resyncRejectedCueRequest(msg) {
+  if (myRole === 'screen' && cueSession && msg.sessionId === cueSession.sessionId) broadcastCueState();
+}
+
+function updateCueSelection(msg) {
+  if (!isAcceptedCueRequest(msg)) {
+    resyncRejectedCueRequest(msg);
+    return;
+  }
+  const selection = msg.selection;
+  if (!selection?.ids?.length || !selection.ids.every((id) => SKETCHES.some((sketch) => sketch.id === id))) {
+    broadcastCueState();
+    return;
+  }
+  if (selection.merge && selection.ids.length !== 2) {
+    broadcastCueState();
+    return;
+  }
+  if (!selection.merge && selection.ids.length !== 1) {
+    broadcastCueState();
+    return;
+  }
+
+  const nextSelection = copyProgramSelection(selection);
+  if (selectionsEqual(nextSelection, cueSession.selection)) {
+    // Acknowledge duplicate/coalesced controls with a new monotonic revision
+    // without rebuilding the renderer. If a prior edit was still freshening,
+    // bind a new frame to this revision rather than letting that old callback
+    // mark this later acknowledgement READY.
+    cueSession.revision += 1;
+    const session = cueSession;
+    const revision = session.revision;
+    const selectionGeneration = session.selectionGeneration || 0;
+    if (session.runtimeRequired && cueRuntime) {
+      session.renderedRevision = null;
+      session.phase = 'warming';
+      requestCueRevisionFrame(session, cueRuntime, selectionGeneration, revision);
+    } else {
+      session.renderedRevision = revision;
+    }
+    broadcastCueState();
+    return;
+  }
+  // Invalidate immediately, not on the next rAF: an old asynchronous ready
+  // callback must never be eligible for promotion after a new selection.
+  if (cueStageRaf) cancelAnimationFrame(cueStageRaf);
+  cueStageRaf = 0;
+  disposeRuntime(cueRuntime);
+  cueRuntime = null;
+  cueSession.selection = nextSelection;
+  cueSession.selectionGeneration = (cueSession.selectionGeneration || 0) + 1;
+  cueSession.revision += 1;
+  cueSession.renderedRevision = null;
+  cueSession.error = null;
+  cueSession.runtimeRequired = cueRequiresRuntime(cueSession);
+  cueSession.phase = cueSession.runtimeRequired ? 'warming' : 'same';
+  queueCueRuntime();
+  broadcastCueState();
+}
+
+function updateCueParams(msg) {
+  if (!isAcceptedCueRequest(msg)) {
+    resyncRejectedCueRequest(msg);
+    return;
+  }
+  const changes = Array.isArray(msg.changes)
+    ? msg.changes
+    : [{ id: msg.id, values: msg.values }];
+  const valid = changes.filter((change) =>
+    typeof change?.id === 'string'
+      && isCueVisualParamId(cueSession, change.id)
+      && change.values
+      && typeof change.values === 'object',
+  );
+  if (!valid.length) {
+    broadcastCueState();
+    return;
+  }
+
+  for (const { id, values } of valid) {
+    const target = getCueParams(id);
+    for (const [key, value] of Object.entries(values)) {
+      if (target[key] !== value) target[key] = value;
+    }
+  }
+  // A single accepted message is one canonical revision even when it batches
+  // a reset's three post-FX values. A no-op re-emission still gets a fresh-frame
+  // gate: it may have arrived while a prior accepted revision was still drawing.
+  cueSession.revision += 1;
+  const session = cueSession;
+  const revision = session.revision;
+  const selectionGeneration = session.selectionGeneration || 0;
+  session.error = null;
+  session.runtimeRequired = cueRequiresRuntime(session);
+  if (!session.runtimeRequired) {
+    if (cueStageRaf) cancelAnimationFrame(cueStageRaf);
+    cueStageRaf = 0;
+    disposeRuntime(cueRuntime);
+    cueRuntime = null;
+    session.renderedRevision = revision;
+    session.phase = 'same';
+    applyPostFx();
+    broadcastCueState();
+    return;
+  }
+
+  // Parameter-only changes mutate the same runtime objects, but READY must not
+  // be advertised until a frame for this exact revision has made it through the
+  // output compositor. This is deliberately WARMING even when construction was
+  // already READY.
+  session.renderedRevision = null;
+  session.phase = 'warming';
+  if (cueRuntime) {
+    requestCueRevisionFrame(session, cueRuntime, selectionGeneration, revision);
+  } else {
+    queueCueRuntime();
+  }
+  broadcastCueState();
+}
+
+function cancelCueSession(notice = 'CUE CANCELED') {
+  if (myRole !== 'screen' || !cueSession) return;
+  if (cueStageRaf) cancelAnimationFrame(cueStageRaf);
+  cueStageRaf = 0;
+  disposeRuntime(cueRuntime);
+  cueRuntime = null;
+  cueSession = null;
+  applyPostFx();
+  recordCueTiming('cue-canceled');
+  broadcastCueState(notice);
+  broadcastLiveState();
+}
+
+async function takeCueSession(session = cueSession, takeRequestId = null) {
+  if (myRole !== 'screen' || !session || session !== cueSession || session.promoting) return;
+  if (session.phase === 'error') {
+    // RETRY CUE is intentionally not a TAKE lock: the failed renderer is gone
+    // and the operator may edit/cancel the new warm-up normally.
+    session.takePending = false;
+    session.takeRequestId = null;
+    session.pendingRevision = null;
+    session.pendingSelectionGeneration = null;
+    session.renderedRevision = null;
+    session.phase = 'warming';
+    session.error = null;
+    queueCueRuntime();
+    broadcastCueState();
+    return;
+  }
+
+  const wasPending = session.takePending;
+  const requestId = wasPending
+    ? (session.takeRequestId || takeRequestId || null)
+    : (takeRequestId || session.takeRequestId || null);
+  if (session.phase === 'same' && !cueRuntime) {
+    // A same-as-live cue is already the live program; there is no replacement
+    // renderer to promote. It still ends as an acknowledged TAKE transaction.
+    cueSession = null;
+    applyPostFx();
+    broadcastCueState('CUE TAKEN LIVE', null, { takeRequestId: requestId });
+    broadcastLiveState();
+    return;
+  }
+
+  session.takePending = true;
+  session.takeRequestId = requestId;
+  session.pendingRevision = session.revision;
+  session.pendingSelectionGeneration = session.selectionGeneration || 0;
+  session.phase = 'take-pending';
+  if (!wasPending) {
+    recordCueTiming('take-requested', { sessionId: session.sessionId, revision: session.revision });
+  }
+  broadcastCueState('TAKE PENDING — WARMING');
+
+  // `runtime.ready` only proves construction. Parameter edits after that point
+  // must also complete their revision-bound fresh-frame gate before promotion.
+  if (!cueRuntime
+    || !cueRuntime.ready
+    || session.renderedRevision !== session.pendingRevision
+    || cueRuntime.hasPendingFreshFrame) return;
+
+  const runtime = cueRuntime;
+  session.promoting = true;
+  try {
+    await promotePreparedRuntime(runtime, { cue: session, onPromoted: () => adoptCueBank(session) });
+  } catch (error) {
+    if (cueSession !== session || runtime.disposed) return;
+    session.promoting = false;
+    session.takePending = false;
+    session.pendingRevision = null;
+    session.pendingSelectionGeneration = null;
+    session.phase = 'error';
+    session.error = error?.message || 'Unable to take cue live.';
+    broadcastCueState('CUE ERROR', null, { takeRequestId: requestId });
+    return;
+  }
+
+  if (cueSession !== session) return;
+  const committedParams = session.params;
+  cueSession = null;
+  applyPostFx();
+  recordCueTiming('cue-taken-live', { ids: liveProgram?.ids || [] });
+  // Every control receives the exact committed visual bank before it drops its
+  // local cue state, so previews/sliders cannot revert to stale LIVE objects.
+  broadcastCueState('CUE TAKEN LIVE', committedParams, { takeRequestId: requestId });
+  broadcastLiveState();
+}
+
+function clearCueMutationQueue() {
+  if (cueMutationRaf) cancelAnimationFrame(cueMutationRaf);
+  cueMutationRaf = 0;
+  cueMutationInFlight = null;
+  queuedCueSelection = null;
+  queuedCueParams.clear();
+  queuedCueTake = false;
+  cueTakeIntent = null;
+}
+
+function scheduleCueMutationFlush() {
+  if (cueMutationRaf || cueMutationInFlight || !cueSession || cueSession.takePending) return;
+  cueMutationRaf = requestAnimationFrame(() => {
+    cueMutationRaf = 0;
+    flushCueMutationQueue();
+  });
+}
+
+function flushCueMutationQueue() {
+  if (!cueSession || cueSession.takePending || cueMutationInFlight) return;
+  const sessionId = cueSession.sessionId;
+  const baseRevision = cueSession.revision;
+
+  if (queuedCueSelection) {
+    const selection = queuedCueSelection;
+    queuedCueSelection = null;
+    cueMutationInFlight = { sessionId, baseRevision, type: 'selection' };
+    broadcast({ type: 'cue-selection', sessionId, baseRevision, selection });
+    return;
+  }
+
+  if (queuedCueParams.size) {
+    const changes = [...queuedCueParams.entries()].map(([id, values]) => ({ id, values }));
+    queuedCueParams.clear();
+    cueMutationInFlight = { sessionId, baseRevision, type: 'params' };
+    broadcast({ type: 'cue-params', sessionId, baseRevision, changes });
+    return;
+  }
+
+  if (queuedCueTake) {
+    queuedCueTake = false;
+    sendCueTakeRequest(sessionId, baseRevision);
+  }
+}
+
+function acknowledgeCueMutation(payload) {
+  if (!cueMutationInFlight) return;
+  if (!payload || payload.sessionId !== cueMutationInFlight.sessionId) {
+    clearCueMutationQueue();
+    return;
+  }
+  // An advanced revision either acknowledges our transaction or gives us the
+  // authoritative revision after a stale request. In both cases, send the next
+  // coalesced mutation against that revision.
+  if (payload.revision > cueMutationInFlight.baseRevision) {
+    cueMutationInFlight = null;
+    scheduleCueMutationFlush();
+  }
+}
+
+function beginCueTakeIntent() {
+  if (myRole !== 'control' || !cueSession || cueSession.phase === 'error') return null;
+  if (cueTakeIntent?.sessionId === cueSession.sessionId) return cueTakeIntent;
+  cueTakeIntent = {
+    sessionId: cueSession.sessionId,
+    requestId: `${myId}-take-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+    sent: false,
+    baseRevision: null,
+  };
+  // Lock this panel before the channel round-trip, but leave CANCEL enabled.
+  syncUI('TAKE PENDING — WARMING');
+  return cueTakeIntent;
+}
+
+function sendCueTakeRequest(sessionId, baseRevision) {
+  const intent = cueTakeIntent?.sessionId === sessionId ? cueTakeIntent : null;
+  if (intent) {
+    intent.sent = true;
+    intent.baseRevision = baseRevision;
+  }
+  broadcast({
+    type: 'cue-take',
+    sessionId,
+    baseRevision,
+    takeRequestId: intent?.requestId || null,
+  });
+}
+
+function queueCueSelectionChange(selection) {
+  if (!cueSession || cueEditsLocked()) return;
+  queuedCueSelection = copyProgramSelection(selection);
+  scheduleCueMutationFlush();
+}
+
+function queueCueParamChange(id, values) {
+  if (!cueSession || cueEditsLocked()) return;
+  const existing = queuedCueParams.get(id) || {};
+  queuedCueParams.set(id, { ...existing, ...values });
+  scheduleCueMutationFlush();
+}
+
+function requestCuePrimary() {
+  if (!cueSession) {
+    // Never carry an in-progress two-number gesture across a transport mode
+    // boundary; blur already performs the same bookkeeping-only reset.
+    heldKeys.length = 0;
+    if (screenOnline) broadcast({ type: 'cue-enter', initiatorId: myId });
+    return;
+  }
+  if (cueEditsLocked()) return;
+
+  // RETRY CUE rebuilds a failed candidate; it is not a TAKE intent and should
+  // not lock out the operator's next corrective edit.
+  const isRetry = cueSession.phase === 'error';
+  if (!isRetry) beginCueTakeIntent();
+  if (cueMutationInFlight || queuedCueSelection || queuedCueParams.size) {
+    // Bind TAKE to the exact screen-accepted revision after all slider/selection
+    // deltas in this control's queue have been acknowledged. The local intent
+    // already locks further edits so the final queued value cannot be displaced.
+    queuedCueTake = true;
+    scheduleCueMutationFlush();
+    return;
+  }
+  sendCueTakeRequest(cueSession.sessionId, cueSession.revision);
+}
+
+function requestCueCancel() {
+  if (!cueSession) return;
+  clearCueMutationQueue();
+  broadcast({ type: 'cue-cancel', sessionId: cueSession.sessionId });
+}
+
+function requestSelection(selection) {
+  if (!selection?.ids?.length) return;
+  if (cueSession) {
+    queueCueSelectionChange(selection);
+    return;
+  }
+
+  // Preserve legacy messages for external controllers and all existing tests.
+  const indices = selectionIndices(selection);
+  if (selection.merge) broadcast({ type: 'merge', a: indices[0], b: indices[1] });
+  else if (indices[0] >= 0) broadcast({ type: 'pattern', index: indices[0] });
+  else broadcast({ type: 'pattern-id', id: selection.ids[0] });
+}
+
+function requestParamChange(id, values) {
+  // Band split is deliberately system-scoped, never part of a visual cue.
+  if (id === BANDS_ID) {
+    broadcast({ type: 'params', id, values });
+    return;
+  }
+  if (cueSession) {
+    queueCueParamChange(id, values);
+    return;
+  }
+  broadcast({ type: 'params', id, values });
 }
 
 function handleAudioManagerStatus(status) {
@@ -610,11 +1585,14 @@ function startAudio(deviceId = localStorage.getItem(STORAGE.audio)) {
 function applyDevices(selection = {}) {
   const explicitAudioId = typeof selection.audioDeviceId === 'string' ? selection.audioDeviceId : null;
   const explicitVideoId = typeof selection.videoDeviceId === 'string' ? selection.videoDeviceId : null;
+  const videoLocked = Boolean(cueSession && explicitVideoId);
   if (explicitAudioId) localStorage.setItem(STORAGE.audio, explicitAudioId);
-  if (explicitVideoId) localStorage.setItem(STORAGE.video, explicitVideoId);
+  // Reject device changes at the transaction boundary as well as in the UI so
+  // a stale/malicious BroadcastChannel message cannot invalidate the cue.
+  if (explicitVideoId && !videoLocked) localStorage.setItem(STORAGE.video, explicitVideoId);
 
   const savedAudioId = explicitAudioId || localStorage.getItem(STORAGE.audio);
-  const savedVideoId = explicitVideoId || localStorage.getItem(STORAGE.video);
+  const savedVideoId = videoLocked ? localStorage.getItem(STORAGE.video) : (explicitVideoId || localStorage.getItem(STORAGE.video));
   currentAudioDeviceId = savedAudioId || null;
 
   if (isAudioOwner) {
@@ -626,15 +1604,13 @@ function applyDevices(selection = {}) {
   }
 
   if (myRole === 'screen' && savedVideoId && savedVideoId !== currentVideoDeviceId) {
+    // Camera selection is global and could invalidate both program slots. The
+    // panel disables it while cueing; this guard also protects stale messages.
+    if (cueSession) return;
     currentVideoDeviceId = savedVideoId;
-    // Reload the current sketch only if it's a webcam-dependent one — this
-    // covers both pad-based and library-only (id-based) camera effects, and
-    // preserves a live merge pair when one is running.
-    const sketch = SKETCHES.find((s) => s.id === activeSketchId);
-    if (sketch && sketch.camera) {
-      if (currentIndex >= 0) loadSketch(currentIndex, mergeIndices);
-      else loadSketchById(activeSketchId);
-    }
+    const selection = currentLiveSelection();
+    const usesCamera = selection.ids.some((id) => SKETCHES.find((sketch) => sketch.id === id)?.camera);
+    if (usesCamera) prepareThenPromoteLive(selection, { force: true });
   }
 }
 
@@ -818,9 +1794,7 @@ function handleMessage(msg) {
           becomeControl();
         }
       }
-      if (myRole === 'screen') {
-        broadcast({ type: 'state', pattern: currentIndex, merge: mergeIndices, patternId: activeSketchId });
-      }
+      if (myRole === 'screen') broadcastLiveState();
       // A window opened after capture startup would otherwise miss the one-time
       // starting/running/suspended event. The capture owner answers every hello.
       if (isAudioOwner && msg.windowId !== myId) {
@@ -828,54 +1802,123 @@ function handleMessage(msg) {
       }
       break;
 
-    case 'state':
-      if (typeof msg.pattern === 'number') {
+    case 'state': {
+      const selection = msg.live
+        || (typeof msg.patternId === 'string' && msg.pattern < 0
+          ? selectionFromId(msg.patternId)
+          : selectionFromIndices(msg.pattern, msg.merge));
+      if (selection?.ids?.length) {
+        liveProgram = copyProgramSelection(selection);
+        syncLegacyLiveProjection();
+      } else if (typeof msg.pattern === 'number') {
         currentIndex = msg.pattern;
         mergeIndices = Array.isArray(msg.merge) && msg.merge.length === 2 ? [...msg.merge] : null;
-        if (msg.pattern < 0 && typeof msg.patternId === 'string') {
-          // Library-only playback is id-based; the pad index is -1
-          activeSketchId = msg.patternId;
-        } else {
-          updateActiveSketchId();
-        }
+        if (msg.pattern < 0 && typeof msg.patternId === 'string') activeSketchId = msg.patternId;
+        else updateActiveSketchId();
       }
       screenOnline = true;
+      // Adopt screen-authored global and visual values before constructing a
+      // received CUE bank; a late-open panel must clone the same canonical
+      // values the screen uses.
+      if (msg.bands) applyCanonicalBandValues(msg.bands);
+      if (msg.liveParams) applyCanonicalLiveParamBank(msg.liveParams);
+      if ('cue' in msg) applyReceivedCueState(msg.cue);
       break;
+    }
 
-    case 'pattern':
-      currentIndex = msg.index;
-      mergeIndices = null;
-      updateActiveSketchId();
+    case 'pattern': {
+      // Legacy live-scoped messages are intentionally ignored during a cue;
+      // only explicit cue-* protocol messages may mutate the candidate.
+      if (cueSession) break;
+      const selection = selectionFromIndices(msg.index);
+      if (!selection) break;
       if (myRole === 'screen') {
-        loadSketch(msg.index);
-        broadcast({ type: 'state', pattern: currentIndex, merge: null, patternId: activeSketchId });
+        if (!cueSession) prepareThenPromoteLive(selection);
+      } else {
+        // Standalone controls retain their local preview behaviour even without
+        // an output window; the screen remains authoritative once present.
+        liveProgram = copyProgramSelection(selection);
+        syncLegacyLiveProjection();
       }
       break;
+    }
 
-    case 'pattern-id':
-      // A library-only pattern (not on the pad) was clicked in some window.
-      currentIndex = -1;
-      mergeIndices = null;
-      mergeIds = null;
-      activeSketchId = msg.id;
+    case 'pattern-id': {
+      if (cueSession) break;
+      const selection = selectionFromId(msg.id);
+      if (!selection) break;
       if (myRole === 'screen') {
-        loadSketchById(msg.id);
-        broadcast({ type: 'state', pattern: -1, merge: null, patternId: activeSketchId });
+        if (!cueSession) prepareThenPromoteLive(selection);
+      } else {
+        liveProgram = copyProgramSelection(selection);
+        syncLegacyLiveProjection();
       }
       break;
+    }
 
-    case 'merge':
-      // Two effects selected at once — run both and blend them on screen.
-      if (typeof msg.a === 'number' && typeof msg.b === 'number') {
-        currentIndex = msg.a;
-        mergeIndices = [msg.a, msg.b];
-        updateActiveSketchId();
-        if (myRole === 'screen') {
-          loadSketch(msg.a, mergeIndices);
-          broadcast({ type: 'state', pattern: currentIndex, merge: mergeIndices, patternId: activeSketchId });
+    case 'merge': {
+      if (cueSession) break;
+      const selection = selectionFromIndices(msg.a, [msg.a, msg.b]);
+      if (!selection) break;
+      if (myRole === 'screen') {
+        if (!cueSession) prepareThenPromoteLive(selection);
+      } else {
+        liveProgram = copyProgramSelection(selection);
+        syncLegacyLiveProjection();
+      }
+      break;
+    }
+
+    case 'cue-enter':
+      if (myRole === 'screen') enterCueSession(msg.initiatorId || msg.windowId);
+      return;
+
+    case 'cue-selection':
+      updateCueSelection(msg);
+      return;
+
+    case 'cue-params':
+      updateCueParams(msg);
+      return;
+
+    case 'cue-take':
+      if (myRole === 'screen' && cueSession && msg.sessionId === cueSession.sessionId) {
+        if (msg.baseRevision !== undefined && msg.baseRevision !== cueSession.revision) {
+          // A control that optimistically locked itself must be told that this
+          // particular TAKE lost a revision race, rather than staying disabled.
+          broadcastCueState('', null, { rejectedTakeRequestId: msg.takeRequestId || null });
+        } else if (cueSession.takePending
+          && msg.takeRequestId
+          && cueSession.takeRequestId
+          && msg.takeRequestId !== cueSession.takeRequestId) {
+          // The first accepted TAKE owns the committed revision. A racing
+          // second control may cancel it, but cannot replace its request id.
+          broadcastCueState('', null, { rejectedTakeRequestId: msg.takeRequestId });
+        } else {
+          takeCueSession(cueSession, msg.takeRequestId || null);
         }
       }
-      break;
+      return;
+
+    case 'cue-cancel':
+      if (myRole === 'screen' && cueSession && msg.sessionId === cueSession.sessionId) cancelCueSession();
+      return;
+
+    case 'cue-state':
+      if (msg.live?.ids?.length) {
+        liveProgram = copyProgramSelection(msg.live);
+        syncLegacyLiveProjection();
+      }
+      if (msg.bands) applyCanonicalBandValues(msg.bands);
+      if (msg.liveParams) applyCanonicalLiveParamBank(msg.liveParams);
+      if (msg.committedParams && !(myRole === 'screen' && msg.windowId === myId)) {
+        adoptVisualParamBank(msg.committedParams);
+      }
+      applyReceivedCueState(msg.cue, msg.notice || '', {
+        takeRequestId: msg.takeRequestId || null,
+        rejectedTakeRequestId: msg.rejectedTakeRequestId || null,
+      });
+      return;
 
     case 'devices':
       // Device ids are included explicitly; localStorage remains persistence,
@@ -901,25 +1944,25 @@ function handleMessage(msg) {
       return;
 
     case 'params':
-      // A param slider moved somewhere — merge into the live store (both
-      // windows keep the same store, so the running sketch updates in place).
-      if (typeof msg.id === 'string' && msg.values) {
-        Object.assign(getParams(msg.id), msg.values);
-        saveParamValues();
-        // Blend sliders drive the overlay canvas styles on the output and
-        // the matching mini-stage inside control windows.
-        if (msg.id === BLEND_ID) {
-          if (myRole === 'screen') applyBlendStyles();
-          if (myRole === 'control') applyPreviewCompositing();
-        }
-        // Band-split crossovers retune the musical feature extractor
-        if (msg.id === BANDS_ID) setBandSplit(getParams(BANDS_ID));
-        // Post-processing trim restyles the output wrapper and the panel preview.
-        if (msg.id === POSTFX_ID) {
-          applyPostFx();
-          if (myRole === 'control') applyPreviewCompositing();
-        }
-        if (myRole === 'control' && panel) panel.applyParam(msg.id, msg.values);
+      // Legacy unscoped LIVE parameter requests are now screen-authoritative.
+      // Controls deliberately do not mutate/persist on this raw message: a
+      // CUE could have been accepted in the gap between a slider event and its
+      // BroadcastChannel delivery. The screen answers accepted requests with
+      // `live-params`, or rebroadcasts its canonical bank when it rejects one.
+      if (myRole !== 'screen' || !isKnownLiveParamId(msg.id) || !msg.values) return;
+      if (cueSession && msg.id !== BANDS_ID) {
+        broadcastCueState('LIVE PARAMETER IGNORED — CUE ACTIVE');
+        return;
+      }
+      applyAcceptedLiveParamValues(msg.id, msg.values);
+      broadcast({ type: 'live-params', id: msg.id, values: msg.values });
+      return;
+
+    case 'live-params':
+      // Only the output screen emits accepted LIVE values. Screen windows have
+      // already applied their source request and therefore ignore the echo.
+      if (myRole !== 'screen' && isKnownLiveParamId(msg.id) && msg.values) {
+        applyAcceptedLiveParamValues(msg.id, msg.values);
       }
       break;
 
@@ -985,12 +2028,16 @@ function handleMessage(msg) {
             mergeIds = null;
           }
         }
+        if (liveProgram?.ids?.length) syncLegacyLiveProjection();
         if (myRole === 'control' && panel) panel.setOrder();
       }
       break;
 
     case 'screen-closed':
       screenOnline = false;
+      // A cue is unsafe without its screen-side warmed runtime. Controls discard
+      // it rather than retaining a stale TAKE action after screen loss.
+      if (myRole === 'control' && cueSession) applyReceivedCueState(null, 'CUE CANCELED — OUTPUT OFFLINE');
       if (myRole === 'control' && panel) panel.setScreenOnline(false);
       break;
   }
@@ -1096,7 +2143,22 @@ const heldKeys = [];
 
 window.addEventListener('keydown', (e) => {
   if (myRole !== 'control') return;
-  if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+  // Transport keys intentionally run before text-entry guards. `code` tracks
+  // the physical key and does not derive behavior from the OS Caps Lock state.
+  if (e.code === 'CapsLock') {
+    if (e.repeat) return;
+    e.preventDefault();
+    requestCuePrimary();
+    return;
+  }
+  if (e.code === 'Escape' && cueSession) {
+    e.preventDefault();
+    requestCueCancel();
+    return;
+  }
+
+  if (e.metaKey || e.ctrlKey || e.altKey || cueEditsLocked()) return;
 
   const target = e.target;
   // Only bail when the focused element actually consumes typed characters.
@@ -1112,21 +2174,21 @@ window.addEventListener('keydown', (e) => {
     !!(target && target.isContentEditable);
   if (isTextEntry) return;
 
-  // Blend shortcuts (merge mode only): + / - nudge the active level slider,
-  // Tab switches between Blend and Additive modes.
-  if (mergeIndices) {
-    const bp = getParams(BLEND_ID);
+  const editingSelection = cueSession?.selection || currentLiveSelection();
+  // Blend shortcuts target CUE values while cueing, otherwise the LIVE bank.
+  if (editingSelection.merge) {
+    const bp = getEditingParams(BLEND_ID);
     if (e.key === '+' || e.key === '=' || e.key === '-') {
       const activeKey = bp.mode === 1 ? 'add' : 'mix';
       const delta = e.key === '-' ? -0.05 : 0.05;
       const cur = typeof bp[activeKey] === 'number' ? bp[activeKey] : 0.5;
       const next = Math.max(0, Math.min(1, Math.round((cur + delta) * 100) / 100));
-      broadcast({ type: 'params', id: BLEND_ID, values: { [activeKey]: next } });
+      requestParamChange(BLEND_ID, { [activeKey]: next });
       e.preventDefault();
       return;
     }
     if (e.key === 'Tab') {
-      broadcast({ type: 'params', id: BLEND_ID, values: { mode: bp.mode === 1 ? 0 : 1 } });
+      requestParamChange(BLEND_ID, { mode: bp.mode === 1 ? 0 : 1 });
       e.preventDefault();
       return;
     }
@@ -1138,15 +2200,13 @@ window.addEventListener('keydown', (e) => {
   if (e.repeat || heldKeys.includes(index)) return;
 
   if (heldKeys.length === 0) {
-    // Single selection — replaces any latched blend
     heldKeys.push(index);
-    broadcast({ type: 'pattern', index });
+    requestSelection(selectionFromIndices(index));
   } else if (heldKeys.length === 1) {
-    // Second key while the first is still held -> merge the pair (latched)
     heldKeys.push(index);
     const lo = Math.min(heldKeys[0], index);
     const hi = Math.max(heldKeys[0], index);
-    broadcast({ type: 'merge', a: lo, b: hi });
+    requestSelection(selectionFromIndices(lo, [lo, hi]));
   }
   // 2+ keys already held -> ignore extras
 });
@@ -1182,20 +2242,13 @@ window.addEventListener('beforeunload', () => {
 function ensurePanel() {
   if (panel) return;
   panel = new ConfigPanel({
-    onPatternChange: (index) => {
-      currentIndex = index;
-      broadcast({ type: 'pattern', index });
-    },
-    onPatternChangeId: (id) => {
-      // Library-only pattern (not on the pad) — play by id
-      broadcast({ type: 'pattern-id', id });
-    },
+    onPatternChange: (index) => requestSelection(selectionFromIndices(index)),
+    onPatternChangeId: (id) => requestSelection(selectionFromId(id)),
     onDevicesChange: (selection) => broadcast({ type: 'devices', ...(selection || {}) }),
     onOpenScreen: () => openScreenWindow(),
-    onParamChange: (id, key, value) => {
-      // Local dispatch (via broadcast) updates the store + saves + syncs UI
-      broadcast({ type: 'params', id, values: { [key]: value } });
-    },
+    onCuePrimary: () => requestCuePrimary(),
+    onCueCancel: () => requestCueCancel(),
+    onParamChange: (id, key, value) => requestParamChange(id, { [key]: value }),
     onReorder: (order) => {
       // Persist + sync the new pad assignment to every window
       saveSlotOrder(order);
@@ -1209,7 +2262,7 @@ function ensurePanel() {
     },
     onPreviewReady: (stage) => initPreviewStage(stage),
     onPreviewChange: (selection) => setPreviewSelection(selection),
-    getParams,
+    getParams: getEditingParams,
     getPattern: () => currentIndex,
     isScreen: () => myRole === 'screen',
     isScreenOnline: () => screenOnline,
@@ -1217,14 +2270,16 @@ function ensurePanel() {
   panel.setAudioStatus(lastAudioStatus);
 }
 
-function syncUI() {
+function syncUI(notice = '') {
   if (myRole === 'control') {
     ensurePanel();
     if (panel) {
-      if (mergeIndices) panel.setMerge(mergeIndices);
-      else if (currentIndex >= 0) panel.setPattern(currentIndex);
-      else panel.setPatternById(activeSketchId);
-      panel.setScreenOnline(screenOnline);
+      panel.setTransportState({
+        live: currentLiveSelection(),
+        cue: panelCueState(),
+        screenOnline,
+        notice,
+      });
     }
   }
 }
@@ -1301,6 +2356,28 @@ if (import.meta.env.DEV) {
     get merge() { return mergeIndices ? [...mergeIndices] : null; },
     get screenOnline() { return screenOnline; },
     get params() { return getParams(activeSketchId || getOrderedSketches()[0].id); },
+    // Screen-authored CUE transaction diagnostics for deterministic e2e checks.
+    get cue() { return cueStatePayload(); },
+    get cueParams() { return cueSession ? cueSession.params : null; },
+    get cueRuntime() {
+      return cueRuntime ? {
+        ids: [...cueRuntime.selection.ids],
+        count: cueRuntime.count,
+        ready: cueRuntime.ready,
+        generation: cueRuntime.generation,
+      } : null;
+    },
+    get runtimeCounts() {
+      return {
+        live: liveRuntime?.count || 0,
+        cue: cueRuntime?.count || 0,
+        incoming: incomingRuntime?.count || 0,
+        retiring: retiringRuntime?.count || 0,
+        total: (liveRuntime?.count || 0) + (cueRuntime?.count || 0) + (incomingRuntime?.count || 0) + (retiringRuntime?.count || 0),
+        camera: cameraSource.diagnostics(),
+      };
+    },
+    get cueTimings() { return lastCueTimings.map((entry) => ({ ...entry })); },
     // Live blend params (mix/add) — shared via the BLEND_ID store
     get blend() { return getParams(BLEND_ID); },
     get audioFeatures() { return currentP5?.__audioFeatures || null; },

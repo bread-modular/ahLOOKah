@@ -4,7 +4,7 @@
 import { makeAudioFeatures } from './audio-features.js';
 import { FULLSCREEN_VERT } from './shader-utils.js';
 
-export default (audio, videoDeviceId, params) => (p) => {
+export default (audio, videoDeviceId, params, runtime) => (p) => {
   let capture;
   let isCaptureReady = false;
   let mosaic;
@@ -81,7 +81,9 @@ export default (audio, videoDeviceId, params) => (p) => {
       audio: false,
     };
 
-    capture = p.createCapture(constraints, () => {
+    capture = runtime?.createCapture(p, constraints, () => {
+      isCaptureReady = true;
+    }) || p.createCapture(constraints, () => {
       isCaptureReady = true;
     });
     capture.hide();

@@ -1,4 +1,4 @@
-export default (audio, videoDeviceId, params) => (p) => {
+export default (audio, videoDeviceId, params, runtime) => (p) => {
   let capture;
   let theShader;
   let isCaptureReady = false;
@@ -107,7 +107,9 @@ export default (audio, videoDeviceId, params) => (p) => {
       audio: false
     };
 
-    capture = p.createCapture(constraints, () => {
+    capture = runtime?.createCapture(p, constraints, () => {
+      isCaptureReady = true;
+    }) || p.createCapture(constraints, () => {
       isCaptureReady = true;
     });
     capture.hide();

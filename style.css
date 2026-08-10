@@ -52,6 +52,40 @@ body.is-screen canvas {
   pointer-events: none;
 }
 
+/* Two isolated program layers let a fully drawn CUE sit behind LIVE without
+   blending into it. The root retains the legacy LIVE-only filter path; once a
+   cue exists each layer receives its own cueable post-processing filter. */
+#screen-wrap.program-stage {
+  isolation: isolate;
+}
+
+#screen-wrap .program-layer {
+  position: absolute;
+  inset: 0;
+  isolation: isolate;
+  pointer-events: none;
+}
+
+#screen-wrap .program-layer-live {
+  z-index: 2;
+  visibility: visible;
+  opacity: 1;
+}
+
+#screen-wrap .program-layer-cue {
+  z-index: 1;
+  /* Opacity preserves a real, full-size render/compositor surface; unlike
+     display:none or zero layout it does not invalidate the warmed canvas. */
+  visibility: visible;
+  opacity: 0;
+}
+
+#screen-wrap .program-layer canvas {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+}
+
 #screen-wrap canvas {
   pointer-events: auto;
 }
@@ -117,14 +151,163 @@ body.is-control #config-panel {
   box-shadow: none;
   display: grid;
   grid-template-columns: minmax(0, 1.03fr) minmax(0, 0.96fr) minmax(0, 1.04fr);
+  grid-template-rows: auto minmax(0, 1fr);
   align-items: stretch;
+}
+
+/* Persistent CUE transport spans every column and never scrolls with either
+   list. Text labels and key hints remain visible alongside the color language. */
+body.is-control #transport-bar {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(150px, 0.62fr) minmax(120px, 0.5fr);
+  gap: 10px;
+  align-items: stretch;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--border-gray);
+  background: rgba(8, 8, 8, 0.96);
+  z-index: 10;
+}
+
+.transport-program {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 5px 9px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-gray);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.transport-live-program {
+  border-color: rgba(239, 68, 68, 0.65);
+}
+
+.transport-cue-program {
+  border-color: rgba(245, 158, 11, 0.68);
+}
+
+.transport-label,
+.transport-phase,
+.transport-bar kbd {
+  font-size: 0.59rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.transport-label {
+  color: var(--text-dim);
+}
+
+.transport-live-program .transport-label {
+  color: #ff6767;
+}
+
+.transport-cue-program .transport-label {
+  color: #fbbf24;
+}
+
+.transport-program strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.76rem;
+}
+
+.transport-phase {
+  grid-column: 2;
+  color: #fbbf24;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transport-phase.is-ready {
+  color: #45d487;
+}
+
+.transport-phase.is-error {
+  color: #ff7676;
+}
+
+#config-panel .cue-primary,
+#config-panel .cue-cancel {
+  min-width: 0;
+  width: 100%;
+  min-height: 50px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 10px;
+  font-size: 0.76rem;
+}
+
+#config-panel .cue-primary {
+  color: #1c1200;
+  background: #fbbf24;
+  border-color: #fbbf24;
+}
+
+#config-panel .cue-primary:hover:not(:disabled) {
+  color: #120b00;
+  background: #fcd34d;
+  border-color: #fcd34d;
+}
+
+#config-panel .cue-cancel {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.32);
+  background: #202020;
+}
+
+#config-panel .cue-cancel:hover:not(:disabled) {
+  background: #522020;
+  border-color: #ff7676;
+}
+
+#config-panel .cue-primary kbd,
+#config-panel .cue-cancel kbd {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  opacity: 0.72;
+}
+
+#config-panel.cue-pending #pattern-pad,
+#config-panel.cue-pending #pattern-library,
+#config-panel.cue-pending #params-list,
+#config-panel.cue-pending #post-fx {
+  pointer-events: none;
+  opacity: 0.62;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* Column 1: the live rendering surface and 1–0 pad stay visible at all times. */
 body.is-control #preview-pane {
+  grid-row: 2;
   min-width: 0;
   min-height: 0;
-  height: 100vh;
+  height: auto;
   display: grid;
   grid-template-rows: minmax(120px, 1fr) auto;
   gap: 16px;
@@ -177,6 +360,29 @@ body.is-control #preview-pane {
     radial-gradient(circle at 50% 45%, rgba(77, 163, 255, 0.12), transparent 54%),
     #030405;
   box-shadow: inset 0 0 34px rgba(0, 0, 0, 0.8);
+}
+
+.preview-stage.cue-preview {
+  border: 3px solid #fbbf24;
+  box-shadow:
+    inset 0 0 34px rgba(0, 0, 0, 0.8),
+    0 0 0 1px rgba(251, 191, 36, 0.38);
+}
+
+.preview-stage.cue-preview::after {
+  content: 'CUE';
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 8;
+  padding: 4px 7px;
+  border: 1px solid #fbbf24;
+  border-radius: 3px;
+  background: rgba(30, 18, 0, 0.82);
+  color: #fbbf24;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.13em;
 }
 
 .preview-stage canvas {
@@ -239,9 +445,10 @@ body.is-control #preview-pane .pattern-pad {
 /* Column 2: only the library list scrolls; its title and usage hint remain
    available, while the left preview/pad never moves. */
 body.is-control #library-pane {
+  grid-row: 2;
   min-width: 0;
   min-height: 0;
-  height: 100vh;
+  height: auto;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -277,15 +484,27 @@ body.is-control #library-pane > p {
 /* Column 3: all existing parameters, EQ and device setup remain intact and
    independently vertically scrollable. */
 body.is-control #controls-pane {
+  grid-row: 2;
   min-width: 0;
   min-height: 0;
-  height: 100vh;
+  height: auto;
   overflow-x: hidden;
   overflow-y: auto;
   padding: 18px 20px;
 }
 
 @media (max-width: 800px) {
+  body.is-control #transport-bar {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 6px;
+    padding: 8px 12px;
+  }
+
+  #config-panel .cue-primary,
+  #config-panel .cue-cancel {
+    min-height: 42px;
+  }
+
   body.is-control #preview-pane,
   body.is-control #library-pane {
     padding: 12px;
@@ -804,6 +1023,38 @@ body.is-screen #config-container {
   box-shadow:
     0 0 0 2px rgba(168, 85, 247, 0.45),
     0 0 16px rgba(168, 85, 247, 0.7);
+}
+
+/* CUE markers never overwrite LIVE state. Amber framing, a text badge and a
+   combined striped treatment make the two identities legible without color. */
+#config-panel .pattern-btn.cue-active,
+#config-panel .pattern-btn.cue-merge-active {
+  border-color: #fbbf24;
+  box-shadow: inset 0 0 0 2px rgba(251, 191, 36, 0.8);
+}
+
+#config-panel .pattern-btn.cue-active::after,
+#config-panel .pattern-btn.cue-merge-active::after {
+  content: 'CUE';
+  margin-left: auto;
+  padding: 2px 4px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  color: #fbbf24;
+  font-size: 0.52rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+#config-panel .pattern-btn.live-cue-active {
+  background-image: linear-gradient(135deg, rgba(239, 68, 68, 0.25) 0 50%, rgba(251, 191, 36, 0.24) 50% 100%);
+  box-shadow:
+    inset 0 0 0 2px #fbbf24,
+    0 0 0 2px rgba(77, 163, 255, 0.38);
+}
+
+#config-panel .pattern-btn.live-cue-active::after {
+  color: #fff;
 }
 
 .pattern-btn:hover {
