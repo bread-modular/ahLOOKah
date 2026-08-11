@@ -14,7 +14,12 @@ import {
   saveSlotOrder,
 } from './sketch-registry.js';
 import { ConfigPanel } from './config-panel.js';
-import { ProgramRuntime, copyProgramSelection, selectionsEqual } from './program-runtime.js';
+import {
+  ProgramRuntime,
+  copyProgramSelection,
+  disposeP5Instance,
+  selectionsEqual,
+} from './program-runtime.js';
 import { SharedCameraSource } from './shared-camera-source.js';
 import { AudioManager } from './audio-manager.js';
 import { PreviewAudio } from './preview-audio.js';
@@ -847,6 +852,10 @@ let previewResizeObserver = null;
 let previewRenderRaf = 0;
 let previewResizeRaf = 0;
 let previewGeneration = 0;
+// Parameter/CUE acknowledgements only need an in-place refresh. This flag is set
+// exclusively when the editing scope or selected ids change and a new p5 factory
+// (with a different parameter-object reference) is genuinely required.
+let previewNeedsRebuild = true;
 
 function getPreviewSize() {
   if (!previewStage) return [1, 1];
@@ -929,7 +938,10 @@ function createPreviewInstance(sketch, layer, generation) {
 
 function clearPreview() {
   previewGeneration += 1;
-  previewP5.forEach((inst) => inst.remove());
+  // p5.remove() detaches canvases but does not synchronously free WebGL. Release
+  // each retired preview context first so legitimate selection changes cannot
+  // evict the older (and operator-critical) LIVE context in another tab.
+  previewP5.forEach((inst) => disposeP5Instance(inst));
   previewP5 = [];
   if (previewStage) {
     previewStage.replaceChildren();
@@ -940,6 +952,13 @@ function clearPreview() {
 
 function renderPreview() {
   if (!previewStage) return;
+  if (!previewNeedsRebuild) {
+    // Sketch params are stable mutable objects, so ordinary CUE revisions already
+    // reach the running factory. Only CSS blend/post-FX values need refreshing.
+    applyPreviewCompositing();
+    return;
+  }
+  previewNeedsRebuild = false;
   clearPreview();
 
   const ids = [...new Set((previewSelection.ids || []).filter(Boolean))];
@@ -1000,6 +1019,7 @@ function resizePreview() {
 function initPreviewStage(stage) {
   if (previewResizeObserver) previewResizeObserver.disconnect();
   clearPreview();
+  previewNeedsRebuild = true;
   previewStage = stage;
   previewResizeObserver = new ResizeObserver(resizePreview);
   previewResizeObserver.observe(stage);
@@ -1011,6 +1031,7 @@ function setPreviewSelection(selection = {}) {
     ids: Array.isArray(selection.ids) ? selection.ids : [],
     merge: Boolean(selection.merge),
   };
+  previewNeedsRebuild = true;
   queuePreviewRender();
 }
 
@@ -1264,6 +1285,8 @@ function applyReceivedCueState(payload, notice = '', acknowledgement = {}) {
     cueSession = null;
     clearCueMutationQueue();
     if (myRole === 'control') {
+      // Queue an in-place compositing refresh. syncUI marks a rebuild only when
+      // the editing scope actually changes from CUE back to LIVE.
       queuePreviewRender();
       syncUI(notice);
     }
@@ -1325,6 +1348,8 @@ function applyReceivedCueState(payload, notice = '', acknowledgement = {}) {
   acknowledgeCueMutation(payload);
   applyPostFx();
   if (myRole === 'control') {
+    // The queued pass is in-place for parameter-only acknowledgements. syncUI's
+    // selection callback marks the pass as a rebuild only for a scope/id change.
     queuePreviewRender();
     syncUI(notice);
   }

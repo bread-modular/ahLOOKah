@@ -14,6 +14,72 @@ function cloneSelection(selection = {}) {
   };
 }
 
+// p5 removes the canvas but does not explicitly release its WebGL context. Keep
+// this teardown shared by full-screen runtimes and the embedded control preview
+// so neither path can exhaust Chrome's process-wide active-context allowance.
+export function loseP5WebGLContext(instance) {
+  if (!instance) return false;
+
+  const renderers = [
+    instance._renderer,
+    instance._curElement?._renderer,
+    instance._curElement,
+  ].filter(Boolean);
+  const contexts = new Set();
+  for (const renderer of renderers) {
+    for (const candidate of [renderer.GL, renderer.gl, renderer.drawingContext]) {
+      if (candidate && typeof candidate.getExtension === 'function') contexts.add(candidate);
+    }
+  }
+  if (instance.drawingContext && typeof instance.drawingContext.getExtension === 'function') {
+    contexts.add(instance.drawingContext);
+  }
+
+  // Current p5 exposes RendererGL.GL. Only probe the canvas as a guarded
+  // fallback for another p5 wrapper layout that still declares a 3D renderer;
+  // probing an untyped/2D canvas could create the very context we are releasing.
+  if (!contexts.size && renderers.some((renderer) => renderer.isP3D) && instance.canvas) {
+    try {
+      const gl = instance.canvas.getContext('webgl2')
+        || instance.canvas.getContext('webgl')
+        || instance.canvas.getContext('experimental-webgl');
+      if (gl) contexts.add(gl);
+    } catch {}
+  }
+
+  let released = false;
+  for (const gl of contexts) {
+    try {
+      const extension = gl.getExtension('WEBGL_lose_context');
+      if (extension) {
+        extension.loseContext();
+        released = true;
+      }
+    } catch {
+      // Context loss is best-effort on browser shutdown or an already-lost GL.
+    }
+  }
+  return released;
+}
+
+export function disposeP5Instance(instance) {
+  if (!instance) return;
+  try {
+    instance.noLoop?.();
+  } catch {
+    // The instance may already be between p5 teardown phases.
+  }
+  loseP5WebGLContext(instance);
+  try {
+    const removal = instance.remove?.();
+    // p5 2.x remove() is async. Keep teardown best-effort without leaking an
+    // unhandled rejection into page shutdown or a rapid selection replacement.
+    removal?.catch?.(() => {});
+  } catch {
+    // A removed p5 instance is already in the desired state.
+  }
+}
+
 export class ProgramRuntime {
   constructor({
     p5Constructor,
@@ -478,32 +544,6 @@ export class ProgramRuntime {
     this._rejectReady(this.error);
   }
 
-  _loseContexts() {
-    for (const instance of this.instances) {
-      const canvas = instance?.canvas;
-      if (!canvas) continue;
-      // WEBGL canvases: ask the driver to actually release the context so
-      // rapid switches can't exhaust the device's context budget.
-      try {
-        const gl = canvas.getContext('webgl2')
-          || canvas.getContext('webgl')
-          || canvas.getContext('experimental-webgl');
-        if (!gl) continue;
-        const ext = gl.getExtension('WEBGL_lose_context');
-        if (ext) ext.loseContext();
-      } catch {}
-      // p5 internal GL reference (covers some wrapper layouts)
-      try {
-        const renderer = instance._renderer || instance._curElement?._renderer;
-        const gl2 = renderer?.GL || renderer?.gl || renderer?.drawingContext;
-        if (gl2 && typeof gl2.getExtension === 'function') {
-          const ext2 = gl2.getExtension('WEBGL_lose_context');
-          if (ext2) ext2.loseContext();
-        }
-      } catch {}
-    }
-  }
-
   // Camera permission denied must settle readiness immediately; otherwise
   // _fail's guard and the warm timeout leave CUE hanging forever.
   handleMediaError(error) {
@@ -536,17 +576,9 @@ export class ProgramRuntime {
       }
     });
 
-    // Release GL contexts before removing p5 instances — remove() alone
-    // does not free WebGL resources, so contexts accumulate across switches.
-    this._loseContexts();
-
-    this.instances.forEach((instance) => {
-      try {
-        instance?.remove?.();
-      } catch {
-        // p5 teardown is best-effort during a browser/window shutdown.
-      }
-    });
+    // Stop rendering, release GL, then remove p5. remove() alone leaves WebGL
+    // contexts active long enough for rapid LIVE/CUE switches to exhaust Chrome.
+    this.instances.forEach((instance) => disposeP5Instance(instance));
     this.instances = [];
     if (this.layer) {
       this.layer.replaceChildren();
