@@ -330,6 +330,78 @@ test.describe('CUE mode', () => {
     expect(result.readyAfterMediaDraw).toBe(true);
   });
 
+  test('keeps one GPU preview alive across CUE edits and releases it on replacement', async ({ context, page }) => {
+    // Plasma Waves uses the same p5 shader/WebGL lifecycle as Cosmic Web without
+    // making this lifecycle regression test expensive under software GL in CI.
+    await page.setViewportSize({ width: 480, height: 270 });
+    const warnings = [];
+    const collectContextWarning = (message) => {
+      const text = message.text();
+      if (text.includes('Too many active WebGL contexts')) warnings.push(text);
+    };
+    page.on('console', collectContextWarning);
+
+    const control = await openScreenAndControl(context, page);
+    control.on('console', collectContextWarning);
+
+    // Put a real shader program on the output, then CUE that same program. The
+    // preview must switch from the LIVE bank to the isolated CUE bank exactly
+    // once rather than constructing a new WebGL renderer for every revision.
+    const gpuButton = control.locator('#pattern-library [data-id="plasma-waves"]');
+    await gpuButton.click();
+    await page.waitForFunction(() => window.__viz.patternId === 'plasma-waves');
+    await page.waitForFunction(() => window.__viz.runtimeCounts.total === 1);
+    await expect(control.locator('#preview-stage canvas[data-preview-sketch="plasma-waves"]')).toBeVisible();
+
+    const liveCanvas = page.locator('[data-program-role="live"][data-program-ids="plasma-waves"] canvas');
+    await expect(liveCanvas).toBeVisible();
+    await liveCanvas.evaluate((canvas) => {
+      const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+      window.__liveGpuProbe = { canvas, gl, lostEvents: 0 };
+      canvas.addEventListener('webglcontextlost', () => { window.__liveGpuProbe.lostEvents += 1; });
+    });
+
+    await gpuButton.click({ modifiers: ['Shift'] });
+    await page.waitForFunction(() => window.__viz.cue?.phase === 'same');
+    // The sender does not create a local CUE bank until the screen acknowledges
+    // entry, so wait for that round-trip before dispatching slider input.
+    await expect(control.locator('#preview-title')).toHaveText('CUE PREVIEW');
+    const cuePreview = control.locator('#preview-stage canvas[data-preview-sketch="plasma-waves"]');
+    await expect(cuePreview).toBeVisible();
+    await cuePreview.evaluate((canvas) => {
+      const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+      window.__cueGpuProbe = { canvas, gl, lostEvents: 0 };
+      canvas.addEventListener('webglcontextlost', () => { window.__cueGpuProbe.lostEvents += 1; });
+    });
+
+    await setRange(control, '#params-list input[data-key="speed"]', 1.05);
+    await page.waitForFunction(() => window.__viz.cueParams?.['plasma-waves']?.speed === 1.05);
+    await page.waitForFunction(() => window.__viz.cue?.phase === 'ready');
+
+    expect(await control.evaluate(() => ({
+      sameCanvas: document.querySelector('#preview-stage canvas[data-preview-sketch="plasma-waves"]') === window.__cueGpuProbe.canvas,
+      contextLost: window.__cueGpuProbe.gl.isContextLost(),
+      lostEvents: window.__cueGpuProbe.lostEvents,
+    }))).toEqual({ sameCanvas: true, contextLost: false, lostEvents: 0 });
+    expect(await page.evaluate(() => ({
+      sameCanvas: document.querySelector('[data-program-role="live"][data-program-ids="plasma-waves"] canvas') === window.__liveGpuProbe.canvas,
+      contextLost: window.__liveGpuProbe.gl.isContextLost(),
+      lostEvents: window.__liveGpuProbe.lostEvents,
+    }))).toEqual({ sameCanvas: true, contextLost: false, lostEvents: 0 });
+
+    // A real selection change does replace the preview. Its retired context must
+    // be explicitly lost before p5 removes the canvas, otherwise rapid pattern
+    // changes still accumulate contexts until Chrome evicts the LIVE renderer.
+    await control.locator('#pattern-library [data-id="circles"]').click();
+    await expect(control.locator('#preview-stage canvas[data-preview-sketch="circles"]')).toBeVisible();
+    await expect.poll(() => control.evaluate(() => ({
+      contextLost: window.__cueGpuProbe.gl.isContextLost(),
+      lostEvents: window.__cueGpuProbe.lostEvents,
+    }))).toEqual({ contextLost: true, lostEvents: 1 });
+    expect(await page.evaluate(() => window.__liveGpuProbe.gl.isContextLost())).toBe(false);
+    expect(warnings).toEqual([]);
+  });
+
   test('stages an isolated program and only persists it after TAKE', async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
     const storageBefore = await control.evaluate(() => localStorage.getItem('viz2_params'));
