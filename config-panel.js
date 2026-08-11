@@ -260,8 +260,10 @@ export class ConfigPanel {
       </div>
 
       <div id="controls-pane">
-        <h3 class="panel-title">VIZ CONTROL</h3>
-        <div id="status-line" class="status-line"></div>
+        <div class="viz-control-header">
+          <h3 class="panel-title">VIZ CONTROL</h3>
+          <div id="status-line" class="status-line"></div>
+        </div>
 
         <h3 id="params-heading">Parameters</h3>
         <div id="params-list" class="params-list"></div>
@@ -1621,17 +1623,15 @@ export class ConfigPanel {
     const el = this.panel.querySelector('#status-line');
     if (!el) return;
 
-    const isScreen = this.isScreen ? this.isScreen() : false;
     const online = this.screenOnline !== undefined ? this.screenOnline : (this.isScreenOnline ? this.isScreenOnline() : false);
 
-    el.innerHTML = `
-      <span class="badge ${isScreen ? 'badge-screen' : 'badge-control'}">${isScreen ? 'SCREEN' : 'CONTROL'}</span>
-      <span class="badge ${online ? 'badge-online' : 'badge-offline'}">SCREEN ${online ? 'ONLINE' : 'OFFLINE'}</span>
-      <button id="open-screen-btn" class="status-btn" type="button" title="Open a new screen window">${ICON_MONITOR}Open Screen</button>
-    `;
+    if (online) {
+      el.innerHTML = `<span class="viz-pill viz-pill--status badge badge-online viz-pill--online">SCREEN ONLINE</span>`;
+    } else {
+      el.innerHTML = `<button id="open-screen-btn" class="viz-pill viz-pill--action viz-pill--offline badge badge-offline status-btn" type="button" title="Open a new screen window">${ICON_MONITOR}Open Screen</button>`;
+    }
 
-    // innerHTML wipes any previous listeners, so bind the handler AFTER
-    // rendering (renderStatus re-runs on every status change).
+    // innerHTML wipes any previous listeners, so re-bind AFTER rendering
     const openBtn = el.querySelector('#open-screen-btn');
     if (openBtn) openBtn.onclick = () => {
       if (this.onOpenScreen) this.onOpenScreen();
