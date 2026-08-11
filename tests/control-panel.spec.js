@@ -84,7 +84,9 @@ test.describe('control panel window', () => {
     await expect(control.locator('#pattern-library')).toHaveCSS('overflow-y', 'auto');
     await expect(control.locator('#preview-stage canvas')).toBeVisible();
 
-    await expect(control.locator('#status-line .badge-control')).toBeVisible();
+    await expect(control.locator('#status-line .badge-control')).toHaveCount(0);
+    await expect(control.locator('#status-line .viz-pill')).toHaveCount(1);
+    await expect(control.locator('.viz-control-header')).toBeVisible();
     // Control mode now has a real p5 preview plus the band-split EQ canvas.
     await expect(control.locator('canvas')).toHaveCount(2);
     await expect(control.locator('#band-eq-canvas')).toBeVisible();
