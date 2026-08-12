@@ -2,8 +2,52 @@
 // Evenly spaced saturated bars span the full color wheel; the wobble param
 // lets the music shove them around. With no audio (or wobble at 0) it holds
 // a perfectly clean broadcast-style pattern.
-export default (audio, videoDeviceId, params) => (p) => {
+// Opted-in renderers consume a smoothed loudness level from the capture
+// owner; the legacy raw audio path is kept for all other callers.
+
+export const AUDIO_CONTROL_SCHEMA = Object.freeze({
+  continuous: {
+    level: { min: 0, max: 1, neutral: 0 },
+  },
+  arrays: {},
+  events: {},
+  neutral: {
+    continuous: { level: 0 },
+  },
+});
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+// The controller owns the loudness envelope (legacy per-frame lerp 0.14),
+// converted to a frame-rate-independent time constant.
+export function createAudioController({ rng = Math.random } = {}) {
   let level = 0;
+  return {
+    update({ shared, params = {}, deltaSeconds = 1 / 30 }) {
+      const dt = clamp(Number.isFinite(deltaSeconds) ? deltaSeconds : 1 / 30, 1 / 240, 0.1);
+      const freqs = shared?.getByteFrequencies?.() || { left: null };
+      const left = freqs.left;
+      let target = 0;
+      if (left?.length) {
+        let sum = 0;
+        for (let i = 0; i < left.length; i++) sum += left[i] || 0;
+        target = clamp(sum / (left.length * 255), 0, 1);
+      }
+      level += (target - level) * (1 - Math.pow(1 - 0.14, dt * 60));
+      if (level < 1e-6) level = 0;
+      return {
+        continuous: { level },
+        arrays: {},
+        events: [],
+      };
+    },
+    dispose() {},
+  };
+}
+
+export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
+  let level = 0;
+  const audioControls = runtimeContext?.audioControls || null;
 
   p.setup = () => {
     p.createCanvas(p.windowWidth, p.windowHeight);
@@ -21,15 +65,13 @@ export default (audio, videoDeviceId, params) => (p) => {
     return sum / (freqs.left.length * 255);
   }
 
-  p.draw = () => {
+  function drawBars(level) {
     // Read live params every frame so slider changes apply immediately
     const P = params || {};
     const count = Math.max(2, Math.round(P.bars ?? 8));
     const sat = P.saturation ?? 0.85;
     const bri = P.brightness ?? 0.95;
     const wobble = P.wobble ?? 1;
-
-    level = p.lerp(level, audioLevel(), 0.14);
 
     p.background(0, 0, 0);
 
@@ -48,6 +90,22 @@ export default (audio, videoDeviceId, params) => (p) => {
       // keeps edges covered while bars slide around.
       p.rect(i * bw + dx, -amp + dy, bw + 1, p.height + amp * 2);
     }
+  }
+
+  function drawMigrated() {
+    const controls = audioControls.read();
+    const C = { ...AUDIO_CONTROL_SCHEMA.neutral.continuous, ...(controls.continuous || {}) };
+    drawBars(C.level);
+  }
+
+  function drawLegacy() {
+    level = p.lerp(level, audioLevel(), 0.14);
+    drawBars(level);
+  }
+
+  p.draw = () => {
+    if (audioControls) drawMigrated();
+    else drawLegacy();
   };
 
   p.windowResized = () => {

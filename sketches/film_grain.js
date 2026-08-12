@@ -1,6 +1,8 @@
 // Film Grain — tinted color field with subtle animated grain. GPU shader port.
 // Replicates HSB background (hue tint, saturation 0.45, flicker) plus block-quantized
 // grain specks with amount-driven alpha, speed-cadenced refresh, and a soft upscale.
+// Opted-in renderers consume the energy control from the capture owner; the
+// legacy raw-frame shader path is kept for all other callers.
 import { AUDIO_SHADER_HEADER, makeAudioShader } from './shader-utils.js';
 
 const frag = `${AUDIO_SHADER_HEADER}
@@ -67,15 +69,72 @@ const frag = `${AUDIO_SHADER_HEADER}
   }
 `;
 
-export default (audio, videoDeviceId, params) => makeAudioShader(
-  audio,
-  params,
-  frag,
-  (P) => ({
-    uTint: ((P.tint ?? 0.08) % 1 + 1) % 1,
-    uBgBri: P.bgBrightness ?? 0.25,
-    uAmount: P.amount ?? 0.5,
-    uSize: Math.max(1, Math.round(P.size ?? 2)),
-    uSpeed: P.speed ?? 1,
-  }),
-);
+export const AUDIO_CONTROL_SCHEMA = Object.freeze({
+  continuous: {
+    energy: { min: 0, max: 1.6, neutral: 0 },
+  },
+  arrays: {},
+  events: {},
+  neutral: {
+    continuous: { energy: 0 },
+  },
+});
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+// The controller emits the canonical energy feature directly (the legacy
+// shader path fed the extractor's energy into uEnergy without extra smoothing).
+export function createAudioController({ rng = Math.random } = {}) {
+  return {
+    update({ shared, params = {}, deltaSeconds = 1 / 30 }) {
+      const features = shared?.getFeatures?.() || {};
+      return {
+        continuous: {
+          energy: clamp(Number(features.energy) || 0, 0, 1.6),
+        },
+        arrays: {},
+        events: [],
+      };
+    },
+    dispose() {},
+  };
+}
+
+export default (audio, videoDeviceId, params, runtimeContext = {}) => {
+  const audioControls = runtimeContext?.audioControls;
+  if (audioControls) {
+    return makeAudioShader(
+      audio,
+      params,
+      frag,
+      (P, _bands, _p, controls) => {
+        const C = { ...AUDIO_CONTROL_SCHEMA.neutral.continuous, ...(controls?.continuous || {}) };
+        return {
+          uTint: ((P.tint ?? 0.08) % 1 + 1) % 1,
+          uBgBri: P.bgBrightness ?? 0.25,
+          uAmount: P.amount ?? 0.5,
+          uSize: Math.max(1, Math.round(P.size ?? 2)),
+          uSpeed: P.speed ?? 1,
+          // The header audio uniform the shader reads must come from controls.
+          uEnergy: C.energy,
+        };
+      },
+      { audioControls },
+    );
+  }
+
+  // Existing raw-frame shader path for standalone use and any un-migrated
+  // registry entry. It continues to own local feature mapping exactly as before.
+  return makeAudioShader(
+    audio,
+    params,
+    frag,
+    (P) => ({
+      uTint: ((P.tint ?? 0.08) % 1 + 1) % 1,
+      uBgBri: P.bgBrightness ?? 0.25,
+      uAmount: P.amount ?? 0.5,
+      uSize: Math.max(1, Math.round(P.size ?? 2)),
+      uSpeed: P.speed ?? 1,
+    }),
+  );
+};
