@@ -7,7 +7,6 @@
 
 import {
   PATTERN_CONTROLS_TRANSPORT,
-  getAudioTransport,
   paramsFingerprint,
   snapshotPatternParams,
 } from './pattern-audio-protocol.js';
@@ -219,11 +218,11 @@ export class ProgramRuntime {
         paramsRevision: 1,
         params,
         paramsFingerprint: paramsFingerprint(params),
-        audioTransport: getAudioTransport(sketch),
+        audioTransport: PATTERN_CONTROLS_TRANSPORT,
         audioControlSchema: sketch.audioControlSchema || {},
         binding: null,
       };
-      if (descriptor.audioTransport === PATTERN_CONTROLS_TRANSPORT && this.audioControlStore) {
+      if (this.audioControlStore) {
         this.audioControlStore.upsertSlot(descriptor);
         descriptor.binding = this.audioControlStore.createBinding(descriptor.runtimeId);
       }
@@ -249,16 +248,13 @@ export class ProgramRuntime {
         descriptor.paramsRevision += 1;
         changed = true;
       }
-      if (descriptor.audioTransport === PATTERN_CONTROLS_TRANSPORT && this.audioControlStore) {
-        this.audioControlStore.upsertSlot(descriptor);
-      }
+      if (this.audioControlStore) this.audioControlStore.upsertSlot(descriptor);
     }
     if (changed) this._notifyAudioSlotsChanged();
   }
 
-  // Includes legacy slots as well as opted-in pattern-control slots. The capture
-  // owner needs complete topology to decide conservatively whether raw frames
-  // are still required for another active renderer.
+  // Every active child publishes a pattern-controls slot so the capture owner
+  // can run the matching controller with its accepted runtime parameters.
   getAudioSlotDescriptors(role = this.audioRole) {
     if (this.disposed) return [];
     this._refreshAudioSlots(role);
@@ -277,7 +273,7 @@ export class ProgramRuntime {
   _controlFreshMarkers() {
     this._refreshAudioSlots();
     return this.audioSlots
-      .filter((descriptor) => descriptor.audioTransport === PATTERN_CONTROLS_TRANSPORT && descriptor.binding)
+      .filter((descriptor) => descriptor.binding)
       .map((descriptor) => ({
         runtimeId: descriptor.runtimeId,
         paramsRevision: descriptor.paramsRevision,
@@ -295,8 +291,7 @@ export class ProgramRuntime {
   _createInstance(sketch, index) {
     const audioSlot = this.audioSlots[index] || null;
     const runtimeContext = {
-      // Migrated patterns receive a narrow, renderer-safe binding. Legacy
-      // patterns retain the existing audio facade and ignore this field.
+      // Every pattern receives a narrow, renderer-safe controls binding.
       audioControls: audioSlot?.binding || null,
       audioSlot: audioSlot ? {
         runtimeId: audioSlot.runtimeId,
