@@ -261,7 +261,7 @@ export class ConfigPanel {
 
       <div id="controls-pane">
         <div class="viz-control-header">
-          <h3 class="panel-title">VIZ CONTROL</h3>
+          <h3 class="panel-title">ahLOOKah</h3>
           <div id="status-line" class="status-line"></div>
         </div>
 
