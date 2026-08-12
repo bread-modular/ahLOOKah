@@ -1,7 +1,70 @@
-export default (audio, videoDeviceId, params, runtime) => (p) => {
+// Video High Contrast — industrial thresholded camera look: slice glitch,
+// jitter, bit-crush, thresholding, reactive noise, scanlines and strobe/invert
+// flashes all driven by band energy. The opted-in path consumes the render-ready
+// band levels and noise control produced by the DOM-free capture-side
+// controller; the legacy raw-frame path is kept intact.
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+export const AUDIO_CONTROL_SCHEMA = Object.freeze({
+  continuous: {
+    sub: { min: 0, max: 2, neutral: 0 },
+    mid: { min: 0, max: 2, neutral: 0 },
+    high: { min: 0, max: 2, neutral: 0 },
+    noise: { min: 0, max: 2, neutral: 0 },
+  },
+  arrays: {},
+  events: {},
+  neutral: {
+    continuous: { sub: 0, mid: 0, high: 0, noise: 0 },
+  },
+});
+
+export function analyzeBands(freqs) {
+  if (!freqs?.length) return { sub: 0, mid: 0, high: 0 };
+  let sub = 0, mid = 0, high = 0;
+  for (let i = 0; i < 3; i++) sub += freqs[i] || 0;
+  for (let i = 20; i < 100; i++) mid += freqs[i] || 0;
+  for (let i = 150; i < 500; i++) high += freqs[i] || 0;
+  return {
+    sub: (sub / 3) / 255,
+    mid: (mid / 80) / 255,
+    high: (high / 350) / 255
+  };
+}
+
+// The controller owns the stereo band analysis and the reactivity gain. The
+// old renderer derived sub/mid/high from the left channel and the noise level
+// from the right channel mid/high; that mapping now lives on the capture owner,
+// so the renderer uploads the supplied levels directly.
+export function createAudioController({ rng = Math.random } = {}) {
+  return {
+    update({ shared, params = {}, deltaSeconds = 1 / 30 }) {
+      const dt = clamp(Number.isFinite(deltaSeconds) ? deltaSeconds : 1 / 30, 1 / 240, 0.1);
+      const freqs = shared?.getByteFrequencies?.() || { left: null, right: null };
+      const b1 = analyzeBands(freqs.left);
+      const b2 = analyzeBands(freqs.right || freqs.left);
+      const react = Math.max(0, Number(params.react ?? 1));
+      const noise = ((b2.mid || 0) + (b2.high || 0)) * 0.5 * react;
+      return {
+        continuous: {
+          sub: clamp((b1.sub || 0) * react, 0, 2),
+          mid: clamp((b1.mid || 0) * react, 0, 2),
+          high: clamp((b1.high || 0) * react, 0, 2),
+          noise: clamp(noise || 0, 0, 2),
+        },
+        arrays: {},
+        events: [],
+      };
+    },
+    dispose() {},
+  };
+}
+
+export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
   let capture;
   let theShader;
   let isCaptureReady = false;
+  const audioControls = runtimeContext?.audioControls || null;
 
   const vert = `
     precision highp float;
@@ -107,30 +170,45 @@ export default (audio, videoDeviceId, params, runtime) => (p) => {
       audio: false
     };
 
-    capture = runtime?.createCapture(p, constraints, () => {
+    capture = runtimeContext?.createCapture(p, constraints, () => {
       isCaptureReady = true;
-      runtime?.reportMediaReady?.();
+      runtimeContext?.reportMediaReady?.();
     }) || p.createCapture(constraints, () => {
       isCaptureReady = true;
-      runtime?.reportMediaReady?.();
+      runtimeContext?.reportMediaReady?.();
     });
     capture.hide();
   };
 
-  function analyzeBands(freqs) {
-    if (!freqs) return { sub: 0, mid: 0, high: 0 };
-    let sub = 0, mid = 0, high = 0;
-    for (let i = 0; i < 3; i++) sub += freqs[i];
-    for (let i = 20; i < 100; i++) mid += freqs[i];
-    for (let i = 150; i < 500; i++) high += freqs[i];
-    return {
-      sub: (sub / 3) / 255,
-      mid: (mid / 80) / 255,
-      high: (high / 350) / 255
-    };
+  function drawMigrated() {
+    p.background(0);
+    if (!isCaptureReady || !capture?.loadedmetadata) return;
+
+    const controls = audioControls.read();
+    const C = { ...AUDIO_CONTROL_SCHEMA.neutral.continuous, ...(controls.continuous || {}) };
+
+    // Read live params every frame so slider changes apply immediately
+    const P = params || {};
+    const threshold = P.threshold ?? 0.35;
+    const contrast = P.contrast ?? 1;
+
+    p.shader(theShader);
+
+    theShader.setUniform('uTex', capture);
+    theShader.setUniform('uTime', p.frameCount * 0.1);
+    theShader.setUniform('uSub', C.sub);
+    theShader.setUniform('uMid', C.mid);
+    theShader.setUniform('uHigh', C.high);
+    theShader.setUniform('uNoise', C.noise);
+    theShader.setUniform('uThresh', threshold);
+    theShader.setUniform('uContrast', contrast);
+    theShader.setUniform('uRes', [p.width, p.height]);
+
+    p.rect(0, 0, p.width, p.height);
   }
 
-  p.draw = () => {
+  // Preserved raw-frame implementation for non-migrated/standalone callers.
+  function drawLegacy() {
     p.background(0);
     if (!isCaptureReady || !capture?.loadedmetadata) return;
 
@@ -160,6 +238,11 @@ export default (audio, videoDeviceId, params, runtime) => (p) => {
     theShader.setUniform('uRes', [p.width, p.height]);
 
     p.rect(0, 0, p.width, p.height);
+  }
+
+  p.draw = () => {
+    if (audioControls) drawMigrated();
+    else drawLegacy();
   };
 
   p.windowResized = () => {

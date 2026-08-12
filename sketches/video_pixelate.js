@@ -1,14 +1,52 @@
 // Video Pixelate — mosaic the camera feed into big crunchy blocks with
 // optional posterization and hue rotation. Bass can swell the block size so
 // the image collapses into chunk on the kick. Single shader pass.
+// The opted-in path consumes the render-ready sub level produced by the
+// DOM-free capture-side controller; the legacy raw-frame path is kept intact.
 import { makeAudioFeatures } from './audio-features.js';
 import { FULLSCREEN_VERT } from './shader-utils.js';
 
-export default (audio, videoDeviceId, params, runtime) => (p) => {
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+export const AUDIO_CONTROL_SCHEMA = Object.freeze({
+  continuous: {
+    sub: { min: 0, max: 1.6, neutral: 0 },
+  },
+  arrays: {},
+  events: {},
+  neutral: {
+    continuous: { sub: 0 },
+  },
+});
+
+// The controller owns the canonical feature mapping. The renderer previously
+// derived the sub level per frame through makeAudioFeatures(); the capture
+// owner now supplies it through the shared analysis view. The block-size swell
+// is applied screen-side from the supplied sub level and the audioBlocks
+// parameter, exactly as before.
+export function createAudioController({ rng = Math.random } = {}) {
+  return {
+    update({ shared, params = {}, deltaSeconds = 1 / 30 }) {
+      const dt = clamp(Number.isFinite(deltaSeconds) ? deltaSeconds : 1 / 30, 1 / 240, 0.1);
+      const features = shared?.getFeatures?.() || {};
+      return {
+        continuous: {
+          sub: clamp(Number(features.sub) || 0, 0, 1.6),
+        },
+        arrays: {},
+        events: [],
+      };
+    },
+    dispose() {},
+  };
+}
+
+export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
   let capture;
   let isCaptureReady = false;
   let mosaic;
   let elapsed = 0;
+  const audioControls = runtimeContext?.audioControls || null;
   const getFeatures = makeAudioFeatures();
 
   const frag = `
@@ -81,17 +119,47 @@ export default (audio, videoDeviceId, params, runtime) => (p) => {
       audio: false,
     };
 
-    capture = runtime?.createCapture(p, constraints, () => {
+    capture = runtimeContext?.createCapture(p, constraints, () => {
       isCaptureReady = true;
-      runtime?.reportMediaReady?.();
+      runtimeContext?.reportMediaReady?.();
     }) || p.createCapture(constraints, () => {
       isCaptureReady = true;
-      runtime?.reportMediaReady?.();
+      runtimeContext?.reportMediaReady?.();
     });
     capture.hide();
   };
 
-  p.draw = () => {
+  function drawMigrated() {
+    const P = params || {};
+    const dt = Math.min(p.deltaTime || 16.667, 100) / 1000;
+    elapsed += dt;
+
+    p.background(0);
+    if (!isCaptureReady || !capture?.loadedmetadata || !capture?.width) return;
+
+    const controls = audioControls.read();
+    const C = { ...AUDIO_CONTROL_SCHEMA.neutral.continuous, ...(controls.continuous || {}) };
+
+    const A = p.width / Math.max(1, p.height);
+    const T = capture.width / Math.max(1, capture.height);
+    const cover = A > T ? [1, T / A] : [A / T, 1];
+
+    // Bass swells the blocks when audio-reactive blocks are enabled
+    const block = (P.block ?? 14) * (1 + (P.audioBlocks ?? 0.8) * C.sub * 1.6);
+
+    p.shader(mosaic);
+    mosaic.setUniform('uTex', capture);
+    mosaic.setUniform('uResolution', [p.width, p.height]);
+    mosaic.setUniform('uCover', cover);
+    mosaic.setUniform('uBlockSize', Math.min(block, Math.max(1.5, p.height / 4)));
+    mosaic.setUniform('uLevels', Math.round(P.levels ?? 8));
+    mosaic.setUniform('uTint', P.tint ?? 0);
+    mosaic.setUniform('uBright', P.bright ?? 1);
+    p.rect(0, 0, p.width, p.height);
+  }
+
+  // Preserved raw-frame implementation for non-migrated/standalone callers.
+  function drawLegacy() {
     const P = params || {};
     const dt = Math.min(p.deltaTime || 16.667, 100) / 1000;
     elapsed += dt;
@@ -123,6 +191,11 @@ export default (audio, videoDeviceId, params, runtime) => (p) => {
     mosaic.setUniform('uTint', P.tint ?? 0);
     mosaic.setUniform('uBright', P.bright ?? 1);
     p.rect(0, 0, p.width, p.height);
+  }
+
+  p.draw = () => {
+    if (audioControls) drawMigrated();
+    else drawLegacy();
   };
 
   p.windowResized = () => p.resizeCanvas(p.windowWidth, p.windowHeight);
