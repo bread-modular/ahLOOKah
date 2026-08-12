@@ -5,6 +5,13 @@
 // p5 2.x creates its canvas asynchronously, so readiness deliberately waits for
 // both canvas attachment and a completed draw from every child instance.
 
+import {
+  PATTERN_CONTROLS_TRANSPORT,
+  getAudioTransport,
+  paramsFingerprint,
+  snapshotPatternParams,
+} from './pattern-audio-protocol.js';
+
 const DEFAULT_WARM_TIMEOUT_MS = 12_000;
 
 function cloneSelection(selection = {}) {
@@ -93,6 +100,10 @@ export class ProgramRuntime {
     generation = 0,
     warmTimeoutMs = DEFAULT_WARM_TIMEOUT_MS,
     onTiming = null,
+    audioControlStore = null,
+    consumerSessionId = 'runtime',
+    audioRole = 'live',
+    onAudioSlotsChanged = null,
   }) {
     this.p5Constructor = p5Constructor;
     this.selection = cloneSelection(selection);
@@ -105,10 +116,18 @@ export class ProgramRuntime {
     this.generation = generation;
     this.warmTimeoutMs = warmTimeoutMs;
     this.onTiming = onTiming;
+    // Pattern-control transport is optional for standalone ProgramRuntime tests,
+    // but output runtimes receive a store before any sketch factory is called.
+    this.audioControlStore = audioControlStore;
+    this.consumerSessionId = String(consumerSessionId || 'runtime');
+    this.audioRole = audioRole;
+    this.onAudioSlotsChanged = typeof onAudioSlotsChanged === 'function' ? onAudioSlotsChanged : null;
+    this.audioSlots = [];
 
     this.instances = [];
     this.disposed = false;
     this.ready = false;
+    this.paused = false;
     this.error = null;
     this.preparedAt = 0;
     this.readyAt = 0;
@@ -165,6 +184,11 @@ export class ProgramRuntime {
       return this.readyPromise;
     }
 
+    // Create stable child identities and their bindings before factories run.
+    // A CUE promotion changes role metadata only; its runtime generation and
+    // therefore controller identity remain intact.
+    this._prepareAudioSlots(selected);
+
     this.cameraIndices = new Set(selected
       .map((sketch, index) => (sketch.camera ? index : -1))
       .filter((index) => index >= 0));
@@ -184,8 +208,101 @@ export class ProgramRuntime {
     return this.readyPromise;
   }
 
+  _prepareAudioSlots(selected) {
+    this.audioSlots = selected.map((sketch, childIndex) => {
+      const params = snapshotPatternParams(sketch, this.getParams(sketch.id));
+      const descriptor = {
+        runtimeId: `${this.consumerSessionId}:${this.generation}:${childIndex}`,
+        patternId: sketch.id,
+        role: this.audioRole,
+        childIndex,
+        paramsRevision: 1,
+        params,
+        paramsFingerprint: paramsFingerprint(params),
+        audioTransport: getAudioTransport(sketch),
+        audioControlSchema: sketch.audioControlSchema || {},
+        binding: null,
+      };
+      if (descriptor.audioTransport === PATTERN_CONTROLS_TRANSPORT && this.audioControlStore) {
+        this.audioControlStore.upsertSlot(descriptor);
+        descriptor.binding = this.audioControlStore.createBinding(descriptor.runtimeId);
+      }
+      return descriptor;
+    });
+    this._notifyAudioSlotsChanged();
+  }
+
+  _notifyAudioSlotsChanged() {
+    try { this.onAudioSlotsChanged?.(this); } catch {}
+  }
+
+  _refreshAudioSlots(role = null) {
+    let changed = false;
+    for (const descriptor of this.audioSlots) {
+      descriptor.role = role || descriptor.role;
+      const sketch = this.sketches.find((entry) => entry.id === descriptor.patternId);
+      const params = snapshotPatternParams(sketch, this.getParams(descriptor.patternId));
+      const fingerprint = paramsFingerprint(params);
+      if (fingerprint !== descriptor.paramsFingerprint) {
+        descriptor.params = params;
+        descriptor.paramsFingerprint = fingerprint;
+        descriptor.paramsRevision += 1;
+        changed = true;
+      }
+      if (descriptor.audioTransport === PATTERN_CONTROLS_TRANSPORT && this.audioControlStore) {
+        this.audioControlStore.upsertSlot(descriptor);
+      }
+    }
+    if (changed) this._notifyAudioSlotsChanged();
+  }
+
+  // Includes legacy slots as well as opted-in pattern-control slots. The capture
+  // owner needs complete topology to decide conservatively whether raw frames
+  // are still required for another active renderer.
+  getAudioSlotDescriptors(role = this.audioRole) {
+    if (this.disposed) return [];
+    this._refreshAudioSlots(role);
+    return this.audioSlots.map((descriptor) => ({
+      runtimeId: descriptor.runtimeId,
+      patternId: descriptor.patternId,
+      role: descriptor.role,
+      childIndex: descriptor.childIndex,
+      paramsRevision: descriptor.paramsRevision,
+      params: { ...descriptor.params },
+      audioTransport: descriptor.audioTransport,
+      audioControlSchema: descriptor.audioControlSchema,
+    }));
+  }
+
+  _controlFreshMarkers() {
+    this._refreshAudioSlots();
+    return this.audioSlots
+      .filter((descriptor) => descriptor.audioTransport === PATTERN_CONTROLS_TRANSPORT && descriptor.binding)
+      .map((descriptor) => ({
+        runtimeId: descriptor.runtimeId,
+        paramsRevision: descriptor.paramsRevision,
+        binding: descriptor.binding,
+        marker: descriptor.binding.getRenderMarker(),
+      }));
+  }
+
+  _setAudioEventDeliveryEnabled(enabled) {
+    for (const descriptor of this.audioSlots) {
+      try { descriptor.binding?.setEventDeliveryEnabled(enabled); } catch {}
+    }
+  }
+
   _createInstance(sketch, index) {
+    const audioSlot = this.audioSlots[index] || null;
     const runtimeContext = {
+      // Migrated patterns receive a narrow, renderer-safe binding. Legacy
+      // patterns retain the existing audio facade and ignore this field.
+      audioControls: audioSlot?.binding || null,
+      audioSlot: audioSlot ? {
+        runtimeId: audioSlot.runtimeId,
+        patternId: audioSlot.patternId,
+        childIndex: audioSlot.childIndex,
+      } : null,
       // Camera sketches use this instead of p.createCapture when the runtime is
       // on the output screen. It gives LIVE and CUE consumers one MediaStream.
       createCapture: (p, constraints, callback) => {
@@ -243,6 +360,10 @@ export class ProgramRuntime {
         p.draw = (...args) => {
           try {
             const result = typeof originalDraw === 'function' ? originalDraw.apply(p, args) : undefined;
+            // A migrated child becomes fresh only when it explicitly read a
+            // matching controls packet during this draw. The binding records
+            // that fact before ProgramRuntime evaluates fresh-frame waiters.
+            audioSlot?.binding?.noteDraw();
             this._noteDraw(index);
             return result;
           } catch (error) {
@@ -380,6 +501,23 @@ export class ProgramRuntime {
     this._rejectFreshWaiter(queued, error);
   }
 
+  _captureFreshRequirements(waiter) {
+    waiter.before = this.instances.map((_, index) => this.drawCounts[index] || 0);
+    // A draw alone is not enough for pattern-control consumers. Capture markers
+    // now so completion requires a later draw which consumed each matching
+    // params revision from the receiver store.
+    waiter.audioControls = this._controlFreshMarkers();
+  }
+
+  _rebaseFreshWaiter(waiter) {
+    if (this.disposed || this.freshWaiter !== waiter || waiter.state !== 'waiting-for-draw') return;
+    // A coalesced CUE edit changes mutable params between animation frames. The
+    // old draw/control baselines can therefore never satisfy the newest caller:
+    // require a fresh draw and the current slot revisions instead.
+    this._captureFreshRequirements(waiter);
+    this._mark('fresh-frame-rebased');
+  }
+
   _beginFreshWaiter(waiter) {
     if (this.disposed) {
       this._rejectFreshWaiter(waiter, new Error('Program runtime was disposed.'));
@@ -391,7 +529,7 @@ export class ProgramRuntime {
     }
 
     this.resume();
-    waiter.before = this.instances.map((_, index) => this.drawCounts[index] || 0);
+    this._captureFreshRequirements(waiter);
     waiter.state = 'waiting-for-draw';
     waiter.timeoutId = window.setTimeout(() => {
       if (this.freshWaiter !== waiter) return;
@@ -445,6 +583,10 @@ export class ProgramRuntime {
     if (!waiter || this.disposed || waiter.state !== 'waiting-for-draw') return;
     const complete = this.instances.every((_, index) => (this.drawCounts[index] || 0) > waiter.before[index]);
     if (!complete) return;
+    const controlsComplete = (waiter.audioControls || []).every((entry) =>
+      entry.binding.hasRenderedAfter(entry.paramsRevision, entry.marker),
+    );
+    if (!controlsComplete) return;
 
     // Keep `freshWaiter` installed through the compositor gate. A request that
     // arrives now must wait for a new draw rather than resolving against this
@@ -459,6 +601,7 @@ export class ProgramRuntime {
     return new Promise((resolve, reject) => {
       const request = {
         before: [],
+        audioControls: [],
         waiters: [{ resolve, reject }],
         timeoutId: 0,
         timeoutMs,
@@ -474,10 +617,12 @@ export class ProgramRuntime {
       }
 
       if (this.freshWaiter.state === 'waiting-for-draw') {
-        // Both requests can be satisfied by the same not-yet-drawn frame. A
-        // caller that needs a live TAKE always wins over standby parking.
+        // Both callers share one future frame, but the newer request may carry
+        // newer accepted CUE params. Rebase the draw/control requirements after
+        // preserving both promises so an old packet cannot acknowledge TAKE.
         this.freshWaiter.parkAfter = this.freshWaiter.parkAfter && request.parkAfter;
         this.freshWaiter.waiters.push(...request.waiters);
+        this._rebaseFreshWaiter(this.freshWaiter);
         return;
       }
 
@@ -494,6 +639,12 @@ export class ProgramRuntime {
 
   pause() {
     if (this.disposed) return;
+    if (!this.paused) {
+      this.paused = true;
+      // Suppress events before noLoop so a queued p5 draw cannot consume a
+      // one-shot effect after this CUE runtime has become hidden.
+      this._setAudioEventDeliveryEnabled(false);
+    }
     this.instances.forEach((instance) => {
       try {
         instance?.noLoop?.();
@@ -505,6 +656,12 @@ export class ProgramRuntime {
 
   resume() {
     if (this.disposed) return;
+    if (this.paused) {
+      this.paused = false;
+      // Clear anything retained before noLoop and admit only packets received
+      // after this runtime is explicitly resumed for a fresh CUE/TAKE frame.
+      this._setAudioEventDeliveryEnabled(true);
+    }
     this.instances.forEach((instance) => {
       try {
         instance?.loop?.();
@@ -580,6 +737,11 @@ export class ProgramRuntime {
     // contexts active long enough for rapid LIVE/CUE switches to exhaust Chrome.
     this.instances.forEach((instance) => disposeP5Instance(instance));
     this.instances = [];
+    const retiredAudioSlots = this.audioSlots.splice(0);
+    if (this.audioControlStore) {
+      this.audioControlStore.retireSlots(retiredAudioSlots.map((slot) => slot.runtimeId));
+    }
+    this._notifyAudioSlotsChanged();
     if (this.layer) {
       this.layer.replaceChildren();
       delete this.layer.dataset.programIds;

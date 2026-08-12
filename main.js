@@ -23,6 +23,17 @@ import {
 import { SharedCameraSource } from './shared-camera-source.js';
 import { AudioManager } from './audio-manager.js';
 import { PreviewAudio } from './preview-audio.js';
+import { PatternAudioControlStore } from './pattern-audio-controls.js';
+import { PatternAudioControlEngine } from './pattern-audio-engine.js';
+import {
+  PATTERN_AUDIO_CONTROLS_TYPE,
+  PATTERN_AUDIO_PLAN_TYPE,
+  PATTERN_AUDIO_PLAN_REQUEST_TYPE,
+  PATTERN_AUDIO_PROTOCOL_VERSION,
+  snapshotPatternParams,
+  paramsFingerprint,
+  toPublicPlanSlot,
+} from './pattern-audio-protocol.js';
 import { setBandSplit, computeLogSpectrum } from './sketches/audio-features.js';
 import {
   loadNoiseFloor,
@@ -74,6 +85,8 @@ function disposeViz() {
   try { if (typeof cueMutationRaf !== 'undefined' && cueMutationRaf) cancelAnimationFrame(cueMutationRaf); } catch {}
   try { if (typeof previewRenderRaf !== 'undefined' && previewRenderRaf) cancelAnimationFrame(previewRenderRaf); } catch {}
   try { if (typeof previewResizeRaf !== 'undefined' && previewResizeRaf) cancelAnimationFrame(previewResizeRaf); } catch {}
+  try { if (typeof patternAudioPlanRaf !== 'undefined' && patternAudioPlanRaf) cancelAnimationFrame(patternAudioPlanRaf); } catch {}
+  try { if (typeof patternAudioPlanHeartbeat !== 'undefined' && patternAudioPlanHeartbeat) clearInterval(patternAudioPlanHeartbeat); } catch {}
   try { if (typeof audioRestartTimer !== 'undefined' && audioRestartTimer) clearTimeout(audioRestartTimer); } catch {}
   try { if (typeof fallbackLeaseTimer !== 'undefined' && fallbackLeaseTimer) clearTimeout(fallbackLeaseTimer); } catch {}
   try { if (typeof singletonHeartbeatTimer !== 'undefined' && singletonHeartbeatTimer) clearInterval(singletonHeartbeatTimer); } catch {}
@@ -248,6 +261,23 @@ const screenAudio = new PreviewAudio({ idleSignal: false, staleAfterMs: 750 });
 // an input is selected or while no capture-owning panel is available.
 const previewAudio = new PreviewAudio();
 
+// Pattern-specific transport stays independent from PreviewAudio's legacy raw
+// facade. Every rendering window owns one receiver store; only the elected
+// capture-owning control runs the engine.
+const patternAudioStore = new PatternAudioControlStore({ consumerSessionId: myId });
+const patternAudioEngine = new PatternAudioControlEngine({
+  ownerId: myId,
+  getSketchById: (id) => SKETCHES.find((sketch) => sketch.id === id) || null,
+});
+const knownAudioConsumers = new Set();
+let patternAudioPlanRevision = 0;
+let patternAudioTopologyFingerprint = '';
+let patternAudioPlanPayloadFingerprint = '';
+let patternAudioPlanRaf = 0;
+let patternAudioPlanForce = false;
+let patternAudioPlanHeartbeat = 0;
+let lastPatternControlAt = 0;
+
 // Legacy selection fields remain as a compatibility projection for the panel,
 // existing messages and DEV probes. Rendering itself is owned by ProgramRuntime
 // instances below, never by these globals.
@@ -326,6 +356,11 @@ const STORAGE = {
 // ---------------------------------------------------------------------------
 
 let paramValues = loadParamValues();
+
+// Apply persisted crossovers before the asynchronous singleton/boot handshake.
+// This lets an immediately reloaded screen expose the same feature split even
+// when a diagnostic/import reads it before bootViz reaches setBandSplit().
+setBandSplit(paramValues[BANDS_ID] || defaultParamValues(BANDS_ID));
 
 // Raw (non-proxied) counterparts, used for serialization only — JSON.stringify
 // of a Proxy would hit its get-trap and pollute the DEV read-log below.
@@ -495,7 +530,7 @@ function copyVisualParamBank(bank = {}) {
   return copy;
 }
 
-function adoptVisualParamBank(bank, { preserveReferences = false } = {}) {
+function adoptVisualParamBank(bank, { preserveReferences = false, persist = true } = {}) {
   if (!bank) return;
   // Band split remains a system/global setting and never becomes cue-scoped.
   const bands = getParams(BANDS_ID);
@@ -503,7 +538,7 @@ function adoptVisualParamBank(bank, { preserveReferences = false } = {}) {
   adopted[BANDS_ID] = bands;
   paramValues = adopted;
   paramRawValues = adopted;
-  saveParamValues();
+  if (persist) saveParamValues();
 }
 
 function adoptCueBank(session) {
@@ -539,6 +574,12 @@ function visualParamBanksEqual(left, right) {
   return [...ids].every((id) => paramObjectsEqual(lhs[id] || {}, rhs[id] || {}));
 }
 
+function visualParamBankUsesOnlyDefaults(bank) {
+  return Object.entries(copyVisualParamBank(bank)).every(([id, values]) =>
+    paramObjectsEqual(values, defaultParamValues(id)),
+  );
+}
+
 // The screen owns canonical LIVE values. Controls only adopt this snapshot when
 // it differs, so ordinary CUE state broadcasts do not rewrite localStorage just
 // by reserializing unchanged values. A rejected legacy live-param message can
@@ -546,7 +587,13 @@ function visualParamBanksEqual(left, right) {
 function applyCanonicalLiveParamBank(bank) {
   if (myRole === 'screen' || !bank || typeof bank !== 'object') return false;
   if (visualParamBanksEqual(paramRawValues, bank)) return false;
-  adoptVisualParamBank(bank);
+  // A just-opened control should mirror the screen's defaults in memory without
+  // manufacturing localStorage state. Persist a canonical snapshot only when
+  // the user already has a store or the screen contains a non-default value.
+  const hadStoredParams = localStorage.getItem(STORAGE.params) !== null;
+  adoptVisualParamBank(bank, {
+    persist: hadStoredParams || !visualParamBankUsesOnlyDefaults(bank),
+  });
   if (myRole === 'control' && panel && !cueSession) {
     panel.applyParam(POSTFX_ID, getParams(POSTFX_ID));
     if (panel.currentPatternId) panel.applyParam(panel.currentPatternId, getParams(panel.currentPatternId));
@@ -584,6 +631,7 @@ function applyAcceptedLiveParamValues(id, values) {
   if (myRole === 'control' && panel && (!editingCue || id === BANDS_ID)) {
     panel.applyParam(id, values);
   }
+  if (id !== BANDS_ID) queuePatternAudioPlanPublish();
 }
 
 function recordCueTiming(name, detail = {}) {
@@ -772,12 +820,102 @@ function createRuntime(selection, getBankParams, layer, reason = 'cue') {
     generation: ++runtimeGeneration,
     warmTimeoutMs: CUE_WARM_TIMEOUT_MS,
     onTiming: (name, detail) => recordCueTiming(name, { reason, ...detail }),
+    audioControlStore: patternAudioStore,
+    consumerSessionId: myId,
+    audioRole: reason === 'cue' ? 'cue' : (reason === 'direct-live' ? 'incoming' : 'live'),
+    onAudioSlotsChanged: () => queuePatternAudioPlanPublish(),
   });
+}
+
+function collectPatternAudioSlots() {
+  const slots = [];
+  const seenRuntimeIds = new Set();
+  const appendRuntime = (runtime, role) => {
+    if (!runtime || runtime.disposed || seenRuntimeIds.has(runtime)) return;
+    seenRuntimeIds.add(runtime);
+    slots.push(...runtime.getAudioSlotDescriptors(role));
+  };
+
+  if (myRole === 'screen') {
+    // Include every actually-rendering output slot, including a transient
+    // incoming/retiring runtime. This is intentionally runtime topology, never
+    // panel selection state.
+    appendRuntime(liveRuntime, 'live');
+    appendRuntime(cueRuntime, 'cue');
+    appendRuntime(incomingRuntime, 'incoming');
+    appendRuntime(retiringRuntime, 'retiring');
+  } else {
+    for (const descriptor of previewAudioSlots || []) {
+      refreshPreviewAudioSlot(descriptor);
+      slots.push({ ...descriptor, params: { ...descriptor.params } });
+    }
+  }
+  return slots;
+}
+
+function publishPatternAudioPlan({ force = false } = {}) {
+  const slots = collectPatternAudioSlots();
+  const topology = slots
+    .map((slot) => `${slot.runtimeId}:${slot.patternId}:${slot.role}:${slot.childIndex}:${slot.audioTransport}`)
+    .sort()
+    .join('|');
+  if (topology !== patternAudioTopologyFingerprint) {
+    patternAudioTopologyFingerprint = topology;
+    patternAudioPlanRevision += 1;
+  }
+  if (!patternAudioPlanRevision) patternAudioPlanRevision = 1;
+
+  const payloadFingerprint = slots
+    .map((slot) => `${slot.runtimeId}:${slot.paramsRevision}:${paramsFingerprint(slot.params)}:${slot.role}`)
+    .sort()
+    .join('|');
+  const changed = payloadFingerprint !== patternAudioPlanPayloadFingerprint;
+  const localPlan = {
+    consumerSessionId: myId,
+    planRevision: patternAudioPlanRevision,
+    complete: true,
+    slots,
+  };
+  patternAudioStore.setPlan(localPlan);
+  if (!force && !changed) return;
+  patternAudioPlanPayloadFingerprint = payloadFingerprint;
+  broadcast({
+    type: PATTERN_AUDIO_PLAN_TYPE,
+    version: PATTERN_AUDIO_PROTOCOL_VERSION,
+    consumerSessionId: myId,
+    planRevision: patternAudioPlanRevision,
+    sentAt: performance.now(),
+    complete: true,
+    slots: slots.map(toPublicPlanSlot),
+  });
+}
+
+function queuePatternAudioPlanPublish({ force = false } = {}) {
+  if (patternAudioPlanRaf) {
+    if (force) patternAudioPlanForce = true;
+    return;
+  }
+  patternAudioPlanForce = Boolean(force);
+  patternAudioPlanRaf = requestAnimationFrame(() => {
+    const publishForce = patternAudioPlanForce;
+    patternAudioPlanForce = false;
+    patternAudioPlanRaf = 0;
+    publishPatternAudioPlan({ force: publishForce });
+  });
+}
+
+function startPatternAudioPlanHeartbeat() {
+  if (patternAudioPlanHeartbeat) clearInterval(patternAudioPlanHeartbeat);
+  patternAudioPlanHeartbeat = window.setInterval(() => {
+    queuePatternAudioPlanPublish({ force: true });
+  }, 1_000);
+  queuePatternAudioPlanPublish({ force: true });
 }
 
 function disposeRuntime(runtime) {
   if (!runtime) return;
   runtime.dispose();
+  queuePatternAudioPlanPublish();
 }
 
 // Retained for the role-switch lifecycle. It deliberately tears down all slots
@@ -847,6 +985,7 @@ function applyPostFx() {
 
 let previewStage = null;
 let previewP5 = [];
+let previewAudioSlots = [];
 let previewSelection = { ids: [], merge: false };
 let previewResizeObserver = null;
 let previewRenderRaf = 0;
@@ -907,10 +1046,57 @@ function attachPreviewCanvas(inst, sketch, layer, generation) {
   attach();
 }
 
+function createPreviewAudioSlot(sketch, layer, generation) {
+  const params = snapshotPatternParams(sketch, getEditingParams(sketch.id));
+  const descriptor = {
+    runtimeId: `${myId}:preview-${generation}:${layer}`,
+    patternId: sketch.id,
+    role: 'preview',
+    childIndex: layer,
+    paramsRevision: 1,
+    params,
+    paramsFingerprint: paramsFingerprint(params),
+    audioTransport: sketch.audioTransport === 'pattern-controls' ? 'pattern-controls' : 'analysis-frame',
+    audioControlSchema: sketch.audioControlSchema || {},
+    binding: null,
+  };
+  if (descriptor.audioTransport === 'pattern-controls') {
+    patternAudioStore.upsertSlot(descriptor);
+    descriptor.binding = patternAudioStore.createBinding(descriptor.runtimeId);
+  }
+  previewAudioSlots.push(descriptor);
+  return descriptor;
+}
+
+function refreshPreviewAudioSlot(descriptor) {
+  const sketch = SKETCHES.find((entry) => entry.id === descriptor.patternId);
+  const params = snapshotPatternParams(sketch, getEditingParams(descriptor.patternId));
+  const fingerprint = paramsFingerprint(params);
+  if (fingerprint !== descriptor.paramsFingerprint) {
+    descriptor.params = params;
+    descriptor.paramsFingerprint = fingerprint;
+    descriptor.paramsRevision += 1;
+  }
+  if (descriptor.audioTransport === 'pattern-controls') patternAudioStore.upsertSlot(descriptor);
+}
+
 function createPreviewInstance(sketch, layer, generation) {
   if (!previewStage) return null;
 
-  const factory = sketch.factory(previewAudio, null, getEditingParams(sketch.id));
+  const audioSlot = createPreviewAudioSlot(sketch, layer, generation);
+  const factory = sketch.factory(
+    previewAudio,
+    null,
+    getEditingParams(sketch.id),
+    {
+      audioControls: audioSlot.binding,
+      audioSlot: {
+        runtimeId: audioSlot.runtimeId,
+        patternId: audioSlot.patternId,
+        childIndex: audioSlot.childIndex,
+      },
+    },
+  );
   const wrappedSketch = (p) => {
     // Each legacy sketch asks p5 for window-sized canvases on setup and resize.
     // Substitute only those calls, keeping every drawing API and renderer mode
@@ -938,6 +1124,8 @@ function createPreviewInstance(sketch, layer, generation) {
 
 function clearPreview() {
   previewGeneration += 1;
+  patternAudioStore.retireSlots(previewAudioSlots.map((slot) => slot.runtimeId));
+  previewAudioSlots = [];
   // p5.remove() detaches canvases but does not synchronously free WebGL. Release
   // each retired preview context first so legitimate selection changes cannot
   // evict the older (and operator-critical) LIVE context in another tab.
@@ -948,6 +1136,7 @@ function clearPreview() {
     previewStage.style.filter = 'none';
     delete previewStage.dataset.previewSketches;
   }
+  queuePatternAudioPlanPublish();
 }
 
 function renderPreview() {
@@ -956,6 +1145,7 @@ function renderPreview() {
     // Sketch params are stable mutable objects, so ordinary CUE revisions already
     // reach the running factory. Only CSS blend/post-FX values need refreshing.
     applyPreviewCompositing();
+    queuePatternAudioPlanPublish();
     return;
   }
   previewNeedsRebuild = false;
@@ -991,6 +1181,7 @@ function renderPreview() {
     previewStage.appendChild(note);
   }
   applyPreviewCompositing();
+  queuePatternAudioPlanPublish();
 }
 
 function queuePreviewRender() {
@@ -1097,6 +1288,9 @@ async function promotePreparedRuntime(runtime, { directToken = null, cue = null,
       // Doing this before styling prevents one frame of old LIVE post-FX.
       onPromoted?.();
       applyPostFx();
+      // Keep the runtime ID (and controller state) but immediately publish its
+      // new LIVE role before the former runtime is retired.
+      queuePatternAudioPlanPublish();
 
       // The promoted canvas is visible before its predecessor is removed. The
       // next frame keeps normal switches from ever exposing an empty stage.
@@ -1288,6 +1482,7 @@ function applyReceivedCueState(payload, notice = '', acknowledgement = {}) {
       // Queue an in-place compositing refresh. syncUI marks a rebuild only when
       // the editing scope actually changes from CUE back to LIVE.
       queuePreviewRender();
+      queuePatternAudioPlanPublish();
       syncUI(notice);
     }
     applyPostFx();
@@ -1351,6 +1546,7 @@ function applyReceivedCueState(payload, notice = '', acknowledgement = {}) {
     // The queued pass is in-place for parameter-only acknowledgements. syncUI's
     // selection callback marks the pass as a rebuild only for a scope/id change.
     queuePreviewRender();
+    queuePatternAudioPlanPublish();
     syncUI(notice);
   }
 }
@@ -1526,12 +1722,13 @@ function stageCueRuntime() {
 
   runtime.prepare()
     .then(() => {
-      // Parameter edits may advance the revision while this same selection is
-      // warming. The initial readiness draw only proves the construction
-      // revision; later edits install their own fresh-frame gate below.
+      // Construction readiness is intentionally insufficient for migrated
+      // children. Bind the initial CUE revision to a later draw that consumed
+      // controls matching its current params revision, then compositor-confirm.
       if (!isCurrentCueRuntime(session, runtime, selectionGeneration)) return;
-      if (session.revision === revision) session.renderedRevision = revision;
-      settleCueRuntimeRevision(session, runtime, selectionGeneration);
+      if (session.revision === revision) {
+        requestCueRevisionFrame(session, runtime, selectionGeneration, revision);
+      }
     })
     .catch((error) => failCueRuntime(session, runtime, selectionGeneration, revision, error));
 }
@@ -1611,6 +1808,10 @@ function updateCueParams(msg) {
       if (target[key] !== value) target[key] = value;
     }
   }
+  // Publish the authoritative CUE objects, not panel-local slider values. The
+  // rAF queue coalesces a drag to one plan packet while preserving this accepted
+  // parameter revision for the capture-side controller.
+  queuePatternAudioPlanPublish();
   // A single accepted message is one canonical revision even when it batches
   // a reset's three post-FX values. A no-op re-emission still gets a fresh-frame
   // gate: it may have arrived while a prior accepted revision was still drawing.
@@ -1975,6 +2176,9 @@ function startAudio(deviceId = localStorage.getItem(STORAGE.audio)) {
   }
 
   currentAudioDeviceId = deviceId;
+  // A device restart creates a new stream generation, clearing controller audio
+  // history and resetting receiver ordering when its first controls packet lands.
+  patternAudioEngine.beginStream();
   return audio.startStream(deviceId);
 }
 
@@ -2042,6 +2246,13 @@ navigator.mediaDevices?.addEventListener?.('devicechange', scheduleAudioRecovery
 function takeAudioOwnership() {
   if (isAudioOwner || !wantsAudioOwnership || myRole !== 'control') return;
   isAudioOwner = true;
+  patternAudioEngine.expectConsumer(myId);
+  knownAudioConsumers.forEach((consumerSessionId) => patternAudioEngine.expectConsumer(consumerSessionId));
+  patternAudioEngine.beginStream();
+  // Re-submit our own plan synchronously and ask the screen for its topology;
+  // the owner may have won the Web Lock after initial hello/plan traffic.
+  publishPatternAudioPlan({ force: true });
+  broadcast({ type: PATTERN_AUDIO_PLAN_REQUEST_TYPE, audioOwnerId: myId });
   currentAudioDeviceId = localStorage.getItem(STORAGE.audio) || null;
   startAudioBroadcast();
   startAudio(currentAudioDeviceId);
@@ -2056,6 +2267,7 @@ function relinquishAudioOwnership() {
   if (audioRestartTimer) clearTimeout(audioRestartTimer);
   audioRestartTimer = 0;
   stopAudioBroadcast();
+  patternAudioEngine.disposeControllers();
   if (noiseCaptureActive) {
     cancelNoiseCapture();
     noiseCaptureActive = false;
@@ -2195,6 +2407,10 @@ function handleMessage(msg) {
   if (singletonBlocked) return;
   switch (msg.type) {
     case 'hello':
+      if (typeof msg.windowId === 'string' && msg.windowId.length <= 160) {
+        knownAudioConsumers.add(msg.windowId);
+        if (isAudioOwner) patternAudioEngine.expectConsumer(msg.windowId);
+      }
       if (msg.role === 'screen') {
         screenOnline = true;
       }
@@ -2202,9 +2418,39 @@ function handleMessage(msg) {
       // A window opened after capture startup would otherwise miss the one-time
       // starting/running/suspended event. The capture owner answers every hello.
       if (isAudioOwner && msg.windowId !== myId) {
+        patternAudioEngine.expectConsumer(msg.windowId);
         broadcast({ type: 'audio-status', ...lastAudioStatus });
       }
       break;
+
+    case PATTERN_AUDIO_PLAN_REQUEST_TYPE:
+      // An elected/new capture owner may have missed a plan sent before it won
+      // the lock. Every live consumer answers with an immediate, coalesced plan.
+      if (msg.windowId && msg.audioOwnerId && msg.windowId !== msg.audioOwnerId) return;
+      queuePatternAudioPlanPublish({ force: true });
+      return;
+
+    case PATTERN_AUDIO_PLAN_TYPE: {
+      // A normal broadcast supplies windowId. When it is present it must agree
+      // with the claimed consumer identity; otherwise a peer cannot replace
+      // another screen/preview's controller plan.
+      if (msg.windowId && msg.windowId !== msg.consumerSessionId) return;
+      // The capture owner receives plans from actual output/preview runtimes.
+      // A consumer also installs its own plan locally before packet acceptance.
+      if (msg.consumerSessionId === myId) patternAudioStore.setPlan(msg);
+      if (isAudioOwner) patternAudioEngine.receivePlan(msg);
+      return;
+    }
+
+    case PATTERN_AUDIO_CONTROLS_TYPE:
+      if (msg.windowId && msg.windowId !== msg.audioOwnerId) return;
+      if (msg.consumerSessionId === myId) {
+        const receipt = patternAudioStore.acceptPacket(msg);
+        // Keep the legacy facade observable once an active capture stream is
+        // controlling a migrated-only output, without broadcasting its raw FFT.
+        if (receipt.accepted && receipt.slots > 0 && msg.audioActive && myRole === 'screen') screenAudio.setControlActive();
+      }
+      return;
 
     case 'state': {
       // validate incoming state: ids/indices bounded, numeric clamped
@@ -2394,6 +2640,7 @@ function handleMessage(msg) {
       if (msg.status !== 'running') {
         if (myRole === 'screen') screenAudio.clearFrame();
         else previewAudio.clearFrame();
+        patternAudioStore.clearForOwnerLoss();
       }
       if (myRole === 'control' && panel) panel.setAudioStatus(lastAudioStatus);
       return;
@@ -2570,23 +2817,48 @@ function audioBroadcastLoop(now) {
   if (now - lastAnalysisAt >= 33) {
     lastAnalysisAt = now;
     const frame = audio.isStarted ? audio.getAnalysisFrame() : null;
+    audioFrameSequence += 1;
+    const controlDeltaSeconds = lastPatternControlAt
+      ? Math.max(1 / 240, Math.min(0.1, (now - lastPatternControlAt) / 1000))
+      : 1 / 30;
+    lastPatternControlAt = now;
+    // Controllers continue emitting neutral/phase controls while capture is not
+    // yet available. That keeps the migrated embedded preview stage-ready and
+    // lets CUE prove a matching controls draw without falling back to raw FFT.
+    const controlTick = patternAudioEngine.update({
+      frame,
+      deltaSeconds: controlDeltaSeconds,
+      captureTime: frame?.time ?? now,
+      sequence: audioFrameSequence,
+      now,
+    });
+    // BroadcastChannel does not loop a message to its sender, so `broadcast`
+    // deliberately dispatches compact packets locally as well for preview
+    // controllers/renderers when this same control owns capture.
+    controlTick.packets.forEach((packet) => broadcast(packet));
+
     if (frame) {
-      audioFrameSequence += 1;
-      // throttle broadcast slightly if main thread is saturated (simple gate)
+      // Raw snapshots are retained for the legacy facade and are only omitted
+      // after every known consumer has a fresh, complete all-migrated plan.
+      // The EQ spectrum remains independent and continues in either mode.
       if (now >= spectrumThrottleUntil) {
-        broadcast({ type: 'analysis-frame', sequence: audioFrameSequence, frame });
+        if (controlTick.rawRequired) {
+          broadcast({ type: 'analysis-frame', sequence: audioFrameSequence, frame });
+          patternAudioEngine.recordRawFrame(frame, true);
+        } else {
+          patternAudioEngine.recordRawFrame(frame, false);
+        }
         if (now - lastSpectrumAt >= 66) {
           lastSpectrumAt = now;
           const spec = computeLogSpectrum(frame);
           if (spec) {
-            // clone into reusable buffers where possible
             const freqs = spec.freqs instanceof Float32Array ? new Float32Array(spec.freqs) : spec.freqs;
             const dbs = spec.dbs instanceof Float32Array ? new Float32Array(spec.dbs) : spec.dbs;
             broadcast({ type: 'spectrum', freqs, dbs, minHz: spec.minHz, maxHz: spec.maxHz });
           }
         }
       } else {
-        // skip one frame under backpressure
+        // Preserve the existing backpressure gate for the large raw path.
         spectrumThrottleUntil = now + 16;
       }
     }
@@ -2627,6 +2899,7 @@ function stopAudioBroadcast() {
   audioBroadcastRaf = 0;
   lastAnalysisAt = 0;
   lastSpectrumAt = 0;
+  lastPatternControlAt = 0;
 }
 
 // Web Audio autoplay permission belongs to the capture-owning control window.
@@ -2963,6 +3236,10 @@ async function bootViz() {
     beginAudioOwnership();
   }
 
+  // Publish runtime topology immediately and retain a low-frequency heartbeat so
+  // the capture owner can expire abandoned consumers safely.
+  startPatternAudioPlanHeartbeat();
+
   // Announce ourselves so an existing screen can push its state.
   // Only owners announce; duplicates never reached here.
   try {
@@ -3043,6 +3320,15 @@ function installVizDebugHook() {
     get audioOwner() { return isAudioOwner; },
     get audioStatus() { return { ...lastAudioStatus }; },
     get audioDeviceId() { return currentAudioDeviceId; },
+    // Pattern-control transport diagnostics deliberately remain development-only
+    // and do not add an operator-facing transport selector.
+    get patternAudio() {
+      return {
+        planRevision: patternAudioPlanRevision,
+        store: patternAudioStore.getDiagnostics(),
+        engine: isAudioOwner ? patternAudioEngine.getDiagnostics() : null,
+      };
+    },
     // DEV only: { key -> last read timestamp } of params the sketch accesses
     readLog: () => devReadLog || {},
   };
