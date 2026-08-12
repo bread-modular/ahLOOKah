@@ -4,6 +4,8 @@
 // depth falloff, faint stitching lines, a bloom core breathing with the sub,
 // and drifting stardust. There are no per-frame object loops left on the CPU;
 // the rotation/hue state advances in mapUniforms exactly as before.
+// The legacy raw-frame path stays intact; opted-in renderers consume final
+// controls (bands, rotation, hue) produced by a capture-side controller.
 import { AUDIO_SHADER_HEADER, makeAudioShader } from './shader-utils.js';
 import { makeBands } from './viz-utils.js';
 
@@ -129,13 +131,119 @@ const frag = `${AUDIO_SHADER_HEADER}
   }
 `;
 
-export default (audio, videoDeviceId, params) => {
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+export const AUDIO_CONTROL_SCHEMA = Object.freeze({
+  continuous: {
+    uSub: { min: 0, max: 2.5, neutral: 0 },
+    uMid: { min: 0, max: 2.5, neutral: 0 },
+    uHigh: { min: 0, max: 2.5, neutral: 0 },
+    uEnergy: { min: 0, max: 2.5, neutral: 0 },
+    uRotation: { min: -1_000_000, max: 1_000_000, neutral: 0 },
+    uHueOffset: { min: 0, max: 360, neutral: 0 },
+  },
+  arrays: {},
+  events: {},
+  neutral: {
+    continuous: { uSub: 0, uMid: 0, uHigh: 0, uEnergy: 0, uRotation: 0, uHueOffset: 0 },
+  },
+});
+
+// Envelope-smoothed bands matching viz-utils.makeBands, but calibrated to
+// deltaSeconds: the old per-frame attack/release factors (0.6 / 0.14 at 60 fps)
+// become exponential per-second factors so cadence does not change the feel.
+function rawBands(freqs, params) {
+  if (!freqs?.length) return { sub: 0, mid: 0, high: 0, energy: 0 };
+  const bb = params?.bass ?? 1;
+  const mb = params?.mid ?? 1;
+  const hb = params?.high ?? 1;
+  let sub = 0, mid = 0, high = 0;
+  for (let i = 0; i < 4; i++) sub += freqs[i];
+  for (let i = 40; i < 150; i++) mid += freqs[i];
+  for (let i = 150; i < 500; i++) high += freqs[i];
+  sub = (sub / (4 * 255)) * bb;
+  mid = (mid / (110 * 255)) * mb;
+  high = (high / (350 * 255)) * hb;
+  return { sub, mid, high, energy: (sub + mid + high) / 3 };
+}
+
+function makeBandsController() {
+  let s = 0, m = 0, h = 0, e = 0;
+  return (freqs, params, dt) => {
+    const raw = rawBands(freqs, params);
+    const follow = (cur, target, atk, rel) => {
+      const factor = target > cur ? atk : rel;
+      const alpha = 1 - Math.pow(1 - factor, dt * 60);
+      return cur + (target - cur) * alpha;
+    };
+    s = follow(s, raw.sub, 0.6, 0.14);
+    m = follow(m, raw.mid, 0.6, 0.14);
+    h = follow(h, raw.high, 0.6, 0.14);
+    e = follow(e, raw.energy, 0.6, 0.14);
+    return { sub: s, mid: m, high: h, energy: e };
+  };
+}
+
+// The controller owns band extraction (with the same envelope smoothing the old
+// renderer used), the time-based rotation and hue state. No renderer-side math.
+export function createAudioController({ rng = Math.random } = {}) {
+  let rotation = 0;
+  let hueOffset = 0;
+  const getBands = makeBandsController();
+
+  return {
+    update({ shared, params = {}, deltaSeconds = 1 / 30 }) {
+      const dt = clamp(Number.isFinite(deltaSeconds) ? deltaSeconds : 1 / 30, 1 / 240, 0.1);
+      const freqs = shared?.getByteFrequencies?.() || { left: null };
+      const b = getBands(freqs.left && freqs.left.length ? freqs.left : null, params, dt);
+
+      rotation += (0.004 + b.energy * 0.05) * dt * 60;
+      if (Math.abs(rotation) > 900_000) rotation %= 100_000;
+      hueOffset = (hueOffset + (0.3 + b.energy * 2) * dt * 60) % 360;
+
+      return {
+        continuous: {
+          uSub: b.sub,
+          uMid: b.mid,
+          uHigh: b.high,
+          uEnergy: b.energy,
+          uRotation: rotation,
+          uHueOffset: hueOffset,
+        },
+        arrays: {},
+        events: [],
+      };
+    },
+    dispose() {},
+  };
+}
+
+export default (audio, videoDeviceId, params, runtimeContext = {}) => {
+  const audioControls = runtimeContext?.audioControls || null;
   let rotation = 0;
   let hueOffset = 0;
   let frameCount = 0;
   const getBands = makeBands();
 
-  const mapUniforms = (P) => {
+  // Opted-in path: bands/rotation/hue arrive as final controls; only the visual
+  // params (arms/density/twist/sparkle) are mapped locally.
+  const mapUniformsMigrated = (P, bands_, p, controls) => {
+    const C = { ...AUDIO_CONTROL_SCHEMA.neutral.continuous, ...(controls?.continuous || {}) };
+    return {
+      uSub: C.uSub,
+      uMid: C.uMid,
+      uHigh: C.uHigh,
+      uEnergy: C.uEnergy,
+      uRotation: C.uRotation,
+      uHueOffset: C.uHueOffset,
+      uArms: Math.floor(P.arms ?? 5),
+      uDensity: Math.floor(P.density ?? 90),
+      uTwist: P.twist ?? 1,
+      uSparkle: P.sparkle ?? 1,
+    };
+  };
+
+  const mapUniformsLegacy = (P) => {
     const freqs = audio && audio.isStarted ? audio.getFrequencies() : null;
     const b = getBands(freqs ? freqs.left : null, P);
     const t = frameCount++;
@@ -162,5 +270,11 @@ export default (audio, videoDeviceId, params) => {
     };
   };
 
-  return makeAudioShader(audio, params, frag, mapUniforms);
+  return makeAudioShader(
+    audio,
+    params,
+    frag,
+    audioControls ? mapUniformsMigrated : mapUniformsLegacy,
+    audioControls ? { audioControls } : {},
+  );
 };
