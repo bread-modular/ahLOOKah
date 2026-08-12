@@ -477,6 +477,8 @@ export const SKETCHES = [
     audioControlSchema: strobePulseAudioControlSchema,
     params: [
       { key: 'threshold', label: 'Kick Threshold', min: 0.15, max: 0.6, step: 0.01, default: 0.32 },
+      { key: 'kickFreq', label: 'Kick Freq (Hz)', min: 30, max: 240, step: 1, default: 60 },
+      { key: 'kickRange', label: 'Kick Range (Hz)', min: 10, max: 120, step: 1, default: 40 },
       { key: 'decay', label: 'Flash Decay', min: 0.6, max: 0.97, step: 0.01, default: 0.82 },
       { key: 'split', label: 'RGB Split', min: 0, max: 3, step: 0.05, default: 1 },
       { key: 'cycle', label: 'Color Cycle', min: 0, max: 3, step: 0.05, default: 1 },

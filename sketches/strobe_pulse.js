@@ -47,13 +47,70 @@ function rawBands(freqs, params) {
   return { sub, mid, high, energy: (sub + mid + high) / 3 };
 }
 
+// Hz-accurate kick band level from a raw analysis frame. The frame carries
+// float dB channels with sampleRate/fftSize, so bins map to exact Hz (the byte
+// frequencies from getByteFrequencies lose that metadata). Channels are mixed
+// in the power domain like the musical feature extractor, and the resulting
+// level is normalized with the engine's dbToByte mapping so the existing Kick
+// Threshold slider keeps its meaning. `widthHz` is the FULL band width
+// (band = center ± width/2). Returns null when the band maps to no bins so the
+// caller can fall back to the legacy fixed-bin sub level.
+function kickBandLevel(frame, centerHz, widthHz) {
+  const left = frame?.left;
+  const right = frame?.right;
+  if (!left?.length && !right?.length) return null;
+  const binCount = Math.max(left?.length || 0, right?.length || 0);
+  const sampleRate = Math.max(8000, Number(frame?.sampleRate) || 48000);
+  const fftSize = Math.max(binCount * 2, Number(frame?.fftSize) || binCount * 2);
+  const binHz = sampleRate / fftSize;
+  const nyquist = sampleRate * 0.5;
+  const center = clamp(Number.isFinite(centerHz) ? centerHz : 60, 0, nyquist);
+  const width = clamp(Number.isFinite(widthHz) ? widthHz : 40, 0, nyquist);
+  const low = Math.max(0, center - width / 2);
+  const high = Math.min(nyquist, center + width / 2);
+  const start = Math.max(0, Math.floor(low / binHz));
+  const end = Math.min(binCount - 1, Math.ceil(high / binHz));
+  if (end < start) return null;
+
+  const channelCount = left?.length && right?.length ? 2 : 1;
+  const isByte = left instanceof Uint8Array || right instanceof Uint8Array;
+  if (isByte) {
+    let sum = 0;
+    for (let i = start; i <= end; i++) {
+      let v = 0;
+      if (left?.length) v += left[Math.min(i, left.length - 1)];
+      if (right?.length) v += right[Math.min(i, right.length - 1)];
+      sum += v / channelCount;
+    }
+    return clamp(sum / Math.max(1, end - start + 1) / 255, 0, 1);
+  }
+
+  let power = 0;
+  for (let i = start; i <= end; i++) {
+    let p = 0;
+    if (left?.length) {
+      const db = Number.isFinite(left[Math.min(i, left.length - 1)]) ? left[Math.min(i, left.length - 1)] : -100;
+      p += Math.pow(10, db / 10);
+    }
+    if (right?.length) {
+      const db = Number.isFinite(right[Math.min(i, right.length - 1)]) ? right[Math.min(i, right.length - 1)] : -100;
+      p += Math.pow(10, db / 10);
+    }
+    power += p / channelCount;
+  }
+  const avgPower = power / Math.max(1, end - start + 1);
+  const avgDb = 10 * Math.log10(Math.max(avgPower, 1e-12));
+  return clamp((avgDb + 100) / 70, 0, 1);
+}
+
 // The controller owns the smoothed envelope, hue drift, kick detection and
 // the flash/ghost decay envelopes. Geometry stays fully visual on the renderer.
 export function createAudioController({ rng = Math.random } = {}) {
   const random = typeof rng === 'function' ? rng : Math.random;
   let flash = 0;
   let flashHue = 0;
-  let prevSub = 0;
+  let prevKick = 0;
+  let k = 0;
   let hueOffset = 0;
   let ghostHue = 0;
   let ghost = 0;
@@ -67,7 +124,7 @@ export function createAudioController({ rng = Math.random } = {}) {
   };
 
   return {
-    update({ shared, params = {}, deltaSeconds = 1 / 30 }) {
+    update({ shared, frame, params = {}, deltaSeconds = 1 / 30 }) {
       const dt = clamp(Number.isFinite(deltaSeconds) ? deltaSeconds : 1 / 30, 1 / 240, 0.1);
       const freqs = shared?.getByteFrequencies?.() || { left: null };
       const raw = rawBands(freqs.left, params);
@@ -80,17 +137,25 @@ export function createAudioController({ rng = Math.random } = {}) {
       const threshold = Number(params.threshold ?? 0.32);
       const decay = Number(params.decay ?? 0.82);
       const colorCycle = Number(params.cycle ?? 1);
+      const kickFreq = Number(params.kickFreq ?? 60);
+      const kickRange = Number(params.kickRange ?? 40);
 
       hueOffset = (hueOffset + (0.4 * colorCycle + b.energy * 2) * dt * 60) % 360;
 
+      // Hz-selected kick band: the raw frame carries sampleRate/fftSize so the
+      // band follows the Kick Freq / Kick Range sliders exactly. Falls back to
+      // the legacy fixed-bin sub level when the frame has no Hz metadata.
+      const kickRaw = kickBandLevel(frame, kickFreq, kickRange) ?? raw.sub;
+      k = follow(k, kickRaw, 0.6, 0.14, dt);
+
       // Rising-edge kick detection fires the strobe; old flash becomes ghost.
-      if (b.sub > threshold && b.sub > prevSub + 0.02) {
+      if (k > threshold && k > prevKick + 0.02) {
         ghostHue = flashHue;
         ghost = flash * 0.6;
         flash = 1;
         flashHue = (hueOffset + (random() * 60 - 30) + 360) % 360;
       }
-      prevSub = b.sub;
+      prevKick = k;
       // Legacy per-frame decays calibrated to elapsed seconds.
       flash *= Math.pow(decay, 60 * dt);
       ghost *= Math.pow(decay * 0.94, 60 * dt);
@@ -115,7 +180,8 @@ export function createAudioController({ rng = Math.random } = {}) {
 export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
   let flash = 0;
   let flashHue = 0;
-  let prevSub = 0;
+  let prevKick = 0;
+  let kickLevel = 0;
   let hueOffset = 0;
   let ghostHue = 0;
   let ghost = 0;
@@ -205,12 +271,17 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
     const P = params || {};
     const threshold = P.threshold ?? 0.32;
     const decay = P.decay ?? 0.82;
+    const kickFreq = P.kickFreq ?? 60;
+    const kickRange = P.kickRange ?? 40;
 
     p.blendMode(p.BLEND);
     p.background(0, 0, 0, 255);
     p.blendMode(p.ADD);
 
     const freqs = audio && audio.isStarted ? audio.getFrequencies() : null;
+    const frame = audio && audio.isStarted && typeof audio.getAnalysisFrame === 'function'
+      ? audio.getAnalysisFrame()
+      : null;
     const b = getBands(freqs ? freqs.left : null, params);
     const t = p.frameCount;
     const idle = 0.5 + 0.5 * p.sin(t * 0.06);
@@ -219,14 +290,23 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
 
     hueOffset = (hueOffset + 0.4 * (P.cycle ?? 1) + b.energy * 2) % 360;
 
+    // Hz-selected kick band when the analysis frame is available; otherwise the
+    // byte-based sub envelope (already smoothed by getBands).
+    if (frame) {
+      const rawKick = kickBandLevel(frame, kickFreq, kickRange) ?? sub;
+      kickLevel += (rawKick - kickLevel) * (rawKick > kickLevel ? 0.6 : 0.14);
+    } else {
+      kickLevel = sub;
+    }
+
     // Rising-edge kick detection fires the strobe; old flash becomes ghost
-    if (sub > threshold && sub > prevSub + 0.02) {
+    if (kickLevel > threshold && kickLevel > prevKick + 0.02) {
       ghostHue = flashHue;
       ghost = flash * 0.6;
       flash = 1;
       flashHue = (hueOffset + p.random(-30, 30) + 360) % 360;
     }
-    prevSub = sub;
+    prevKick = kickLevel;
     flash *= decay;
     ghost *= decay * 0.94;
 
