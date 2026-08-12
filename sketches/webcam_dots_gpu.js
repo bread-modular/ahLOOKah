@@ -1,7 +1,65 @@
-export default (audio, videoDeviceId, params, runtime) => (p) => {
+// Video Dots GPU — dot-matrix rendering of the camera feed with audio-reactive
+// density, glitch rectangles and RGB shift. The opted-in path consumes the
+// render-ready boosted band levels produced by the DOM-free capture-side
+// controller; the legacy raw-frame path is kept intact.
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+export const AUDIO_CONTROL_SCHEMA = Object.freeze({
+  continuous: {
+    sub: { min: 0, max: 4, neutral: 0 },
+    mid: { min: 0, max: 4, neutral: 0 },
+    high: { min: 0, max: 4, neutral: 0 },
+  },
+  arrays: {},
+  events: {},
+  neutral: {
+    continuous: { sub: 0, mid: 0, high: 0 },
+  },
+});
+
+export function analyzeBands(freqs) {
+  if (!freqs?.length) return { sub: 0, mid: 0, high: 0 };
+  let sub = 0, mid = 0, high = 0;
+  for (let i = 0; i < 3; i++) sub += freqs[i] || 0;
+  for (let i = 20; i < 100; i++) mid += freqs[i] || 0;
+  for (let i = 150; i < 500; i++) high += freqs[i] || 0;
+  return {
+    sub: (sub / 3) / 255,
+    mid: (mid / 80) / 255,
+    high: (high / 350) / 255
+  };
+}
+
+// The controller owns the byte-spectrum band analysis and the reactivity gain.
+// The old renderer boosted each band by 2x and scaled it by the react slider
+// before uploading uniforms; that mapping now lives on the capture owner, so
+// the renderer uploads the supplied levels directly.
+export function createAudioController({ rng = Math.random } = {}) {
+  return {
+    update({ shared, params = {}, deltaSeconds = 1 / 30 }) {
+      const dt = clamp(Number.isFinite(deltaSeconds) ? deltaSeconds : 1 / 30, 1 / 240, 0.1);
+      const freqs = shared?.getByteFrequencies?.() || { left: null };
+      const b = analyzeBands(freqs.left);
+      const react = Math.max(0, Number(params.react ?? 1));
+      return {
+        continuous: {
+          sub: clamp(b.sub * 2.0 * react, 0, 4),
+          mid: clamp(b.mid * 2.0 * react, 0, 4),
+          high: clamp(b.high * 2.0 * react, 0, 4),
+        },
+        arrays: {},
+        events: [],
+      };
+    },
+    dispose() {},
+  };
+}
+
+export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
   let capture;
   let theShader;
   let isCaptureReady = false;
+  const audioControls = runtimeContext?.audioControls || null;
 
   const vert = `
     precision highp float;
@@ -109,30 +167,44 @@ export default (audio, videoDeviceId, params, runtime) => (p) => {
       audio: false
     };
 
-    capture = runtime?.createCapture(p, constraints, () => {
+    capture = runtimeContext?.createCapture(p, constraints, () => {
       isCaptureReady = true;
-      runtime?.reportMediaReady?.();
+      runtimeContext?.reportMediaReady?.();
     }) || p.createCapture(constraints, () => {
       isCaptureReady = true;
-      runtime?.reportMediaReady?.();
+      runtimeContext?.reportMediaReady?.();
     });
     capture.hide();
   };
 
-  function analyzeBands(freqs) {
-    if (!freqs) return { sub: 0, mid: 0, high: 0 };
-    let sub = 0, mid = 0, high = 0;
-    for (let i = 0; i < 3; i++) sub += freqs[i];
-    for (let i = 20; i < 100; i++) mid += freqs[i];
-    for (let i = 150; i < 500; i++) high += freqs[i];
-    return {
-      sub: (sub / 3) / 255,
-      mid: (mid / 80) / 255,
-      high: (high / 350) / 255
-    };
+  function drawMigrated() {
+    p.background(0);
+    if (!isCaptureReady || !capture?.loadedmetadata) return;
+
+    const controls = audioControls.read();
+    const C = { ...AUDIO_CONTROL_SCHEMA.neutral.continuous, ...(controls.continuous || {}) };
+
+    // Read live params every frame so slider changes apply immediately
+    const P = params || {};
+    const spacing = P.spacing ?? 12;
+    const glitch = P.glitch ?? 1;
+
+    p.shader(theShader);
+    theShader.setUniform('uTex', capture);
+    theShader.setUniform('uTime', p.frameCount * 0.05);
+    // Boosted band levels already include the legacy 2x + reactivity mapping
+    theShader.setUniform('uSub', C.sub);
+    theShader.setUniform('uMid', C.mid);
+    theShader.setUniform('uHigh', C.high);
+    theShader.setUniform('uSpacing', spacing);
+    theShader.setUniform('uGlitch', glitch);
+    theShader.setUniform('uResolution', [p.width, p.height]);
+
+    p.rect(0, 0, p.width, p.height);
   }
 
-  p.draw = () => {
+  // Preserved raw-frame implementation for non-migrated/standalone callers.
+  function drawLegacy() {
     p.background(0);
     if (!isCaptureReady || !capture?.loadedmetadata) return;
 
@@ -164,6 +236,11 @@ export default (audio, videoDeviceId, params, runtime) => (p) => {
     theShader.setUniform('uResolution', [p.width, p.height]);
 
     p.rect(0, 0, p.width, p.height);
+  }
+
+  p.draw = () => {
+    if (audioControls) drawMigrated();
+    else drawLegacy();
   };
 
   p.windowResized = () => {

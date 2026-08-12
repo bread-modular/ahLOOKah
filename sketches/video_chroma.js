@@ -2,14 +2,56 @@
 // feed and composites the result over a solid or slowly animated gradient
 // background. Bass widens the key tolerance so the matte breathes with the
 // music; everything runs in a single fragment shader pass.
+// The opted-in path consumes render-ready sub/mid/high levels produced by the
+// DOM-free capture-side controller; the legacy raw-frame path is kept intact.
 import { makeAudioFeatures } from './audio-features.js';
 import { FULLSCREEN_VERT } from './shader-utils.js';
 
-export default (audio, videoDeviceId, params, runtime) => (p) => {
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+export const AUDIO_CONTROL_SCHEMA = Object.freeze({
+  continuous: {
+    sub: { min: 0, max: 1.6, neutral: 0 },
+    mid: { min: 0, max: 1.6, neutral: 0 },
+    high: { min: 0, max: 1.6, neutral: 0 },
+  },
+  arrays: {},
+  events: {},
+  neutral: {
+    continuous: { sub: 0, mid: 0, high: 0 },
+  },
+});
+
+// The controller owns the canonical feature mapping. The renderer previously
+// derived sub/mid/high per frame through makeAudioFeatures(); the capture owner
+// now supplies the same levels through the shared analysis view. The
+// audioReact parameter is applied by the shader (uAudioReact), so the
+// controller only emits the band levels themselves.
+export function createAudioController({ rng = Math.random } = {}) {
+  return {
+    update({ shared, params = {}, deltaSeconds = 1 / 30 }) {
+      const dt = clamp(Number.isFinite(deltaSeconds) ? deltaSeconds : 1 / 30, 1 / 240, 0.1);
+      const features = shared?.getFeatures?.() || {};
+      return {
+        continuous: {
+          sub: clamp(Number(features.sub) || 0, 0, 1.6),
+          mid: clamp(Number(features.mid) || 0, 0, 1.6),
+          high: clamp(Number(features.high) || 0, 0, 1.6),
+        },
+        arrays: {},
+        events: [],
+      };
+    },
+    dispose() {},
+  };
+}
+
+export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
   let capture;
   let isCaptureReady = false;
   let keyer;
   let elapsed = 0;
+  const audioControls = runtimeContext?.audioControls || null;
   const getFeatures = makeAudioFeatures();
 
   const frag = `
@@ -101,17 +143,53 @@ export default (audio, videoDeviceId, params, runtime) => (p) => {
       audio: false,
     };
 
-    capture = runtime?.createCapture(p, constraints, () => {
+    capture = runtimeContext?.createCapture(p, constraints, () => {
       isCaptureReady = true;
-      runtime?.reportMediaReady?.();
+      runtimeContext?.reportMediaReady?.();
     }) || p.createCapture(constraints, () => {
       isCaptureReady = true;
-      runtime?.reportMediaReady?.();
+      runtimeContext?.reportMediaReady?.();
     });
     capture.hide();
   };
 
-  p.draw = () => {
+  function drawMigrated() {
+    const P = params || {};
+    const dt = Math.min(p.deltaTime || 16.667, 100) / 1000;
+    elapsed += dt;
+
+    p.background(0);
+    if (!isCaptureReady || !capture?.loadedmetadata || !capture?.width) return;
+
+    const controls = audioControls.read();
+    const C = { ...AUDIO_CONTROL_SCHEMA.neutral.continuous, ...(controls.continuous || {}) };
+    const bands = { sub: C.sub, mid: C.mid, high: C.high };
+
+    // Cover-crop scales so the capture fills the screen without stretching
+    const A = p.width / Math.max(1, p.height);
+    const T = capture.width / Math.max(1, capture.height);
+    const cover = A > T ? [1, T / A] : [A / T, 1];
+
+    p.shader(keyer);
+    keyer.setUniform('uTex', capture);
+    keyer.setUniform('uCover', cover);
+    keyer.setUniform('uTime', elapsed);
+    keyer.setUniform('uSub', bands.sub);
+    keyer.setUniform('uMid', bands.mid);
+    keyer.setUniform('uHigh', bands.high);
+    keyer.setUniform('uKeyHue', (((P.keyHue ?? 120) % 360) + 360) % 360 / 360);
+    keyer.setUniform('uTolerance', P.tolerance ?? 0.16);
+    keyer.setUniform('uSoftness', P.softness ?? 0.12);
+    keyer.setUniform('uBgMode', P.bgMode ?? 1);
+    keyer.setUniform('uBgHue', (((P.bgHue ?? 275) % 360) + 360) % 360 / 360);
+    keyer.setUniform('uBgSat', P.bgSat ?? 0.7);
+    keyer.setUniform('uBgBright', P.bgBright ?? 0.55);
+    keyer.setUniform('uAudioReact', P.audioReact ?? 1);
+    p.rect(0, 0, p.width, p.height);
+  }
+
+  // Preserved raw-frame implementation for non-migrated/standalone callers.
+  function drawLegacy() {
     const P = params || {};
     const dt = Math.min(p.deltaTime || 16.667, 100) / 1000;
     elapsed += dt;
@@ -148,6 +226,11 @@ export default (audio, videoDeviceId, params, runtime) => (p) => {
     keyer.setUniform('uBgBright', P.bgBright ?? 0.55);
     keyer.setUniform('uAudioReact', P.audioReact ?? 1);
     p.rect(0, 0, p.width, p.height);
+  }
+
+  p.draw = () => {
+    if (audioControls) drawMigrated();
+    else drawLegacy();
   };
 
   p.windowResized = () => p.resizeCanvas(p.windowWidth, p.windowHeight);
