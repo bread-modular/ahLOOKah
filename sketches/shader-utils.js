@@ -117,7 +117,10 @@ export function makeAudioShader(audio, params, fragmentSource, mapUniforms, opti
   return (p) => {
     let effectShader;
     let elapsed = 0;
-    const getFeatures = makeAudioFeatures();
+    // Opted-in patterns receive render-ready controls from the capture owner.
+    // Do not even construct the local FFT feature extractor on that path.
+    const controlsBinding = options.audioControls || null;
+    const getFeatures = controlsBinding ? null : makeAudioFeatures();
 
     // Adaptive rendering: decide internal buffer scale. Heavy raymarch shaders
     // (large per-pixel loops) default to ~0.65-0.70 to avoid stalling LIVE/CUE/MERGE
@@ -159,46 +162,52 @@ export function makeAudioShader(audio, params, fragmentSource, mapUniforms, opti
       const deltaSeconds = Math.min(p.deltaTime || 16.667, 100) / 1000;
       elapsed += deltaSeconds;
 
-      const frame = audio && audio.isStarted && typeof audio.getAnalysisFrame === 'function'
-        ? audio.getAnalysisFrame()
-        : null;
-      const measured = getFeatures(frame, P, deltaSeconds);
-
-      // Keep every effect stage-ready before an input is selected. The idle
-      // loop includes the same kick/snare/hat vocabulary as live analysis, so
-      // each visual still previews its real musical choreography.
-      const bassGain = Math.max(0, P.bass ?? 1);
-      const midGain = Math.max(0, P.mid ?? 1);
-      const highGain = Math.max(0, P.high ?? 1);
-      const punch = Math.max(0, P.punch ?? 1);
-      const pulse = (rate, offset = 0, decay = 18) => {
-        const phase = ((elapsed * rate + offset) % 1 + 1) % 1;
-        return Math.exp(-phase * decay);
-      };
-      const rawKick = pulse(2.0);
-      const idleKick = Math.min(1.4, rawKick * bassGain * punch);
-      const idleSnare = Math.min(1.4, pulse(1.0, 0.5, 22) * midGain * punch);
-      const idleHat = Math.min(1.4, pulse(4.0, 0.5, 28) * highGain * punch);
-      const sway = 0.5 + 0.5 * Math.sin(elapsed * 1.37);
-      const bands = frame
-        ? measured
-        : {
-            sub: (0.14 + rawKick * 0.48) * bassGain,
-            mid: (0.12 + sway * 0.14) * midGain,
-            high: (0.08 + (1 - sway) * 0.16) * highGain,
-            energy: 0.18 + rawKick * 0.16 + sway * 0.06,
-            kick: idleKick,
-            snare: idleSnare,
-            hat: idleHat,
-            beat: idleKick,
-            impact: Math.max(idleKick, idleSnare * 0.72, idleHat * 0.42),
-            inputLevel: 0,
-          };
+      const controls = controlsBinding?.read?.() || null;
+      let frame = null;
+      let bands;
+      if (controlsBinding) {
+        // The migrated path maps only the controller's final custom uniforms.
+        // Header audio uniforms remain deterministic neutral values for shader
+        // compatibility, without any local musical/idle calculation.
+        bands = { sub: 0, mid: 0, high: 0, energy: 0, kick: 0, snare: 0, hat: 0, beat: 0, impact: 0, inputLevel: 0 };
+      } else {
+        frame = audio && audio.isStarted && typeof audio.getAnalysisFrame === 'function'
+          ? audio.getAnalysisFrame()
+          : null;
+        const measured = getFeatures(frame, P, deltaSeconds);
+        // Keep legacy shader effects stage-ready before an input is selected.
+        const bassGain = Math.max(0, P.bass ?? 1);
+        const midGain = Math.max(0, P.mid ?? 1);
+        const highGain = Math.max(0, P.high ?? 1);
+        const punch = Math.max(0, P.punch ?? 1);
+        const pulse = (rate, offset = 0, decay = 18) => {
+          const phase = ((elapsed * rate + offset) % 1 + 1) % 1;
+          return Math.exp(-phase * decay);
+        };
+        const rawKick = pulse(2.0);
+        const idleKick = Math.min(1.4, rawKick * bassGain * punch);
+        const idleSnare = Math.min(1.4, pulse(1.0, 0.5, 22) * midGain * punch);
+        const idleHat = Math.min(1.4, pulse(4.0, 0.5, 28) * highGain * punch);
+        const sway = 0.5 + 0.5 * Math.sin(elapsed * 1.37);
+        const idleBands = {
+          sub: (0.14 + rawKick * 0.48) * bassGain,
+          mid: (0.12 + sway * 0.14) * midGain,
+          high: (0.08 + (1 - sway) * 0.16) * highGain,
+          energy: 0.18 + rawKick * 0.16 + sway * 0.06,
+          kick: idleKick,
+          snare: idleSnare,
+          hat: idleHat,
+          beat: idleKick,
+          impact: Math.max(idleKick, idleSnare * 0.72, idleHat * 0.42),
+          inputLevel: 0,
+        };
+        bands = frame ? measured : idleBands;
+      }
 
       // Development tests and live tuning tools can inspect the exact feature
       // frame that reached the shader without production-frame allocations.
       if (import.meta.env.DEV) {
-        p.__audioFeatures = { ...bands, live: Boolean(frame) };
+        p.__audioFeatures = { ...bands, live: controlsBinding ? Boolean(controls?.isFresh) : Boolean(frame) };
       }
 
       p.shader(effectShader);
@@ -219,7 +228,7 @@ export function makeAudioShader(audio, params, fragmentSource, mapUniforms, opti
       effectShader.setUniform('uHat', bands.hat);
       effectShader.setUniform('uBeat', bands.beat);
 
-      const custom = mapUniforms ? mapUniforms(P, bands, p) : {};
+      const custom = mapUniforms ? mapUniforms(P, bands, p, controls) : {};
       for (const [name, value] of Object.entries(custom || {})) {
         effectShader.setUniform(name, value);
       }

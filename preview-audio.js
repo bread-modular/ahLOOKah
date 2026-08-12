@@ -47,6 +47,20 @@ export class PreviewAudio {
       fftSize: FFT_SIZE,
       time: 0,
     };
+    // A migrated-only screen may deliberately stop receiving full raw frames.
+    // This neutral sentinel keeps the legacy facade observably alive for status
+    // and diagnostics after capture is active, without reintroducing FFT data
+    // to migrated renderers (which never read this facade).
+    this.controlFrame = {
+      left: new Float32Array(FREQ_BINS),
+      right: new Float32Array(FREQ_BINS),
+      waveformLeft: new Float32Array(WAVE_SAMPLES),
+      waveformRight: new Float32Array(WAVE_SAMPLES),
+      sampleRate: SAMPLE_RATE,
+      fftSize: FFT_SIZE,
+      time: 0,
+      patternControlsOnly: true,
+    };
     this.idleAmplitude = { left: 0, right: 0 };
   }
 
@@ -95,6 +109,23 @@ export class PreviewAudio {
       ownerId: owner,
     };
     this.liveFrameAt = performance.now();
+    this.lastFrequencyFrame = null;
+    this.lastWaveformFrame = null;
+    this.isStarted = true;
+  }
+
+  // Mark a receiver as connected to an active capture stream when it receives
+  // compact controls but not a full analysis-frame. Retain a real raw frame if
+  // one is already fresh; a legacy sibling will then continue using that path.
+  setControlActive() {
+    const now = performance.now();
+    if (this.liveFrame && this.liveFrame !== this.controlFrame && !this._isFrameStale()) {
+      this.isStarted = true;
+      return;
+    }
+    this.controlFrame.time = now / 1000;
+    this.liveFrame = this.controlFrame;
+    this.liveFrameAt = now;
     this.lastFrequencyFrame = null;
     this.lastWaveformFrame = null;
     this.isStarted = true;

@@ -25,7 +25,10 @@
 //   Video FX            — live camera-input effects
 //   Glitch / Effects    — glitch / digital-artifact effects
 //   Basics              — simple building-block patterns
-import circles from './sketches/circles.js';
+import circles, {
+  AUDIO_CONTROL_SCHEMA as circlesAudioControlSchema,
+  createAudioController as createCirclesAudioController,
+} from './sketches/circles.js';
 import circlesCh1 from './sketches/circles_ch1.js';
 import bars from './sketches/bars.js';
 import techno3d from './sketches/techno3d.js';
@@ -35,7 +38,10 @@ import character3d from './sketches/character3d.js';
 import neonSpectrum from './sketches/neon_spectrum.js';
 import pulseRings from './sketches/pulse_rings.js';
 import particleStorm from './sketches/particle_storm.js';
-import waveformTunnel from './sketches/waveform_tunnel.js';
+import waveformTunnel, {
+  AUDIO_CONTROL_SCHEMA as waveformTunnelAudioControlSchema,
+  createAudioController as createWaveformTunnelAudioController,
+} from './sketches/waveform_tunnel.js';
 import chromaMandala from './sketches/chroma_mandala.js';
 import starfieldRush from './sketches/starfield_rush.js';
 import echoRipples from './sketches/echo_ripples.js';
@@ -81,7 +87,10 @@ import gradientWash from './sketches/gradient_wash.js';
 import colorBars from './sketches/color_bars.js';
 import noiseStatic from './sketches/noise_static.js';
 import filmGrain from './sketches/film_grain.js';
-import checkerboard from './sketches/checkerboard.js';
+import checkerboard, {
+  AUDIO_CONTROL_SCHEMA as checkerboardAudioControlSchema,
+  createAudioController as createCheckerboardAudioController,
+} from './sketches/checkerboard.js';
 // Camera-input FX (chroma keyer, kaleidoscope, pixelate, motion trails) and a
 // second wave of glitch looks for the grouped pattern library.
 import videoChroma from './sketches/video_chroma.js';
@@ -117,6 +126,9 @@ export const SKETCHES = [
     id: 'circles',
     name: 'Circles',
     factory: circles,
+    audioTransport: 'pattern-controls',
+    createAudioController: createCirclesAudioController,
+    audioControlSchema: circlesAudioControlSchema,
     params: [
       ...BAND_RESPONSIVENESS,
       { key: 'glitch', label: 'Glitch Amount', min: 0, max: 2, step: 0.05, default: 1 },
@@ -199,6 +211,9 @@ export const SKETCHES = [
     id: 'waveform-tunnel',
     name: 'Waveform Tunnel',
     factory: waveformTunnel,
+    audioTransport: 'pattern-controls',
+    createAudioController: createWaveformTunnelAudioController,
+    audioControlSchema: waveformTunnelAudioControlSchema,
     params: [
       { key: 'rings', label: 'Ring Count', min: 20, max: 80, step: 1, default: 46 },
       { key: 'twist', label: 'Twist Speed', min: 0, max: 3, step: 0.05, default: 1 },
@@ -693,6 +708,9 @@ export const SKETCHES = [
     id: 'checkerboard',
     name: 'Checkerboard',
     factory: checkerboard,
+    audioTransport: 'pattern-controls',
+    createAudioController: createCheckerboardAudioController,
+    audioControlSchema: checkerboardAudioControlSchema,
     params: [
       { key: 'cell', label: 'Cell Size', min: 12, max: 160, step: 2, default: 48 },
       { key: 'hueA', label: 'Hue A', min: 0, max: 1, step: 0.01, default: 0.58 },

@@ -2,7 +2,13 @@
 
 ## Status
 
-Implementation plan only. This document does not change runtime behavior.
+Implemented for the three pilot patterns: **Checkerboard**, **Circles**, and
+**Waveform Tunnel**. The raw `analysis-frame` path remains available for every
+non-migrated pattern.
+
+The implementation is split across `pattern-audio-protocol.js`,
+`pattern-audio-controls.js`, and `pattern-audio-engine.js`, with runtime/preview
+slot publication in `main.js` and `ProgramRuntime`.
 
 ## Decision
 
