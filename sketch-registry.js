@@ -29,83 +29,248 @@ import circles, {
   AUDIO_CONTROL_SCHEMA as circlesAudioControlSchema,
   createAudioController as createCirclesAudioController,
 } from './sketches/circles.js';
-import circlesCh1 from './sketches/circles_ch1.js';
-import bars from './sketches/bars.js';
-import techno3d from './sketches/techno3d.js';
-import character3d from './sketches/character3d.js';
+import circlesCh1, {
+  AUDIO_CONTROL_SCHEMA as circlesCh1AudioControlSchema,
+  createAudioController as createCirclesCh1AudioController,
+} from './sketches/circles_ch1.js';
+import bars, {
+  AUDIO_CONTROL_SCHEMA as barsAudioControlSchema,
+  createAudioController as createBarsAudioController,
+} from './sketches/bars.js';
+import techno3d, {
+  AUDIO_CONTROL_SCHEMA as techno3dAudioControlSchema,
+  createAudioController as createTechno3dAudioController,
+} from './sketches/techno3d.js';
+import character3d, {
+  AUDIO_CONTROL_SCHEMA as character3dAudioControlSchema,
+  createAudioController as createCharacter3dAudioController,
+} from './sketches/character3d.js';
 // Colorful audio-reactive visuals for live techno/noise shows
 // (camera-input sketches still live in ./sketches/ but are not registered)
-import neonSpectrum from './sketches/neon_spectrum.js';
-import pulseRings from './sketches/pulse_rings.js';
-import particleStorm from './sketches/particle_storm.js';
+import neonSpectrum, {
+  AUDIO_CONTROL_SCHEMA as neonSpectrumAudioControlSchema,
+  createAudioController as createNeonSpectrumAudioController,
+} from './sketches/neon_spectrum.js';
+import pulseRings, {
+  AUDIO_CONTROL_SCHEMA as pulseRingsAudioControlSchema,
+  createAudioController as createPulseRingsAudioController,
+} from './sketches/pulse_rings.js';
+import particleStorm, {
+  AUDIO_CONTROL_SCHEMA as particleStormAudioControlSchema,
+  createAudioController as createParticleStormAudioController,
+} from './sketches/particle_storm.js';
 import waveformTunnel, {
   AUDIO_CONTROL_SCHEMA as waveformTunnelAudioControlSchema,
   createAudioController as createWaveformTunnelAudioController,
 } from './sketches/waveform_tunnel.js';
-import chromaMandala from './sketches/chroma_mandala.js';
-import starfieldRush from './sketches/starfield_rush.js';
-import echoRipples from './sketches/echo_ripples.js';
-import laserGrid from './sketches/laser_grid.js';
-import strobePulse from './sketches/strobe_pulse.js';
-import plasmaWaves from './sketches/plasma_waves.js';
-import vortexSpiral from './sketches/vortex_spiral.js';
-import glitchMatrix from './sketches/glitch_matrix.js';
-import orbitalRings from './sketches/orbital_rings.js';
-import shockwaveBeats from './sketches/shockwave_beats.js';
-import neonRibbons from './sketches/neon_ribbons.js';
-import prismBurst from './sketches/prism_burst.js';
-import cosmicWeb from './sketches/cosmic_web.js';
+import chromaMandala, {
+  AUDIO_CONTROL_SCHEMA as chromaMandalaAudioControlSchema,
+  createAudioController as createChromaMandalaAudioController,
+} from './sketches/chroma_mandala.js';
+import starfieldRush, {
+  AUDIO_CONTROL_SCHEMA as starfieldRushAudioControlSchema,
+  createAudioController as createStarfieldRushAudioController,
+} from './sketches/starfield_rush.js';
+import echoRipples, {
+  AUDIO_CONTROL_SCHEMA as echoRipplesAudioControlSchema,
+  createAudioController as createEchoRipplesAudioController,
+} from './sketches/echo_ripples.js';
+import laserGrid, {
+  AUDIO_CONTROL_SCHEMA as laserGridAudioControlSchema,
+  createAudioController as createLaserGridAudioController,
+} from './sketches/laser_grid.js';
+import strobePulse, {
+  AUDIO_CONTROL_SCHEMA as strobePulseAudioControlSchema,
+  createAudioController as createStrobePulseAudioController,
+} from './sketches/strobe_pulse.js';
+import plasmaWaves, {
+  AUDIO_CONTROL_SCHEMA as plasmaWavesAudioControlSchema,
+  createAudioController as createPlasmaWavesAudioController,
+} from './sketches/plasma_waves.js';
+import vortexSpiral, {
+  AUDIO_CONTROL_SCHEMA as vortexSpiralAudioControlSchema,
+  createAudioController as createVortexSpiralAudioController,
+} from './sketches/vortex_spiral.js';
+import glitchMatrix, {
+  AUDIO_CONTROL_SCHEMA as glitchMatrixAudioControlSchema,
+  createAudioController as createGlitchMatrixAudioController,
+} from './sketches/glitch_matrix.js';
+import orbitalRings, {
+  AUDIO_CONTROL_SCHEMA as orbitalRingsAudioControlSchema,
+  createAudioController as createOrbitalRingsAudioController,
+} from './sketches/orbital_rings.js';
+import shockwaveBeats, {
+  AUDIO_CONTROL_SCHEMA as shockwaveBeatsAudioControlSchema,
+  createAudioController as createShockwaveBeatsAudioController,
+} from './sketches/shockwave_beats.js';
+import neonRibbons, {
+  AUDIO_CONTROL_SCHEMA as neonRibbonsAudioControlSchema,
+  createAudioController as createNeonRibbonsAudioController,
+} from './sketches/neon_ribbons.js';
+import prismBurst, {
+  AUDIO_CONTROL_SCHEMA as prismBurstAudioControlSchema,
+  createAudioController as createPrismBurstAudioController,
+} from './sketches/prism_burst.js';
+import cosmicWeb, {
+  AUDIO_CONTROL_SCHEMA as cosmicWebAudioControlSchema,
+  createAudioController as createCosmicWebAudioController,
+} from './sketches/cosmic_web.js';
 // GPU-first cinematic looks inspired by modern real-time VJ pipelines
-import eventHorizon from './sketches/event_horizon.js';
-import liquidChrome from './sketches/liquid_chrome.js';
-import laserCathedral from './sketches/laser_cathedral.js';
-import cymaticBloom from './sketches/cymatic_bloom.js';
-import holoSwarm from './sketches/holo_swarm.js';
+import eventHorizon, {
+  AUDIO_CONTROL_SCHEMA as eventHorizonAudioControlSchema,
+  createAudioController as createEventHorizonAudioController,
+} from './sketches/event_horizon.js';
+import liquidChrome, {
+  AUDIO_CONTROL_SCHEMA as liquidChromeAudioControlSchema,
+  createAudioController as createLiquidChromeAudioController,
+} from './sketches/liquid_chrome.js';
+import laserCathedral, {
+  AUDIO_CONTROL_SCHEMA as laserCathedralAudioControlSchema,
+  createAudioController as createLaserCathedralAudioController,
+} from './sketches/laser_cathedral.js';
+import cymaticBloom, {
+  AUDIO_CONTROL_SCHEMA as cymaticBloomAudioControlSchema,
+  createAudioController as createCymaticBloomAudioController,
+} from './sketches/cymatic_bloom.js';
+import holoSwarm, {
+  AUDIO_CONTROL_SCHEMA as holoSwarmAudioControlSchema,
+  createAudioController as createHoloSwarmAudioController,
+} from './sketches/holo_swarm.js';
 // State-of-the-art cinematic FX: volumetric aurora, 3D fractal, storm clouds,
 // ink-in-water fluid, and an infinite mirrored neon room.
-import auroraVeil from './sketches/aurora_veil.js';
-import mandelbulbDrift from './sketches/mandelbulb_drift.js';
-import stormSurge from './sketches/storm_surge.js';
-import inkDispersion from './sketches/ink_dispersion.js';
-import infinityMirror from './sketches/infinity_mirror.js';
+import auroraVeil, {
+  AUDIO_CONTROL_SCHEMA as auroraVeilAudioControlSchema,
+  createAudioController as createAuroraVeilAudioController,
+} from './sketches/aurora_veil.js';
+import mandelbulbDrift, {
+  AUDIO_CONTROL_SCHEMA as mandelbulbDriftAudioControlSchema,
+  createAudioController as createMandelbulbDriftAudioController,
+} from './sketches/mandelbulb_drift.js';
+import stormSurge, {
+  AUDIO_CONTROL_SCHEMA as stormSurgeAudioControlSchema,
+  createAudioController as createStormSurgeAudioController,
+} from './sketches/storm_surge.js';
+import inkDispersion, {
+  AUDIO_CONTROL_SCHEMA as inkDispersionAudioControlSchema,
+  createAudioController as createInkDispersionAudioController,
+} from './sketches/ink_dispersion.js';
+import infinityMirror, {
+  AUDIO_CONTROL_SCHEMA as infinityMirrorAudioControlSchema,
+  createAudioController as createInfinityMirrorAudioController,
+} from './sketches/infinity_mirror.js';
 // Additional cinematic FX from the patterns drop.
-import ionTempest from './sketches/ion_tempest.js';
-import crystalReliquary from './sketches/crystal_reliquary.js';
-import neuralCascade from './sketches/neural_cascade.js';
-import auroraReactor from './sketches/aurora_reactor.js';
-import warpLoom from './sketches/warp_loom.js';
+import ionTempest, {
+  AUDIO_CONTROL_SCHEMA as ionTempestAudioControlSchema,
+  createAudioController as createIonTempestAudioController,
+} from './sketches/ion_tempest.js';
+import crystalReliquary, {
+  AUDIO_CONTROL_SCHEMA as crystalReliquaryAudioControlSchema,
+  createAudioController as createCrystalReliquaryAudioController,
+} from './sketches/crystal_reliquary.js';
+import neuralCascade, {
+  AUDIO_CONTROL_SCHEMA as neuralCascadeAudioControlSchema,
+  createAudioController as createNeuralCascadeAudioController,
+} from './sketches/neural_cascade.js';
+import auroraReactor, {
+  AUDIO_CONTROL_SCHEMA as auroraReactorAudioControlSchema,
+  createAudioController as createAuroraReactorAudioController,
+} from './sketches/aurora_reactor.js';
+import warpLoom, {
+  AUDIO_CONTROL_SCHEMA as warpLoomAudioControlSchema,
+  createAudioController as createWarpLoomAudioController,
+} from './sketches/warp_loom.js';
 // Next-gen cinematic shader effects
-import fractalNebula from './sketches/fractal_nebula.js';
-import auroraStorm from './sketches/aurora_storm.js';
-import wormholeTransit from './sketches/wormhole_transit.js';
-import crystalCavern from './sketches/crystal_cavern.js';
-import neonMetropolis from './sketches/neon_metropolis.js';
+import fractalNebula, {
+  AUDIO_CONTROL_SCHEMA as fractalNebulaAudioControlSchema,
+  createAudioController as createFractalNebulaAudioController,
+} from './sketches/fractal_nebula.js';
+import auroraStorm, {
+  AUDIO_CONTROL_SCHEMA as auroraStormAudioControlSchema,
+  createAudioController as createAuroraStormAudioController,
+} from './sketches/aurora_storm.js';
+import wormholeTransit, {
+  AUDIO_CONTROL_SCHEMA as wormholeTransitAudioControlSchema,
+  createAudioController as createWormholeTransitAudioController,
+} from './sketches/wormhole_transit.js';
+import crystalCavern, {
+  AUDIO_CONTROL_SCHEMA as crystalCavernAudioControlSchema,
+  createAudioController as createCrystalCavernAudioController,
+} from './sketches/crystal_cavern.js';
+import neonMetropolis, {
+  AUDIO_CONTROL_SCHEMA as neonMetropolisAudioControlSchema,
+  createAudioController as createNeonMetropolisAudioController,
+} from './sketches/neon_metropolis.js';
 // Basics: simple building-block patterns (flat color, washes, bars, noise,
 // grain, checkerboard) for the grouped pattern library.
-import solidColor from './sketches/solid_color.js';
-import gradientWash from './sketches/gradient_wash.js';
-import colorBars from './sketches/color_bars.js';
-import noiseStatic from './sketches/noise_static.js';
-import filmGrain from './sketches/film_grain.js';
+import solidColor, {
+  AUDIO_CONTROL_SCHEMA as solidColorAudioControlSchema,
+  createAudioController as createSolidColorAudioController,
+} from './sketches/solid_color.js';
+import gradientWash, {
+  AUDIO_CONTROL_SCHEMA as gradientWashAudioControlSchema,
+  createAudioController as createGradientWashAudioController,
+} from './sketches/gradient_wash.js';
+import colorBars, {
+  AUDIO_CONTROL_SCHEMA as colorBarsAudioControlSchema,
+  createAudioController as createColorBarsAudioController,
+} from './sketches/color_bars.js';
+import noiseStatic, {
+  AUDIO_CONTROL_SCHEMA as noiseStaticAudioControlSchema,
+  createAudioController as createNoiseStaticAudioController,
+} from './sketches/noise_static.js';
+import filmGrain, {
+  AUDIO_CONTROL_SCHEMA as filmGrainAudioControlSchema,
+  createAudioController as createFilmGrainAudioController,
+} from './sketches/film_grain.js';
 import checkerboard, {
   AUDIO_CONTROL_SCHEMA as checkerboardAudioControlSchema,
   createAudioController as createCheckerboardAudioController,
 } from './sketches/checkerboard.js';
 // Camera-input FX (chroma keyer, kaleidoscope, pixelate, motion trails) and a
 // second wave of glitch looks for the grouped pattern library.
-import videoChroma from './sketches/video_chroma.js';
-import videoKaleido from './sketches/video_kaleido.js';
-import videoPixelate from './sketches/video_pixelate.js';
-import videoTrails from './sketches/video_trails.js';
-import glitchRgbSplit from './sketches/glitch_rgb_split.js';
-import glitchScanlines from './sketches/glitch_scanlines.js';
-import glitchSlices from './sketches/glitch_slices.js';
-import glitchCrt from './sketches/glitch_crt.js';
+import videoChroma, {
+  AUDIO_CONTROL_SCHEMA as videoChromaAudioControlSchema,
+  createAudioController as createVideoChromaAudioController,
+} from './sketches/video_chroma.js';
+import videoKaleido, {
+  AUDIO_CONTROL_SCHEMA as videoKaleidoAudioControlSchema,
+  createAudioController as createVideoKaleidoAudioController,
+} from './sketches/video_kaleido.js';
+import videoPixelate, {
+  AUDIO_CONTROL_SCHEMA as videoPixelateAudioControlSchema,
+  createAudioController as createVideoPixelateAudioController,
+} from './sketches/video_pixelate.js';
+import videoTrails, {
+  AUDIO_CONTROL_SCHEMA as videoTrailsAudioControlSchema,
+  createAudioController as createVideoTrailsAudioController,
+} from './sketches/video_trails.js';
+import glitchRgbSplit, {
+  AUDIO_CONTROL_SCHEMA as glitchRgbSplitAudioControlSchema,
+  createAudioController as createGlitchRgbSplitAudioController,
+} from './sketches/glitch_rgb_split.js';
+import glitchScanlines, {
+  AUDIO_CONTROL_SCHEMA as glitchScanlinesAudioControlSchema,
+  createAudioController as createGlitchScanlinesAudioController,
+} from './sketches/glitch_scanlines.js';
+import glitchSlices, {
+  AUDIO_CONTROL_SCHEMA as glitchSlicesAudioControlSchema,
+  createAudioController as createGlitchSlicesAudioController,
+} from './sketches/glitch_slices.js';
+import glitchCrt, {
+  AUDIO_CONTROL_SCHEMA as glitchCrtAudioControlSchema,
+  createAudioController as createGlitchCrtAudioController,
+} from './sketches/glitch_crt.js';
 // Legacy camera-input sketches surfaced into the library (registered now so
 // they appear under Video FX with live params; each tolerates a missing camera
 // by drawing a fallback/black frame until capture is ready).
-import webcamDotsGpu from './sketches/webcam_dots_gpu.js';
-import webcamHighContrast from './sketches/webcam_high_contrast.js';
+import webcamDotsGpu, {
+  AUDIO_CONTROL_SCHEMA as webcamDotsGpuAudioControlSchema,
+  createAudioController as createWebcamDotsGpuAudioController,
+} from './sketches/webcam_dots_gpu.js';
+import webcamHighContrast, {
+  AUDIO_CONTROL_SCHEMA as webcamHighContrastAudioControlSchema,
+  createAudioController as createWebcamHighContrastAudioController,
+} from './sketches/webcam_high_contrast.js';
 
 // Shared "responsiveness" triple used by many effects (0..2, default 1)
 const BAND_RESPONSIVENESS = [
@@ -139,6 +304,9 @@ export const SKETCHES = [
     id: 'circles-ch1',
     name: 'Circles CH1',
     factory: circlesCh1,
+    audioTransport: 'pattern-controls',
+    createAudioController: createCirclesCh1AudioController,
+    audioControlSchema: circlesCh1AudioControlSchema,
     params: BAND_RESPONSIVENESS,
     group: 'Rhythmic',
   }, // 2
@@ -146,6 +314,9 @@ export const SKETCHES = [
     id: 'bars',
     name: 'Bars',
     factory: bars,
+    audioTransport: 'pattern-controls',
+    createAudioController: createBarsAudioController,
+    audioControlSchema: barsAudioControlSchema,
     params: [
       { key: 'gain', label: 'Amplitude Gain', min: 0.2, max: 3, step: 0.05, default: 1 },
       { key: 'barWidth', label: 'Bar Width', min: 2, max: 16, step: 1, default: 4 },
@@ -157,6 +328,9 @@ export const SKETCHES = [
     id: 'techno3d',
     name: 'Techno 3D',
     factory: techno3d,
+    audioTransport: 'pattern-controls',
+    createAudioController: createTechno3dAudioController,
+    audioControlSchema: techno3dAudioControlSchema,
     params: [
       { key: 'spin', label: 'Spin Speed', min: 0, max: 3, step: 0.05, default: 1 },
       ...BAND_RESPONSIVENESS,
@@ -167,6 +341,9 @@ export const SKETCHES = [
     id: 'character3d',
     name: 'Character 3D',
     factory: character3d,
+    audioTransport: 'pattern-controls',
+    createAudioController: createCharacter3dAudioController,
+    audioControlSchema: character3dAudioControlSchema,
     params: [
       { key: 'groove', label: 'Groove Speed', min: 0, max: 3, step: 0.05, default: 1 },
       ...BAND_RESPONSIVENESS,
@@ -177,6 +354,9 @@ export const SKETCHES = [
     id: 'neon-spectrum',
     name: 'Neon Spectrum',
     factory: neonSpectrum,
+    audioTransport: 'pattern-controls',
+    createAudioController: createNeonSpectrumAudioController,
+    audioControlSchema: neonSpectrumAudioControlSchema,
     params: [
       ...BAND_RESPONSIVENESS,
       { key: 'bars', label: 'Bar Count', min: 24, max: 144, step: 1, default: 72 },
@@ -187,6 +367,9 @@ export const SKETCHES = [
     id: 'pulse-rings',
     name: 'Pulse Rings',
     factory: pulseRings,
+    audioTransport: 'pattern-controls',
+    createAudioController: createPulseRingsAudioController,
+    audioControlSchema: pulseRingsAudioControlSchema,
     params: [
       { key: 'kick', label: 'Kick Threshold', min: 0.2, max: 0.6, step: 0.01, default: 0.35 },
       { key: 'speed', label: 'Ring Speed', min: 0, max: 3, step: 0.05, default: 1 },
@@ -199,6 +382,9 @@ export const SKETCHES = [
     id: 'particle-storm',
     name: 'Particle Storm',
     factory: particleStorm,
+    audioTransport: 'pattern-controls',
+    createAudioController: createParticleStormAudioController,
+    audioControlSchema: particleStormAudioControlSchema,
     params: [
       { key: 'count', label: 'Particle Count', min: 50, max: 800, step: 10, default: 320 },
       { key: 'burst', label: 'Burst Strength', min: 0, max: 3, step: 0.05, default: 1 },
@@ -226,6 +412,9 @@ export const SKETCHES = [
     id: 'chroma-mandala',
     name: 'Chroma Mandala',
     factory: chromaMandala,
+    audioTransport: 'pattern-controls',
+    createAudioController: createChromaMandalaAudioController,
+    audioControlSchema: chromaMandalaAudioControlSchema,
     params: [
       { key: 'petals', label: 'Petals', min: 6, max: 24, step: 1, default: 12 },
       { key: 'spin', label: 'Spin Speed', min: 0, max: 3, step: 0.05, default: 1 },
@@ -238,6 +427,9 @@ export const SKETCHES = [
     id: 'starfield-rush',
     name: 'Starfield Rush',
     factory: starfieldRush,
+    audioTransport: 'pattern-controls',
+    createAudioController: createStarfieldRushAudioController,
+    audioControlSchema: starfieldRushAudioControlSchema,
     params: [
       { key: 'count', label: 'Star Count', min: 50, max: 600, step: 10, default: 240 },
       { key: 'warp', label: 'Warp Speed', min: 0, max: 3, step: 0.05, default: 1 },
@@ -250,6 +442,9 @@ export const SKETCHES = [
     id: 'echo-ripples',
     name: 'Echo Ripples',
     factory: echoRipples,
+    audioTransport: 'pattern-controls',
+    createAudioController: createEchoRipplesAudioController,
+    audioControlSchema: echoRipplesAudioControlSchema,
     params: [
       { key: 'speed', label: 'Ripple Speed', min: 0, max: 3, step: 0.05, default: 1 },
       { key: 'ripples', label: 'Max Ripples', min: 4, max: 32, step: 1, default: 20 },
@@ -262,6 +457,9 @@ export const SKETCHES = [
     id: 'laser-grid',
     name: 'Laser Grid',
     factory: laserGrid,
+    audioTransport: 'pattern-controls',
+    createAudioController: createLaserGridAudioController,
+    audioControlSchema: laserGridAudioControlSchema,
     params: [
       ...BAND_RESPONSIVENESS,
       { key: 'grid', label: 'Grid Lines', min: 8, max: 32, step: 1, default: 18 },
@@ -274,6 +472,9 @@ export const SKETCHES = [
     id: 'strobe-pulse',
     name: 'Strobe Pulse',
     factory: strobePulse,
+    audioTransport: 'pattern-controls',
+    createAudioController: createStrobePulseAudioController,
+    audioControlSchema: strobePulseAudioControlSchema,
     params: [
       { key: 'threshold', label: 'Kick Threshold', min: 0.15, max: 0.6, step: 0.01, default: 0.32 },
       { key: 'decay', label: 'Flash Decay', min: 0.6, max: 0.97, step: 0.01, default: 0.82 },
@@ -286,6 +487,9 @@ export const SKETCHES = [
     id: 'plasma-waves',
     name: 'Plasma Waves',
     factory: plasmaWaves,
+    audioTransport: 'pattern-controls',
+    createAudioController: createPlasmaWavesAudioController,
+    audioControlSchema: plasmaWavesAudioControlSchema,
     params: [
       ...BAND_RESPONSIVENESS,
       { key: 'cell', label: 'Cell Size', min: 4, max: 24, step: 1, default: 10 },
@@ -298,6 +502,9 @@ export const SKETCHES = [
     id: 'vortex-spiral',
     name: 'Vortex Spiral',
     factory: vortexSpiral,
+    audioTransport: 'pattern-controls',
+    createAudioController: createVortexSpiralAudioController,
+    audioControlSchema: vortexSpiralAudioControlSchema,
     params: [
       ...BAND_RESPONSIVENESS,
       { key: 'arms', label: 'Spiral Arms', min: 2, max: 12, step: 1, default: 5 },
@@ -311,6 +518,9 @@ export const SKETCHES = [
     id: 'glitch-matrix',
     name: 'Glitch Matrix',
     factory: glitchMatrix,
+    audioTransport: 'pattern-controls',
+    createAudioController: createGlitchMatrixAudioController,
+    audioControlSchema: glitchMatrixAudioControlSchema,
     params: [
       { key: 'columns', label: 'Columns', min: 15, max: 80, step: 1, default: 40 },
       { key: 'speed', label: 'Fall Speed', min: 0, max: 3, step: 0.05, default: 1 },
@@ -323,6 +533,9 @@ export const SKETCHES = [
     id: 'orbital-rings',
     name: 'Orbital Rings',
     factory: orbitalRings,
+    audioTransport: 'pattern-controls',
+    createAudioController: createOrbitalRingsAudioController,
+    audioControlSchema: orbitalRingsAudioControlSchema,
     params: [
       ...BAND_RESPONSIVENESS,
       { key: 'rings', label: 'Ring Count', min: 2, max: 10, step: 1, default: 5 },
@@ -336,6 +549,9 @@ export const SKETCHES = [
     id: 'shockwave-beats',
     name: 'Shockwave Beats',
     factory: shockwaveBeats,
+    audioTransport: 'pattern-controls',
+    createAudioController: createShockwaveBeatsAudioController,
+    audioControlSchema: shockwaveBeatsAudioControlSchema,
     params: [
       { key: 'threshold', label: 'Kick Threshold', min: 0.15, max: 0.6, step: 0.01, default: 0.3 },
       { key: 'speed', label: 'Wave Speed', min: 0, max: 3, step: 0.05, default: 1 },
@@ -348,6 +564,9 @@ export const SKETCHES = [
     id: 'neon-ribbons',
     name: 'Neon Ribbons',
     factory: neonRibbons,
+    audioTransport: 'pattern-controls',
+    createAudioController: createNeonRibbonsAudioController,
+    audioControlSchema: neonRibbonsAudioControlSchema,
     params: [
       ...BAND_RESPONSIVENESS,
       { key: 'ribbons', label: 'Ribbon Count', min: 2, max: 16, step: 1, default: 6 },
@@ -361,6 +580,9 @@ export const SKETCHES = [
     id: 'prism-burst',
     name: 'Prism Burst',
     factory: prismBurst,
+    audioTransport: 'pattern-controls',
+    createAudioController: createPrismBurstAudioController,
+    audioControlSchema: prismBurstAudioControlSchema,
     params: [
       ...BAND_RESPONSIVENESS,
       { key: 'rays', label: 'Ray Count', min: 12, max: 96, step: 2, default: 48 },
@@ -374,6 +596,9 @@ export const SKETCHES = [
     id: 'cosmic-web',
     name: 'Cosmic Web',
     factory: cosmicWeb,
+    audioTransport: 'pattern-controls',
+    createAudioController: createCosmicWebAudioController,
+    audioControlSchema: cosmicWebAudioControlSchema,
     params: [
       ...BAND_RESPONSIVENESS,
       { key: 'nodes', label: 'Node Count', min: 30, max: 200, step: 5, default: 90 },
@@ -387,6 +612,9 @@ export const SKETCHES = [
     id: 'event-horizon',
     name: 'Event Horizon',
     factory: eventHorizon,
+    audioTransport: 'pattern-controls',
+    createAudioController: createEventHorizonAudioController,
+    audioControlSchema: eventHorizonAudioControlSchema,
     params: [
       ...PREMIUM_AUDIO_RESPONSIVENESS,
       { key: 'gravity', label: 'Gravity Lens', min: 0.4, max: 2, step: 0.05, default: 1 },
@@ -400,6 +628,9 @@ export const SKETCHES = [
     id: 'liquid-chrome',
     name: 'Liquid Chrome',
     factory: liquidChrome,
+    audioTransport: 'pattern-controls',
+    createAudioController: createLiquidChromeAudioController,
+    audioControlSchema: liquidChromeAudioControlSchema,
     params: [
       ...PREMIUM_AUDIO_RESPONSIVENESS,
       { key: 'morph', label: 'Liquid Morph', min: 0, max: 2, step: 0.05, default: 1 },
@@ -413,6 +644,9 @@ export const SKETCHES = [
     id: 'laser-cathedral',
     name: 'Laser Cathedral',
     factory: laserCathedral,
+    audioTransport: 'pattern-controls',
+    createAudioController: createLaserCathedralAudioController,
+    audioControlSchema: laserCathedralAudioControlSchema,
     params: [
       ...PREMIUM_AUDIO_RESPONSIVENESS,
       { key: 'speed', label: 'Flight Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
@@ -426,6 +660,9 @@ export const SKETCHES = [
     id: 'cymatic-bloom',
     name: 'Cymatic Bloom',
     factory: cymaticBloom,
+    audioTransport: 'pattern-controls',
+    createAudioController: createCymaticBloomAudioController,
+    audioControlSchema: cymaticBloomAudioControlSchema,
     params: [
       ...PREMIUM_AUDIO_RESPONSIVENESS,
       { key: 'symmetry', label: 'Kaleido Symmetry', min: 4, max: 18, step: 1, default: 10 },
@@ -439,6 +676,9 @@ export const SKETCHES = [
     id: 'holo-swarm',
     name: 'Holo Swarm',
     factory: holoSwarm,
+    audioTransport: 'pattern-controls',
+    createAudioController: createHoloSwarmAudioController,
+    audioControlSchema: holoSwarmAudioControlSchema,
     params: [
       ...PREMIUM_AUDIO_RESPONSIVENESS,
       { key: 'morph', label: 'Shape Morph', min: 0, max: 2, step: 0.05, default: 1 },
@@ -452,6 +692,9 @@ export const SKETCHES = [
     id: 'aurora-veil',
     name: 'Aurora Veil',
     factory: auroraVeil,
+    audioTransport: 'pattern-controls',
+    createAudioController: createAuroraVeilAudioController,
+    audioControlSchema: auroraVeilAudioControlSchema,
     params: [
       ...PREMIUM_AUDIO_RESPONSIVENESS,
       { key: 'curtain', label: 'Curtain Height', min: 0.4, max: 2, step: 0.05, default: 1 },
@@ -465,6 +708,9 @@ export const SKETCHES = [
     id: 'mandelbulb-drift',
     name: 'Mandelbulb Drift',
     factory: mandelbulbDrift,
+    audioTransport: 'pattern-controls',
+    createAudioController: createMandelbulbDriftAudioController,
+    audioControlSchema: mandelbulbDriftAudioControlSchema,
     params: [
       ...PREMIUM_AUDIO_RESPONSIVENESS,
       { key: 'power', label: 'Fractal Power', min: 2, max: 12, step: 0.1, default: 8 },
@@ -478,6 +724,9 @@ export const SKETCHES = [
     id: 'storm-surge',
     name: 'Storm Surge',
     factory: stormSurge,
+    audioTransport: 'pattern-controls',
+    createAudioController: createStormSurgeAudioController,
+    audioControlSchema: stormSurgeAudioControlSchema,
     params: [
       ...PREMIUM_AUDIO_RESPONSIVENESS,
       { key: 'cover', label: 'Cloud Cover', min: 0.3, max: 2, step: 0.05, default: 1 },
@@ -491,6 +740,9 @@ export const SKETCHES = [
     id: 'ink-dispersion',
     name: 'Ink Dispersion',
     factory: inkDispersion,
+    audioTransport: 'pattern-controls',
+    createAudioController: createInkDispersionAudioController,
+    audioControlSchema: inkDispersionAudioControlSchema,
     params: [
       ...PREMIUM_AUDIO_RESPONSIVENESS,
       { key: 'viscosity', label: 'Ink Viscosity', min: 0.3, max: 2, step: 0.05, default: 1 },
@@ -504,6 +756,9 @@ export const SKETCHES = [
     id: 'infinity-mirror',
     name: 'Infinity Mirror',
     factory: infinityMirror,
+    audioTransport: 'pattern-controls',
+    createAudioController: createInfinityMirrorAudioController,
+    audioControlSchema: infinityMirrorAudioControlSchema,
     params: [
       ...PREMIUM_AUDIO_RESPONSIVENESS,
       { key: 'mirrors', label: 'Mirror Reflect', min: 0.2, max: 1, step: 0.05, default: 0.8 },
@@ -517,6 +772,9 @@ export const SKETCHES = [
     id: 'ion-tempest',
     name: 'Ion Tempest',
     factory: ionTempest,
+    audioTransport: 'pattern-controls',
+    createAudioController: createIonTempestAudioController,
+    audioControlSchema: ionTempestAudioControlSchema,
     params: [
       ...PREMIUM_AUDIO_RESPONSIVENESS,
       { key: 'storm', label: 'Storm Density', min: 0.3, max: 2, step: 0.05, default: 1 },
@@ -530,6 +788,9 @@ export const SKETCHES = [
     id: 'crystal-reliquary',
     name: 'Crystal Reliquary',
     factory: crystalReliquary,
+    audioTransport: 'pattern-controls',
+    createAudioController: createCrystalReliquaryAudioController,
+    audioControlSchema: crystalReliquaryAudioControlSchema,
     params: [
       ...PREMIUM_AUDIO_RESPONSIVENESS,
       { key: 'scale', label: 'Crystal Scale', min: 0.45, max: 1.8, step: 0.05, default: 1 },
@@ -543,6 +804,9 @@ export const SKETCHES = [
     id: 'neural-cascade',
     name: 'Neural Cascade',
     factory: neuralCascade,
+    audioTransport: 'pattern-controls',
+    createAudioController: createNeuralCascadeAudioController,
+    audioControlSchema: neuralCascadeAudioControlSchema,
     params: [
       ...PREMIUM_AUDIO_RESPONSIVENESS,
       { key: 'nodes', label: 'Synapse Density', min: 0.35, max: 2, step: 0.05, default: 1 },
@@ -556,6 +820,9 @@ export const SKETCHES = [
     id: 'aurora-reactor',
     name: 'Aurora Reactor',
     factory: auroraReactor,
+    audioTransport: 'pattern-controls',
+    createAudioController: createAuroraReactorAudioController,
+    audioControlSchema: auroraReactorAudioControlSchema,
     params: [
       ...PREMIUM_AUDIO_RESPONSIVENESS,
       { key: 'field', label: 'Magnetic Field', min: 0.25, max: 2, step: 0.05, default: 1 },
@@ -569,6 +836,9 @@ export const SKETCHES = [
     id: 'warp-loom',
     name: 'Warp Loom',
     factory: warpLoom,
+    audioTransport: 'pattern-controls',
+    createAudioController: createWarpLoomAudioController,
+    audioControlSchema: warpLoomAudioControlSchema,
     params: [
       ...PREMIUM_AUDIO_RESPONSIVENESS,
       { key: 'threads', label: 'Thread Count', min: 0.35, max: 2, step: 0.05, default: 1 },
@@ -582,6 +852,9 @@ export const SKETCHES = [
     id: 'fractal-nebula',
     name: 'Fractal Nebula',
     factory: fractalNebula,
+    audioTransport: 'pattern-controls',
+    createAudioController: createFractalNebulaAudioController,
+    audioControlSchema: fractalNebulaAudioControlSchema,
     params: [
       ...PREMIUM_AUDIO_RESPONSIVENESS,
       { key: 'power', label: 'Fractal Power', min: 0, max: 2, step: 0.05, default: 1 },
@@ -595,6 +868,9 @@ export const SKETCHES = [
     id: 'aurora-storm',
     name: 'Aurora Storm',
     factory: auroraStorm,
+    audioTransport: 'pattern-controls',
+    createAudioController: createAuroraStormAudioController,
+    audioControlSchema: auroraStormAudioControlSchema,
     params: [
       ...PREMIUM_AUDIO_RESPONSIVENESS,
       { key: 'curtains', label: 'Curtain Layers', min: 0.2, max: 2, step: 0.05, default: 1 },
@@ -608,6 +884,9 @@ export const SKETCHES = [
     id: 'wormhole-transit',
     name: 'Wormhole Transit',
     factory: wormholeTransit,
+    audioTransport: 'pattern-controls',
+    createAudioController: createWormholeTransitAudioController,
+    audioControlSchema: wormholeTransitAudioControlSchema,
     params: [
       ...PREMIUM_AUDIO_RESPONSIVENESS,
       { key: 'twist', label: 'Spacetime Twist', min: 0, max: 2, step: 0.05, default: 1 },
@@ -621,6 +900,9 @@ export const SKETCHES = [
     id: 'crystal-cavern',
     name: 'Crystal Cavern',
     factory: crystalCavern,
+    audioTransport: 'pattern-controls',
+    createAudioController: createCrystalCavernAudioController,
+    audioControlSchema: crystalCavernAudioControlSchema,
     params: [
       ...PREMIUM_AUDIO_RESPONSIVENESS,
       { key: 'crystalSize', label: 'Crystal Scale', min: 0.4, max: 2, step: 0.05, default: 1 },
@@ -634,6 +916,9 @@ export const SKETCHES = [
     id: 'neon-metropolis',
     name: 'Neon Metropolis',
     factory: neonMetropolis,
+    audioTransport: 'pattern-controls',
+    createAudioController: createNeonMetropolisAudioController,
+    audioControlSchema: neonMetropolisAudioControlSchema,
     params: [
       ...PREMIUM_AUDIO_RESPONSIVENESS,
       { key: 'skyline', label: 'Skyline Density', min: 0.2, max: 2, step: 0.05, default: 1 },
@@ -647,6 +932,9 @@ export const SKETCHES = [
     id: 'solid-color',
     name: 'Solid Color',
     factory: solidColor,
+    audioTransport: 'pattern-controls',
+    createAudioController: createSolidColorAudioController,
+    audioControlSchema: solidColorAudioControlSchema,
     params: [
       { key: 'hue', label: 'Hue', min: 0, max: 1, step: 0.01, default: 0.6 },
       { key: 'saturation', label: 'Saturation', min: 0, max: 1, step: 0.01, default: 0.7 },
@@ -659,6 +947,9 @@ export const SKETCHES = [
     id: 'gradient-wash',
     name: 'Color Wash',
     factory: gradientWash,
+    audioTransport: 'pattern-controls',
+    createAudioController: createGradientWashAudioController,
+    audioControlSchema: gradientWashAudioControlSchema,
     params: [
       { key: 'hueA', label: 'Hue A', min: 0, max: 1, step: 0.01, default: 0.55 },
       { key: 'hueB', label: 'Hue B', min: 0, max: 1, step: 0.01, default: 0.92 },
@@ -671,6 +962,9 @@ export const SKETCHES = [
     id: 'color-bars',
     name: 'Color Bars',
     factory: colorBars,
+    audioTransport: 'pattern-controls',
+    createAudioController: createColorBarsAudioController,
+    audioControlSchema: colorBarsAudioControlSchema,
     params: [
       { key: 'bars', label: 'Bar Count', min: 2, max: 24, step: 1, default: 8 },
       { key: 'saturation', label: 'Saturation', min: 0, max: 1, step: 0.01, default: 0.85 },
@@ -683,6 +977,9 @@ export const SKETCHES = [
     id: 'noise-static',
     name: 'Noise Static',
     factory: noiseStatic,
+    audioTransport: 'pattern-controls',
+    createAudioController: createNoiseStaticAudioController,
+    audioControlSchema: noiseStaticAudioControlSchema,
     params: [
       { key: 'intensity', label: 'Intensity', min: 0, max: 1, step: 0.01, default: 0.7 },
       { key: 'density', label: 'Density (Block Size)', min: 1, max: 12, step: 1, default: 3 },
@@ -695,6 +992,9 @@ export const SKETCHES = [
     id: 'film-grain',
     name: 'Film Grain',
     factory: filmGrain,
+    audioTransport: 'pattern-controls',
+    createAudioController: createFilmGrainAudioController,
+    audioControlSchema: filmGrainAudioControlSchema,
     params: [
       { key: 'amount', label: 'Grain Amount', min: 0, max: 1, step: 0.01, default: 0.5 },
       { key: 'size', label: 'Grain Size', min: 1, max: 8, step: 1, default: 2 },
@@ -724,6 +1024,9 @@ export const SKETCHES = [
     id: 'video-chroma',
     name: 'Video Chroma Key',
     factory: videoChroma,
+    audioTransport: 'pattern-controls',
+    createAudioController: createVideoChromaAudioController,
+    audioControlSchema: videoChromaAudioControlSchema,
     params: [
       { key: 'keyHue', label: 'Key Hue', min: 0, max: 360, step: 1, default: 120 },
       { key: 'tolerance', label: 'Key Tolerance', min: 0.02, max: 0.5, step: 0.01, default: 0.16 },
@@ -741,6 +1044,9 @@ export const SKETCHES = [
     id: 'video-kaleido',
     name: 'Video Kaleidoscope',
     factory: videoKaleido,
+    audioTransport: 'pattern-controls',
+    createAudioController: createVideoKaleidoAudioController,
+    audioControlSchema: videoKaleidoAudioControlSchema,
     params: [
       { key: 'segments', label: 'Segments', min: 3, max: 12, step: 1, default: 6 },
       { key: 'speed', label: 'Rotation Speed', min: 0, max: 3, step: 0.05, default: 0.6 },
@@ -756,6 +1062,9 @@ export const SKETCHES = [
     id: 'video-pixelate',
     name: 'Video Pixelate',
     factory: videoPixelate,
+    audioTransport: 'pattern-controls',
+    createAudioController: createVideoPixelateAudioController,
+    audioControlSchema: videoPixelateAudioControlSchema,
     params: [
       { key: 'block', label: 'Block Size', min: 2, max: 64, step: 1, default: 14 },
       { key: 'audioBlocks', label: 'Audio Block Swell', min: 0, max: 2, step: 0.05, default: 0.8 },
@@ -770,6 +1079,9 @@ export const SKETCHES = [
     id: 'video-trails',
     name: 'Video Trails',
     factory: videoTrails,
+    audioTransport: 'pattern-controls',
+    createAudioController: createVideoTrailsAudioController,
+    audioControlSchema: videoTrailsAudioControlSchema,
     params: [
       { key: 'decay', label: 'Trail Decay', min: 0, max: 1, step: 0.01, default: 0.6 },
       { key: 'tintHue', label: 'Tint Hue', min: 0, max: 1, step: 0.01, default: 0.6 },
@@ -783,6 +1095,9 @@ export const SKETCHES = [
     id: 'glitch-rgb-split',
     name: 'RGB Split',
     factory: glitchRgbSplit,
+    audioTransport: 'pattern-controls',
+    createAudioController: createGlitchRgbSplitAudioController,
+    audioControlSchema: glitchRgbSplitAudioControlSchema,
     params: [
       { key: 'intensity', label: 'Base Offset', min: 0, max: 1, step: 0.01, default: 0.4 },
       { key: 'burst', label: 'Burst Strength', min: 0, max: 2, step: 0.05, default: 1 },
@@ -795,6 +1110,9 @@ export const SKETCHES = [
     id: 'glitch-scanlines',
     name: 'Scanline Roll',
     factory: glitchScanlines,
+    audioTransport: 'pattern-controls',
+    createAudioController: createGlitchScanlinesAudioController,
+    audioControlSchema: glitchScanlinesAudioControlSchema,
     params: [
       { key: 'speed', label: 'Roll Speed', min: 0, max: 3, step: 0.05, default: 1 },
       { key: 'intensity', label: 'Jitter Intensity', min: 0, max: 2, step: 0.05, default: 1 },
@@ -807,6 +1125,9 @@ export const SKETCHES = [
     id: 'glitch-slices',
     name: 'Slice Glitch',
     factory: glitchSlices,
+    audioTransport: 'pattern-controls',
+    createAudioController: createGlitchSlicesAudioController,
+    audioControlSchema: glitchSlicesAudioControlSchema,
     params: [
       { key: 'slices', label: 'Slice Count', min: 0, max: 24, step: 1, default: 10 },
       { key: 'shift', label: 'Max Shift', min: 0, max: 1, step: 0.01, default: 0.5 },
@@ -820,6 +1141,9 @@ export const SKETCHES = [
     id: 'glitch-crt',
     name: 'CRT Glitch',
     factory: glitchCrt,
+    audioTransport: 'pattern-controls',
+    createAudioController: createGlitchCrtAudioController,
+    audioControlSchema: glitchCrtAudioControlSchema,
     params: [
       { key: 'curvature', label: 'Tube Curvature', min: 0, max: 1, step: 0.01, default: 0.6 },
       { key: 'scanlines', label: 'Scanlines', min: 0, max: 1, step: 0.01, default: 0.7 },
@@ -836,6 +1160,9 @@ export const SKETCHES = [
     id: 'video-dots-gpu',
     name: 'Video Dots GPU',
     factory: webcamDotsGpu,
+    audioTransport: 'pattern-controls',
+    createAudioController: createWebcamDotsGpuAudioController,
+    audioControlSchema: webcamDotsGpuAudioControlSchema,
     params: [
       { key: 'spacing', label: 'Dot Spacing', min: 4, max: 24, step: 0.5, default: 12 },
       { key: 'glitch', label: 'Glitch Amount', min: 0, max: 2, step: 0.05, default: 1 },
@@ -848,6 +1175,9 @@ export const SKETCHES = [
     id: 'video-high-contrast',
     name: 'Video High Contrast',
     factory: webcamHighContrast,
+    audioTransport: 'pattern-controls',
+    createAudioController: createWebcamHighContrastAudioController,
+    audioControlSchema: webcamHighContrastAudioControlSchema,
     params: [
       { key: 'threshold', label: 'Threshold', min: 0, max: 1, step: 0.01, default: 0.35 },
       { key: 'contrast', label: 'Contrast', min: 0, max: 2, step: 0.05, default: 1 },
