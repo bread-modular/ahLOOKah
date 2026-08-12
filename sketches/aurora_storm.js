@@ -96,7 +96,7 @@ const frag = `${AUDIO_SHADER_HEADER}
       vec2 offset = vec2(hash21(cell + 13.7), hash21(cell + 47.3)) - 0.5;
       float d = length(local - offset * 0.7);
       float star = (1.0 - smoothstep(0.01, 0.04 + float(layer) * 0.01, d));
-      float twinkle = 0.6 + 0.4 * sin(time * (3.0 + seed * 5.0) + seed * TAU);
+      float twinkle = 0.6 + 0.4 * sin(time * (3.0 + seed * 5.0) + seed * VIZ_TAU);
       float brightness = step(0.93 - float(layer) * 0.015, seed) * twinkle;
       vec3 starColor = mix(vec3(0.7, 0.8, 1.0), vec3(1.0, 0.9, 0.7), seed);
       color += starColor * star * brightness * (0.5 + uHigh * 0.5);
@@ -107,7 +107,7 @@ const frag = `${AUDIO_SHADER_HEADER}
     for (int i = 0; i < 5; i++) {
       if (float(i) >= numCurtains) break;
       float layerOffset = float(i) / numCurtains;
-      float layerIntensity = 0.35 + 0.25 * sin(layerOffset * TAU + time * 0.3);
+      float layerIntensity = 0.35 + 0.25 * sin(layerOffset * VIZ_TAU + time * 0.3);
       layerIntensity *= 1.0 - float(i) * 0.12; // back layers dimmer
       color += auroraLayer(uv, time, layerOffset * 6.28, layerIntensity);
     }
@@ -125,7 +125,7 @@ const frag = `${AUDIO_SHADER_HEADER}
       float sDist = length(sLocal);
       float particle = (1.0 - smoothstep(0.02, 0.08, sDist));
       float sBright = step(0.88 - uHigh * 0.06 - uHat * 0.15, sSeed);
-      float sTwinkle = pow(max(0.0, sin(time * 8.0 + sSeed * TAU)), 8.0);
+      float sTwinkle = pow(max(0.0, sin(time * 8.0 + sSeed * VIZ_TAU)), 8.0);
       float heightMask = smoothstep(-0.1, 0.2, uv.y) * (1.0 - smoothstep(0.6, 1.0, uv.y));
       color += vec3(0.5, 1.0, 0.7) * particle * sBright * sTwinkle
         * heightMask * (0.4 + uHat * 2.5) * uShimmer;

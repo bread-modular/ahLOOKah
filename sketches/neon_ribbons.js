@@ -253,7 +253,7 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => {
   const mapUniforms = (P, bands_, p, controls) => {
     const count = Math.floor(P.ribbons ?? 6);
     const flow = P.flow ?? 1;
-    const width = P.width ?? 1;
+    const ribbonWidth = P.width ?? 1;
     const trailLen = Math.floor(P.trail ?? 60);
     ensureRibbons(count);
 
@@ -338,7 +338,7 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => {
       uRibbonInfo: info,
       uRibbonBounds: bounds,
       uRibbonCount: count,
-      uWidth: width,
+      uWidth: ribbonWidth,
       uSub: sub,
       uMid: mid,
       uHigh: high,

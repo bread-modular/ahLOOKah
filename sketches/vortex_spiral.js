@@ -63,7 +63,7 @@ const frag = `${AUDIO_SHADER_HEADER}
 
     for (int a = 0; a < 12; a++) {
       if (float(a) >= uArms) break;
-      float armOff = (float(a) / uArms) * TAU;
+      float armOff = (float(a) / uArms) * VIZ_TAU;
       for (int k = 0; k < 3; k++) {
         float i = i0 + float(k) - 1.0;
         if (i >= 0.0 && i < uDensity) {

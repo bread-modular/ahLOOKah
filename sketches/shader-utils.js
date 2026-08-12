@@ -47,8 +47,8 @@ export const AUDIO_SHADER_HEADER = `
   uniform float uHat;
   uniform float uBeat;
 
-  #define PI 3.141592653589793
-  #define TAU 6.283185307179586
+  #define VIZ_PI 3.141592653589793
+  #define VIZ_TAU 6.283185307179586
 
   float saturate(float x) {
     return clamp(x, 0.0, 1.0);

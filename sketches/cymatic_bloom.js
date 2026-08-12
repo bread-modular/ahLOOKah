@@ -14,7 +14,7 @@ const frag = `${AUDIO_SHADER_HEADER}
 
   vec2 kaleidoscope(vec2 p, float segments) {
     float radius = length(p);
-    float sector = TAU / max(segments, 2.0);
+    float sector = VIZ_TAU / max(segments, 2.0);
     float angle = atan(p.y, p.x);
     angle = abs(mod(angle + sector * 0.5, sector) - sector * 0.5);
     return vec2(cos(angle), sin(angle)) * radius;

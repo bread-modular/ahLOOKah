@@ -83,7 +83,7 @@ const frag = `${AUDIO_SHADER_HEADER}
     vec2 starLocal = fract(starUv) - 0.5;
     float starDist = length(starLocal - (vec2(hash21(starCell + 7.0), hash21(starCell + 13.0)) - 0.5) * 0.6);
     float star = (1.0 - smoothstep(0.01, 0.04, starDist)) * step(0.94, starSeed);
-    float twinkle = 0.5 + 0.5 * sin(time * 4.0 + starSeed * TAU);
+    float twinkle = 0.5 + 0.5 * sin(time * 4.0 + starSeed * VIZ_TAU);
     color += vec3(0.7, 0.75, 1.0) * star * twinkle * smoothstep(horizon + 0.3, horizon + 0.6, uv.y) * 0.6;
 
     // === SKYLINE (procedural buildings) ===
@@ -124,7 +124,7 @@ const frag = `${AUDIO_SHADER_HEADER}
       float winSeed = hash21(vec2(floor(blockLocal * 10.0) + blockIndex * 7.0,
         floor((uv.y - horizon) * 25.0)));
       float winLit = step(0.45, winSeed);
-      float winFlicker = 0.7 + 0.3 * sin(time * 2.0 + winSeed * TAU);
+      float winFlicker = 0.7 + 0.3 * sin(time * 2.0 + winSeed * VIZ_TAU);
       vec3 winColor = mix(vec3(1.0, 0.85, 0.5), vec3(0.5, 0.8, 1.0), winSeed);
       bColor += winColor * window * winLit * winFlicker * 0.15 * uNeon;
 
@@ -138,7 +138,7 @@ const frag = `${AUDIO_SHADER_HEADER}
       // Neon signs on building faces
       float signY = horizon + bHeight * (0.3 + bSeed * 0.4);
       float signMask = step(abs(uv.y - signY), 0.015) * bMask;
-      float signFlicker = step(0.3, sin(time * (3.0 + bSeed * 5.0) + bSeed * TAU));
+      float signFlicker = step(0.3, sin(time * (3.0 + bSeed * 5.0) + bSeed * VIZ_TAU));
       float signBuzz = 0.8 + 0.2 * sin(time * 30.0 + bSeed * 100.0);
       vec3 signColor = neonColor(bSeed * 3.7, time);
       bColor += signColor * signMask * signFlicker * signBuzz
@@ -214,7 +214,7 @@ const frag = `${AUDIO_SHADER_HEADER}
       vBright *= (0.3 + uHigh * 0.5 + uHat * 1.5) * uTraffic;
 
       // High-frequency trigger: vehicles appear more with hats
-      float vAppear = step(0.3 - uHat * 0.2, sin(time * 2.0 + vSeed * TAU) * 0.5 + 0.5);
+      float vAppear = step(0.3 - uHat * 0.2, sin(time * 2.0 + vSeed * VIZ_TAU) * 0.5 + 0.5);
       color += vColor * vBright * vAppear;
     }
 
@@ -243,7 +243,7 @@ const frag = `${AUDIO_SHADER_HEADER}
       hBright *= 1.0 + hGlitch * 2.0;
 
       // Hologram transparency effect
-      hBright *= 0.6 + 0.4 * sin(time * 0.5 + hSeed * TAU);
+      hBright *= 0.6 + 0.4 * sin(time * 0.5 + hSeed * VIZ_TAU);
       color += hColor * hBright * uNeon * 0.5;
 
       // Hologram projection cone (faint light below the billboard)

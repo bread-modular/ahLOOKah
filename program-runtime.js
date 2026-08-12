@@ -337,13 +337,63 @@ export class ProgramRuntime {
 
     const wrappedSketch = (p) => {
       try {
+        // p5 2.x may create its default 100×100 canvas after this wrapper is
+        // installed. Keep normal sketches viewport-sized, but retain an explicit
+        // shader-utils request for a reduced backing buffer (renderScale).
+        const viewportSize = () => [
+          Math.max(1, Math.round(window.innerWidth)),
+          Math.max(1, Math.round(window.innerHeight)),
+        ];
+        // Some deterministic ProgramRuntime tests use a deliberately minimal p5
+        // fake with no canvas APIs. Keep that supported: only install sizing
+        // guards when both APIs exist on a real p5-like instance.
+        if (typeof p.createCanvas === 'function' && typeof p.resizeCanvas === 'function') {
+          const createP5Canvas = p.createCanvas.bind(p);
+          const resizeP5Canvas = p.resizeCanvas.bind(p);
+          let managedRenderScale = null;
+          const dimensionsForRequest = (requestedWidth, requestedHeight) => {
+            const [viewportWidth, viewportHeight] = viewportSize();
+            const width = Math.max(1, Math.round(Number(requestedWidth) || viewportWidth));
+            const height = Math.max(1, Math.round(Number(requestedHeight) || viewportHeight));
+            const requestedScale = Math.min(width / viewportWidth, height / viewportHeight);
+            // Only preserve proportional, intentionally reduced buffers. This
+            // distinguishes shader renderScale from stale/default 100×100 canvases.
+            if (requestedScale >= 0.4 && requestedScale < 0.98) {
+              managedRenderScale = requestedScale;
+              return [width, height];
+            }
+            return [viewportWidth, viewportHeight];
+          };
+          p.createCanvas = (requestedWidth, requestedHeight, ...args) => {
+            const [width, height] = dimensionsForRequest(requestedWidth, requestedHeight);
+            return createP5Canvas(width, height, ...args);
+          };
+          p.resizeCanvas = (requestedWidth, requestedHeight, ...args) => {
+            const [viewportWidth, viewportHeight] = viewportSize();
+            if (managedRenderScale != null) {
+              return resizeP5Canvas(
+                Math.max(1, Math.floor(viewportWidth * managedRenderScale)),
+                Math.max(1, Math.floor(viewportHeight * managedRenderScale)),
+                ...args,
+              );
+            }
+            const [width, height] = dimensionsForRequest(requestedWidth, requestedHeight);
+            return resizeP5Canvas(width, height, ...args);
+          };
+        }
+
         factory(p);
 
         const originalSetup = p.setup;
         if (typeof originalSetup === 'function') {
           p.setup = (...args) => {
             try {
-              return originalSetup.apply(p, args);
+              const result = originalSetup.apply(p, args);
+              if (p.width === 100 && p.height === 100 && typeof p.resizeCanvas === 'function') {
+                const [viewportWidth, viewportHeight] = viewportSize();
+                p.resizeCanvas(viewportWidth, viewportHeight);
+              }
+              return result;
             } catch (error) {
               this._fail(error);
               return undefined;
@@ -664,6 +714,28 @@ export class ProgramRuntime {
         // Ignore an instance that is in the middle of p5 removal.
       }
     });
+  }
+
+  // Canvas dimensions are exclusively mutated through each sketch's p5 resize
+  // hook. This preserves intentional reduced backing buffers (shader renderScale)
+  // while CSS continues to fill the stage. Direct DOM width/height assignments
+  // would clear 2D buffers and can reset WebGL programs.
+  resize(width, height) {
+    if (this.disposed) return;
+    const targetWidth = Math.max(1, Math.round(Number(width) || window.innerWidth || 1));
+    const targetHeight = Math.max(1, Math.round(Number(height) || window.innerHeight || 1));
+    for (const instance of this.instances) {
+      if (!instance || instance._removed) continue;
+      try {
+        if (typeof instance.windowResized === 'function') {
+          instance.windowResized();
+        } else if (instance.width !== targetWidth || instance.height !== targetHeight) {
+          instance.resizeCanvas(targetWidth, targetHeight);
+        }
+      } catch (error) {
+        this._fail(error);
+      }
+    }
   }
 
   applyBlendStyles() {

@@ -1417,9 +1417,11 @@ export class ConfigPanel {
       .forEach((button) => button.classList.add('live-cue-active'));
 
     const editing = this.cueState?.selection || this.liveSelection;
-    const key = `${this.cueState ? 'cue' : 'live'}:${editing.merge ? 'merge' : 'single'}:${editing.ids.join(',')}`;
-    if (this.renderedKey !== key) {
-      this.renderedKey = key;
+    // Do not shadow p5's globally exposed `key` helper when p5 friendly-errors
+    // scans the module scope; a local binding named `key` emits a false warning.
+    const renderStateKey = `${this.cueState ? 'cue' : 'live'}:${editing.merge ? 'merge' : 'single'}:${editing.ids.join(',')}`;
+    if (this.renderedKey !== renderStateKey) {
+      this.renderedKey = renderStateKey;
       this.renderParams();
       if (this.onPreviewChange) this.onPreviewChange(editing);
     }

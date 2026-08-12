@@ -108,8 +108,8 @@ const frag = `${AUDIO_SHADER_HEADER}
           ) - 0.5;
           // Animate the Voronoi points
           point += 0.3 * vec2(
-            sin(time * 1.5 + hash21(cell + neighbor) * TAU),
-            cos(time * 1.2 + hash21(cell + neighbor + 13.0) * TAU)
+            sin(time * 1.5 + hash21(cell + neighbor) * VIZ_TAU),
+            cos(time * 1.2 + hash21(cell + neighbor + 13.0) * VIZ_TAU)
           );
           float d = length(local - neighbor - point);
           if (d < minDist) {
@@ -221,7 +221,7 @@ const frag = `${AUDIO_SHADER_HEADER}
         // Facet flash: individual facets light up with high frequencies
         float facetSeed = hash21(floor(hitNormal.xy * 20.0 + hitPos.xz * 5.0));
         float facetFlash = step(0.92 - uHigh * 0.05 - uHat * 0.12, facetSeed)
-          * pow(max(0.0, sin(time * 10.0 + facetSeed * TAU)), 12.0);
+          * pow(max(0.0, sin(time * 10.0 + facetSeed * VIZ_TAU)), 12.0);
         color += vec3(0.8, 0.9, 1.0) * facetFlash * (0.5 + uHat * 3.0);
 
         // Caustic projection from this crystal onto nearby surfaces
@@ -264,7 +264,7 @@ const frag = `${AUDIO_SHADER_HEADER}
     vec3 dustUv = rd * 8.0 + vec3(time * 0.1, -time * 0.05, time * 0.08);
     vec3 dustCell = floor(dustUv);
     float dustSeed = hash21(dustCell.xy + dustCell.z * 17.0);
-    float dust = step(0.96, dustSeed) * (0.5 + 0.5 * sin(time * 4.0 + dustSeed * TAU));
+    float dust = step(0.96, dustSeed) * (0.5 + 0.5 * sin(time * 4.0 + dustSeed * VIZ_TAU));
     color += vec3(0.4, 0.35, 0.5) * dust * 0.15 * shaftMask;
 
     float vignette = 1.0 - smoothstep(0.6, 1.5, length(uv * vec2(0.72, 1.0)));
