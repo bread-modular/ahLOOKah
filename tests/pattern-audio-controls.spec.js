@@ -397,8 +397,8 @@ test.describe('pattern-specific audio controls', () => {
       const checkerA = packet.slots.find((entry) => entry.runtimeId === 'consumer-a:2:0');
       const checkerB = packet.slots.find((entry) => entry.runtimeId === 'consumer-a:3:0');
       const diagnostics = engine.getDiagnostics();
-      const legacy = byId('bars');
-      engine.receivePlan({
+      const bars = byId('bars');
+      const acceptedBarsPlan = engine.receivePlan({
         type: 'pattern-audio-plan',
         version: 1,
         consumerSessionId: 'consumer-a',
@@ -406,23 +406,41 @@ test.describe('pattern-specific audio controls', () => {
         sentAt: now,
         complete: true,
         slots: [{
-          runtimeId: 'consumer-a:legacy:0',
-          patternId: legacy.id,
+          runtimeId: 'consumer-a:bars:0',
+          patternId: bars.id,
           role: 'live',
           childIndex: 0,
           paramsRevision: 1,
-          params: Object.fromEntries(legacy.params.map((definition) => [definition.key, definition.default])),
-          audioTransport: 'analysis-frame',
+          params: Object.fromEntries(bars.params.map((definition) => [definition.key, definition.default])),
+          audioTransport: 'pattern-controls',
+        }],
+      });
+      const rejectedOtherTransport = engine.receivePlan({
+        type: 'pattern-audio-plan',
+        version: 1,
+        consumerSessionId: 'consumer-a',
+        planRevision: 3,
+        sentAt: now,
+        complete: true,
+        slots: [{
+          runtimeId: 'consumer-a:invalid:0',
+          patternId: bars.id,
+          role: 'live',
+          childIndex: 0,
+          paramsRevision: 1,
+          params: Object.fromEntries(bars.params.map((definition) => [definition.key, definition.default])),
+          audioTransport: ['analysis', 'frame'].join('-'),
         }],
       });
       return {
         acceptedPlan,
+        acceptedBarsPlan,
+        rejectedOtherTransport,
+        engineExposesRawPath: ['rawRequired', 'recordRawFrame'].some((key) => typeof engine[key] === 'function'),
         slotCount: packet.slots.length,
         ringCount: tunnel.arrays.ringRadii.length,
         finiteRings: [...tunnel.arrays.ringRadii].every(Number.isFinite),
         checkerPhases: [checkerA.continuous.uPhase, checkerB.continuous.uPhase],
-        rawWhenAllMigrated: tick.rawRequired,
-        rawWithLegacy: engine.rawRequired(now),
         byteFrequencyBuilds: tick.shared.diagnostics.byteFrequencyBuilds,
         byteWaveformBuilds: tick.shared.diagnostics.byteWaveformBuilds,
         controllerCount: diagnostics.activeControllers.length,
@@ -430,12 +448,13 @@ test.describe('pattern-specific audio controls', () => {
     });
 
     expect(result.acceptedPlan).toMatchObject({ accepted: true });
+    expect(result.acceptedBarsPlan).toMatchObject({ accepted: true });
+    expect(result.rejectedOtherTransport).toMatchObject({ accepted: false, reason: 'malformed' });
+    expect(result.engineExposesRawPath).toBe(false);
     expect(result.slotCount).toBe(4);
     expect(result.ringCount).toBe(46);
     expect(result.finiteRings).toBe(true);
     expect(result.checkerPhases[0]).not.toBe(result.checkerPhases[1]);
-    expect(result.rawWhenAllMigrated).toBe(false);
-    expect(result.rawWithLegacy).toBe(true);
     expect(result.byteFrequencyBuilds).toBe(1);
     expect(result.byteWaveformBuilds).toBe(1);
     expect(result.controllerCount).toBe(4);
@@ -468,7 +487,9 @@ test.describe('pattern-specific audio controls', () => {
     }
     const diagnostics = await page.evaluate(() => window.__viz.patternAudio?.engine);
     expect(diagnostics.controllerErrors).toBe(0);
-    expect(diagnostics.rawFramesSkipped).toBeGreaterThan(0);
+    expect(diagnostics).not.toHaveProperty('rawFramesSent');
+    expect(diagnostics).not.toHaveProperty('rawFramesSkipped');
+    expect(diagnostics).not.toHaveProperty('rawBytes');
   });
 
   test('gates a pilot CUE on a matching controls packet and consumed draw', async ({ context, page }) => {
@@ -642,7 +663,9 @@ test.describe('pattern-specific audio controls', () => {
     ]);
 
     expect(Object.values(verification[0])).toEqual([]);
-    expect(verification[1].rawFramesSkipped).toBeGreaterThan(0);
+    expect(verification[1]).not.toHaveProperty('rawFramesSent');
+    expect(verification[1]).not.toHaveProperty('rawFramesSkipped');
+    expect(verification[1]).not.toHaveProperty('rawBytes');
     expect(verification[1].controllerErrors).toBe(0);
   });
 });

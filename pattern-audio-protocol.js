@@ -7,7 +7,6 @@ export const PATTERN_AUDIO_PLAN_TYPE = 'pattern-audio-plan';
 export const PATTERN_AUDIO_CONTROLS_TYPE = 'pattern-audio-controls';
 export const PATTERN_AUDIO_PLAN_REQUEST_TYPE = 'pattern-audio-plan-request';
 export const PATTERN_CONTROLS_TRANSPORT = 'pattern-controls';
-export const LEGACY_AUDIO_TRANSPORT = 'analysis-frame';
 
 export const PATTERN_AUDIO_LIMITS = Object.freeze({
   maxSlots: 8,
@@ -83,10 +82,10 @@ export function estimateTransportBytes(value, seen = new Set()) {
   return Object.entries(value).reduce((total, [key, entry]) => total + key.length * 2 + estimateTransportBytes(entry, seen), 0);
 }
 
-export function getAudioTransport(sketch) {
-  return sketch?.audioTransport === PATTERN_CONTROLS_TRANSPORT
-    ? PATTERN_CONTROLS_TRANSPORT
-    : LEGACY_AUDIO_TRANSPORT;
+// All registered patterns use the compact control transport. Retain this helper
+// as the transport boundary for callers that publish runtime slot descriptors.
+export function getAudioTransport() {
+  return PATTERN_CONTROLS_TRANSPORT;
 }
 
 export function snapshotPatternParams(sketch, values = {}) {
@@ -175,7 +174,7 @@ export function validatePatternAudioPlan(message, { getSketchById } = {}) {
       || slot.childIndex < 0
       || slot.childIndex >= PATTERN_AUDIO_LIMITS.maxSlots
       || !validRevision(slot.paramsRevision)
-      || (slot.audioTransport !== PATTERN_CONTROLS_TRANSPORT && slot.audioTransport !== LEGACY_AUDIO_TRANSPORT)
+      || slot.audioTransport !== PATTERN_CONTROLS_TRANSPORT
       || runtimeIds.has(slot.runtimeId)) return null;
 
     const sketch = typeof getSketchById === 'function' ? getSketchById(slot.patternId) : null;

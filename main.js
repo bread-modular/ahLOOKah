@@ -254,16 +254,16 @@ async function enforceSingleton() {
   });
 }
 // Exactly one control window owns the physical microphone and Web Audio graph.
-// Output screens consume its cleaned analysis snapshots through screenAudio.
+// Screens retain a compatibility facade whose started state follows accepted
+// pattern controls; renderers consume their own control bindings.
 const audio = new AudioManager();
 const screenAudio = new PreviewAudio({ idleSignal: false, staleAfterMs: 750 });
-// Control previews use those same snapshots, with a musical idle signal before
-// an input is selected or while no capture-owning panel is available.
+// Preview factories retain this compatibility facade, while every active preview
+// receives its audio through a pattern-controls binding.
 const previewAudio = new PreviewAudio();
 
-// Pattern-specific transport stays independent from PreviewAudio's legacy raw
-// facade. Every rendering window owns one receiver store; only the elected
-// capture-owning control runs the engine.
+// Every rendering window owns one receiver store; only the elected capture-owning
+// control runs the controller engine.
 const patternAudioStore = new PatternAudioControlStore({ consumerSessionId: myId });
 const patternAudioEngine = new PatternAudioControlEngine({
   ownerId: myId,
@@ -1056,14 +1056,12 @@ function createPreviewAudioSlot(sketch, layer, generation) {
     paramsRevision: 1,
     params,
     paramsFingerprint: paramsFingerprint(params),
-    audioTransport: sketch.audioTransport === 'pattern-controls' ? 'pattern-controls' : 'analysis-frame',
+    audioTransport: 'pattern-controls',
     audioControlSchema: sketch.audioControlSchema || {},
     binding: null,
   };
-  if (descriptor.audioTransport === 'pattern-controls') {
-    patternAudioStore.upsertSlot(descriptor);
-    descriptor.binding = patternAudioStore.createBinding(descriptor.runtimeId);
-  }
+  patternAudioStore.upsertSlot(descriptor);
+  descriptor.binding = patternAudioStore.createBinding(descriptor.runtimeId);
   previewAudioSlots.push(descriptor);
   return descriptor;
 }
@@ -1077,7 +1075,7 @@ function refreshPreviewAudioSlot(descriptor) {
     descriptor.paramsFingerprint = fingerprint;
     descriptor.paramsRevision += 1;
   }
-  if (descriptor.audioTransport === 'pattern-controls') patternAudioStore.upsertSlot(descriptor);
+  patternAudioStore.upsertSlot(descriptor);
 }
 
 function createPreviewInstance(sketch, layer, generation) {
@@ -2446,8 +2444,8 @@ function handleMessage(msg) {
       if (msg.windowId && msg.windowId !== msg.audioOwnerId) return;
       if (msg.consumerSessionId === myId) {
         const receipt = patternAudioStore.acceptPacket(msg);
-        // Keep the legacy facade observable once an active capture stream is
-        // controlling a migrated-only output, without broadcasting its raw FFT.
+        // Keep the compatibility facade observable once active capture controls
+        // reach an output, without exposing audio data to the renderer.
         if (receipt.accepted && receipt.slots > 0 && msg.audioActive && myRole === 'screen') screenAudio.setControlActive();
       }
       return;
@@ -2689,17 +2687,6 @@ function handleMessage(msg) {
       return;
     }
 
-    case 'analysis-frame': {
-      // Cleaned frequency + waveform snapshots flow control -> screen. Other
-      // panels consume them too so every embedded preview follows the same mic.
-      // Basic frame shape check to avoid crash on malformed frames
-      if (msg.frame && typeof msg.frame === 'object' && !Array.isArray(msg.frame)) {
-        if (myRole === 'screen') screenAudio.setFrame(msg.frame);
-        else previewAudio.setFrame(msg.frame);
-      }
-      return;
-    }
-
     case 'noise-capture': {
       // Requests may originate in any panel; only the elected microphone owner
       // has the analyser buffers needed to run the sampler.
@@ -2800,16 +2787,6 @@ let audioFrameSequence = 0;
 let noiseCaptureActive = false;
 let lastNoiseProgressAt = 0;
 
-let lastFreqDbBroadcast = null;
-let spectrumThrottleUntil = 0;
-function allocateBroadcastBuffers(frame) {
-  // reuse typed buffers for broadcast to reduce GC churn
-  if (!lastFreqDbBroadcast || lastFreqDbBroadcast.length !== frame.left.length) {
-    lastFreqDbBroadcast = new Float32Array(frame.left.length);
-  }
-  return lastFreqDbBroadcast;
-}
-
 function audioBroadcastLoop(now) {
   audioBroadcastRaf = 0;
   if (!isAudioOwner) return;
@@ -2837,29 +2814,13 @@ function audioBroadcastLoop(now) {
     // controllers/renderers when this same control owns capture.
     controlTick.packets.forEach((packet) => broadcast(packet));
 
-    if (frame) {
-      // Raw snapshots are retained for the legacy facade and are only omitted
-      // after every known consumer has a fresh, complete all-migrated plan.
-      // The EQ spectrum remains independent and continues in either mode.
-      if (now >= spectrumThrottleUntil) {
-        if (controlTick.rawRequired) {
-          broadcast({ type: 'analysis-frame', sequence: audioFrameSequence, frame });
-          patternAudioEngine.recordRawFrame(frame, true);
-        } else {
-          patternAudioEngine.recordRawFrame(frame, false);
-        }
-        if (now - lastSpectrumAt >= 66) {
-          lastSpectrumAt = now;
-          const spec = computeLogSpectrum(frame);
-          if (spec) {
-            const freqs = spec.freqs instanceof Float32Array ? new Float32Array(spec.freqs) : spec.freqs;
-            const dbs = spec.dbs instanceof Float32Array ? new Float32Array(spec.dbs) : spec.dbs;
-            broadcast({ type: 'spectrum', freqs, dbs, minHz: spec.minHz, maxHz: spec.maxHz });
-          }
-        }
-      } else {
-        // Preserve the existing backpressure gate for the large raw path.
-        spectrumThrottleUntil = now + 16;
+    if (frame && now - lastSpectrumAt >= 66) {
+      lastSpectrumAt = now;
+      const spec = computeLogSpectrum(frame);
+      if (spec) {
+        const freqs = spec.freqs instanceof Float32Array ? new Float32Array(spec.freqs) : spec.freqs;
+        const dbs = spec.dbs instanceof Float32Array ? new Float32Array(spec.dbs) : spec.dbs;
+        broadcast({ type: 'spectrum', freqs, dbs, minHz: spec.minHz, maxHz: spec.maxHz });
       }
     }
   }

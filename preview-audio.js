@@ -1,8 +1,8 @@
-// A lightweight audio facade for analysis frames shared between windows.
+// A lightweight compatibility audio facade retained for sketch APIs and status.
 //
 // Control-panel previews use the default musical idle signal when no input is
 // available. Output screens construct the same facade with `idleSignal: false`,
-// so they stay quiet until a control panel sends real microphone analysis.
+// then mark it active when compact pattern controls arrive.
 
 const SAMPLE_RATE = 48_000;
 const FFT_SIZE = 2_048;
@@ -21,9 +21,9 @@ export class PreviewAudio {
   constructor({ idleSignal = true, staleAfterMs = 1_500 } = {}) {
     this.idleSignal = Boolean(idleSignal);
     this.staleAfterMs = Math.max(100, Number(staleAfterMs) || 1_500);
-    // Legacy sketches gate their draw loops on this flag. Panel previews remain
-    // active with the idle signal; quiet output screens become active on receipt
-    // of their first live frame.
+    // Legacy sketch branches gate their draw loops on this flag. Panel previews
+    // remain active with the idle signal; output screens become active when a
+    // matching controls packet confirms active capture.
     this.isStarted = this.idleSignal;
     this.liveFrame = null;
     this.liveFrameAt = 0;
@@ -47,10 +47,9 @@ export class PreviewAudio {
       fftSize: FFT_SIZE,
       time: 0,
     };
-    // A migrated-only screen may deliberately stop receiving full raw frames.
-    // This neutral sentinel keeps the legacy facade observably alive for status
-    // and diagnostics after capture is active, without reintroducing FFT data
-    // to migrated renderers (which never read this facade).
+    // This neutral sentinel keeps the compatibility facade observably alive for
+    // status and diagnostics after capture is active, without exposing FFT data
+    // to renderers (which consume their pattern-controls bindings instead).
     this.controlFrame = {
       left: new Float32Array(FREQ_BINS),
       right: new Float32Array(FREQ_BINS),
@@ -64,9 +63,8 @@ export class PreviewAudio {
     this.idleAmplitude = { left: 0, right: 0 };
   }
 
-  // BroadcastChannel clones typed arrays for receiving windows, so retaining the
-  // latest frame is safe. The sending control window also dispatches locally and
-  // intentionally shares AudioManager's reusable buffers until the next tick.
+  // Retained for direct compatibility callers; the application no longer feeds
+  // complete analysis frames into this facade over BroadcastChannel.
   setFrame(frame, sequence, ownerId) {
     if (!frame || (!frame.left?.length && !frame.right?.length)) return;
 
@@ -114,9 +112,9 @@ export class PreviewAudio {
     this.isStarted = true;
   }
 
-  // Mark a receiver as connected to an active capture stream when it receives
-  // compact controls but not a full analysis-frame. Retain a real raw frame if
-  // one is already fresh; a legacy sibling will then continue using that path.
+  // Mark a receiver as connected to an active capture stream when compact
+  // controls arrive. The neutral sentinel supports compatibility status without
+  // exposing capture data to a renderer.
   setControlActive() {
     const now = performance.now();
     if (this.liveFrame && this.liveFrame !== this.controlFrame && !this._isFrameStale()) {

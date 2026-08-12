@@ -4,13 +4,11 @@
 
 import { makeAudioFeatures } from './sketches/audio-features.js';
 import {
-  LEGACY_AUDIO_TRANSPORT,
   PATTERN_AUDIO_CONTROLS_TYPE,
   PATTERN_AUDIO_EXPECTED_CONSUMER_MS,
   PATTERN_AUDIO_PLAN_LEASE_MS,
   PATTERN_AUDIO_PLAN_TYPE,
   PATTERN_AUDIO_PROTOCOL_VERSION,
-  PATTERN_CONTROLS_TRANSPORT,
   estimateTransportBytes,
   neutralControlsForSchema,
   validateControlsForSlot,
@@ -137,9 +135,6 @@ export class PatternAudioControlEngine {
       controllerErrors: 0,
       controlPackets: 0,
       controlBytes: 0,
-      rawFramesSent: 0,
-      rawFramesSkipped: 0,
-      rawBytes: 0,
       lastControllerMs: 0,
       controllerMsByPattern: {},
       lastShared: null,
@@ -215,7 +210,6 @@ export class PatternAudioControlEngine {
   _reconcileControllers() {
     const active = new Map();
     for (const { consumerSessionId, slot } of this._activeSlots()) {
-      if (slot.audioTransport !== PATTERN_CONTROLS_TRANSPORT) continue;
       active.set(controllerKey(consumerSessionId, slot.runtimeId), { consumerSessionId, slot });
     }
 
@@ -252,21 +246,6 @@ export class PatternAudioControlEngine {
     this.controllers.clear();
   }
 
-  rawRequired(now = this.now()) {
-    this.expirePlans(now);
-    // Conservative startup / uncertainty path: do not suppress legacy frames
-    // until every known consumer has a fresh, complete topology declaration.
-    if (!this.plans.size) return true;
-    for (const consumerSessionId of this.expectedConsumers.keys()) {
-      if (!this.plans.has(consumerSessionId)) return true;
-    }
-    for (const entry of this.plans.values()) {
-      if (!entry.plan.complete) return true;
-      if (entry.plan.slots.some((slot) => slot.audioTransport === LEGACY_AUDIO_TRANSPORT)) return true;
-    }
-    return false;
-  }
-
   update({ frame, deltaSeconds, captureTime, sequence, now = this.now() } = {}) {
     this.expirePlans(now);
     this._reconcileControllers();
@@ -283,7 +262,6 @@ export class PatternAudioControlEngine {
     for (const [consumerSessionId, entry] of this.plans) {
       const outputSlots = [];
       for (const slot of entry.plan.slots) {
-        if (slot.audioTransport !== PATTERN_CONTROLS_TRANSPORT) continue;
         const sketch = this.getSketchById(slot.patternId);
         const descriptor = {
           ...slot,
@@ -342,16 +320,7 @@ export class PatternAudioControlEngine {
     this.diagnostics.lastControllerMs = Math.max(0, this.now() - tickStarted);
     this.diagnostics.controllerMsByPattern = perPattern;
     this.diagnostics.lastShared = { ...shared.diagnostics };
-    return { packets, rawRequired: this.rawRequired(now), shared };
-  }
-
-  recordRawFrame(frame, sent) {
-    if (sent) {
-      this.diagnostics.rawFramesSent += 1;
-      this.diagnostics.rawBytes += estimateTransportBytes(frame);
-    } else {
-      this.diagnostics.rawFramesSkipped += 1;
-    }
+    return { packets, shared };
   }
 
   getDiagnostics() {
