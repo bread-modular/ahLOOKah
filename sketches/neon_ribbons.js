@@ -5,6 +5,10 @@
 // coordinates). The fragment shader finds each ribbon's nearest trail segment
 // per-pixel (coarse-to-fine search + segment distance) and paints the same
 // two-pass tapered strokes, bloom heads and vignette as the Canvas version.
+// The legacy raw-frame path remains intact; the opted-in path receives the
+// audio-derived header uniforms (uSub/uMid/uHigh/uEnergy) and the downsampled
+// waveform wobble from a DOM-free capture-side controller while the renderer
+// keeps all trail simulation and texture uploads.
 import { AUDIO_SHADER_HEADER, makeAudioShader } from './shader-utils.js';
 import { makeBands } from './viz-utils.js';
 
@@ -134,7 +138,100 @@ const frag = `${AUDIO_SHADER_HEADER}
   }
 `;
 
-export default (audio, videoDeviceId, params) => {
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+const finite = (value, fallback) => (Number.isFinite(value) ? value : fallback);
+
+// The fragment shader and the CPU trail simulation read uSub/uMid/uHigh/uEnergy
+// and the downsampled waveform (wobble). In the migrated path makeAudioShader
+// hard-zeros the header uniforms, so the controller supplies all of them plus
+// the bounded waveform array the renderer uses for head wobble.
+export const AUDIO_CONTROL_SCHEMA = Object.freeze({
+  continuous: {
+    uSub: { min: 0, max: 2, neutral: 0.2 },
+    uMid: { min: 0, max: 2, neutral: 0.2 },
+    uHigh: { min: 0, max: 2, neutral: 0 },
+    uEnergy: { min: 0, max: 2, neutral: 0.18 },
+  },
+  arrays: {
+    waveform: { minLength: 64, maxLength: 64, min: 0, max: 1 },
+  },
+  events: {},
+  neutral: {
+    continuous: { uSub: 0.2, uMid: 0.2, uHigh: 0, uEnergy: 0.18 },
+  },
+});
+
+// The controller owns all audio interpretation on the capture owner. It
+// reproduces the legacy makeBands envelope (attack 0.6 / release 0.14 per
+// nominal 60 Hz frame, converted to elapsed time) over the shared byte
+// spectrum, mirrors the renderer's idle fallbacks when no audio frame exists,
+// and downsamples the left waveform to a bounded 64-sample normalized array.
+export function createAudioController({ rng = Math.random } = {}) {
+  let s = 0, m = 0, h = 0, e = 0;
+  let elapsed = 0;
+  return {
+    update({ frame, shared, params = {}, deltaSeconds = 1 / 30 }) {
+      const dt = clamp(finite(deltaSeconds, 1 / 30), 1 / 240, 0.1);
+      elapsed += dt;
+      const bb = Math.max(0, finite(params.bass, 1));
+      const mb = Math.max(0, finite(params.mid, 1));
+      const hb = Math.max(0, finite(params.high, 1));
+
+      const freqs = frame ? (shared?.getByteFrequencies?.() || {}).left : null;
+      let sub, mid, high, energy;
+      if (freqs?.length) {
+        let rawSub = 0, rawMid = 0, rawHigh = 0;
+        for (let i = 0; i < 4; i++) rawSub += freqs[i] || 0;
+        for (let i = 40; i < 150; i++) rawMid += freqs[i] || 0;
+        for (let i = 150; i < 500; i++) rawHigh += freqs[i] || 0;
+        const targetSub = clamp((rawSub / (4 * 255)) * bb, 0, 2);
+        const targetMid = clamp((rawMid / (110 * 255)) * mb, 0, 2);
+        const targetHigh = clamp((rawHigh / (350 * 255)) * hb, 0, 2);
+        const targetEnergy = clamp((targetSub + targetMid + targetHigh) / 3, 0, 2);
+        const alpha = (cur, target) => 1 - Math.pow(1 - (target > cur ? 0.6 : 0.14), dt * 60);
+        s += (targetSub - s) * alpha(s, targetSub);
+        m += (targetMid - m) * alpha(m, targetMid);
+        h += (targetHigh - h) * alpha(h, targetHigh);
+        e += (targetEnergy - e) * alpha(e, targetEnergy);
+        sub = s; mid = m; high = h; energy = e;
+      } else {
+        // Legacy getBands keeps decaying its envelope toward zero while no
+        // frequency data exists; mirror that so audio returns smoothly.
+        const decay = 1 - Math.pow(1 - 0.14, dt * 60);
+        s -= s * decay; m -= m * decay; h -= h * decay; e -= e * decay;
+        const idle = 0.5 + 0.5 * Math.sin(elapsed * 60 * 0.02);
+        energy = 0.18 + idle * 0.2;
+        mid = 0.2;
+        high = idle * 0.3;
+        sub = 0.2 + idle * 0.2;
+      }
+
+      const waveform = new Float32Array(64);
+      const waves = frame ? (shared?.getByteWaveforms?.() || {}).left : null;
+      if (waves?.length) {
+        for (let i = 0; i < 64; i++) {
+          const idx = Math.min(waves.length - 1, Math.floor((i / 64) * waves.length));
+          waveform[i] = clamp((waves[idx] ?? 128) / 255, 0, 1);
+        }
+      }
+
+      return {
+        continuous: {
+          uSub: clamp(sub, 0, 2),
+          uMid: clamp(mid, 0, 2),
+          uHigh: clamp(high, 0, 2),
+          uEnergy: clamp(energy, 0, 2),
+        },
+        arrays: { waveform },
+        events: [],
+      };
+    },
+    dispose() {},
+  };
+}
+
+export default (audio, videoDeviceId, params, runtimeContext = {}) => {
+  const audioControls = runtimeContext?.audioControls || null;
   let ribbons = [];
   let hueOffset = 0;
   let frameCount = 0;
@@ -153,24 +250,36 @@ export default (audio, videoDeviceId, params) => {
     ribbons.length = Math.min(ribbons.length, n);
   }
 
-  const mapUniforms = (P, bands_, p) => {
+  const mapUniforms = (P, bands_, p, controls) => {
     const count = Math.floor(P.ribbons ?? 6);
     const flow = P.flow ?? 1;
     const width = P.width ?? 1;
     const trailLen = Math.floor(P.trail ?? 60);
     ensureRibbons(count);
 
-    const freqs = audio && audio.isStarted ? audio.getFrequencies() : null;
-    const waves = audio && audio.isStarted ? audio.getWaveforms() : null;
-    const b = getBands(freqs ? freqs.left : null, P);
-    const t = frameCount++;
-    const idle = 0.5 + 0.5 * Math.sin(t * 0.02);
-    const energy = freqs ? b.energy : 0.18 + idle * 0.2;
-    const mid = freqs ? b.mid : 0.2;
-    const high = freqs ? b.high : idle * 0.3;
+    const migrated = Boolean(controls);
+    let energy, mid, high, sub, wave;
+    if (migrated) {
+      const C = { ...AUDIO_CONTROL_SCHEMA.neutral.continuous, ...(controls.continuous || {}) };
+      energy = C.uEnergy;
+      mid = C.uMid;
+      high = C.uHigh;
+      sub = C.uSub;
+      wave = controls.arrays?.waveform || null;
+    } else {
+      const freqs = audio && audio.isStarted ? audio.getFrequencies() : null;
+      const waves = audio && audio.isStarted ? audio.getWaveforms() : null;
+      const b = getBands(freqs ? freqs.left : null, P);
+      const t = frameCount++;
+      const idle = 0.5 + 0.5 * Math.sin(t * 0.02);
+      energy = freqs ? b.energy : 0.18 + idle * 0.2;
+      mid = freqs ? b.mid : 0.2;
+      high = freqs ? b.high : idle * 0.3;
+      sub = freqs ? b.sub : 0.2 + idle * 0.2;
+      wave = waves ? waves.left : null;
+    }
 
     hueOffset = (hueOffset + 0.3 + energy * 2) % 360;
-    const wave = waves ? waves.left : null;
 
     if (!trailImg) {
       trailImg = p.createImage(TRAIL_W, MAX_RIBBONS);
@@ -183,7 +292,8 @@ export default (audio, videoDeviceId, params) => {
     for (let r = 0; r < count; r++) {
       const rb = ribbons[r];
       rb.phase += 0.004 * rb.speed * (1 + energy * 2) * flow;
-      const wv = wave ? wave[Math.floor((r / count) * wave.length)] / 255 : 0;
+      const wvRaw = wave ? wave[Math.floor((r / count) * wave.length)] : 0;
+      const wv = migrated ? wvRaw : wvRaw / 255;
       // Multi-octave sine flow field — organic, never repeating.
       const fx = rb.phase * 0.7;
       const hx = p.width * (0.5
@@ -229,12 +339,12 @@ export default (audio, videoDeviceId, params) => {
       uRibbonBounds: bounds,
       uRibbonCount: count,
       uWidth: width,
-      uSub: freqs ? b.sub : 0.2 + idle * 0.2,
+      uSub: sub,
       uMid: mid,
       uHigh: high,
       uEnergy: energy,
     };
   };
 
-  return makeAudioShader(audio, params, frag, mapUniforms);
+  return makeAudioShader(audio, params, frag, mapUniforms, audioControls ? { audioControls } : {});
 };

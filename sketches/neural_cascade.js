@@ -1,6 +1,8 @@
 // Neural Cascade — a living 3D synapse field. Nodes pulse, axons fire along
 // geodesic arcs, and activation waves cascade on kicks. The 2026 AI-club look:
 // holographic graph geometry with data-stream particles and scan glitches.
+// The legacy raw-frame shader path remains intact; the opted-in path consumes
+// final uniforms produced by a DOM-free capture-side controller.
 import { AUDIO_SHADER_HEADER, makeAudioShader } from './shader-utils.js';
 
 const frag = `${AUDIO_SHADER_HEADER}
@@ -158,14 +160,138 @@ const frag = `${AUDIO_SHADER_HEADER}
   }
 `;
 
-export default (audio, videoDeviceId, params) => makeAudioShader(
-  audio,
-  params,
-  frag,
-  (P) => ({
-    uNodes: P.nodes ?? 1,
-    uLinks: P.links ?? 1,
-    uPulse: P.pulse ?? 1,
-    uSpeed: P.speed ?? 1,
-  }),
-);
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+const finite = (value, fallback) => (Number.isFinite(value) ? value : fallback);
+
+// Header audio uniforms the fragment shader reads (uSub/uMid/uHigh/uEnergy/
+// uKick/uSnare/uHat/uBeat) plus the pattern's own param uniforms. In the
+// migrated path makeAudioShader hard-zeros the header uniforms, so the
+// controller must supply every one of them as a continuous control.
+export const AUDIO_CONTROL_SCHEMA = Object.freeze({
+  continuous: {
+    uSub: { min: 0, max: 1.6, neutral: 0 },
+    uMid: { min: 0, max: 1.6, neutral: 0 },
+    uHigh: { min: 0, max: 1.6, neutral: 0 },
+    uEnergy: { min: 0, max: 1.6, neutral: 0 },
+    uKick: { min: 0, max: 1.4, neutral: 0 },
+    uSnare: { min: 0, max: 1.4, neutral: 0 },
+    uHat: { min: 0, max: 1.4, neutral: 0 },
+    uBeat: { min: 0, max: 1.4, neutral: 0 },
+    uNodes: { min: 0.35, max: 2, neutral: 1 },
+    uLinks: { min: 0.2, max: 2, neutral: 1 },
+    uPulse: { min: 0.2, max: 2, neutral: 1 },
+    uSpeed: { min: 0, max: 2.5, neutral: 1 },
+  },
+  arrays: {},
+  events: {},
+  neutral: {
+    continuous: {
+      uSub: 0, uMid: 0, uHigh: 0, uEnergy: 0,
+      uKick: 0, uSnare: 0, uHat: 0, uBeat: 0,
+      uNodes: 1, uLinks: 1, uPulse: 1, uSpeed: 1,
+    },
+  },
+});
+
+// The controller owns all audio interpretation on the capture owner: it maps
+// the canonical musical features through the accepted param gains and, when no
+// audio frame exists, reproduces makeAudioShader's musical idle bands so the
+// effect stays stage-ready before an input is selected.
+export function createAudioController({ rng = Math.random } = {}) {
+  let elapsed = 0;
+  return {
+    update({ frame, shared, params = {}, deltaSeconds = 1 / 30 }) {
+      const dt = clamp(finite(deltaSeconds, 1 / 30), 1 / 240, 0.1);
+      elapsed += dt;
+      const bassGain = Math.max(0, finite(params.bass, 1));
+      const midGain = Math.max(0, finite(params.mid, 1));
+      const highGain = Math.max(0, finite(params.high, 1));
+      const punch = Math.max(0, finite(params.punch, 1));
+      const pulse = (rate, offset = 0, decay = 18) => {
+        const phase = ((elapsed * rate + offset) % 1 + 1) % 1;
+        return Math.exp(-phase * decay);
+      };
+
+      let bands;
+      if (frame) {
+        const f = shared?.getFeatures?.() || {};
+        bands = {
+          sub: clamp((f.sub ?? 0) * bassGain, 0, 1.6),
+          mid: clamp((f.mid ?? 0) * midGain, 0, 1.6),
+          high: clamp((f.high ?? 0) * highGain, 0, 1.6),
+          energy: clamp((f.energy ?? 0) * (bassGain * 0.42 + midGain * 0.38 + highGain * 0.2), 0, 1.6),
+          kick: clamp((f.kick ?? 0) * bassGain * punch, 0, 1.4),
+          snare: clamp((f.snare ?? 0) * midGain * punch, 0, 1.4),
+          hat: clamp((f.hat ?? 0) * highGain * punch, 0, 1.4),
+          beat: clamp((f.beat ?? 0) * bassGain * punch, 0, 1.4),
+        };
+      } else {
+        const rawKick = pulse(2.0);
+        const idleKick = Math.min(1.4, rawKick * bassGain * punch);
+        const idleSnare = Math.min(1.4, pulse(1.0, 0.5, 22) * midGain * punch);
+        const idleHat = Math.min(1.4, pulse(4.0, 0.5, 28) * highGain * punch);
+        const sway = 0.5 + 0.5 * Math.sin(elapsed * 1.37);
+        bands = {
+          sub: (0.14 + rawKick * 0.48) * bassGain,
+          mid: (0.12 + sway * 0.14) * midGain,
+          high: (0.08 + (1 - sway) * 0.16) * highGain,
+          energy: 0.18 + rawKick * 0.16 + sway * 0.06,
+          kick: idleKick,
+          snare: idleSnare,
+          hat: idleHat,
+          beat: idleKick,
+        };
+      }
+
+      return {
+        continuous: {
+          uSub: bands.sub,
+          uMid: bands.mid,
+          uHigh: bands.high,
+          uEnergy: bands.energy,
+          uKick: bands.kick,
+          uSnare: bands.snare,
+          uHat: bands.hat,
+          uBeat: bands.beat,
+          uNodes: clamp(finite(params.nodes, 1), 0.35, 2),
+          uLinks: clamp(finite(params.links, 1), 0.2, 2),
+          uPulse: clamp(finite(params.pulse, 1), 0.2, 2),
+          uSpeed: clamp(finite(params.speed, 1), 0, 2.5),
+        },
+        arrays: {},
+        events: [],
+      };
+    },
+    dispose() {},
+  };
+}
+
+export default (audio, videoDeviceId, params, runtimeContext = {}) => {
+  const audioControls = runtimeContext?.audioControls;
+  if (audioControls) {
+    return makeAudioShader(
+      audio,
+      params,
+      frag,
+      (_P, _bands, _p, controls) => ({
+        ...AUDIO_CONTROL_SCHEMA.neutral.continuous,
+        ...(controls?.continuous || {}),
+      }),
+      { audioControls },
+    );
+  }
+
+  // Existing raw-frame shader path for standalone use and any un-migrated
+  // registry entry. It continues to own local feature mapping exactly as before.
+  return makeAudioShader(
+    audio,
+    params,
+    frag,
+    (P) => ({
+      uNodes: P.nodes ?? 1,
+      uLinks: P.links ?? 1,
+      uPulse: P.pulse ?? 1,
+      uSpeed: P.speed ?? 1,
+    }),
+  );
+};
