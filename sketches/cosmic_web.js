@@ -3,12 +3,17 @@
 // and renders via a full-screen fragment shader for the O(n²) line bottleneck.
 // Visual outcome, colors, additive blending and audio mappings stay faithful to
 // the CPU original; only the rasterization moves to the GPU.
+// The opted-in path receives band scalars, a hue offset and one-shot kick /
+// shooting-star events from a DOM-free capture-side controller; the node/link/
+// pulse simulation stays on the renderer. The legacy raw-frame path is kept.
 
 import { makeAudioShader, AUDIO_SHADER_HEADER } from './shader-utils.js';
 
 const MAX_NODES = 200;
 const MAX_LINKS = 256;
 const MAX_PULSES = 64;
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
 const frag = `${AUDIO_SHADER_HEADER}
   uniform float uNodeCount;
@@ -122,9 +127,96 @@ const frag = `${AUDIO_SHADER_HEADER}
   }
 `;
 
-export default (audio, videoDeviceId, params) => {
+export const AUDIO_CONTROL_SCHEMA = Object.freeze({
+  continuous: {
+    uSub: { min: 0, max: 1.6, neutral: 0 },
+    uMid: { min: 0, max: 1.6, neutral: 0 },
+    uHigh: { min: 0, max: 1.6, neutral: 0 },
+    uEnergy: { min: 0, max: 1.6, neutral: 0 },
+    uHueOffset: { min: 0, max: 360, neutral: 0 },
+  },
+  arrays: {},
+  events: {
+    'kick': { fields: {} },
+    'shooting-star': { fields: {} },
+  },
+  neutral: {
+    continuous: {
+      uSub: 0,
+      uMid: 0,
+      uHigh: 0,
+      uEnergy: 0,
+      uHueOffset: 0,
+    },
+  },
+});
+
+// Legacy bands came from the shared feature extractor with live params boosts;
+// the canonical shared view has no params, so boosts are applied here with the
+// same clamps the extractor uses.
+function boostedBands(features, params) {
+  const bassGain = Math.max(0, Number(params.bass ?? 1));
+  const midGain = Math.max(0, Number(params.mid ?? 1));
+  const highGain = Math.max(0, Number(params.high ?? 1));
+  return {
+    sub: clamp((Number(features.sub) || 0) * bassGain, 0, 1.6),
+    mid: clamp((Number(features.mid) || 0) * midGain, 0, 1.6),
+    high: clamp((Number(features.high) || 0) * highGain, 0, 1.6),
+    energy: clamp(
+      (Number(features.energy) || 0) * (bassGain * 0.42 + midGain * 0.38 + highGain * 0.2),
+      0,
+      1.6,
+    ),
+  };
+}
+
+// The controller owns band extraction, hue drift, kick rising-edge detection
+// and the time-based shooting-star spawn rate. Node/link/pulse geometry stays
+// on the renderer because positions are canvas-space visual state.
+export function createAudioController({ rng = Math.random } = {}) {
+  const random = typeof rng === 'function' ? rng : Math.random;
+  let eventCounter = 0;
+  let hueOffset = 0;
+  let prevSub = 0;
+  const event = (type) => ({ id: `${type}-${++eventCounter}`, type });
+  const chanceForRate = (ratePerSecond, dt) => random() < 1 - Math.exp(-Math.max(0, ratePerSecond) * dt);
+
+  return {
+    update({ shared, params = {}, deltaSeconds = 1 / 30 }) {
+      const dt = clamp(Number.isFinite(deltaSeconds) ? deltaSeconds : 1 / 30, 1 / 240, 0.1);
+      const features = shared?.getFeatures?.() || {};
+      const b = boostedBands(features, params);
+      hueOffset = (hueOffset + (0.25 + b.energy * 1.5) * dt * 60) % 360;
+
+      const events = [];
+      const kicked = b.sub > 0.4 && b.sub > prevSub + 0.03;
+      prevSub = b.sub;
+      if (kicked) events.push(event('kick'));
+      // Legacy per-frame shooting-star probability converted to a per-second rate.
+      if (b.high > 0.35 && chanceForRate(b.high * 0.1 * 60, dt)) {
+        events.push(event('shooting-star'));
+      }
+
+      return {
+        continuous: {
+          uSub: b.sub,
+          uMid: b.mid,
+          uHigh: b.high,
+          uEnergy: b.energy,
+          uHueOffset: hueOffset,
+        },
+        arrays: {},
+        events,
+      };
+    },
+    dispose() {},
+  };
+}
+
+export default (audio, videoDeviceId, params, runtimeContext = {}) => {
   const nodes = [];
   const pulses = [];
+  const audioControls = runtimeContext?.audioControls || null;
   let hueOffset = 0;
   let prevSub = 0;
 
@@ -142,22 +234,17 @@ export default (audio, videoDeviceId, params) => {
     nodes.length = Math.min(nodes.length, n);
   }
 
-  return makeAudioShader(audio, params, frag, (P, bands, p) => {
+  // Shared node integration / link / pulse packing used by both paths. The
+  // caller supplies the audio scalars so the migrated path never touches the
+  // audio facade while the legacy path keeps its exact behavior.
+  function simulate(kicked, sub, mid, energy, p, shootingEvent) {
+    const P = params || {};
     const count = Math.floor(P.nodes ?? 90);
     const linkBase = P.link ?? 130;
     const scatter = P.scatter ?? 1;
     const drift = P.drift ?? 1;
 
-    const energy = bands.energy;
-    const sub = bands.sub;
-    const mid = bands.mid;
-    const high = bands.high;
-
-    hueOffset = (hueOffset + 0.25 + energy * 1.5) % 360;
     ensureNodes(count, p);
-
-    const kicked = sub > 0.4 && sub > prevSub + 0.03;
-    prevSub = sub;
 
     const linkDist = linkBase * (1 + mid * 0.6);
     const cx = p.width / 2;
@@ -211,8 +298,6 @@ export default (audio, videoDeviceId, params) => {
         }
       }
     }
-    // If not kicked we didn't spawn pulses above; kicked already handled inside loop
-    // Integrate pulse spawn when no link? nothing.
 
     for (let i = pulses.length - 1; i >= 0; i--) {
       const pl = pulses[i];
@@ -221,13 +306,13 @@ export default (audio, videoDeviceId, params) => {
     }
 
     let shooting = [0, 0, 0, 0];
-    if (high > 0.35 && p.random() < high * 0.1 && nodes.length > 1) {
+    if (shootingEvent && nodes.length > 1) {
       const a = nodes[Math.floor(p.random(nodes.length))];
       const c = nodes[Math.floor(p.random(nodes.length))];
       const tt = p.random();
       const x = a.x + (c.x - a.x) * tt;
       const y = a.y + (c.y - a.y) * tt;
-      const r = 2 + high * 3;
+      const r = 2 + sub * 3;
       shooting = [x, y, r, 1];
     }
 
@@ -255,7 +340,6 @@ export default (audio, videoDeviceId, params) => {
     return {
       uNodeCount: nodes.length,
       uNodes: nodeData,
-      uHueOffset: hueOffset,
       uLinkCount: linkCount,
       uLinkPos: linkPos,
       uLinkCol: linkCol,
@@ -263,5 +347,63 @@ export default (audio, videoDeviceId, params) => {
       uPulses: pulseData,
       uShootingStar: shooting,
     };
-  });
+  }
+
+  function legacyMapUniforms(P, bands, p) {
+    const energy = bands.energy;
+    const sub = bands.sub;
+    const mid = bands.mid;
+    const high = bands.high;
+
+    hueOffset = (hueOffset + 0.25 + energy * 1.5) % 360;
+
+    const kicked = sub > 0.4 && sub > prevSub + 0.03;
+    prevSub = sub;
+
+    const simulated = simulate(kicked, sub, mid, energy, p, null);
+
+    // Shooting star probability is evaluated here on the raw-frame path.
+    if (high > 0.35 && p.random() < high * 0.1 && nodes.length > 1) {
+      const a = nodes[Math.floor(p.random(nodes.length))];
+      const c = nodes[Math.floor(p.random(nodes.length))];
+      const tt = p.random();
+      const x = a.x + (c.x - a.x) * tt;
+      const y = a.y + (c.y - a.y) * tt;
+      const r = 2 + high * 3;
+      simulated.uShootingStar = [x, y, r, 1];
+    }
+
+    return {
+      ...simulated,
+      uHueOffset: hueOffset,
+    };
+  }
+
+  function migratedMapUniforms(P, _bands, p, controls) {
+    const C = { ...AUDIO_CONTROL_SCHEMA.neutral.continuous, ...(controls?.continuous || {}) };
+    hueOffset = C.uHueOffset;
+
+    const events = audioControls.consumeEvents();
+    const kicked = events.some((item) => item.type === 'kick');
+    const shootingEvent = events.some((item) => item.type === 'shooting-star');
+
+    const simulated = simulate(kicked, C.uSub, C.uMid, C.uEnergy, p, shootingEvent);
+
+    return {
+      ...simulated,
+      uHueOffset: hueOffset,
+      uSub: C.uSub,
+      uMid: C.uMid,
+      uHigh: C.uHigh,
+      uEnergy: C.uEnergy,
+    };
+  }
+
+  return makeAudioShader(
+    audio,
+    params,
+    frag,
+    audioControls ? migratedMapUniforms : legacyMapUniforms,
+    audioControls ? { audioControls } : {},
+  );
 };
