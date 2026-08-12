@@ -2,6 +2,8 @@
 // Original per-pixel CPU path used a tiny offscreen buffer + loadPixels/updatePixels
 // and a drifting hold band. The shader replicates block-quantized hash per block,
 // independent R/G/B hashing for chroma mode, and the same hold band via valueNoise.
+// Opted-in renderers consume the smoothed energy level from the capture owner;
+// the legacy raw-frame shader path is kept for all other callers.
 import { AUDIO_SHADER_HEADER, makeAudioShader } from './shader-utils.js';
 
 const frag = `${AUDIO_SHADER_HEADER}
@@ -48,7 +50,64 @@ const frag = `${AUDIO_SHADER_HEADER}
   }
 `;
 
-export default (audio, videoDeviceId, params) => {
+export const AUDIO_CONTROL_SCHEMA = Object.freeze({
+  continuous: {
+    level: { min: 0, max: 1.6, neutral: 0 },
+  },
+  arrays: {},
+  events: {},
+  neutral: {
+    continuous: { level: 0 },
+  },
+});
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+// The controller owns the energy envelope that drives the snow level. The
+// legacy renderer smoothed bands.energy with a per-frame lerp (0.16); the
+// time-based form reproduces that curve at the nominal 60 FPS cadence.
+export function createAudioController({ rng = Math.random } = {}) {
+  let level = 0;
+  return {
+    update({ shared, params = {}, deltaSeconds = 1 / 30 }) {
+      const dt = clamp(Number.isFinite(deltaSeconds) ? deltaSeconds : 1 / 30, 1 / 240, 0.1);
+      const features = shared?.getFeatures?.() || {};
+      const target = clamp(Number(features.energy) || 0, 0, 1.6);
+      level += (target - level) * (1 - Math.pow(1 - 0.16, dt * 60));
+      if (level < 1e-6) level = 0;
+      return {
+        continuous: { level },
+        arrays: {},
+        events: [],
+      };
+    },
+    dispose() {},
+  };
+}
+
+export default (audio, videoDeviceId, params, runtimeContext = {}) => {
+  const audioControls = runtimeContext?.audioControls;
+  if (audioControls) {
+    return makeAudioShader(
+      audio,
+      params,
+      frag,
+      (P, _bands, _p, controls) => {
+        const C = { ...AUDIO_CONTROL_SCHEMA.neutral.continuous, ...(controls?.continuous || {}) };
+        return {
+          uIntensity: P.intensity ?? 0.7,
+          uBlock: Math.max(1, Math.round(P.density ?? 3)),
+          uColorMode: (P.color ?? 0) >= 0.5 ? 1 : 0,
+          uPulse: P.pulse ?? 1,
+          uLevel: C.level,
+        };
+      },
+      { audioControls },
+    );
+  }
+
+  // Existing raw-frame shader path for standalone use and any un-migrated
+  // registry entry. It continues to own local feature mapping exactly as before.
   let level = 0;
   return makeAudioShader(audio, params, frag, (P, bands) => {
     const target = bands.energy;

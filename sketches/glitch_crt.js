@@ -2,13 +2,61 @@
 // barrel curvature, striped with scanlines + aperture grille, flickered,
 // ghosted and swept by a roll bar. Bass warps rows, kicks shake the frame.
 // Everything lives in one fragment shader, so it stays smooth at any size.
+// Opted-in renderers consume sub/mid/high/kick uniforms from the capture
+// owner; the legacy raw-frame shader path is kept for all other callers.
 import { makeAudioFeatures } from './audio-features.js';
 import { FULLSCREEN_VERT } from './shader-utils.js';
 
-export default (audio, videoDeviceId, params) => (p) => {
+export const AUDIO_CONTROL_SCHEMA = Object.freeze({
+  continuous: {
+    sub: { min: 0, max: 1.6, neutral: 0.12 },
+    mid: { min: 0, max: 1.6, neutral: 0.12 },
+    high: { min: 0, max: 1.6, neutral: 0.08 },
+    kick: { min: 0, max: 1.4, neutral: 0 },
+  },
+  arrays: {},
+  events: {},
+  neutral: {
+    continuous: { sub: 0.12, mid: 0.12, high: 0.08, kick: 0 },
+  },
+});
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+// The controller reproduces the legacy extractor bands and the idle-mode tube
+// twitch (a slow internal kick) when no capture frame is available.
+export function createAudioController({ rng = Math.random } = {}) {
+  let elapsed = 0;
+  return {
+    update({ shared, params = {}, deltaSeconds = 1 / 30 }) {
+      const dt = clamp(Number.isFinite(deltaSeconds) ? deltaSeconds : 1 / 30, 1 / 240, 0.1);
+      elapsed += dt;
+
+      const features = shared?.getFeatures?.() || {};
+      const freqs = shared?.getByteFrequencies?.() || { left: null };
+      const hasFrame = Boolean(freqs?.left?.length);
+      const idleKick = Math.exp(-((elapsed * 2) % 1) * 14);
+
+      const sub = hasFrame ? clamp(Number(features.sub) || 0, 0, 1.6) : clamp(0.12 + idleKick * 0.4, 0, 1.6);
+      const mid = hasFrame ? clamp(Number(features.mid) || 0, 0, 1.6) : 0.12;
+      const high = hasFrame ? clamp(Number(features.high) || 0, 0, 1.6) : 0.08;
+      const kick = hasFrame ? clamp(Number(features.kick) || 0, 0, 1.4) : idleKick;
+
+      return {
+        continuous: { sub, mid, high, kick },
+        arrays: {},
+        events: [],
+      };
+    },
+    dispose() {},
+  };
+}
+
+export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
   let crt;
   let elapsed = 0;
-  const getFeatures = makeAudioFeatures();
+  const audioControls = runtimeContext?.audioControls || null;
+  let getFeatures = null; // constructed lazily only for the legacy path
 
   const frag = `
     precision highp float;
@@ -121,11 +169,43 @@ export default (audio, videoDeviceId, params) => (p) => {
     crt = p.createShader(FULLSCREEN_VERT, frag);
   };
 
-  p.draw = () => {
+  function drawUniforms(C) {
+    const P = params || {};
+    const speed = P.speed ?? 1;
+    const tm = elapsed * (0.35 + speed * 0.65);
+
+    p.shader(crt);
+    crt.setUniform('uResolution', [p.width, p.height]);
+    crt.setUniform('uTime', tm);
+    crt.setUniform('uSub', C.sub);
+    crt.setUniform('uMid', C.mid);
+    crt.setUniform('uHigh', C.high);
+    crt.setUniform('uKick', C.kick);
+    crt.setUniform('uCurvature', P.curvature ?? 0.6);
+    crt.setUniform('uScan', P.scanlines ?? 0.7);
+    crt.setUniform('uFlicker', P.flicker ?? 0.5);
+    crt.setUniform('uRoll', P.roll ?? 0.5);
+    crt.setUniform('uGhost', P.ghost ?? 0.4);
+    crt.setUniform('uPulse', P.pulse ?? 1);
+    p.rect(0, 0, p.width, p.height);
+  }
+
+  // Opted-in path: all audio uniforms come from the capture-side controller.
+  function drawMigrated() {
+    const dt = Math.min(p.deltaTime || 16.667, 100) / 1000;
+    elapsed += dt;
+    const controls = audioControls.read();
+    const C = { ...AUDIO_CONTROL_SCHEMA.neutral.continuous, ...(controls.continuous || {}) };
+    drawUniforms(C);
+  }
+
+  // Preserved raw-frame implementation for non-migrated/standalone callers.
+  function drawLegacy() {
     const P = params || {};
     const dt = Math.min(p.deltaTime || 16.667, 100) / 1000;
     elapsed += dt;
 
+    getFeatures = getFeatures || makeAudioFeatures();
     const frame = audio && audio.isStarted && typeof audio.getAnalysisFrame === 'function'
       ? audio.getAnalysisFrame()
       : null;
@@ -136,23 +216,17 @@ export default (audio, videoDeviceId, params) => (p) => {
       ? measured
       : { sub: 0.12 + idleKick * 0.4, mid: 0.12, high: 0.08, kick: idleKick };
 
-    const speed = P.speed ?? 1;
-    const tm = elapsed * (0.35 + speed * 0.65);
+    drawUniforms({
+      sub: bands.sub,
+      mid: bands.mid,
+      high: bands.high,
+      kick: bands.kick ?? 0,
+    });
+  }
 
-    p.shader(crt);
-    crt.setUniform('uResolution', [p.width, p.height]);
-    crt.setUniform('uTime', tm);
-    crt.setUniform('uSub', bands.sub);
-    crt.setUniform('uMid', bands.mid);
-    crt.setUniform('uHigh', bands.high);
-    crt.setUniform('uKick', bands.kick ?? 0);
-    crt.setUniform('uCurvature', P.curvature ?? 0.6);
-    crt.setUniform('uScan', P.scanlines ?? 0.7);
-    crt.setUniform('uFlicker', P.flicker ?? 0.5);
-    crt.setUniform('uRoll', P.roll ?? 0.5);
-    crt.setUniform('uGhost', P.ghost ?? 0.4);
-    crt.setUniform('uPulse', P.pulse ?? 1);
-    p.rect(0, 0, p.width, p.height);
+  p.draw = () => {
+    if (audioControls) drawMigrated();
+    else drawLegacy();
   };
 
   p.windowResized = () => p.resizeCanvas(p.windowWidth, p.windowHeight);
