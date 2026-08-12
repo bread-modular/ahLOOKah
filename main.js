@@ -3179,7 +3179,7 @@ async function bootViz() {
   currentAudioDeviceId = localStorage.getItem(STORAGE.audio) || null;
 
   if (myRole === 'screen') {
-    document.title = 'Viz Screen';
+    document.title = 'ahLOOKah Screen';
     document.body.classList.add('is-screen');
     currentVideoDeviceId = localStorage.getItem(STORAGE.video) || null;
     loadSketch(currentIndex);
