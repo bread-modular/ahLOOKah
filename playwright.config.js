@@ -5,6 +5,10 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 5_000 },
   fullyParallel: true,
+  // The heavy WebGL smoke/preview specs (raymarch shaders under software GL) and
+  // the per-RAF pattern-controls engine work crash/time out under 3-way parallel
+  // contention on this 6-core/6GB host. Cap at 2 workers for a reliable suite.
+  workers: 2,
   reporter: [['list']],
   use: {
     baseURL: 'http://localhost:5173',

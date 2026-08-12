@@ -53,8 +53,25 @@ test.describe('all-pattern controls-only audio transport', () => {
     expect(patternIds).toHaveLength(58);
     expect(new Set(patternIds).size).toBe(58);
 
+    // Camera (video) effects never render a preview canvas in the control window:
+    // the preview stage shows the placeholder note instead (the live camera video
+    // stays on the output screen). Everything else must produce its preview canvas.
+    const cameraIds = await page.evaluate(async () => {
+      const { SKETCHES } = await import('/sketch-registry.js');
+      return SKETCHES.filter((sketch) => sketch.camera).map((sketch) => sketch.id);
+    });
+    const cameraSet = new Set(cameraIds);
+
     for (const patternId of patternIds) {
       await page.locator(`#pattern-library [data-id="${patternId}"]`).click();
+      if (cameraSet.has(patternId)) {
+        // Camera effects never render in the control window (the preview stage
+        // shows the placeholder note instead), so they also have no preview
+        // controls slot to stay fresh on — their controls path is exercised on
+        // the output screen in the representative-LIVE test below.
+        await expect(page.locator('#preview-stage .preview-empty')).toBeVisible({ timeout: 10_000 });
+        continue;
+      }
       await expect(page.locator(`#preview-stage canvas[data-preview-sketch="${patternId}"]`)).toBeVisible({ timeout: 10_000 });
       await waitForFreshSlot(page, patternId);
     }

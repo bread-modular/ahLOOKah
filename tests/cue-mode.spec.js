@@ -8,6 +8,12 @@ async function openScreenAndControl(context, page) {
   const control = await context.newPage();
   await control.goto(CONTROL_URL);
   await page.waitForFunction(() => window.__viz.patternId === 'circles');
+  // The control must have synced with the output screen before any CUE gesture:
+  // a Shift+number entry is silently dropped while the control has not yet
+  // learned the screen (screenOnline gate), and the next plain digit would then
+  // fall through to a LIVE program change instead of staging CUE. Under parallel
+  // load the hello/state sync round trip can outlast the screen's first frame.
+  await control.waitForFunction(() => window.__viz.screenOnline === true);
   await expect(control.locator('#cue-preview-controls')).toBeHidden();
   return control;
 }
