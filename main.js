@@ -3185,7 +3185,7 @@ async function bootViz() {
     loadSketch(currentIndex);
     renderScreenToolbar();
   } else {
-    document.title = 'Viz Control';
+    document.title = 'ahLOOKah';
     document.body.classList.add('is-control');
     updateActiveSketchId();
     ensurePanel();

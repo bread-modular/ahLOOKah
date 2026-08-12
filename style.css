@@ -1301,6 +1301,8 @@ body.is-screen #config-container {
   margin: 0 !important;
   flex-shrink: 0;
   line-height: 1;
+  /* Keep the literal label text as-is (no uppercase transform from #config-panel h3) */
+  text-transform: none !important;
 }
 
 .viz-control-header .status-line {
