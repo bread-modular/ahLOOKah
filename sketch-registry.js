@@ -358,8 +358,9 @@ export const SKETCHES = [
     createAudioController: createNeonSpectrumAudioController,
     audioControlSchema: neonSpectrumAudioControlSchema,
     params: [
-      ...BAND_RESPONSIVENESS,
-      { key: 'bars', label: 'Bar Count', min: 24, max: 144, step: 1, default: 72 },
+      { key: 'gain', label: 'Amplitude Gain', min: 0.2, max: 3, step: 0.05, default: 1 },
+      { key: 'barWidth', label: 'Bar Width', min: 2, max: 16, step: 1, default: 4 },
+      { key: 'flash', label: 'Peak Flash', min: 0, max: 2, step: 0.05, default: 1 },
     ],
     group: 'Rhythmic',
   }, // 6
