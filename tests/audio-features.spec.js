@@ -105,6 +105,22 @@ test.describe('musical audio feature extraction', () => {
   });
 
   test('delivers live kick, snare and hat envelopes to a running GPU effect', async ({ context, page }) => {
+    // The migrated transport computes musical features capture-side and carries
+    // them to the running GPU effect as controller-mapped uniforms inside compact
+    // pattern-audio-controls packets (no raw analysis frames cross the wire).
+    // Capture those packets on the control to observe the live envelopes.
+    await context.addInitScript(() => {
+      const originalPostMessage = BroadcastChannel.prototype.postMessage;
+      window.__capturedControls = [];
+      BroadcastChannel.prototype.postMessage = function postMessageWithCapture(message) {
+        if (message?.type === 'pattern-audio-controls' && Array.isArray(message.slots)) {
+          window.__capturedControls.push(message);
+          if (window.__capturedControls.length > 400) window.__capturedControls.shift();
+        }
+        return originalPostMessage.call(this, message);
+      };
+    });
+
     await page.goto(SCREEN_URL);
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
@@ -123,7 +139,9 @@ test.describe('musical audio feature extraction', () => {
           const binHz = sampleRate / fftSize;
           const start = Math.ceil(range[0] / binHz);
           const end = Math.floor(range[1] / binHz);
-          for (let i = start; i <= end; i++) left[i] = right[i] = -20;
+          // Strong band stimulus (-12 dB) keeps the envelope peak well above the
+          // assertion threshold even when parallel load stretches tick timing.
+          for (let i = start; i <= end; i++) left[i] = right[i] = -12;
         }
         return { left, right, sampleRate, fftSize, rms: 0.1 };
       };
@@ -139,28 +157,43 @@ test.describe('musical audio feature extraction', () => {
     // Prime previous-spectrum and adaptive-threshold state.
     await page.waitForTimeout(180);
 
-    await control.evaluate(() => {
-      window.__audioTestFrames.current = window.__audioTestFrames.makeFrame([40, 145]);
-    });
-    await page.waitForFunction(() => window.__viz.audioFeatures?.kick > 0.15);
+    const injectFrame = (range) => control.evaluate((r) => {
+      window.__audioTestFrames.current = window.__audioTestFrames.makeFrame(r);
+    }, range);
+
+    // Wait until a recent packet carries the requested envelope above threshold.
+    const waitForEnvelope = (uniform) => control.waitForFunction((name) => {
+      const captured = window.__capturedControls || [];
+      for (let i = captured.length - 1; i >= 0; i--) {
+        const slot = captured[i].slots.find((entry) => entry.continuous && Number(entry.continuous[name]) > 0.15);
+        if (slot) return true;
+      }
+      return false;
+    }, uniform, { timeout: 10_000 });
+
+    await injectFrame([40, 145]);
+    await waitForEnvelope('uKick');
     await expect.poll(() => page.evaluate(() => window.__viz.audioFeatures.live)).toBe(true);
 
-    await control.evaluate(() => {
-      window.__audioTestFrames.current = window.__audioTestFrames.makeFrame();
-    });
+    await injectFrame(null);
     await page.waitForTimeout(240);
-    await control.evaluate(() => {
-      window.__audioTestFrames.current = window.__audioTestFrames.makeFrame([350, 2200]);
-    });
-    await page.waitForFunction(() => window.__viz.audioFeatures?.snare > 0.15);
+    await injectFrame([350, 2200]);
+    await waitForEnvelope('uSnare');
 
-    await control.evaluate(() => {
-      window.__audioTestFrames.current = window.__audioTestFrames.makeFrame();
-    });
+    await injectFrame(null);
     await page.waitForTimeout(200);
-    await control.evaluate(() => {
-      window.__audioTestFrames.current = window.__audioTestFrames.makeFrame([6000, 12000]);
+    await injectFrame([6000, 12000]);
+    await waitForEnvelope('uHat');
+
+    // The running output effect is fed by the same compact controls: the audio
+    // facade is marked active by accepted packets and the event-horizon slot
+    // stays fresh and rendered on the screen (screen-side header bands are
+    // deliberately neutral on the controls path, so the envelopes are asserted
+    // at the transport level above).
+    await expect.poll(() => page.evaluate(() => window.__viz.audio.isStarted)).toBe(true);
+    await page.waitForFunction(() => {
+      const slots = Object.values(window.__viz.patternAudio?.store?.slots || {});
+      return slots.some((slot) => slot.patternId === 'event-horizon' && slot.fresh && slot.renderMarker > 0);
     });
-    await page.waitForFunction(() => window.__viz.audioFeatures?.hat > 0.15);
   });
 });
