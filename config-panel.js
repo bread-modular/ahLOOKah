@@ -156,6 +156,10 @@ export class ConfigPanel {
 
     this.audioKey = 'viz2_audio_device_id';
     this.videoKey = 'viz2_video_device_id';
+    // Persisted "setup completed" flag — set only when the operator confirms the
+    // device-setup modal (OK). Dismissing (X) leaves it unset so the modal is
+    // shown again on the next reload.
+    this.setupDoneKey = 'viz2_device_setup_done';
     // Persisted open/closed state of the collapsible devices & setup section.
     this.deviceSectionKey = 'viz2_device_setup_open';
     // Persisted open/closed state of the band-split EQ section.
@@ -165,6 +169,11 @@ export class ConfigPanel {
     this.container = null;
     this.panel = null;
     this.devices = [];
+    this.setupModal = null;
+    this.setupModalAudio = null;
+    this.setupModalVideo = null;
+    this.setupModalNotice = null;
+    this.setupModalOk = null;
     this.currentPattern = getPattern ? getPattern() : 0;
     this.currentPatternId = null;
     this.screenOnline = isScreen ? Boolean(isScreen()) : false;
@@ -375,6 +384,9 @@ export class ConfigPanel {
       console.error('Auto-detect failed', e);
       this.showSetupNotice();
     }
+
+    // First-run gate: prompt for mic/camera setup if it hasn't been completed.
+    this.maybeShowSetupModal();
   }
 
   showSetupNotice() {
@@ -436,6 +448,10 @@ export class ConfigPanel {
     if (this._resizeRaf) cancelAnimationFrame(this._resizeRaf);
     if (this.eqWatchTimer) clearInterval(this.eqWatchTimer);
     if (this._eqResizeObserver) try { this._eqResizeObserver.disconnect(); } catch {}
+    if (this.setupModal) {
+      try { this.setupModal.remove(); } catch {}
+      this.setupModal = null;
+    }
     this._listeners.splice(0).forEach(fn => { try { fn(); } catch {} });
     this._paramBroadcastQueue.clear();
   }
@@ -1656,6 +1672,18 @@ export class ConfigPanel {
     this.renderSelectors(devices);
   }
 
+  // Fill one <select> with the matching devices, preserving a saved selection.
+  fillDeviceSelect(selectEl, inputs, savedId, placeholder) {
+    selectEl.innerHTML = `<option value="">${placeholder}</option>`;
+    inputs.forEach((d) => {
+      const opt = document.createElement('option');
+      opt.value = d.deviceId;
+      opt.text = d.label || `${placeholder.replace('Select ', '').replace('...', '')} ${d.deviceId.slice(0, 5)}`;
+      selectEl.appendChild(opt);
+      if (savedId && d.deviceId === savedId) opt.selected = true;
+    });
+  }
+
   renderSelectors(devices) {
     this.devices = devices;
     this.hideSetupNotice();
@@ -1668,42 +1696,183 @@ export class ConfigPanel {
 
     audioSelect.disabled = false;
     videoSelect.disabled = false;
-    audioSelect.innerHTML = '<option value="">Select Audio...</option>';
-    videoSelect.innerHTML = '<option value="">Select Camera...</option>';
 
     const savedAudioId = localStorage.getItem(this.audioKey);
     const savedVideoId = localStorage.getItem(this.videoKey);
 
-    audioInputs.forEach((d) => {
-      const opt = document.createElement('option');
-      opt.value = d.deviceId;
-      opt.text = d.label || `Audio ${d.deviceId.slice(0, 5)}`;
-      audioSelect.appendChild(opt);
-      if (savedAudioId && d.deviceId === savedAudioId) opt.selected = true;
-    });
-
-    videoInputs.forEach((d) => {
-      const opt = document.createElement('option');
-      opt.value = d.deviceId;
-      opt.text = d.label || `Camera ${d.deviceId.slice(0, 5)}`;
-      videoSelect.appendChild(opt);
-      if (savedVideoId && d.deviceId === savedVideoId) opt.selected = true;
-    });
+    this.fillDeviceSelect(audioSelect, audioInputs, savedAudioId, 'Select Audio...');
+    this.fillDeviceSelect(videoSelect, videoInputs, savedVideoId, 'Select Camera...');
 
     audioSelect.onchange = (e) => this.handleAudioChange(e.target.value);
     videoSelect.onchange = (e) => this.handleVideoChange(e.target.value);
     this.updateCueDeviceLock();
+
+    // Mirror the enumerated devices into the first-run setup modal if it is open.
+    if (this.setupModal) this.populateSetupModal();
   }
 
   handleAudioChange(id) {
     if (!id) return;
     localStorage.setItem(this.audioKey, id);
     if (this.onDevicesChange) this.onDevicesChange({ audioDeviceId: id });
+    this.syncDeviceSelect('audio', id);
   }
 
   handleVideoChange(id) {
     if (!id || this.cueState) return;
     localStorage.setItem(this.videoKey, id);
     if (this.onDevicesChange) this.onDevicesChange({ videoDeviceId: id });
+    this.syncDeviceSelect('video', id);
+  }
+
+  // Keep the inline Devices & Setup select and the first-run modal select in
+  // sync with a chosen device id, whichever side the operator used.
+  syncDeviceSelect(kind, id) {
+    const apply = (sel) => {
+      if (!sel) return;
+      const hasOption = Array.from(sel.options).some((o) => o.value === id);
+      if (hasOption) sel.value = id;
+    };
+    if (kind === 'audio') {
+      apply(this.panel && this.panel.querySelector('#audio-select'));
+      apply(this.setupModalAudio);
+    } else {
+      apply(this.panel && this.panel.querySelector('#video-select'));
+      apply(this.setupModalVideo);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // First-run device setup modal
+  //   Shown while the microphone or camera has not been initialized/selected.
+  //   Initialize requests permissions, the selects let the operator pick both
+  //   inputs, OK commits the "setup complete" flag, and X dismisses without
+  //   completing so it is shown again on the next reload.
+  // ---------------------------------------------------------------------------
+
+  buildSetupModal() {
+    if (this.setupModal) return;
+
+    const modal = document.createElement('div');
+    modal.id = 'device-setup-modal';
+    modal.hidden = true;
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-labelledby', 'device-setup-modal-title');
+    modal.innerHTML = `
+      <div class="device-setup-modal-card">
+        <button id="device-setup-modal-close" class="device-setup-modal-close" type="button" aria-label="Close">&times;</button>
+        <h2 id="device-setup-modal-title">Connect Audio &amp; Video</h2>
+        <p class="device-setup-modal-desc">Initialize your microphone and camera, then select the inputs to use.</p>
+
+        <div id="device-setup-modal-notice" class="device-setup-modal-notice">
+          <p>Permissions are needed to list and use your audio &amp; camera inputs.</p>
+          <button id="device-setup-modal-init" type="button">Initialize</button>
+        </div>
+
+        <div class="device-setup-modal-field">
+          <label for="device-setup-modal-audio">Audio Input</label>
+          <select id="device-setup-modal-audio" disabled>
+            <option value="">Select Audio...</option>
+          </select>
+        </div>
+
+        <div class="device-setup-modal-field">
+          <label for="device-setup-modal-video">Camera Input</label>
+          <select id="device-setup-modal-video" disabled>
+            <option value="">Select Camera...</option>
+          </select>
+        </div>
+
+        <div class="device-setup-modal-actions">
+          <button id="device-setup-modal-ok" type="button">OK</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    this.setupModal = modal;
+    this.setupModalAudio = modal.querySelector('#device-setup-modal-audio');
+    this.setupModalVideo = modal.querySelector('#device-setup-modal-video');
+    this.setupModalNotice = modal.querySelector('#device-setup-modal-notice');
+    this.setupModalOk = modal.querySelector('#device-setup-modal-ok');
+
+    modal.querySelector('#device-setup-modal-close').onclick = () => this.dismissSetupModal();
+    modal.querySelector('#device-setup-modal-init').onclick = () => this.requestPermissions();
+    this.setupModalAudio.onchange = (e) => this.handleAudioChange(e.target.value);
+    this.setupModalVideo.onchange = (e) => this.handleVideoChange(e.target.value);
+    this.setupModalOk.onclick = () => this.completeSetupModal();
+  }
+
+  // Populate the modal selects from this.devices and reveal them once ready.
+  populateSetupModal() {
+    if (!this.setupModal) return;
+    const devices = this.devices || [];
+    const hasPermission = devices.some((d) => d.label !== '');
+    if (!hasPermission) {
+      // Permissions not yet granted — keep the Initialize prompt visible.
+      this.setupModalNotice.style.display = '';
+      this.setupModalAudio.disabled = true;
+      this.setupModalVideo.disabled = true;
+      return;
+    }
+
+    this.setupModalNotice.style.display = 'none';
+    const audioInputs = devices.filter((d) => d.kind === 'audioinput');
+    const videoInputs = devices.filter((d) => d.kind === 'videoinput');
+    const savedAudioId = localStorage.getItem(this.audioKey);
+    const savedVideoId = localStorage.getItem(this.videoKey);
+
+    this.fillDeviceSelect(this.setupModalAudio, audioInputs, savedAudioId, 'Select Audio...');
+    this.fillDeviceSelect(this.setupModalVideo, videoInputs, savedVideoId, 'Select Camera...');
+    this.setupModalAudio.disabled = false;
+    this.setupModalVideo.disabled = false;
+  }
+
+  // True when the operator still needs to initialize/select the mic or camera.
+  needsDeviceSetup() {
+    if (localStorage.getItem(this.setupDoneKey) === '1') return false;
+    const hasAudio = !!localStorage.getItem(this.audioKey);
+    const hasVideo = !!localStorage.getItem(this.videoKey);
+    // A profile that already saved both inputs is effectively complete — backfill
+    // the flag so a pre-existing user isn't nagged, then treat it as done.
+    if (hasAudio && hasVideo) {
+      localStorage.setItem(this.setupDoneKey, '1');
+      return false;
+    }
+    return true;
+  }
+
+  maybeShowSetupModal() {
+    if (!this.needsDeviceSetup()) return;
+    this.buildSetupModal();
+    this.populateSetupModal();
+    this.setupModal.hidden = false;
+  }
+
+  dismissSetupModal() {
+    const modal = this.setupModal;
+    if (!modal || modal.hidden) return;
+    // Play the exit animation, then hide. Falls back to hiding immediately if
+    // animations are disabled or the event never fires.
+    const finish = () => {
+      modal.classList.remove('device-setup-modal--closing');
+      modal.hidden = true;
+    };
+    modal.classList.add('device-setup-modal--closing');
+    modal.addEventListener('animationend', finish, { once: true });
+    window.setTimeout(finish, 300);
+  }
+
+  completeSetupModal() {
+    // Commit any selection the operator made through the modal before OK.
+    if (this.setupModalAudio && this.setupModalAudio.value) {
+      this.handleAudioChange(this.setupModalAudio.value);
+    }
+    if (this.setupModalVideo && this.setupModalVideo.value) {
+      this.handleVideoChange(this.setupModalVideo.value);
+    }
+    localStorage.setItem(this.setupDoneKey, '1');
+    this.dismissSetupModal();
   }
 }

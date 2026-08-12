@@ -23,6 +23,21 @@ export default defineConfig({
         '--use-fake-ui-for-media-stream',
       ],
     },
+    // The device-setup modal now gates a fresh profile until the operator
+    // confirms their mic/camera. The existing suite assumes an immediately
+    // interactive panel, so pre-seed the "setup complete" flag. Dedicated
+    // modal tests override this with an empty storage state.
+    storageState: {
+      cookies: [],
+      origins: [
+        {
+          origin: 'http://localhost:5173',
+          localStorage: [
+            { name: 'viz2_device_setup_done', value: '1' },
+          ],
+        },
+      ],
+    },
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
