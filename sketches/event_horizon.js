@@ -49,7 +49,7 @@ const frag = `${AUDIO_SHADER_HEADER}
 
     float stars = starLayer(skyUv + vec2(time * 0.004, 0.0), 43.0, 0.955);
     stars += starLayer(rotate2d(0.37) * skyUv - vec2(time * 0.002), 87.0, 0.982) * 0.65;
-    float starTwinkle = 0.72 + 0.28 * sin(time * 7.0 + hash21(floor(skyUv * 43.0)) * TAU);
+    float starTwinkle = 0.72 + 0.28 * sin(time * 7.0 + hash21(floor(skyUv * 43.0)) * VIZ_TAU);
     color += stars * starTwinkle * mix(vec3(0.5, 0.72, 1.0), vec3(1.0, 0.55, 0.85), hash21(floor(skyUv * 29.0)));
 
     // The disc is a thin, tilted turbulent plane. A radial falloff and moving

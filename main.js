@@ -523,11 +523,11 @@ function getEditingParams(id) {
 }
 
 function copyVisualParamBank(bank = {}) {
-  const copy = {};
+  const clonedBank = {};
   for (const [id, values] of Object.entries(bank)) {
-    if (visualParamId(id) && values && typeof values === 'object') copy[id] = { ...values };
+    if (visualParamId(id) && values && typeof values === 'object') clonedBank[id] = { ...values };
   }
-  return copy;
+  return clonedBank;
 }
 
 function adoptVisualParamBank(bank, { preserveReferences = false, persist = true } = {}) {
@@ -727,40 +727,36 @@ function currentLiveSelection() {
   return selectionFromIndices(currentIndex, mergeIndices) || singleSelection(activeSketchId || getOrderedSketches()[0]?.id);
 }
 
+// p5 owns each canvas backing store. The stage resize observer keeps CSS layout
+// authoritative while mirroring dimensions only through p5.resizeCanvas(), never
+// by assigning canvas.width/canvas.height directly (which clears 2D/WebGL state).
 let screenResizeObserver = null;
 let screenResizeRaf = 0;
-function syncCanvasBackingStore() {
-  // Make backing-store (canvas.width/height) match CSS size in rAF
-  const layers = [stageLiveLayer, stageCueLayer].filter(Boolean);
-  for (const layer of layers) {
-    for (const canvas of layer.querySelectorAll('canvas')) {
-      const rect = canvas.getBoundingClientRect();
-      const w = Math.max(1, Math.round(rect.width * (window.devicePixelRatio || 1)));
-      const h = Math.max(1, Math.round(rect.height * (window.devicePixelRatio || 1)));
-      // Only touch if changed (cheap)
-      if (canvas.width !== w || canvas.height !== h) {
-        // Let p5 handle resize where possible; fallback to direct attribute
-        try { if (canvas.width !== w) canvas.width = w; if (canvas.height !== h) canvas.height = h; } catch {}
-      }
-      // Always keep CSS size in sync (in case JS removed it)
-      canvas.style.width = '100%';
-      canvas.style.height = '100%';
-    }
+function resizeScreenRuntimes() {
+  const viewportWidth = Math.max(1, Math.round(window.innerWidth));
+  const viewportHeight = Math.max(1, Math.round(window.innerHeight));
+  const runtimes = new Set([liveRuntime, cueRuntime, incomingRuntime, retiringRuntime]);
+  for (const runtime of runtimes) {
+    if (!runtime || runtime.disposed) continue;
+    runtime.resize(viewportWidth, viewportHeight);
   }
 }
 function observeScreenResize() {
-  if (screenResizeObserver) try { screenResizeObserver.disconnect(); } catch {}
+  if (screenResizeObserver) {
+    try { screenResizeObserver.disconnect(); } catch {}
+  }
   const target = screenStage || document.getElementById('screen-wrap');
   if (!target) return;
-  screenResizeObserver = new ResizeObserver(() => {
+  const queueResize = () => {
     if (screenResizeRaf) return;
-    screenResizeRaf = requestAnimationFrame(() => { screenResizeRaf = 0; syncCanvasBackingStore(); });
-  });
+    screenResizeRaf = requestAnimationFrame(() => {
+      screenResizeRaf = 0;
+      resizeScreenRuntimes();
+    });
+  };
+  screenResizeObserver = new ResizeObserver(queueResize);
   try { screenResizeObserver.observe(target); } catch {}
-  trackListener(window, 'resize', () => {
-    if (screenResizeRaf) return;
-    screenResizeRaf = requestAnimationFrame(() => { screenResizeRaf = 0; syncCanvasBackingStore(); });
-  });
+  trackListener(window, 'resize', queueResize);
 }
 
 function ensureScreenStage() {
@@ -1016,10 +1012,10 @@ function applyPreviewCompositing() {
     if (!canvas) return;
     canvas.style.zIndex = String(index);
     if (previewP5.length === 2 && index === 1) {
-      const blend = getEditingParams(BLEND_ID);
-      const additive = blend.mode === 1;
+      const blendParams = getEditingParams(BLEND_ID);
+      const additive = blendParams.mode === 1;
       canvas.style.mixBlendMode = additive ? 'screen' : 'normal';
-      canvas.style.opacity = String(additive ? (blend.add ?? 0.5) : (blend.mix ?? 0.5));
+      canvas.style.opacity = String(additive ? (blendParams.add ?? 0.5) : (blendParams.mix ?? 0.5));
     } else {
       canvas.style.mixBlendMode = 'normal';
       canvas.style.opacity = '1';
@@ -1099,15 +1095,15 @@ function createPreviewInstance(sketch, layer, generation) {
     // Each legacy sketch asks p5 for window-sized canvases on setup and resize.
     // Substitute only those calls, keeping every drawing API and renderer mode
     // (including WEBGL) identical to the output-stage implementation.
-    const createCanvas = p.createCanvas.bind(p);
-    const resizeCanvas = p.resizeCanvas.bind(p);
-    p.createCanvas = (_width, _height, ...rest) => {
-      const [width, height] = getPreviewSize();
-      return createCanvas(width, height, ...rest);
+    const createPreviewCanvas = p.createCanvas.bind(p);
+    const resizePreviewCanvas = p.resizeCanvas.bind(p);
+    p.createCanvas = (_requestedWidth, _requestedHeight, ...rest) => {
+      const [previewWidth, previewHeight] = getPreviewSize();
+      return createPreviewCanvas(previewWidth, previewHeight, ...rest);
     };
-    p.resizeCanvas = (_width, _height, ...rest) => {
-      const [width, height] = getPreviewSize();
-      return resizeCanvas(width, height, ...rest);
+    p.resizeCanvas = (_requestedWidth, _requestedHeight, ...rest) => {
+      const [previewWidth, previewHeight] = getPreviewSize();
+      return resizePreviewCanvas(previewWidth, previewHeight, ...rest);
     };
     factory(p);
   };

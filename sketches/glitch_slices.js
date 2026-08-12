@@ -153,31 +153,40 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
 
     p.background(0, 0, 0);
     const ctx = p.drawingContext;
+    // p5 2.x's image() accepts p5.Image/media objects but can reject a
+    // p5.Graphics wrapper here. Draw the graphics' actual canvas directly;
+    // this also avoids a p5 conversion path on every torn slice.
+    const source = buf?.canvas;
+    if (!source || !ctx || typeof ctx.drawImage !== 'function') return;
+    const previousSmoothing = ctx.imageSmoothingEnabled;
     ctx.imageSmoothingEnabled = false;
     const kx = p.width / bw;
     const ky = p.height / bh;
+    const drawSlice = (dx, dy, dw, dh, sx = 0, sy = 0, sw = bw, sh = bh) => {
+      ctx.drawImage(source, sx, sy, sw, sh, dx, dy, dw, dh);
+    };
 
     // vertical hold slip: the whole frame rolls a little, then settles
     rollY *= 0.88;
     if (Math.abs(rollY) > 0.5) {
-      p.image(buf, 0, rollY, p.width, p.height);
-      p.image(buf, 0, rollY > 0 ? rollY - p.height : rollY + p.height, p.width, p.height);
+      drawSlice(0, rollY, p.width, p.height);
+      drawSlice(0, rollY > 0 ? rollY - p.height : rollY + p.height, p.width, p.height);
     } else {
-      p.image(buf, 0, 0, p.width, p.height);
+      drawSlice(0, 0, p.width, p.height);
     }
 
     // horizontal slice tears with wraparound
     const n = Math.floor(sliceCount * hot * p.random(0.45, 1));
     for (let i = 0; i < n; i++) {
       const sy = Math.floor(Math.random() * (bh - 2));
-      const sh = Math.max(2, Math.floor(2 + Math.random() * bh * 0.09));
+      const sh = Math.max(2, Math.min(bh - sy, Math.floor(2 + Math.random() * bh * 0.09)));
       const dx = Math.round((Math.random() * 2 - 1) * shift * bw * 0.55 * hot);
       if (dx === 0) continue;
       const dy = sy * ky;
       const dh = sh * ky;
-      p.image(buf, dx * kx, dy, p.width, dh, 0, sy, bw, sh);
-      // wrap so the tear never leaves a black gap
-      p.image(buf, dx > 0 ? dx * kx - p.width : dx * kx + p.width, dy, p.width, dh, 0, sy, bw, sh);
+      drawSlice(dx * kx, dy, p.width, dh, 0, sy, bw, sh);
+      // Wrap so the tear never leaves a black gap.
+      drawSlice(dx > 0 ? dx * kx - p.width : dx * kx + p.width, dy, p.width, dh, 0, sy, bw, sh);
     }
 
     // block artifacts: repeated regions + solid neon chips
@@ -186,11 +195,11 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
       if (Math.random() < 0.55) {
         const sw2 = Math.max(4, Math.floor(bw * p.random(0.06, 0.3)));
         const sh2 = Math.max(4, Math.floor(bh * p.random(0.06, 0.26)));
-        const sx = Math.floor(Math.random() * (bw - sw2));
-        const sy = Math.floor(Math.random() * (bh - sh2));
-        const dx = Math.floor(Math.random() * (bw - sw2));
-        const dy = Math.floor(Math.random() * (bh - sh2));
-        p.image(buf, dx * kx, dy * ky, sw2 * kx, sh2 * ky, sx, sy, sw2, sh2);
+        const sx = Math.floor(Math.random() * Math.max(1, bw - sw2));
+        const sy = Math.floor(Math.random() * Math.max(1, bh - sh2));
+        const dx = Math.floor(Math.random() * Math.max(1, bw - sw2));
+        const dy = Math.floor(Math.random() * Math.max(1, bh - sh2));
+        drawSlice(dx * kx, dy * ky, sw2 * kx, sh2 * ky, sx, sy, sw2, sh2);
       } else {
         p.fill(Math.floor(Math.random() * 360), 90, 100, 210);
         p.rect(Math.random() * p.width, Math.random() * p.height,
@@ -198,7 +207,7 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
       }
     }
 
-    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingEnabled = previousSmoothing;
   }
 
   function drawMigrated() {

@@ -113,16 +113,16 @@ const frag = `${AUDIO_SHADER_HEADER}
     float hexDist = max(abs(hexLocal.x), abs(hexLocal.y * 0.866 + hexLocal.x * 0.5));
     float hexEdge = 1.0 - smoothstep(0.35, 0.42, hexDist);
     float hexPattern = (1.0 - hexEdge) * throatMask;
-    float hexPulse = 0.5 + 0.5 * sin(hash21(hexCell) * TAU + time * 3.0 + impact * 4.0);
+    float hexPulse = 0.5 + 0.5 * sin(hash21(hexCell) * VIZ_TAU + time * 3.0 + impact * 4.0);
     color += vec3(0.05, 0.15, 0.4) * hexPattern * hexPulse * 0.35;
 
     // === Relativistic particle jets along the walls ===
     float jetCount = 8.0;
     for (int j = 0; j < 8; j++) {
       if (float(j) >= jetCount) break;
-      float jetAngle = float(j) / jetCount * TAU + time * 0.5;
+      float jetAngle = float(j) / jetCount * VIZ_TAU + time * 0.5;
       float jetDist = abs(angle - jetAngle);
-      jetDist = min(jetDist, TAU - jetDist); // wrap around
+      jetDist = min(jetDist, VIZ_TAU - jetDist); // wrap around
       float jetWidth = 0.08 + uHigh * 0.04 + uHat * 0.08;
       float jet = exp(-jetDist * jetDist / (jetWidth * jetWidth));
 

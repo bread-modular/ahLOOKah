@@ -145,7 +145,7 @@ const frag = `${AUDIO_SHADER_HEADER}
 
     // Star field
     float starSeed = hash21(floor(bgDir.xy * 80.0));
-    float stars = step(0.992, starSeed) * (0.5 + 0.5 * sin(time * 5.0 + starSeed * TAU));
+    float stars = step(0.992, starSeed) * (0.5 + 0.5 * sin(time * 5.0 + starSeed * VIZ_TAU));
     color += vec3(0.8, 0.85, 1.0) * stars * 0.7;
 
     if (hit) {
@@ -189,7 +189,7 @@ const frag = `${AUDIO_SHADER_HEADER}
     // High-frequency sparkle on the fractal surface
     float sparkleSeed = hash21(floor(hitPos.xy * 60.0 + time * 2.0));
     float sparkle = step(0.94 - uHigh * 0.04 - uHat * 0.12, sparkleSeed)
-      * pow(max(0.0, sin(sparkleSeed * TAU + time * 12.0)), 16.0);
+      * pow(max(0.0, sin(sparkleSeed * VIZ_TAU + time * 12.0)), 16.0);
     color += vec3(0.7, 0.85, 1.0) * sparkle * (0.6 + uHat * 3.0) * float(hit);
 
     float vignette = 1.0 - smoothstep(0.6, 1.5, length(uv * vec2(0.72, 1.0)));

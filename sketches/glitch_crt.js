@@ -74,7 +74,7 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
     uniform float uGhost;
     uniform float uPulse;
 
-    #define PI 3.141592653589793
+    #define VIZ_PI 3.141592653589793
 
     float hash21(vec2 p) {
       vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -138,8 +138,8 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
         col = base + ghost * uGhost * 0.5;
 
         // Scanlines + faint aperture grille
-        col *= 1.0 - uScan * 0.34 * (0.5 + 0.5 * sin(uv.y * uResolution.y * PI * 0.85));
-        col *= 1.0 - uScan * 0.10 * (0.5 + 0.5 * sin(uv.x * uResolution.x * PI * 0.9));
+        col *= 1.0 - uScan * 0.34 * (0.5 + 0.5 * sin(uv.y * uResolution.y * VIZ_PI * 0.85));
+        col *= 1.0 - uScan * 0.10 * (0.5 + 0.5 * sin(uv.x * uResolution.x * VIZ_PI * 0.9));
 
         // Flicker (frame-quantized noise + bass breathing)
         float fl = hash21(vec2(floor(uTime * 60.0), 7.3));

@@ -1,131 +1,11 @@
-// Cosmic Web — plexus constellation (GPU fragment-shader port)
-// Keeps the identical CPU node simulation (parallax drift, kick scatter, depth)
-// and renders via a full-screen fragment shader for the O(n²) line bottleneck.
-// Visual outcome, colors, additive blending and audio mappings stay faithful to
-// the CPU original; only the rasterization moves to the GPU.
-// The opted-in path receives band scalars, a hue offset and one-shot kick /
-// shooting-star events from a DOM-free capture-side controller; the node/link/
-// pulse simulation stays on the renderer. The legacy raw-frame path is kept.
+// Cosmic Web — a plexus constellation that breathes with the music.
+// This renderer deliberately uses Canvas 2D: the former shader uploaded nodes,
+// links and pulses as large fragment uniform arrays, exceeding WebGL's uniform
+// limit on common Chrome GPUs. Audio remains fully pattern-controls driven.
 
-import { makeAudioShader, AUDIO_SHADER_HEADER } from './shader-utils.js';
-
-const MAX_NODES = 200;
-const MAX_LINKS = 256;
-const MAX_PULSES = 64;
+import { makeBands, glowCircle, vignette } from './viz-utils.js';
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
-
-const frag = `${AUDIO_SHADER_HEADER}
-  uniform float uNodeCount;
-  uniform vec4 uNodes[200];
-  uniform float uHueOffset;
-  uniform float uLinkCount;
-  uniform vec4 uLinkPos[256];
-  uniform vec2 uLinkCol[256];
-  uniform float uPulseCount;
-  uniform vec4 uPulses[64];
-  uniform vec4 uShootingStar;
-
-  void main(){
-    // p5 WEBGL texcoords: (0,0) top-left, (1,1) bottom-right so fragCoord matches canvas2D y-down
-    vec2 fragCoord = vTexCoord * uResolution;
-
-    vec3 color = vec3(0.0);
-
-    // Nodes — additive 4-layer glow matching viz-utils glowCircle
-    for(int i=0;i<200;i++){
-      if(float(i) >= uNodeCount) break;
-      vec4 nd = uNodes[i];
-      vec2 npos = nd.xy;
-      float nz = nd.z;
-      float nhue = nd.w;
-      float d = length(fragCoord - npos);
-      float r = (1.5 + uSub * 5.0) * nz;
-      if(d > r * 3.0 + 1.0) continue;
-      float a = 0.35 + nz * 0.4 + uEnergy * 0.3;
-      float h = mod(uHueOffset + nhue, 360.0) / 360.0;
-      float R; float m;
-      R = r * 3.0;
-      m = 1.0 - smoothstep(R - 1.0, R + 1.0, d);
-      if(m > 0.001) color += hsv2rgb(vec3(h, 0.75, 0.95)) * (16.0 * a / 255.0) * m;
-      R = r * 1.6;
-      m = 1.0 - smoothstep(R - 1.0, R + 1.0, d);
-      if(m > 0.001) color += hsv2rgb(vec3(h, 0.75, 0.95)) * (32.0 * a / 255.0) * m;
-      R = r * 0.8;
-      m = 1.0 - smoothstep(R - 0.9, R + 0.9, d);
-      if(m > 0.001) color += hsv2rgb(vec3(h, 0.375, 1.0)) * (90.0 * a / 255.0) * m;
-      R = r * 0.4;
-      m = 1.0 - smoothstep(R - 0.8, R + 0.8, d);
-      if(m > 0.001) color += hsv2rgb(vec3(h, 0.15, 1.0)) * (200.0 * a / 255.0) * m;
-    }
-
-    // Links — precomputed on CPU, additive thin lines (strokeWeight 0.8)
-    for(int i=0;i<256;i++){
-      if(float(i) >= uLinkCount) break;
-      vec4 lp = uLinkPos[i];
-      vec2 lc = uLinkCol[i];
-      vec2 a = lp.xy;
-      vec2 b = lp.zw;
-      float h = lc.x;
-      float alpha = lc.y;
-      vec2 ab = b - a;
-      float ab2 = dot(ab,ab);
-      if(ab2 < 0.5) continue;
-      float t = dot(fragCoord - a, ab) / ab2;
-      if(t < 0.0 || t > 1.0) continue;
-      vec2 closest = a + ab * t;
-      float dline = length(fragCoord - closest);
-      if(dline > 1.2) continue;
-      float lineMask = 1.0 - smoothstep(0.35, 0.85, dline);
-      color += hsv2rgb(vec3(h, 0.75, 0.90)) * alpha * lineMask;
-    }
-
-    // traveling light pulses (same 4-layer glow as nodes, r=2.5, sat 50)
-    for(int i=0;i<64;i++){
-      if(float(i) >= uPulseCount) break;
-      vec4 pl = uPulses[i];
-      vec2 ppos = pl.xy;
-      float ph = pl.z / 360.0;
-      float pa = pl.w;
-      float d = length(fragCoord - ppos);
-      float r = 2.5;
-      if(d > r * 3.0 + 1.0) continue;
-      float R; float m;
-      R = r * 3.0;
-      m = 1.0 - smoothstep(R - 1.0, R + 1.0, d);
-      if(m > 0.001) color += hsv2rgb(vec3(ph, 0.50, 1.0)) * (16.0 * pa / 255.0) * m;
-      R = r * 1.6;
-      m = 1.0 - smoothstep(R - 1.0, R + 1.0, d);
-      if(m > 0.001) color += hsv2rgb(vec3(ph, 0.50, 1.0)) * (32.0 * pa / 255.0) * m;
-      R = r * 0.8;
-      m = 1.0 - smoothstep(R - 0.9, R + 0.9, d);
-      if(m > 0.001) color += hsv2rgb(vec3(ph, 0.25, 1.0)) * (90.0 * pa / 255.0) * m;
-      R = r * 0.4;
-      m = 1.0 - smoothstep(R - 0.8, R + 0.8, d);
-      if(m > 0.001) color += hsv2rgb(vec3(ph, 0.10, 1.0)) * (200.0 * pa / 255.0) * m;
-    }
-
-    // shooting star (white circle, diameter sr)
-    if(uShootingStar.w > 0.5){
-      vec2 spos = uShootingStar.xy;
-      float sr = uShootingStar.z;
-      float d = length(fragCoord - spos);
-      float radius = sr * 0.5;
-      float m = 1.0 - smoothstep(radius - 0.7, radius + 0.7, d);
-      color += vec3(1.0) * (240.0 / 255.0) * m;
-    }
-
-    // vignette — port of viz-utils vignette(p,0.5)
-    vec2 center = uResolution * 0.5;
-    float dist = length(fragCoord - center);
-    float inner = min(uResolution.x, uResolution.y) * 0.25;
-    float outer = max(uResolution.x, uResolution.y) * 0.675;
-    float vt = smoothstep(inner, outer, dist);
-    color *= 1.0 - vt * 0.5;
-
-    gl_FragColor = vec4(color, 1.0);
-  }
-`;
 
 export const AUDIO_CONTROL_SCHEMA = Object.freeze({
   continuous: {
@@ -141,38 +21,25 @@ export const AUDIO_CONTROL_SCHEMA = Object.freeze({
     'shooting-star': { fields: {} },
   },
   neutral: {
-    continuous: {
-      uSub: 0,
-      uMid: 0,
-      uHigh: 0,
-      uEnergy: 0,
-      uHueOffset: 0,
-    },
+    continuous: { uSub: 0, uMid: 0, uHigh: 0, uEnergy: 0, uHueOffset: 0 },
   },
 });
 
-// Legacy bands came from the shared feature extractor with live params boosts;
-// the canonical shared view has no params, so boosts are applied here with the
-// same clamps the extractor uses.
-function boostedBands(features, params) {
-  const bassGain = Math.max(0, Number(params.bass ?? 1));
-  const midGain = Math.max(0, Number(params.mid ?? 1));
-  const highGain = Math.max(0, Number(params.high ?? 1));
-  return {
-    sub: clamp((Number(features.sub) || 0) * bassGain, 0, 1.6),
-    mid: clamp((Number(features.mid) || 0) * midGain, 0, 1.6),
-    high: clamp((Number(features.high) || 0) * highGain, 0, 1.6),
-    energy: clamp(
-      (Number(features.energy) || 0) * (bassGain * 0.42 + midGain * 0.38 + highGain * 0.2),
-      0,
-      1.6,
-    ),
-  };
+function boostedBands(freqs, params) {
+  if (!freqs?.length) return { sub: 0, mid: 0, high: 0, energy: 0 };
+  const bassGain = Math.max(0, Number(params?.bass ?? 1));
+  const midGain = Math.max(0, Number(params?.mid ?? 1));
+  const highGain = Math.max(0, Number(params?.high ?? 1));
+  let sub = 0, mid = 0, high = 0;
+  for (let i = 0; i < 4; i++) sub += freqs[i] || 0;
+  for (let i = 40; i < 150; i++) mid += freqs[i] || 0;
+  for (let i = 150; i < 500; i++) high += freqs[i] || 0;
+  sub = clamp((sub / (4 * 255)) * bassGain, 0, 1.6);
+  mid = clamp((mid / (110 * 255)) * midGain, 0, 1.6);
+  high = clamp((high / (350 * 255)) * highGain, 0, 1.6);
+  return { sub, mid, high, energy: clamp((sub + mid + high) / 3, 0, 1.6) };
 }
 
-// The controller owns band extraction, hue drift, kick rising-edge detection
-// and the time-based shooting-star spawn rate. Node/link/pulse geometry stays
-// on the renderer because positions are canvas-space visual state.
 export function createAudioController({ rng = Math.random } = {}) {
   const random = typeof rng === 'function' ? rng : Math.random;
   let eventCounter = 0;
@@ -184,25 +51,21 @@ export function createAudioController({ rng = Math.random } = {}) {
   return {
     update({ shared, params = {}, deltaSeconds = 1 / 30 }) {
       const dt = clamp(Number.isFinite(deltaSeconds) ? deltaSeconds : 1 / 30, 1 / 240, 0.1);
-      const features = shared?.getFeatures?.() || {};
-      const b = boostedBands(features, params);
-      hueOffset = (hueOffset + (0.25 + b.energy * 1.5) * dt * 60) % 360;
-
+      const freqs = shared?.getByteFrequencies?.() || { left: null };
+      const bands = boostedBands(freqs.left, params);
+      hueOffset = (hueOffset + (0.25 + bands.energy * 1.5) * dt * 60) % 360;
       const events = [];
-      const kicked = b.sub > 0.4 && b.sub > prevSub + 0.03;
-      prevSub = b.sub;
-      if (kicked) events.push(event('kick'));
-      // Legacy per-frame shooting-star probability converted to a per-second rate.
-      if (b.high > 0.35 && chanceForRate(b.high * 0.1 * 60, dt)) {
+      if (bands.sub > 0.4 && bands.sub > prevSub + 0.03) events.push(event('kick'));
+      prevSub = bands.sub;
+      if (bands.high > 0.35 && chanceForRate(bands.high * 0.1 * 60, dt)) {
         events.push(event('shooting-star'));
       }
-
       return {
         continuous: {
-          uSub: b.sub,
-          uMid: b.mid,
-          uHigh: b.high,
-          uEnergy: b.energy,
+          uSub: bands.sub,
+          uMid: bands.mid,
+          uHigh: bands.high,
+          uEnergy: bands.energy,
           uHueOffset: hueOffset,
         },
         arrays: {},
@@ -213,197 +76,179 @@ export function createAudioController({ rng = Math.random } = {}) {
   };
 }
 
-export default (audio, videoDeviceId, params, runtimeContext = {}) => {
+export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
   const nodes = [];
   const pulses = [];
   const audioControls = runtimeContext?.audioControls || null;
+  const getBands = makeBands();
   let hueOffset = 0;
   let prevSub = 0;
 
-  function ensureNodes(n, pInst) {
-    while (nodes.length < n) {
+  function ensureNodes(count) {
+    while (nodes.length < count) {
       nodes.push({
-        x: pInst.random(pInst.width),
-        y: pInst.random(pInst.height),
-        vx: pInst.random(-0.4, 0.4),
-        vy: pInst.random(-0.4, 0.4),
-        z: pInst.random(0.4, 1),
-        hue: pInst.random(360),
+        x: p.random(p.width),
+        y: p.random(p.height),
+        vx: p.random(-0.4, 0.4),
+        vy: p.random(-0.4, 0.4),
+        z: p.random(0.4, 1),
+        hue: p.random(360),
       });
     }
-    nodes.length = Math.min(nodes.length, n);
+    nodes.length = Math.min(nodes.length, count);
   }
 
-  // Shared node integration / link / pulse packing used by both paths. The
-  // caller supplies the audio scalars so the migrated path never touches the
-  // audio facade while the legacy path keeps its exact behavior.
-  function simulate(kicked, sub, mid, energy, p, shootingEvent) {
+  function drawScene({ sub, mid, high, energy, kicked, shootingStar }) {
     const P = params || {};
     const count = Math.floor(P.nodes ?? 90);
     const linkBase = P.link ?? 130;
     const scatter = P.scatter ?? 1;
     const drift = P.drift ?? 1;
 
-    ensureNodes(count, p);
+    p.blendMode(p.BLEND);
+    p.background(0, 0, 0, 255);
+    p.blendMode(p.ADD);
 
+    ensureNodes(count);
     const linkDist = linkBase * (1 + mid * 0.6);
-    const cx = p.width / 2;
-    const cy = p.height / 2;
+    const centerX = p.width / 2;
+    const centerY = p.height / 2;
 
-    for (const nd of nodes) {
-      nd.x += nd.vx * drift * (0.4 + energy) * nd.z;
-      nd.y += nd.vy * drift * (0.4 + energy) * nd.z;
+    for (const node of nodes) {
+      node.x += node.vx * drift * (0.4 + energy) * node.z;
+      node.y += node.vy * drift * (0.4 + energy) * node.z;
       if (kicked) {
-        const dx = nd.x - cx, dy = nd.y - cy;
-        const d = Math.hypot(dx, dy) + 1;
-        nd.vx += (dx / d) * sub * 2.4 * scatter;
-        nd.vy += (dy / d) * sub * 2.4 * scatter;
+        const dx = node.x - centerX;
+        const dy = node.y - centerY;
+        const distance = Math.hypot(dx, dy) + 1;
+        node.vx += (dx / distance) * sub * 2.4 * scatter;
+        node.vy += (dy / distance) * sub * 2.4 * scatter;
       }
-      nd.vx *= 0.985;
-      nd.vy *= 0.985;
-      if (nd.x < -20) nd.x = p.width + 20;
-      if (nd.x > p.width + 20) nd.x = -20;
-      if (nd.y < -20) nd.y = p.height + 20;
-      if (nd.y > p.height + 20) nd.y = -20;
+      node.vx *= 0.985;
+      node.vy *= 0.985;
+      if (node.x < -20) node.x = p.width + 20;
+      if (node.x > p.width + 20) node.x = -20;
+      if (node.y < -20) node.y = p.height + 20;
+      if (node.y > p.height + 20) node.y = -20;
     }
 
-    // precompute links for GPU — same pair logic as CPU
-    const linkPos = new Array(MAX_LINKS * 4).fill(0);
-    const linkCol = new Array(MAX_LINKS * 2).fill(0);
-    let linkCount = 0;
-    for (let i = 0; i < nodes.length && linkCount < MAX_LINKS; i++) {
-      const a = nodes[i];
-      for (let j = i + 1; j < nodes.length && linkCount < MAX_LINKS; j++) {
-        const c = nodes[j];
-        const dx = a.x - c.x, dy = a.y - c.y;
-        const d2 = dx * dx + dy * dy;
-        if (d2 < linkDist * linkDist) {
-          const d = Math.sqrt(d2);
-          const alpha = (1 - d / linkDist) * (50 + energy * 150) / 255;
-          const hue = (hueOffset + (a.hue + c.hue) / 2) % 360 / 360;
-          const idx4 = linkCount * 4;
-          linkPos[idx4 + 0] = a.x;
-          linkPos[idx4 + 1] = a.y;
-          linkPos[idx4 + 2] = c.x;
-          linkPos[idx4 + 3] = c.y;
-          const idx2 = linkCount * 2;
-          linkCol[idx2 + 0] = hue;
-          linkCol[idx2 + 1] = alpha;
-          linkCount++;
-
-          if (kicked && p.random() < 0.06) {
-            pulses.push({ x1: a.x, y1: a.y, x2: c.x, y2: c.y, t: 0, hue: (hueOffset + (a.hue + c.hue) / 2) % 360 });
-            if (pulses.length > MAX_PULSES) pulses.splice(0, pulses.length - MAX_PULSES);
-          }
+    for (let i = 0; i < nodes.length; i++) {
+      const from = nodes[i];
+      for (let j = i + 1; j < nodes.length; j++) {
+        const to = nodes[j];
+        const dx = from.x - to.x;
+        const dy = from.y - to.y;
+        const distanceSquared = dx * dx + dy * dy;
+        if (distanceSquared >= linkDist * linkDist) continue;
+        const distance = Math.sqrt(distanceSquared);
+        const alpha = (1 - distance / linkDist) * (50 + energy * 150);
+        const hue = (hueOffset + (from.hue + to.hue) / 2) % 360;
+        p.stroke(hue, 75, 90, alpha);
+        p.strokeWeight(0.8);
+        p.line(from.x, from.y, to.x, to.y);
+        if (kicked && p.random() < 0.06) {
+          pulses.push({ x1: from.x, y1: from.y, x2: to.x, y2: to.y, t: 0, hue });
         }
       }
     }
 
     for (let i = pulses.length - 1; i >= 0; i--) {
-      const pl = pulses[i];
-      pl.t += 0.06 + energy * 0.1;
-      if (pl.t >= 1) pulses.splice(i, 1);
+      const pulse = pulses[i];
+      pulse.t += 0.06 + energy * 0.1;
+      if (pulse.t >= 1) {
+        pulses.splice(i, 1);
+        continue;
+      }
+      glowCircle(
+        p,
+        pulse.x1 + (pulse.x2 - pulse.x1) * pulse.t,
+        pulse.y1 + (pulse.y2 - pulse.y1) * pulse.t,
+        2.5,
+        pulse.hue,
+        50,
+        100,
+        1 - pulse.t,
+      );
     }
 
-    let shooting = [0, 0, 0, 0];
-    if (shootingEvent && nodes.length > 1) {
-      const a = nodes[Math.floor(p.random(nodes.length))];
-      const c = nodes[Math.floor(p.random(nodes.length))];
-      const tt = p.random();
-      const x = a.x + (c.x - a.x) * tt;
-      const y = a.y + (c.y - a.y) * tt;
-      const r = 2 + sub * 3;
-      shooting = [x, y, r, 1];
+    for (const node of nodes) {
+      glowCircle(
+        p,
+        node.x,
+        node.y,
+        (1.5 + sub * 5) * node.z,
+        (hueOffset + node.hue) % 360,
+        75,
+        95,
+        0.35 + node.z * 0.4 + energy * 0.3,
+      );
     }
 
-    const nodeData = new Array(MAX_NODES * 4).fill(0);
-    for (let i = 0; i < nodes.length; i++) {
-      const nd = nodes[i];
-      nodeData[i * 4 + 0] = nd.x;
-      nodeData[i * 4 + 1] = nd.y;
-      nodeData[i * 4 + 2] = nd.z;
-      nodeData[i * 4 + 3] = nd.hue;
+    if (shootingStar && nodes.length > 1) {
+      const from = nodes[Math.floor(p.random(nodes.length))];
+      const to = nodes[Math.floor(p.random(nodes.length))];
+      const progress = p.random();
+      p.noStroke();
+      p.fill(0, 0, 100, 240);
+      p.circle(
+        from.x + (to.x - from.x) * progress,
+        from.y + (to.y - from.y) * progress,
+        2 + high * 3,
+      );
     }
 
-    const pulseData = new Array(MAX_PULSES * 4).fill(0);
-    for (let i = 0; i < pulses.length; i++) {
-      const pl = pulses[i];
-      const x = pl.x1 + (pl.x2 - pl.x1) * pl.t;
-      const y = pl.y1 + (pl.y2 - pl.y1) * pl.t;
-      const a = 1 - pl.t;
-      pulseData[i * 4 + 0] = x;
-      pulseData[i * 4 + 1] = y;
-      pulseData[i * 4 + 2] = pl.hue;
-      pulseData[i * 4 + 3] = a;
-    }
-
-    return {
-      uNodeCount: nodes.length,
-      uNodes: nodeData,
-      uLinkCount: linkCount,
-      uLinkPos: linkPos,
-      uLinkCol: linkCol,
-      uPulseCount: pulses.length,
-      uPulses: pulseData,
-      uShootingStar: shooting,
-    };
+    vignette(p, 0.5);
   }
 
-  function legacyMapUniforms(P, bands, p) {
-    const energy = bands.energy;
-    const sub = bands.sub;
-    const mid = bands.mid;
-    const high = bands.high;
+  function drawMigrated() {
+    const controls = audioControls.read();
+    const C = { ...AUDIO_CONTROL_SCHEMA.neutral.continuous, ...(controls.continuous || {}) };
+    hueOffset = C.uHueOffset;
+    const events = audioControls.consumeEvents();
+    drawScene({
+      sub: C.uSub,
+      mid: C.uMid,
+      high: C.uHigh,
+      energy: C.uEnergy,
+      kicked: events.some((item) => item.type === 'kick'),
+      shootingStar: events.some((item) => item.type === 'shooting-star'),
+    });
+  }
 
+  function drawLegacy() {
+    const freqs = audio && audio.isStarted ? audio.getFrequencies() : null;
+    const bands = getBands(freqs ? freqs.left : null, params);
+    const idle = 0.5 + 0.5 * p.sin(p.frameCount * 0.02);
+    const energy = freqs ? bands.energy : 0.18 + idle * 0.2;
+    const sub = freqs ? bands.sub : 0.2 + idle * 0.2;
+    const mid = freqs ? bands.mid : 0.2;
+    const high = freqs ? bands.high : idle * 0.3;
     hueOffset = (hueOffset + 0.25 + energy * 1.5) % 360;
-
     const kicked = sub > 0.4 && sub > prevSub + 0.03;
     prevSub = sub;
-
-    const simulated = simulate(kicked, sub, mid, energy, p, null);
-
-    // Shooting star probability is evaluated here on the raw-frame path.
-    if (high > 0.35 && p.random() < high * 0.1 && nodes.length > 1) {
-      const a = nodes[Math.floor(p.random(nodes.length))];
-      const c = nodes[Math.floor(p.random(nodes.length))];
-      const tt = p.random();
-      const x = a.x + (c.x - a.x) * tt;
-      const y = a.y + (c.y - a.y) * tt;
-      const r = 2 + high * 3;
-      simulated.uShootingStar = [x, y, r, 1];
-    }
-
-    return {
-      ...simulated,
-      uHueOffset: hueOffset,
-    };
+    drawScene({
+      sub,
+      mid,
+      high,
+      energy,
+      kicked,
+      shootingStar: high > 0.35 && p.random() < high * 0.1,
+    });
   }
 
-  function migratedMapUniforms(P, _bands, p, controls) {
-    const C = { ...AUDIO_CONTROL_SCHEMA.neutral.continuous, ...(controls?.continuous || {}) };
-    hueOffset = C.uHueOffset;
+  p.setup = () => {
+    p.createCanvas(p.windowWidth, p.windowHeight);
+    p.colorMode(p.HSB, 360, 100, 100, 255);
+  };
 
-    const events = audioControls.consumeEvents();
-    const kicked = events.some((item) => item.type === 'kick');
-    const shootingEvent = events.some((item) => item.type === 'shooting-star');
+  p.draw = () => {
+    if (audioControls) drawMigrated();
+    else drawLegacy();
+  };
 
-    const simulated = simulate(kicked, C.uSub, C.uMid, C.uEnergy, p, shootingEvent);
+  p.windowResized = () => p.resizeCanvas(p.windowWidth, p.windowHeight);
 
-    return {
-      ...simulated,
-      uHueOffset: hueOffset,
-      uSub: C.uSub,
-      uMid: C.uMid,
-      uHigh: C.uHigh,
-      uEnergy: C.uEnergy,
-    };
-  }
-
-  return makeAudioShader(
-    audio,
-    params,
-    frag,
-    audioControls ? migratedMapUniforms : legacyMapUniforms,
-    audioControls ? { audioControls } : {},
-  );
+  p.mousePressed = () => {
+    if (audio) audio.resume();
+  };
 };

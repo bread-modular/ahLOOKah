@@ -116,9 +116,9 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
         if (t > 1.02) continue;
 
         const alpha = 170 * (1 - t) * aMul;
-        const width = p.map(t, 0, 1, 2, 30) * (1 + sub * 1.3) * thickness;
+        const ringWidth = p.map(t, 0, 1, 2, 30) * (1 + sub * 1.3) * thickness;
         p.stroke(rp.hue + mult * 45, 90, 100, alpha);
-        p.strokeWeight(p.max(1, width));
+        p.strokeWeight(p.max(1, ringWidth));
         p.noFill();
         p.circle(cx, cy, rr * 2);
 

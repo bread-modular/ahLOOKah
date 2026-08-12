@@ -16,7 +16,7 @@ const frag = `${AUDIO_SHADER_HEADER}
     float rad = length(p);
     // Logarithmic spiral braid — each thread rides a unique phase offset.
     float phase = ang * (2.0 + uTwist * 1.8) - log(max(rad, 0.04)) * (4.5 + uTwist * 2.5)
-      - time * (1.4 + uSpeed) - id * (TAU / max(count, 1.0));
+      - time * (1.4 + uSpeed) - id * (VIZ_TAU / max(count, 1.0));
     float ribbon = exp(-abs(sin(phase)) * (10.0 + uThreads * 6.0 - uMid * 2.0));
     // Soft radial envelope so threads concentrate toward the tunnel wall.
     float tube = exp(-abs(rad - (0.45 + uSub * 0.05 + uKick * 0.08)) * (5.5 - uSub));

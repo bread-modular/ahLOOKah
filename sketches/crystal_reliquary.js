@@ -63,7 +63,7 @@ const frag = `${AUDIO_SHADER_HEADER}
     float bands = pow(max(0.0, sin(atan(r.z, r.x) * 10.0 + uTime * 0.6)), 14.0);
     float cap = pow(saturate(r.y * 0.5 + 0.5), 4.0);
     vec3 base = mix(vec3(0.01, 0.02, 0.06), vec3(0.08, 0.0, 0.12), cap);
-    base += hsv2rgb(vec3(fract(atan(r.z, r.x) / TAU + uTime * 0.02), 0.85, 1.0))
+    base += hsv2rgb(vec3(fract(atan(r.z, r.x) / VIZ_TAU + uTime * 0.02), 0.85, 1.0))
       * bands * (0.35 + uHigh * 0.5 + uHat * 1.4);
     base += vec3(0.4, 0.7, 1.0) * pow(saturate(r.y), 8.0) * 0.35;
     return base;

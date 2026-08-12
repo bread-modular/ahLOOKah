@@ -201,8 +201,8 @@ function onsetFromFlux(stat, flux, dt, gate) {
   const meanBeforeUpdate = stat.mean;
   const deviationBeforeUpdate = stat.deviation;
   const threshold = meanBeforeUpdate + Math.max(0.045, deviationBeforeUpdate * 0.8);
-  const width = Math.max(0.2, deviationBeforeUpdate * 3 + meanBeforeUpdate * 0.32);
-  const onset = smoothstep(threshold, threshold + width, flux) * gate;
+  const onsetWidth = Math.max(0.2, deviationBeforeUpdate * 3 + meanBeforeUpdate * 0.32);
+  const onset = smoothstep(threshold, threshold + onsetWidth, flux) * gate;
 
   // Adapt slowly enough that one transient remains exceptional, but quickly
   // enough to follow a change from a breakdown into a dense drop.

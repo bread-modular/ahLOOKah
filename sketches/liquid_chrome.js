@@ -52,8 +52,8 @@ const frag = `${AUDIO_SHADER_HEADER}
   }
 
   vec3 neonEnvironment(vec3 d) {
-    float longitude = atan(d.z, d.x) / TAU + 0.5;
-    float latitude = asin(clamp(d.y, -1.0, 1.0)) / PI + 0.5;
+    float longitude = atan(d.z, d.x) / VIZ_TAU + 0.5;
+    float latitude = asin(clamp(d.y, -1.0, 1.0)) / VIZ_PI + 0.5;
     float bands = pow(max(0.0, sin(longitude * 32.0 + uTime * 0.7)), 18.0);
     float horizon = exp(-abs(d.y) * 8.0);
     float panels = pow(max(0.0, sin(latitude * 19.0 - longitude * 9.0)), 28.0);

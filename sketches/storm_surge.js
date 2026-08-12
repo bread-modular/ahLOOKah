@@ -88,15 +88,15 @@ const frag = `${AUDIO_SHADER_HEADER}
     // Volumetric cloud march with cheap directional self-shadowing.
     float densityAccum = 0.0;
     vec3 cloudColor = vec3(0.0);
-    for (int i = 0; i < 18; i++) {
-      float t = (float(i) + 0.5) / 18.0;
+    for (int i = 0; i < 12; i++) {
+      float t = (float(i) + 0.5) / 12.0;
       vec3 pos = rd * mix(1.2, 6.0, t);
       pos.y = mix(0.1, 1.0, t) + uv.y * 0.4;
       float d = cloudDensity(pos, time);
       // Light direction from the sun; samples toward it for a soft shadow term.
       float light = 0.4 + 0.6 * smoothstep(0.4, 0.9,
         cloudDensity(pos - vec3(sunDir.x, sunDir.y, 0.0) * 0.6, time));
-      float contrib = d * (1.0 - densityAccum * 0.6) * (0.55 + light * 0.8) / 18.0;
+      float contrib = d * (1.0 - densityAccum * 0.6) * (0.55 + light * 0.8) / 12.0;
       densityAccum += contrib;
       // Storm-grey base lit warm toward the sun, cold in shadow.
       vec3 lit = mix(vec3(0.12, 0.14, 0.22), vec3(0.6, 0.45, 0.3), light);
@@ -109,18 +109,18 @@ const frag = `${AUDIO_SHADER_HEADER}
     vec2 ruv = uv * vec2(uResolution.x / uResolution.y, 1.0) - sunDir * vec2(1.0, 2.0);
     float r = length(ruv);
     float a = atan(ruv.y, ruv.x);
-    for (int i = 0; i < 8; i++) {
+    for (int i = 0; i < 5; i++) {
       float fi = float(i);
-      float aa = a + (fi - 3.5) * 0.012;
+      float aa = a + (fi - 2.0) * 0.016;
       float occlusion = 0.0;
-      for (int j = 0; j < 5; j++) {
+      for (int j = 0; j < 3; j++) {
         float fj = float(j);
-        float rr = r * (0.4 + fj * 0.18);
+        float rr = r * (0.45 + fj * 0.24);
         vec2 sampleUv = vec2(cos(aa), sin(aa)) * rr + sunDir * vec2(1.0, 2.0);
         vec3 sp = vec3(sampleUv.x, sampleUv.y * 0.9 + 0.25, -1.0);
         occlusion += cloudDensity(sp * 2.0, time);
       }
-      occlusion /= 5.0;
+      occlusion /= 3.0;
       rays += (1.0 - occlusion) * exp(-r * (1.2 + fi * 0.1));
     }
     rays *= 0.05 * uGodrays;
@@ -238,7 +238,10 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => {
         uDrift: P.drift ?? 1,
         uBloom: P.bloom ?? 1,
       }),
-      { audioControls },
+      // The nested cloud march and ray sampling are intentionally rendered below
+      // full resolution. CSS expands the p5 canvas to the viewport, while the
+      // reduced backing buffer keeps LIVE/CUE switching responsive on common GPUs.
+      { audioControls, renderScale: 0.5 },
     );
   }
 

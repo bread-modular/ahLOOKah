@@ -6,7 +6,7 @@
 // final render controls produced by a DOM-free capture-side controller.
 import { makeBands, glowCircle, vignette } from './viz-utils.js';
 
-const TAU = Math.PI * 2;
+const FULL_TURN = Math.PI * 2;
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const finite = (value, fallback) => (Number.isFinite(value) ? value : fallback);
 
@@ -86,7 +86,7 @@ export function createAudioController({ rng = Math.random } = {}) {
         high = idle * 0.3;
       }
 
-      rotation = (rotation + (0.002 + energy * 0.02) * spin * dt * 60) % TAU;
+      rotation = (rotation + (0.002 + energy * 0.02) * spin * dt * 60) % FULL_TURN;
       hueOffset = (hueOffset + (0.3 + energy * 2) * dt * 60) % 360;
       const coreR = clamp((14 + sub * 60) * corePulse, 0, 300);
 
