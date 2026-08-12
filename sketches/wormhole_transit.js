@@ -3,6 +3,8 @@
 // lensing, matter streams spiral along the throat, and the exit portal glows
 // with Doppler-shifted light. Bass compresses the throat, mids twist the
 // geometry, and highs ignite relativistic particle jets along the walls.
+// The legacy raw-frame path stays intact; opted-in renderers consume final
+// controls (header audio uniforms + params) from a capture-side controller.
 import { AUDIO_SHADER_HEADER, makeAudioShader } from './shader-utils.js';
 
 const frag = `${AUDIO_SHADER_HEADER}
@@ -165,14 +167,100 @@ const frag = `${AUDIO_SHADER_HEADER}
   }
 `;
 
-export default (audio, videoDeviceId, params) => makeAudioShader(
-  audio,
-  params,
-  frag,
-  (P) => ({
-    uTwist: P.twist ?? 1,
-    uThroat: P.throat ?? 1,
-    uDoppler: P.doppler ?? 1,
-    uSpeed: P.speed ?? 1,
-  }),
-);
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+export const AUDIO_CONTROL_SCHEMA = Object.freeze({
+  continuous: {
+    uSub: { min: 0, max: 1.6, neutral: 0 },
+    uMid: { min: 0, max: 1.6, neutral: 0 },
+    uHigh: { min: 0, max: 1.6, neutral: 0 },
+    uEnergy: { min: 0, max: 1.6, neutral: 0 },
+    uKick: { min: 0, max: 1.4, neutral: 0 },
+    uSnare: { min: 0, max: 1.4, neutral: 0 },
+    uHat: { min: 0, max: 1.4, neutral: 0 },
+    uBeat: { min: 0, max: 1.4, neutral: 0 },
+  },
+  arrays: {},
+  events: {},
+  neutral: {
+    continuous: {
+      uSub: 0, uMid: 0, uHigh: 0, uEnergy: 0,
+      uKick: 0, uSnare: 0, uHat: 0, uBeat: 0,
+    },
+  },
+});
+
+// The controller consumes the canonical feature frame and applies the accepted
+// band/punch gains exactly like the legacy shader path did, producing the final
+// header audio uniforms. No renderer-side feature analysis on the opted-in path.
+export function createAudioController({ rng = Math.random } = {}) {
+  return {
+    update({ shared, params = {} }) {
+      const f = shared?.getFeatures?.() || {};
+      const bassGain = Math.max(0, Number(params.bass ?? 1));
+      const midGain = Math.max(0, Number(params.mid ?? 1));
+      const highGain = Math.max(0, Number(params.high ?? 1));
+      const punch = Math.max(0, Number(params.punch ?? 1));
+      return {
+        continuous: {
+          uSub: clamp((f.sub ?? 0) * bassGain, 0, 1.6),
+          uMid: clamp((f.mid ?? 0) * midGain, 0, 1.6),
+          uHigh: clamp((f.high ?? 0) * highGain, 0, 1.6),
+          uEnergy: clamp((f.energy ?? 0) * (bassGain * 0.42 + midGain * 0.38 + highGain * 0.2), 0, 1.6),
+          uKick: clamp((f.kick ?? 0) * bassGain * punch, 0, 1.4),
+          uSnare: clamp((f.snare ?? 0) * midGain * punch, 0, 1.4),
+          uHat: clamp((f.hat ?? 0) * highGain * punch, 0, 1.4),
+          uBeat: clamp((f.beat ?? 0) * bassGain * punch, 0, 1.4),
+        },
+        arrays: {},
+        events: [],
+      };
+    },
+    dispose() {},
+  };
+}
+
+export default (audio, videoDeviceId, params, runtimeContext = {}) => {
+  const audioControls = runtimeContext?.audioControls || null;
+  if (audioControls) {
+    // Opted-in path: header audio uniforms come from the controller; only the
+    // visual params are mapped locally.
+    return makeAudioShader(
+      audio,
+      params,
+      frag,
+      (P, _bands, _p, controls) => {
+        const C = { ...AUDIO_CONTROL_SCHEMA.neutral.continuous, ...(controls?.continuous || {}) };
+        return {
+          uTwist: P.twist ?? 1,
+          uThroat: P.throat ?? 1,
+          uDoppler: P.doppler ?? 1,
+          uSpeed: P.speed ?? 1,
+          uSub: C.uSub,
+          uMid: C.uMid,
+          uHigh: C.uHigh,
+          uEnergy: C.uEnergy,
+          uKick: C.uKick,
+          uSnare: C.uSnare,
+          uHat: C.uHat,
+          uBeat: C.uBeat,
+        };
+      },
+      { audioControls },
+    );
+  }
+
+  // Existing raw-frame shader path for standalone use and any un-migrated
+  // registry entry. It continues to own local feature mapping exactly as before.
+  return makeAudioShader(
+    audio,
+    params,
+    frag,
+    (P) => ({
+      uTwist: P.twist ?? 1,
+      uThroat: P.throat ?? 1,
+      uDoppler: P.doppler ?? 1,
+      uSpeed: P.speed ?? 1,
+    }),
+  );
+};

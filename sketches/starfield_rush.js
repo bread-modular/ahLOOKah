@@ -2,6 +2,8 @@
 // GPU port: the CPU keeps the exact star state (positions/velocity) and
 // advances it in mapUniforms; the fragment shader derives scale, brightness,
 // hue and the warp streaks per-pixel, so there are no per-frame 2D draw calls.
+// The legacy raw-frame path stays intact; opted-in renderers consume final
+// controls (warp speed, hue, bands) produced by a capture-side controller.
 import { AUDIO_SHADER_HEADER, makeAudioShader } from './shader-utils.js';
 
 const MAX_STARS = 600;
@@ -75,22 +77,73 @@ const frag = `${AUDIO_SHADER_HEADER}
   }
 `;
 
-export default (audio, videoDeviceId, params) => {
-  let stars = [];
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+export const AUDIO_CONTROL_SCHEMA = Object.freeze({
+  continuous: {
+    hueOffset: { min: 0, max: 360, neutral: 0 },
+    speed: { min: 0, max: 200, neutral: 2 },
+    uSub: { min: 0, max: 1.6, neutral: 0 },
+    uMid: { min: 0, max: 1.6, neutral: 0 },
+    uHigh: { min: 0, max: 1.6, neutral: 0 },
+    uEnergy: { min: 0, max: 1.6, neutral: 0 },
+  },
+  arrays: {},
+  events: {},
+  neutral: {
+    continuous: { hueOffset: 0, speed: 2, uSub: 0, uMid: 0, uHigh: 0, uEnergy: 0 },
+  },
+});
+
+// Same raw band extraction as the original (warp/hue/sparkle controls only).
+export function bands(freqs) {
+  if (!freqs) return { sub: 0, mid: 0, high: 0, energy: 0 };
+  let sub = 0, mid = 0, high = 0;
+  for (let i = 0; i < 4; i++) sub += freqs[i];
+  for (let i = 40; i < 150; i++) mid += freqs[i];
+  for (let i = 150; i < 500; i++) high += freqs[i];
+  sub = sub / (4 * 255);
+  mid = mid / (110 * 255);
+  high = high / (350 * 255);
+  return { sub, mid, high, energy: (sub + mid + high) / 3 };
+}
+
+// The controller owns band extraction, the time-based hue drift and the warp
+// speed. Star positions stay on the renderer; they only consume the final speed.
+export function createAudioController({ rng = Math.random } = {}) {
   let hueOffset = 0;
 
-  // Same raw band extraction as the original (warp/hue/sparkle controls only).
-  function bands(freqs) {
-    if (!freqs) return { sub: 0, mid: 0, high: 0, energy: 0 };
-    let sub = 0, mid = 0, high = 0;
-    for (let i = 0; i < 4; i++) sub += freqs[i];
-    for (let i = 40; i < 150; i++) mid += freqs[i];
-    for (let i = 150; i < 500; i++) high += freqs[i];
-    sub = sub / (4 * 255);
-    mid = mid / (110 * 255);
-    high = high / (350 * 255);
-    return { sub, mid, high, energy: (sub + mid + high) / 3 };
-  }
+  return {
+    update({ shared, params = {}, deltaSeconds = 1 / 30 }) {
+      const dt = clamp(Number.isFinite(deltaSeconds) ? deltaSeconds : 1 / 30, 1 / 240, 0.1);
+      const freqs = shared?.getByteFrequencies?.() || { left: null };
+      const b = bands(freqs.left);
+      const warp = Math.max(0, Number(params.warp ?? 1));
+      const hueDrift = Math.max(0, Number(params.hue ?? 1));
+
+      hueOffset = (hueOffset + (0.2 + b.energy * 2) * hueDrift * dt * 60) % 360;
+
+      return {
+        continuous: {
+          hueOffset,
+          speed: (2 + b.sub * 18) * warp,
+          uSub: b.sub,
+          uMid: b.mid,
+          uHigh: b.high,
+          uEnergy: b.energy,
+        },
+        arrays: {},
+        events: [],
+      };
+    },
+    dispose() {},
+  };
+}
+
+export default (audio, videoDeviceId, params, runtimeContext = {}) => {
+  const audioControls = runtimeContext?.audioControls || null;
+  let stars = [];
+  let hueOffset = 0;
 
   function makeStar(p) {
     return {
@@ -107,7 +160,47 @@ export default (audio, videoDeviceId, params) => {
     if (stars.length > n) stars.length = n;
   }
 
-  const mapUniforms = (P, bands_, p) => {
+  // Opted-in path: stars are advanced by the controller's final warp speed and
+  // the shader receives the controller's band/hue uniforms. No local analysis.
+  const mapUniformsMigrated = (P, bands_, p, controls) => {
+    const C = { ...AUDIO_CONTROL_SCHEMA.neutral.continuous, ...(controls?.continuous || {}) };
+    const count = Math.floor(P.count ?? 240);
+    const sparkle = P.sparkle ?? 1;
+    ensureStars(count, p);
+
+    const speed = Number.isFinite(C.speed) ? C.speed : 2;
+
+    const arr = new Float32Array(count * 4);
+    for (let i = 0; i < count; i++) {
+      const s = stars[i];
+      s.z -= speed;
+      if (s.z <= 0) {
+        const fresh = makeStar(p);
+        s.x = fresh.x;
+        s.y = fresh.y;
+        s.size = fresh.size;
+        s.z = p.width;
+      }
+      arr[i * 4 + 0] = s.x;
+      arr[i * 4 + 1] = s.y;
+      arr[i * 4 + 2] = s.z;
+      arr[i * 4 + 3] = s.size;
+    }
+
+    return {
+      uStars: arr,
+      uCount: count,
+      uSpeed: speed,
+      uHueOffset: C.hueOffset,
+      uSparkle: sparkle,
+      uSub: C.uSub,
+      uMid: C.uMid,
+      uHigh: C.uHigh,
+      uEnergy: C.uEnergy,
+    };
+  };
+
+  const mapUniformsLegacy = (P, bands_, p) => {
     const count = Math.floor(P.count ?? 240);
     const warp = P.warp ?? 1;
     const hueDrift = P.hue ?? 1;
@@ -150,5 +243,11 @@ export default (audio, videoDeviceId, params) => {
     };
   };
 
-  return makeAudioShader(audio, params, frag, mapUniforms);
+  return makeAudioShader(
+    audio,
+    params,
+    frag,
+    audioControls ? mapUniformsMigrated : mapUniformsLegacy,
+    audioControls ? { audioControls } : {},
+  );
 };
