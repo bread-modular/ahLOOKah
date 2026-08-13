@@ -1,0 +1,211 @@
+/* ---------------------------------------------------------------------------
+   Button component — the single shared button style for the whole UI.
+   Rectangle corners (4px) match the Open Screen control; variants customize
+   color/emphasis and size via modifier classes. Use the `button()` factory in
+   ui.js so markup stays consistent everywhere.
+--------------------------------------------------------------------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--border-gray);
+  border-radius: 4px;              /* rectangle — the canonical corner */
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.05rem;
+  text-transform: uppercase;
+  line-height: 1.25;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color var(--transition-speed) ease-out,
+    border-color var(--transition-speed) ease-out,
+    background var(--transition-speed) ease-out;
+}
+
+.btn:hover {
+  color: var(--text-main);
+  border-color: var(--accent);
+  background: rgba(77, 163, 255, 0.12);
+}
+
+.btn:focus-visible {
+  outline: none;
+  border-color: #888;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn .btn-icon {
+  width: 12px;
+  height: 12px;
+  margin: 0;                       /* .btn uses `gap`, not icon margin */
+  flex-shrink: 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Emphasis variants */
+.btn--amber:hover {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.85);
+  background: rgba(251, 191, 36, 0.09);
+}
+
+.btn--danger {
+  border-color: rgba(231, 76, 60, 0.85);
+  color: #e74c3c;
+  background: rgba(231, 76, 60, 0.07);
+}
+
+.btn--danger:hover {
+  color: #ff6b6b;
+  border-color: rgba(231, 76, 60, 0.95);
+  background: rgba(231, 76, 60, 0.14);
+}
+
+.btn--solid {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #00101f;
+  font-weight: 800;
+}
+
+.btn--solid:hover {
+  background: #6fb4ff;
+  border-color: #6fb4ff;
+  color: #00101f;
+}
+
+/* Size variants */
+.btn--sm {
+  padding: 6px 8px;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+}
+
+.btn--md {
+  padding: 7px 16px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+/* Icon-only square button (e.g. hamburger / close affordances) */
+.btn--icon {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+}
+
+/* Selects share the button metrics (common control style) but render their
+   own chevron — the native arrow is removed so it can't sit at a weird
+   offset; the custom one is pinned right-center. */
+#config-panel select {
+  -webkit-appearance: none;
+  appearance: none;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03rem;
+  padding-right: 30px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a8a8a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px;
+}
+
+#config-panel select:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+#config-panel button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #00101f;
+}
+
+#config-panel button.primary:hover {
+  background: #6fb4ff;
+  border-color: #6fb4ff;
+}
+
+#config-panel button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+#config-panel p {
+  margin: 8px 0 0 0;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+.config-group.actions {
+  margin-top: 16px;
+}
+
+/* Collapsible control sections (post-processing, band-split EQ). The summary
+   reads like the other h3 section headers but is clickable. */
+.config-section {
+  margin-top: 20px;
+}
+
+/* Every top-level section in the controls column gets a hairline separator
+   above its title, so sections (Parameters, Post Processing, Band Split EQ)
+   read as distinct groups. */
+#controls-pane > h3:not(.panel-title),
+#controls-pane > .config-section {
+  border-top: 1px solid rgba(255, 255, 255, 0.22);
+  padding-top: 16px;
+  margin-top: 30px;
+}
+
+.config-section-header {
+  list-style: none; /* hide the native disclosure triangle */
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05rem;
+  padding: 4px 0;
+  user-select: none;
+}
+
+.config-section-header::-webkit-details-marker {
+  display: none; /* Safari */
+}
+
+.config-section-header:hover {
+  color: var(--text-main);
+}
+
+.config-section-body {
+  margin-top: 10px;
+}
+
+.config-section-body h3:first-child {
+  margin-top: 12px;
+}
+

@@ -1,0 +1,97 @@
+/* ---------------------------------------------------------------------------
+   Singleton blocked overlay — shown instead of any control/screen UI when a
+   second tab/window tries to use the same role. High z-index, opaque background
+   so no underlying p5 canvas or panel flashes through.
+--------------------------------------------------------------------------- */
+
+#singleton-error {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(6, 8, 10, 0.96);
+  backdrop-filter: blur(6px);
+}
+
+.singleton-error-card {
+  max-width: 520px;
+  width: 100%;
+  padding: 28px 28px 24px;
+  border: 1px solid rgba(255, 87, 87, 0.45);
+  border-radius: 12px;
+  background: #181010;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 87, 87, 0.18);
+  text-align: center;
+}
+
+.singleton-error-icon {
+  font-size: 32px;
+  line-height: 1;
+  margin-bottom: 12px;
+}
+
+.singleton-error-card h1 {
+  margin: 0 0 8px;
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #ff8a8a;
+}
+
+.singleton-error-desc {
+  margin: 0 0 12px;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: #e8d0d0;
+}
+
+.singleton-error-hint {
+  margin: 0 0 18px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: #c9c9c9;
+  text-align: left;
+}
+
+.singleton-error-hint code {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #ffd6a0;
+  font-size: 0.75rem;
+}
+
+.singleton-error-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.singleton-error-actions button {
+  min-width: 120px;
+  padding: 9px 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: #262626;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.singleton-error-actions button:hover { background: #333; }
+#singleton-reload-btn { background: var(--accent); border-color: var(--accent); color: #00101f; }
+#singleton-reload-btn:hover { background: #6fb4ff; border-color: #6fb4ff; }
+
+/* Blocked body hides all other UI remnants */
+body.singleton-blocked #config-container,
+body.singleton-blocked #screen-toolbar,
+body.singleton-blocked canvas { display: none !important; }
+

@@ -1,0 +1,48 @@
+/* Post-processing stage wrapper: the screen moves its p5 canvases into this
+   element (see adoptCanvas in main.js) and applies the brightness / contrast
+   / saturation trim as a CSS filter — GPU-composited AFTER the merge blend.
+   The wrapper never intercepts pointer events; the canvases stay clickable. */
+#screen-wrap {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Two isolated program layers let a fully drawn CUE sit behind LIVE without
+   blending into it. The root retains the legacy LIVE-only filter path; once a
+   cue exists each layer receives its own cueable post-processing filter. */
+#screen-wrap.program-stage {
+  isolation: isolate;
+}
+
+#screen-wrap .program-layer {
+  position: absolute;
+  inset: 0;
+  isolation: isolate;
+  pointer-events: none;
+}
+
+#screen-wrap .program-layer-live {
+  z-index: 2;
+  visibility: visible;
+  opacity: 1;
+}
+
+#screen-wrap .program-layer-cue {
+  z-index: 1;
+  /* Opacity preserves a real, full-size render/compositor surface; unlike
+     display:none or zero layout it does not invalidate the warmed canvas. */
+  visibility: visible;
+  opacity: 0;
+}
+
+#screen-wrap .program-layer canvas {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+}
+
+#screen-wrap canvas {
+  pointer-events: auto;
+}
+

@@ -1,0 +1,355 @@
+/* ---------------------------------------------------------------------------
+   Device setup modal — shown on load while the microphone or camera has not
+   been initialized/selected. It requests permissions, lets the operator pick
+   both inputs, then confirm (OK) or dismiss (X) without completing setup.
+--------------------------------------------------------------------------- */
+
+#device-setup-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(6, 8, 10, 0.72);
+  backdrop-filter: blur(6px);
+  animation: deviceSetupBackdropIn 0.4s ease-out both;
+}
+
+#device-setup-modal[hidden] {
+  display: none;
+}
+
+#device-setup-modal.device-setup-modal--closing {
+  animation: deviceSetupBackdropOut 0.2s ease-in both;
+}
+
+.device-setup-modal-card {
+  position: relative;
+  width: 100%;
+  max-width: 400px;
+  padding: 26px 26px 22px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+  background: #121316;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7);
+  /* Card waits for the backdrop to reach halfway before fading/scaling in. */
+  animation: deviceSetupCardIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both;
+}
+
+#device-setup-modal.device-setup-modal--closing .device-setup-modal-card {
+  animation: deviceSetupCardOut 0.2s ease-in both;
+}
+
+@keyframes deviceSetupBackdropIn {
+  from { opacity: 0; backdrop-filter: blur(0px); }
+  to { opacity: 1; backdrop-filter: blur(6px); }
+}
+
+@keyframes deviceSetupBackdropOut {
+  from { opacity: 1; backdrop-filter: blur(6px); }
+  to { opacity: 0; backdrop-filter: blur(0px); }
+}
+
+@keyframes deviceSetupCardIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes deviceSetupCardOut {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(6px) scale(0.98); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #device-setup-modal,
+  #device-setup-modal.device-setup-modal--closing,
+  .device-setup-modal-card,
+  #device-setup-modal.device-setup-modal--closing .device-setup-modal-card {
+    animation: none;
+  }
+}
+
+.device-setup-modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: transparent;
+  color: #aaa;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.device-setup-modal-close:hover {
+  background: #262626;
+  color: #fff;
+}
+
+.device-setup-modal-card h2 {
+  margin: 0 36px 8px 0;
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #fff;
+}
+
+.device-setup-modal-desc {
+  margin: 0 0 18px;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: #b9b9b9;
+}
+
+.device-setup-modal-notice {
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  border: 1px solid rgba(77, 163, 255, 0.35);
+  border-radius: 8px;
+  background: rgba(77, 163, 255, 0.08);
+}
+
+.device-setup-modal-notice p {
+  margin: 0 0 10px;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: #cfd8e3;
+}
+
+.device-setup-modal-notice .btn {
+  width: 100%;
+  padding: 9px 12px;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+}
+
+.device-setup-modal-field {
+  margin-bottom: 14px;
+}
+
+.device-setup-modal-field label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+.device-setup-modal-field select {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border-gray);
+  border-radius: 6px;
+  background: #111;
+  color: #fff;
+  font-size: 0.78rem;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.device-setup-modal-field select:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.device-setup-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+/* Mirrors the "Open Screen" rectangle style: transparent background, hairline
+   border — so the modal actions read like the rest of the UI instead of solid
+   blue buttons stuck together. Shared .btn component (see Button component
+   section above); `--md` size is applied via the button() factory. */
+.device-setup-modal-actions .btn {
+  min-width: 96px;
+}
+
+/* ---------------------------------------------------------------------------
+   Header app menu — hamburger button at the far right of the control header,
+   with a dropdown of Docs / Key Map / Setup.
+--------------------------------------------------------------------------- */
+
+.app-menu {
+  position: relative;
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+
+#config-panel .app-menu-btn {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border-gray);
+  border-radius: 6px;
+  color: var(--text-dim);
+  text-transform: none;
+  cursor: pointer;
+  transition:
+    color var(--transition-speed) ease-out,
+    border-color var(--transition-speed) ease-out,
+    background var(--transition-speed) ease-out;
+}
+
+#config-panel .app-menu-btn:hover {
+  color: var(--text-main);
+  border-color: var(--accent);
+  background: rgba(77, 163, 255, 0.1);
+}
+
+#config-panel .app-menu-btn .btn-icon {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  vertical-align: 0;
+}
+
+.app-menu-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  min-width: 150px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: #121316;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7);
+}
+
+.app-menu-list[hidden] {
+  display: none;
+}
+
+#config-panel .app-menu-item {
+  width: 100%;
+  padding: 8px 10px;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-main);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition:
+    background var(--transition-speed) ease-out,
+    border-color var(--transition-speed) ease-out,
+    color var(--transition-speed) ease-out;
+}
+
+#config-panel .app-menu-item:hover {
+  background: rgba(77, 163, 255, 0.12);
+  border-color: rgba(77, 163, 255, 0.35);
+  color: #fff;
+}
+
+/* ---------------------------------------------------------------------------
+   Key map modal — read-only reference of mouse + keyboard shortcuts.
+--------------------------------------------------------------------------- */
+
+#key-map-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(6, 8, 10, 0.72);
+  backdrop-filter: blur(6px);
+}
+
+#key-map-modal[hidden] {
+  display: none;
+}
+
+.key-map-modal-card {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  padding: 26px 26px 22px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+  background: #121316;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7);
+}
+
+.key-map-modal-card h2 {
+  margin: 0 36px 16px 0;
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #fff;
+}
+
+.key-map-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.key-map-table td {
+  padding: 5px 6px;
+  border: none;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--text-main);
+  vertical-align: middle;
+}
+
+.key-map-table td:first-child {
+  width: 42%;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.key-map-group td {
+  padding: 14px 6px 6px;
+  font-size: 0.64rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+.key-map-group:first-child td {
+  padding-top: 0;
+}
+
+.key-map-table kbd {
+  display: inline-block;
+  min-width: 18px;
+  padding: 2px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: #1b1d20;
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.2;
+}

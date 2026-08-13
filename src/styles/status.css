@@ -1,0 +1,206 @@
+/* ---------------------------------------------------------------------------
+   Status line
+--------------------------------------------------------------------------- */
+
+.status-line {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08rem;
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--border-gray);
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+.badge-screen {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #00101f;
+}
+
+.badge-control {
+  background: #222;
+}
+
+.badge-online {
+  border-color: #2ecc71;
+  color: #2ecc71;
+}
+
+.badge-offline {
+  border-color: #e74c3c;
+  color: #e74c3c;
+}
+
+/* Action button inside the status line — opens a NEW screen window. Compact
+   pill matching the badges beside it, pushed to the far right of the row.
+   (ID-qualified so it beats the generic #config-panel button metrics.) */
+#status-line .status-btn {
+  width: auto;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08rem;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border-gray);
+  border-radius: 20px;
+  cursor: pointer;
+  transition:
+    color var(--transition-speed) ease-out,
+    border-color var(--transition-speed) ease-out,
+    background var(--transition-speed) ease-out;
+}
+
+#status-line .status-btn:hover {
+  color: var(--text-main);
+  border-color: var(--accent);
+  background: rgba(77, 163, 255, 0.12);
+}
+
+#status-line .status-btn .btn-icon {
+  width: 11px;
+  height: 11px;
+  margin-right: 0;
+  vertical-align: 0;
+}
+
+/* VIZ CONTROL header — title and status pills share one left-aligned row.
+   The status pills are rarely used so they stay compact and do not expand. */
+.viz-control-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.viz-control-header .panel-title {
+  margin: 0 !important;
+  flex-shrink: 0;
+  line-height: 1;
+  /* Keep the literal label text as-is (no uppercase transform from #config-panel h3) */
+  text-transform: none !important;
+}
+
+.viz-control-header .status-line {
+  margin-bottom: 0;
+  margin-left: auto;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* Common pill — mirrors the CUE badge/label theme (cue-preview-phase).
+   Both SCREEN status and Open Screen reuse this base so they read as one
+   family. Legacy .badge-online/.badge-offline are kept as aliases for tests. */
+.viz-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: auto;
+  max-width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border-gray);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-dim);
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  line-height: 1.25;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition:
+    color var(--transition-speed) ease-out,
+    border-color var(--transition-speed) ease-out,
+    background var(--transition-speed) ease-out;
+}
+
+.viz-pill .btn-icon {
+  width: 11px;
+  height: 11px;
+  margin-right: 0;
+  vertical-align: 0;
+  flex-shrink: 0;
+}
+
+/* Status variants — use the same green/red cues as the former badges,
+   but inside the compact CUE pill shell. */
+.viz-pill--status {
+  pointer-events: none;
+}
+
+.viz-pill--online {
+  border-color: rgba(46, 204, 113, 0.85);
+  color: #2ecc71;
+  background: rgba(46, 204, 113, 0.08);
+}
+
+.viz-pill--offline {
+  border-color: rgba(231, 76, 60, 0.85);
+  color: #e74c3c;
+  background: rgba(231, 76, 60, 0.07);
+}
+
+/* Action variant — CUE-bordered idle, amber hover echoing .cue-primary */
+#status-line .viz-pill--action.status-btn {
+  margin-left: 0;
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  line-height: 1.25;
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-dim);
+}
+
+#status-line .viz-pill--action.status-btn:hover {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.85);
+  background: rgba(251, 191, 36, 0.09);
+}
+
+/* Offline action — red theme (overrides amber idle/hover when the single
+   offline pill is the Open Screen button). Higher specificity so it beats
+   the neutral .viz-pill--action idle rule. */
+#status-line .viz-pill--action.viz-pill--offline {
+  border-color: rgba(231, 76, 60, 0.85);
+  color: #e74c3c;
+  background: rgba(231, 76, 60, 0.07);
+}
+
+#status-line .viz-pill--action.viz-pill--offline:hover {
+  color: #ff6b6b;
+  border-color: rgba(231, 76, 60, 0.95);
+  background: rgba(231, 76, 60, 0.14);
+}
+
+/* Alias overrides so .badge-online/.badge-offline inherit the viz-pill metrics
+   when combined with .viz-pill (tests keep querying those classes). */
+.badge.badge-online.viz-pill--online,
+.badge.badge-offline.viz-pill--offline {
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  line-height: 1.25;
+}
+

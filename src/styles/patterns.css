@@ -1,0 +1,290 @@
+/* ---------------------------------------------------------------------------
+   Pattern pad + library
+--------------------------------------------------------------------------- */
+
+.pad-hint {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: none;
+  letter-spacing: 0;
+  margin-left: 6px;
+}
+
+/* Compact fixed pad slots */
+.pattern-pad .pattern-btn {
+  padding: 8px 10px !important;
+  min-height: 38px;
+  /* Grid tracks default to min-width:auto, so a long pattern name would force
+     the 2-column pad wider than the pane and spill onto the divider/controls.
+     Let the 1fr tracks shrink instead; the name ellipsizes. */
+  min-width: 0;
+}
+
+/* Grouped library sections */
+.library-group {
+  margin-bottom: 16px;
+}
+
+.library-group:last-child {
+  margin-bottom: 0;
+}
+
+.library-group-header {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  margin: 0 2px 8px 2px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-gray);
+}
+
+/* Library items: each button is always at least 200px wide; the column count
+   is derived from the pane width so that never changes (auto-fill). */
+.library-group-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+}
+
+.pattern-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px !important;
+  text-transform: none !important;
+  font-weight: 500 !important;
+  text-align: left;
+  cursor: grab;
+  transition: all var(--transition-speed) ease-out;
+}
+
+.pattern-btn:active {
+  cursor: grabbing;
+}
+
+/* Small badge showing which pad slot a library pattern is assigned to */
+.pattern-btn .slot-badge {
+  flex-shrink: 0;
+  min-width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(77, 163, 255, 0.55);
+  border-radius: 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--accent);
+  background: rgba(77, 163, 255, 0.12);
+}
+
+/* Small camera glyph marking camera-input (Video FX) library items */
+.pattern-btn .camera-badge {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  line-height: 1;
+  opacity: 0.75;
+}
+
+.pattern-btn .drag-handle {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 1rem;
+  line-height: 1;
+  opacity: 0.45;
+  cursor: grab;
+  user-select: none;
+}
+
+.pattern-btn.dragging {
+  opacity: 0.45;
+}
+
+.pattern-btn.drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+
+.pattern-btn .pattern-key {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-gray);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  background: #0a0a0a;
+}
+
+.pattern-btn .pattern-name {
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#config-panel .pattern-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #00101f;
+  /* Obvious glow so the selected effect pops on stage */
+  box-shadow:
+    0 0 0 2px rgba(77, 163, 255, 0.4),
+    0 0 16px rgba(77, 163, 255, 0.65);
+}
+
+#config-panel .pattern-btn.active .pattern-key {
+  background: #ffffff;
+  border-color: #00101f;
+  color: #00101f;
+}
+
+#config-panel .pattern-btn.active .pattern-name {
+  color: #00101f;
+  font-weight: 700;
+}
+
+/* Keep the highlight even while hovering the active button */
+#config-panel .pattern-btn.active:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #00101f;
+  box-shadow:
+    0 0 0 2px rgba(77, 163, 255, 0.4),
+    0 0 16px rgba(77, 163, 255, 0.65);
+}
+
+/* Both buttons in a dual-effect merge get a distinct purple highlight so the
+   blend pair pops on stage (single-selection stays blue). */
+#config-panel .pattern-btn.merge-active {
+  background: #a855f7;
+  border-color: #a855f7;
+  color: #ffffff;
+  box-shadow:
+    0 0 0 2px rgba(168, 85, 247, 0.45),
+    0 0 16px rgba(168, 85, 247, 0.7);
+}
+
+#config-panel .pattern-btn.merge-active .pattern-key {
+  background: #ffffff;
+  border-color: #2a0e4d;
+  color: #2a0e4d;
+}
+
+#config-panel .pattern-btn.merge-active .pattern-name {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+#config-panel .pattern-btn.merge-active:hover {
+  background: #a855f7;
+  border-color: #a855f7;
+  color: #ffffff;
+  box-shadow:
+    0 0 0 2px rgba(168, 85, 247, 0.45),
+    0 0 16px rgba(168, 85, 247, 0.7);
+}
+
+/* CUE markers never overwrite LIVE state. Amber framing, a text badge and a
+   combined striped treatment make the two identities legible without color. */
+#config-panel .pattern-btn.cue-active,
+#config-panel .pattern-btn.cue-merge-active {
+  border-color: #fbbf24;
+  box-shadow: inset 0 0 0 2px rgba(251, 191, 36, 0.8);
+}
+
+#config-panel .pattern-btn.cue-active::after,
+#config-panel .pattern-btn.cue-merge-active::after {
+  content: 'CUE';
+  margin-left: auto;
+  padding: 2px 4px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  color: #fbbf24;
+  font-size: 0.52rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+#config-panel .pattern-btn.live-cue-active {
+  background-image: linear-gradient(135deg, rgba(239, 68, 68, 0.25) 0 50%, rgba(251, 191, 36, 0.24) 50% 100%);
+  box-shadow:
+    inset 0 0 0 2px #fbbf24,
+    0 0 0 2px rgba(77, 163, 255, 0.38);
+}
+
+#config-panel .pattern-btn.live-cue-active::after {
+  color: #fff;
+}
+
+.pattern-btn:hover {
+  border-color: var(--accent);
+}
+
+/* Header row shown above the blend sliders in merge mode */
+.blend-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #c084fc;
+  border-bottom: 1px solid var(--border-gray);
+  padding-bottom: 6px;
+  margin-bottom: 2px;
+}
+
+.blend-header .blend-names {
+  font-size: 0.72rem;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Blend / Additive mode toggle shown above the level slider in merge mode.
+   The selectors are ID-qualified (#config-panel) so they beat the generic
+   `#config-panel button` background rule (ID specificity wins over classes). */
+#config-panel .blend-mode-toggle {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0 10px;
+}
+
+/* Common button metrics (font/size/padding come from #config-panel button);
+   the inactive half stays dim so the pair still reads as a toggle. */
+#config-panel .blend-mode-btn {
+  flex: 1;
+  background: transparent;
+  color: var(--text-dim);
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+#config-panel .blend-mode-btn:hover:not(.active) {
+  color: var(--text-main);
+}
+
+/* Selected mode uses the system accent (same as .primary) — no purple in the
+   settings pane. */
+#config-panel .blend-mode-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #00101f;
+}
+
