@@ -7,8 +7,8 @@ test.describe('pattern-specific audio controls', () => {
   test('validates, orders, interpolates, resets streams, and consumes events once', async ({ page }) => {
     await page.goto(SCREEN_URL);
     const result = await page.evaluate(async () => {
-      const { PatternAudioControlStore } = await import('/pattern-audio-controls.js');
-      const { AUDIO_CONTROL_SCHEMA } = await import('/sketches/waveform_tunnel.js');
+      const { PatternAudioControlStore } = await import('/src/pattern-audio-controls.js');
+      const { AUDIO_CONTROL_SCHEMA } = await import('/src/sketches/waveform_tunnel.js');
       let now = 0;
       const store = new PatternAudioControlStore({
         consumerSessionId: 'consumer-a',
@@ -96,9 +96,9 @@ test.describe('pattern-specific audio controls', () => {
   test('rebases a coalesced pilot fresh-frame gate to the latest controls revision', async ({ page }) => {
     await page.goto(SCREEN_URL);
     const result = await page.evaluate(async () => {
-      const { ProgramRuntime } = await import('/program-runtime.js');
-      const { PatternAudioControlStore } = await import('/pattern-audio-controls.js');
-      const { SKETCHES } = await import('/sketch-registry.js');
+      const { ProgramRuntime } = await import('/src/program-runtime.js');
+      const { PatternAudioControlStore } = await import('/src/pattern-audio-controls.js');
+      const { SKETCHES } = await import('/src/sketch-registry.js');
       const checkerboard = SKETCHES.find((sketch) => sketch.id === 'checkerboard');
       const originalRequest = window.requestAnimationFrame;
       const originalCancel = window.cancelAnimationFrame;
@@ -260,8 +260,8 @@ test.describe('pattern-specific audio controls', () => {
   test('does not bank Circles events while a CUE slot is parked', async ({ page }) => {
     await page.goto(SCREEN_URL);
     const result = await page.evaluate(async () => {
-      const { PatternAudioControlStore } = await import('/pattern-audio-controls.js');
-      const { AUDIO_CONTROL_SCHEMA } = await import('/sketches/circles.js');
+      const { PatternAudioControlStore } = await import('/src/pattern-audio-controls.js');
+      const { AUDIO_CONTROL_SCHEMA } = await import('/src/sketches/circles.js');
       let now = 0;
       const descriptor = {
         runtimeId: 'consumer-a:cue:0',
@@ -342,8 +342,8 @@ test.describe('pattern-specific audio controls', () => {
   test('shares lazy byte conversions and emits bounded controls per independent runtime', async ({ page }) => {
     await page.goto(SCREEN_URL);
     const result = await page.evaluate(async () => {
-      const { PatternAudioControlEngine } = await import('/pattern-audio-engine.js');
-      const { SKETCHES } = await import('/sketch-registry.js');
+      const { PatternAudioControlEngine } = await import('/src/pattern-audio-engine.js');
+      const { SKETCHES } = await import('/src/sketch-registry.js');
       let now = 0;
       const byId = (id) => SKETCHES.find((sketch) => sketch.id === id);
       const slot = (id, runtimeId, childIndex) => {

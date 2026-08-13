@@ -109,7 +109,7 @@ test.describe('band split EQ section', () => {
 
     // The screen's feature extractor follows the new crossover
     const screenSplit = await page.evaluate(async () => {
-      const { getBandSplit } = await import('/sketches/audio-features.js');
+      const { getBandSplit } = await import('/src/sketches/audio-features.js');
       return getBandSplit();
     });
     expect(screenSplit.low).toBeGreaterThan(250);
@@ -138,7 +138,7 @@ test.describe('band split EQ section', () => {
 
     // The screen's feature extractor boots with the saved crossovers
     const screenSplit = await page.evaluate(async () => {
-      const { getBandSplit } = await import('/sketches/audio-features.js');
+      const { getBandSplit } = await import('/src/sketches/audio-features.js');
       return getBandSplit();
     });
     expect(screenSplit.low).toBe(320);

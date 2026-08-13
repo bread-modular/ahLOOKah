@@ -1,0 +1,67 @@
+/* ---------------------------------------------------------------------------
+   Screen mode floating toolbar
+--------------------------------------------------------------------------- */
+
+#screen-toolbar {
+  /* Invisible hover zone at the top-right corner; the button only
+     appears while the mouse is over this area. */
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 220px;
+  height: 110px;
+  z-index: 2000;
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+#screen-toolbar .btn {
+  background: rgba(16, 16, 16, 0.85);
+  color: var(--text-main);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--transition-speed) ease-out,
+    color var(--transition-speed) ease-out,
+    border-color var(--transition-speed) ease-out,
+    background var(--transition-speed) ease-out;
+}
+
+#screen-toolbar:hover .btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+#screen-toolbar .btn:hover {
+  background: #222;
+  border-color: var(--accent);
+}
+
+body.is-control #screen-toolbar {
+  display: none;
+}
+
+/* ---------------------------------------------------------------------------
+   Scrollbars (control mode)
+--------------------------------------------------------------------------- */
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0a0a0a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+

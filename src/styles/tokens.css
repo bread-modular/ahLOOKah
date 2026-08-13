@@ -1,0 +1,18 @@
+:root {
+  --bg-dark: #000000;
+  --panel-bg: rgba(16, 16, 16, 0.92);
+  --border-gray: rgba(255, 255, 255, 0.12);
+  --text-main: #ffffff;
+  --text-dim: #8a8a8a;
+  --accent: #4da3ff;
+  --transition-speed: 0.2s;
+  --band-bass: #ff6a3d;
+  --band-mid: #42d68a;
+  --band-high: #5b9dff;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}

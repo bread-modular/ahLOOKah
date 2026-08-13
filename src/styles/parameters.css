@@ -1,0 +1,100 @@
+/* ---------------------------------------------------------------------------
+   Effect parameters (sliders)
+--------------------------------------------------------------------------- */
+
+.params-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.param-empty {
+  font-style: italic;
+}
+
+.param-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.param-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.param-head label {
+  font-size: 0.78rem;
+  color: var(--text-main);
+}
+
+.param-value {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent);
+  min-width: 34px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#params-list input[type="range"],
+#post-fx-list input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  /* Full-height hit area so the thumb can actually be grabbed and dragged */
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  outline: none;
+  cursor: pointer;
+}
+
+#params-list input[type="range"]::-webkit-slider-runnable-track,
+#post-fx-list input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: #2a2a2a;
+}
+
+#params-list input[type="range"]::-webkit-slider-thumb,
+#post-fx-list input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  /* (track 4px - thumb 14px) / 2 = -5px centers the thumb on the track */
+  margin-top: -5px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid #00101f;
+  cursor: pointer;
+  transition: transform var(--transition-speed) ease-out;
+}
+
+#params-list input[type="range"]::-webkit-slider-thumb:hover,
+#post-fx-list input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+#params-list input[type="range"]::-moz-range-track,
+#post-fx-list input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: #2a2a2a;
+}
+
+#params-list input[type="range"]::-moz-range-thumb,
+#post-fx-list input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid #00101f;
+  cursor: pointer;
+}
+

@@ -46,7 +46,7 @@ test.describe('noise floor capture & subtraction', () => {
     await page.goto(SCREEN_URL);
 
     const res = await page.evaluate(async () => {
-      const nf = await import('/noise-floor.js');
+      const nf = await import('/src/noise-floor.js');
       nf.clearNoiseFloor();
 
       const binHz = 48000 / 2048;
@@ -157,7 +157,7 @@ test.describe('noise floor capture & subtraction', () => {
 
     // Capture quickly through the module (same path the screen uses)
     await page.evaluate(async () => {
-      const nf = await import('/noise-floor.js');
+      const nf = await import('/src/noise-floor.js');
       nf.clearNoiseFloor();
       nf.startNoiseCapture(0.3);
       const feed = () => {
