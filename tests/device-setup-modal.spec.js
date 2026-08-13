@@ -26,11 +26,13 @@ test.describe('device setup modal', () => {
     await expect(modal).toBeHidden();
     await expect(page.locator('body')).toHaveClass(/is-control/);
 
-    // The bottom-right Devices & Setup section reflects the chosen inputs.
-    const devicesSection = page.locator('#device-setup');
-    await expect(devicesSection).toHaveAttribute('open', '');
-    await expect(page.locator('#audio-select')).toHaveValue(chosenAudio);
-    await expect(page.locator('#video-select')).toHaveValue(chosenVideo);
+    // Device selection now lives in the setup modal (opened from the header
+    // menu), so reopening it reflects the chosen inputs.
+    await page.locator('#app-menu-btn').click();
+    await page.locator('#app-menu-setup').click();
+    await expect(page.locator('#device-setup-modal-audio')).toHaveValue(chosenAudio);
+    await expect(page.locator('#device-setup-modal-video')).toHaveValue(chosenVideo);
+    await page.locator('#device-setup-modal-close').click();
 
     // The completed flag persists: reloading does not re-show the modal.
     await page.reload();

@@ -29,19 +29,19 @@ async function injectToneFrame(page, { range = [40, 145], db = -20 } = {}) {
 }
 
 test.describe('band split EQ section', () => {
-  test('renders above Devices & Setup with the default musical borders and collapses like it', async ({ context }) => {
+  test('renders with the default musical borders and collapses like the other sections', async ({ context }) => {
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
 
     const eq = control.locator('#band-eq');
     await expect(eq).toHaveAttribute('open', '');
 
-    // Sits directly above the devices & setup section in the controls pane
-    // (post-processing is the first collapsible section, above the EQ)
+    // Sits directly below post-processing in the controls pane (post-processing
+    // is the first collapsible section, above the EQ)
     const order = await control.evaluate(() =>
       [...document.querySelectorAll('#controls-pane > details')].map((s) => s.id)
     );
-    expect(order).toEqual(['post-fx', 'band-eq', 'device-setup']);
+    expect(order).toEqual(['post-fx', 'band-eq']);
 
     // Coloured band legend showing the default MUSICAL_BANDS borders
     await expect(control.locator('.band-chip')).toHaveCount(3);
@@ -52,7 +52,7 @@ test.describe('band split EQ section', () => {
     // No screen/audio yet -> the idle overlay is up
     await expect(control.locator('#band-eq-idle')).toBeVisible();
 
-    // Collapsing works and persists across reloads (like Devices & Setup)
+    // Collapsing works and persists across reloads (like the other sections)
     await eq.locator('summary').click();
     await expect(eq).not.toHaveAttribute('open', '');
     await expect(control.locator('#band-eq-canvas')).not.toBeVisible();
