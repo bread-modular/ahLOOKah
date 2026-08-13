@@ -37,7 +37,7 @@ cues live with zero blank gaps.
 
 | Layer | Choice |
 | --- | --- |
-| UI | React 19 + Zustand |
+| UI | React 19 + in-house vanilla store |
 | Build | Vite 8 |
 | Visuals | p5.js 2.x (2D + WebGL shaders) |
 | Audio analysis | Web Audio API (FFT, band energy, transient detection) |
@@ -102,7 +102,7 @@ src/
   platform/         BroadcastBus, singleton coordination, window roles
   program/          Program selection & rendering pipeline
   sketches/         The visual sketches + shared audio feature helpers
-  state/            Zustand store (createVizStore)
+  state/            Vanilla store (createVizStore + vanillaStore)
   styles/           Design tokens & component CSS
   pattern-audio-*   Pattern audio engine, protocol & controls
 docs/               Design docs (CUE mode, audio control plan, refactor)

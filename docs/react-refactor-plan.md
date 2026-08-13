@@ -91,30 +91,29 @@ Plain JavaScript services will own:
 
 This boundary avoids trying to represent p5 instances, streams, typed arrays, or animation frames as React state.
 
-### 3.2 Use a per-window vanilla Zustand store
+### 3.2 Use a per-window vanilla store
 
-Use Zustand rather than a single large React Context/reducer.
+Use a per-window vanilla store rather than a single large React Context/reducer.
 
 Add these runtime dependencies:
 
 - `react`
 - `react-dom`
-- `zustand`
 
 Add this development dependency:
 
 - `@vitejs/plugin-react`
 
-Use `zustand/vanilla` to create one store per booted window and React's Zustand `useStore` binding for selective subscriptions. Provide that concrete store instance through a small React Context so tests/HMR never depend on an implicit module-global store.
+The store is implemented in-house (`src/state/vanillaStore.js`) as a minimal `createStore` primitive with `getState`, `setState`, and `subscribe` semantics equivalent to `zustand/vanilla`. Create one store per booted window and bind React components through `useSyncExternalStore` (see `src/state/useVizStore.js`) for selective subscriptions. Provide that concrete store instance through a small React Context so tests/HMR never depend on an implicit module-global store.
 
-Why Zustand fits this app:
+Why a vanilla store fits this app:
 
 - Protocol/services need to publish state from outside React event handlers.
 - Components need narrow subscriptions; a single Context value containing the entire app would rerender the preview, library, EQ, and controls on every unrelated update.
 - A vanilla store gives `getState`, `setState`, and `subscribe` to services and to the development debug bridge without coupling those services to React.
 - The app has several independent state domains but does not need Redux-level ceremony.
 
-What Zustand must **not** own:
+What the store must **not** own:
 
 - p5 instances or canvases.
 - `MediaStream`, `AudioContext`, WebGL contexts, Web Locks, observers, timers, or RAF IDs.
@@ -122,14 +121,14 @@ What Zustand must **not** own:
 - Mutable parameter objects handed to sketch factories.
 - Persistence middleware. Existing repositories must continue writing the current exact localStorage schemas.
 
-React Context is still used, but only to inject two stable objects: the per-window Zustand store and the composed application runtime/command API.
+React Context is still used, but only to inject two stable objects: the per-window vanilla store and the composed application runtime/command API.
 
 ### 3.3 Keep one-way authority boundaries
 
 - **Screen authority:** canonical LIVE selection, canonical visual parameter bank, CUE session/revision, stage runtime promotion, video-device activation.
 - **Capture-owner control authority:** physical microphone, cleaned analysis frames, pattern controller engine, EQ spectrum production, noise-floor capture.
 - **Each window:** its own pattern-control receiver store and active runtime/preview topology plan.
-- **Zustand:** a renderable mirror of accepted authority, not an alternate protocol authority.
+- **Vanilla store:** a renderable mirror of accepted authority, not an alternate protocol authority.
 - **React component local state:** transient form/UI details such as an active range drag or menu focus.
 
 Components invoke commands on the runtime. They do not post BroadcastChannel messages directly and do not mutate service fields.
@@ -365,7 +364,7 @@ Guideline: orchestration and UI files should generally remain below roughly 250�
 | `style.css` | `src/styles/**` | First import it unchanged as `src/styles/legacy.css`; only split after DOM parity. Preserve selector text and cascade order when splitting. |
 | `vite.config.js` | `vite.config.js` | Add React plugin only; preserve server/preview host, port, and allowed host settings. |
 | `playwright.config.js` | `playwright.config.js` | Keep base URL/explicit test server at `5173`; document that CLI port overrides Vite's default `3000`. |
-| `package.json` / lock | Same paths | Add React, React DOM, Zustand, and React Vite plugin; preserve existing scripts. |
+| `package.json` / lock | Same paths | Add React, React DOM, and React Vite plugin; preserve existing scripts. |
 | `run.sh` | Same path | No architecture change; it continues to build and run Vite preview on `PORT` (default `3000`). |
 | `.gitignore` | Same path | Existing `node_modules`, `dist`, and Playwright output ignores remain valid. |
 | `workspace_init.sh` | Same path | No product-code change required. |
@@ -397,7 +396,7 @@ All 14 files under `tests/` stay at their current paths. They are regression spe
 | Keyboard LIVE/CUE/merge gestures | `input/KeyboardController.js`, `input/mergeGesture.js` |
 | Open control/screen windows | `platform/openRoleWindow.js` |
 | Screen toolbar DOM | `components/screen/ScreenToolbar.jsx` |
-| Control-panel creation/synchronization | Zustand state + `components/control/**` |
+| Control-panel creation/synchronization | vanilla store state + `components/control/**` |
 | Early and full `window.__viz` diagnostics | `platform/debugBridge.js` |
 | Boot/composition | `app/bootstrapWindow.js`, `app/createAppRuntime.js`, `app/RuntimeRoot.jsx`, `src/main.jsx` |
 
@@ -517,7 +516,7 @@ main.jsx
 
 ## 7. Store shape and command flow
 
-### 7.1 Zustand state slices
+### 7.1 Vanilla store state slices
 
 The exact implementation may flatten keys internally, but the conceptual state is:
 
@@ -685,7 +684,7 @@ pattern-audio-plan-request, pattern-audio-plan,
 pattern-audio-controls, screen-closed
 ```
 
-Validation remains at the boundary before services or Zustand are mutated. Keep current limits on string lengths, IDs, array sizes, numeric finiteness, revisions, known sketch IDs, and parameter counts.
+Validation remains at the boundary before services or the vanilla store are mutated. Keep current limits on string lengths, IDs, array sizes, numeric finiteness, revisions, known sketch IDs, and parameter counts.
 
 ### 9.3 State handshake
 
@@ -736,7 +735,7 @@ Keep the current controls-only topology:
 - A parked CUE continues receiving continuous controls but cannot bank events.
 - No `analysis-frame` message or raw diagnostic fields are reintroduced.
 
-High-frequency engine/store state remains in services. Zustand receives only operator-facing status and low-frequency diagnostics when requested.
+High-frequency engine/store state remains in services. The vanilla store receives only operator-facing status and low-frequency diagnostics when requested.
 
 ### 10.3 Audio ownership and recovery
 
@@ -945,7 +944,7 @@ Keep root re-export shims while existing tests import absolute old paths. Each s
 
 ### Phase 1 — Add the React/Vite shell without changing behavior
 
-1. Add React, React DOM, Zustand, and `@vitejs/plugin-react`; update the lockfile.
+1. Add React, React DOM, and `@vitejs/plugin-react`; update the lockfile.
 2. Add the React Vite plugin while preserving server/preview settings.
 3. Add `#root`, switch to `/src/main.jsx`, and preserve CSP/Permissions Policy verbatim.
 4. Import the old stylesheet verbatim as `src/styles/legacy.css`.
@@ -988,7 +987,7 @@ Keep root re-export shims while existing tests import absolute old paths. Each s
 7. Implement keyboard/merge gesture controller.
 8. Replace the message switch with validated router registrations.
 9. Compose services in `createAppRuntime.js`; no domain logic should move into the composition root.
-10. Wire accepted snapshots into the per-window Zustand store.
+10. Wire accepted snapshots into the per-window vanilla store.
 
 **Gate:** service-level behavior passes existing tests before the old `main.js` logic is removed.
 
@@ -1025,7 +1024,7 @@ Keep root re-export shims while existing tests import absolute old paths. Each s
 4. Check source file sizes and split any new orchestration/UI file that has started accumulating unrelated responsibilities.
 5. Ensure every service has one idempotent `dispose()` path.
 
-**Gate:** no giant replacement monolith exists in `createAppRuntime.js`, `App.jsx`, a Zustand slice, or a protocol router.
+**Gate:** no giant replacement monolith exists in `createAppRuntime.js`, `App.jsx`, a vanilla-store slice, or a protocol router.
 
 ### Phase 8 — Final verification
 
@@ -1065,7 +1064,7 @@ The refactor is complete only when all of the following are true:
 | React rerender/remount destroys p5 or slider nodes | Stable p5 hosts, services outside React, stable keys, local slider draft, no StrictMode initially. |
 | p5 canvas is absent immediately after construction | Keep RAF attachment retry and parent-at-construction behavior. |
 | Hidden CUE reports READY too early | Preserve draw/media/audio-controls/compositor revision gates in `RuntimeReadiness` and `CueRuntimeGate`. |
-| Screen and control both believe they are canonical | Keep screen authority and accepted state/cue-state responses; Zustand is a mirror only. |
+| Screen and control both believe they are canonical | Keep screen authority and accepted state/cue-state responses; the vanilla store is a mirror only. |
 | Raw high-frequency data rerenders React | Keep FFT, spectrum, control packets, and p5 loops in services/refs. |
 | Multiple microphone/camera captures | Preserve Web Lock/lease ownership and screen-only shared camera source. |
 | WebGL context exhaustion | Explicit context loss before async-safe p5 removal; do not rebuild previews for parameter acknowledgements. |
