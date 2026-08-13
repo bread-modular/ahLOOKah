@@ -160,8 +160,6 @@ export class ConfigPanel {
     // device-setup modal (OK). Dismissing (X) leaves it unset so the modal is
     // shown again on the next reload.
     this.setupDoneKey = 'viz2_device_setup_done';
-    // Persisted open/closed state of the collapsible devices & setup section.
-    this.deviceSectionKey = 'viz2_device_setup_open';
     // Persisted open/closed state of the band-split EQ section.
     this.bandEqKey = 'viz2_band_eq_open';
     // Persisted open/closed state of the post-processing section.
@@ -174,6 +172,7 @@ export class ConfigPanel {
     this.setupModalVideo = null;
     this.setupModalNotice = null;
     this.setupModalOk = null;
+    this.keyMapModal = null;
     this.currentPattern = getPattern ? getPattern() : 0;
     this.currentPatternId = null;
     this.screenOnline = isScreen ? Boolean(isScreen()) : false;
@@ -217,15 +216,6 @@ export class ConfigPanel {
     this.panel = document.createElement('div');
     this.panel.id = 'config-panel';
     this.container.appendChild(this.panel);
-
-    // Initial visibility of the devices & setup section. Fresh profile: open
-    // (setup still pending). Once a device has been saved the section is only
-    // needed for changes, so collapse it — unless the user pinned a preference.
-    // Computed before the template renders so there is no open→closed flash.
-    const savedPref = localStorage.getItem(this.deviceSectionKey);
-    const hasSavedDevice = !!(localStorage.getItem(this.audioKey) || localStorage.getItem(this.videoKey));
-    const deviceSectionOpen =
-      savedPref !== null ? savedPref === '1' : !hasSavedDevice;
 
     // Band-split EQ: a fresh profile starts open so the new tool is visible.
     const bandEqOpen = localStorage.getItem(this.bandEqKey) !== '0';
@@ -272,6 +262,16 @@ export class ConfigPanel {
         <div class="viz-control-header">
           <h3 class="panel-title">ahLOOKah</h3>
           <div id="status-line" class="status-line"></div>
+          <div class="app-menu">
+            <button id="app-menu-btn" class="app-menu-btn" type="button" aria-label="Menu" aria-haspopup="true" aria-expanded="false" title="Menu">
+              <svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+            </button>
+            <div id="app-menu-list" class="app-menu-list" role="menu" hidden>
+              <button id="app-menu-docs" class="app-menu-item" type="button" role="menuitem">Docs</button>
+              <button id="app-menu-keymap" class="app-menu-item" type="button" role="menuitem">Key Map</button>
+              <button id="app-menu-setup" class="app-menu-item" type="button" role="menuitem">Setup</button>
+            </div>
+          </div>
         </div>
 
         <h3 id="params-heading">Parameters</h3>
@@ -310,34 +310,6 @@ export class ConfigPanel {
             <p>Drag the two handles to set the Bass / Mid / High borders. Every effect's Bass, Mid &amp; High controls follow this split. Capture a few seconds of silence to record the input's noise signature — it is subtracted from the live spectrum (dashed line).</p>
           </div>
         </details>
-
-        <details id="device-setup" class="config-section"${deviceSectionOpen ? ' open' : ''}>
-          <summary class="config-section-header">Devices &amp; Setup</summary>
-          <div class="config-section-body">
-            <h3>Audio Input</h3>
-            <div class="config-group">
-              <select id="audio-select" disabled>
-                <option value="">Select Audio...</option>
-              </select>
-            </div>
-
-            <h3>Camera Input</h3>
-            <div class="config-group">
-              <select id="video-select" disabled>
-                <option value="">Select Camera...</option>
-              </select>
-            </div>
-
-            <div id="setup-notice" class="config-group" style="display: none;">
-              <p>Permissions needed for audio &amp; camera selection.</p>
-              <button id="setup-all-btn">Initialize</button>
-            </div>
-
-            <div class="config-group actions">
-              <button id="refresh-devices-btn">Refresh Devices</button>
-            </div>
-          </div>
-        </details>
       </div>
     `;
 
@@ -345,15 +317,12 @@ export class ConfigPanel {
 
     this.renderAll();
 
-    // Persist only real user toggles (the programmatic open from
-    // showSetupNotice must not overwrite a deliberate collapse).
-    persistSectionOpen(this.panel.querySelector('#device-setup'), this.deviceSectionKey);
     persistSectionOpen(this.panel.querySelector('#post-fx'), this.postFxKey);
 
     this._trackListener(window, 'pagehide', () => this.dispose());
     this._trackListener(window, 'beforeunload', () => this.dispose());
-    this.panel.querySelector('#refresh-devices-btn').onclick = () => this.refreshDevices();
-    this.panel.querySelector('#setup-all-btn').onclick = () => this.requestPermissions();
+
+    this.initAppMenu();
 
     this.initPostFx();
     this.initBandEq();
@@ -373,39 +342,53 @@ export class ConfigPanel {
 
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
-      const hasPermissions = devices.some((d) => d.label !== '');
-
-      if (hasPermissions) {
-        this.renderSelectors(devices);
-      } else {
-        this.showSetupNotice();
-      }
+      this.renderSelectors(devices);
     } catch (e) {
       console.error('Auto-detect failed', e);
-      this.showSetupNotice();
     }
 
     // First-run gate: prompt for mic/camera setup if it hasn't been completed.
     this.maybeShowSetupModal();
   }
 
-  showSetupNotice() {
-    // Permissions are missing — force the section open so the Initialize
-    // button stays reachable even if the user had collapsed it.
-    this.openDeviceSection();
-    const notice = this.panel.querySelector('#setup-notice');
-    if (notice) notice.style.display = 'flex';
-  }
+  // ---------------------------------------------------------------------------
+  // Header app menu (Docs / Key Map / Setup)
+  // ---------------------------------------------------------------------------
 
-  // Force the devices & setup section open (used when permissions are needed).
-  openDeviceSection() {
-    const section = this.panel.querySelector('#device-setup');
-    if (section) section.open = true;
-  }
+  initAppMenu() {
+    const btn = this.panel.querySelector('#app-menu-btn');
+    const list = this.panel.querySelector('#app-menu-list');
+    if (!btn || !list) return;
 
-  hideSetupNotice() {
-    const notice = this.panel.querySelector('#setup-notice');
-    if (notice) notice.style.display = 'none';
+    const close = () => {
+      list.hidden = true;
+      btn.setAttribute('aria-expanded', 'false');
+    };
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const willOpen = list.hidden;
+      list.hidden = !willOpen;
+      btn.setAttribute('aria-expanded', String(willOpen));
+    };
+    this._trackListener(document, 'click', (e) => {
+      if (!list.hidden && !list.contains(e.target) && !btn.contains(e.target)) close();
+    });
+    this._trackListener(document, 'keydown', (e) => {
+      if (e.code === 'Escape' && !list.hidden) close();
+    });
+
+    this.panel.querySelector('#app-menu-docs').onclick = () => {
+      close();
+      window.open('/docs', '_blank');
+    };
+    this.panel.querySelector('#app-menu-keymap').onclick = () => {
+      close();
+      this.showKeyMapModal();
+    };
+    this.panel.querySelector('#app-menu-setup').onclick = () => {
+      close();
+      this.showSetupModal();
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -451,6 +434,10 @@ export class ConfigPanel {
     if (this.setupModal) {
       try { this.setupModal.remove(); } catch {}
       this.setupModal = null;
+    }
+    if (this.keyMapModal) {
+      try { this.keyMapModal.remove(); } catch {}
+      this.keyMapModal = null;
     }
     this._listeners.splice(0).forEach(fn => { try { fn(); } catch {} });
     this._paramBroadcastQueue.clear();
@@ -679,7 +666,7 @@ export class ConfigPanel {
     if (status === 'offline') return 'Waiting for an audio control panel…';
 
     if (status === 'unselected' || status === 'idle' || status === 'stopped') {
-      return 'Select an audio input in Devices & Setup.';
+      return 'Select an audio input in Setup.';
     }
     if (status === 'starting') return 'Starting audio input…';
     if (status === 'suspended') return 'Click this control panel to enable audio.';
@@ -692,7 +679,7 @@ export class ConfigPanel {
     if (status === 'error') {
       const name = this.audioStatus.error?.name || 'AudioError';
       if (name === 'NotAllowedError' || name === 'SecurityError') {
-        return 'Microphone access denied. Re-initialize Devices & Setup.';
+        return 'Microphone access denied. Re-initialize Setup.';
       }
       if (name === 'NotFoundError' || name === 'OverconstrainedError') {
         return 'Selected audio input unavailable. Choose another input.';
@@ -1171,7 +1158,7 @@ export class ConfigPanel {
   }
 
   updateCueDeviceLock() {
-    const videoSelect = this.panel?.querySelector('#video-select');
+    const videoSelect = this.setupModalVideo;
     if (!videoSelect) return;
     if (this.cueState) videoSelect.disabled = true;
     else if (videoSelect.options.length > 1) videoSelect.disabled = false;
@@ -1661,7 +1648,6 @@ export class ConfigPanel {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
       stream.getTracks().forEach((t) => t.stop());
       await this.refreshDevices();
-      this.hideSetupNotice();
     } catch (e) {
       console.error(e);
     }
@@ -1686,28 +1672,9 @@ export class ConfigPanel {
 
   renderSelectors(devices) {
     this.devices = devices;
-    this.hideSetupNotice();
 
-    const audioInputs = devices.filter((d) => d.kind === 'audioinput');
-    const videoInputs = devices.filter((d) => d.kind === 'videoinput');
-
-    const audioSelect = this.panel.querySelector('#audio-select');
-    const videoSelect = this.panel.querySelector('#video-select');
-
-    audioSelect.disabled = false;
-    videoSelect.disabled = false;
-
-    const savedAudioId = localStorage.getItem(this.audioKey);
-    const savedVideoId = localStorage.getItem(this.videoKey);
-
-    this.fillDeviceSelect(audioSelect, audioInputs, savedAudioId, 'Select Audio...');
-    this.fillDeviceSelect(videoSelect, videoInputs, savedVideoId, 'Select Camera...');
-
-    audioSelect.onchange = (e) => this.handleAudioChange(e.target.value);
-    videoSelect.onchange = (e) => this.handleVideoChange(e.target.value);
-    this.updateCueDeviceLock();
-
-    // Mirror the enumerated devices into the first-run setup modal if it is open.
+    // Device selection now lives in the setup modal (opened from the header
+    // menu), not in an inline section. Populate the modal whenever it exists.
     if (this.setupModal) this.populateSetupModal();
   }
 
@@ -1725,8 +1692,8 @@ export class ConfigPanel {
     this.syncDeviceSelect('video', id);
   }
 
-  // Keep the inline Devices & Setup select and the first-run modal select in
-  // sync with a chosen device id, whichever side the operator used.
+  // Keep the setup-modal select in sync with a chosen device id (there is no
+  // inline select anymore — device selection happens in the modal only).
   syncDeviceSelect(kind, id) {
     const apply = (sel) => {
       if (!sel) return;
@@ -1734,10 +1701,8 @@ export class ConfigPanel {
       if (hasOption) sel.value = id;
     };
     if (kind === 'audio') {
-      apply(this.panel && this.panel.querySelector('#audio-select'));
       apply(this.setupModalAudio);
     } else {
-      apply(this.panel && this.panel.querySelector('#video-select'));
       apply(this.setupModalVideo);
     }
   }
@@ -1785,6 +1750,7 @@ export class ConfigPanel {
         </div>
 
         <div class="device-setup-modal-actions">
+          <button id="device-setup-modal-refresh" type="button">Refresh Devices</button>
           <button id="device-setup-modal-ok" type="button">OK</button>
         </div>
       </div>
@@ -1799,6 +1765,7 @@ export class ConfigPanel {
 
     modal.querySelector('#device-setup-modal-close').onclick = () => this.dismissSetupModal();
     modal.querySelector('#device-setup-modal-init').onclick = () => this.requestPermissions();
+    modal.querySelector('#device-setup-modal-refresh').onclick = () => this.refreshDevices();
     this.setupModalAudio.onchange = (e) => this.handleAudioChange(e.target.value);
     this.setupModalVideo.onchange = (e) => this.handleVideoChange(e.target.value);
     this.setupModalOk.onclick = () => this.completeSetupModal();
@@ -1843,11 +1810,17 @@ export class ConfigPanel {
     return true;
   }
 
-  maybeShowSetupModal() {
-    if (!this.needsDeviceSetup()) return;
+  // Open the setup modal on demand (from the header menu) regardless of the
+  // persisted "setup complete" flag — lets operators change devices later.
+  showSetupModal() {
     this.buildSetupModal();
     this.populateSetupModal();
     this.setupModal.hidden = false;
+  }
+
+  maybeShowSetupModal() {
+    if (!this.needsDeviceSetup()) return;
+    this.showSetupModal();
   }
 
   dismissSetupModal() {
@@ -1874,5 +1847,58 @@ export class ConfigPanel {
     }
     localStorage.setItem(this.setupDoneKey, '1');
     this.dismissSetupModal();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Key map modal — documents the control-panel keyboard shortcuts.
+  // ---------------------------------------------------------------------------
+
+  buildKeyMapModal() {
+    if (this.keyMapModal) return;
+
+    const modal = document.createElement('div');
+    modal.id = 'key-map-modal';
+    modal.hidden = true;
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-labelledby', 'key-map-modal-title');
+    modal.innerHTML = `
+      <div class="key-map-modal-card">
+        <button id="key-map-modal-close" class="device-setup-modal-close" type="button" aria-label="Close">&times;</button>
+        <h2 id="key-map-modal-title">Key Map</h2>
+        <table class="key-map-table">
+          <tbody>
+            <tr class="key-map-group"><td colspan="2">Keyboard — patterns (1–9, 0)</td></tr>
+            <tr><td><kbd>1</kbd>–<kbd>9</kbd> <kbd>0</kbd></td><td>Select a pattern</td></tr>
+            <tr><td>Hold one key, press another</td><td>Merge two patterns into a blend</td></tr>
+
+            <tr class="key-map-group"><td colspan="2">CUE</td></tr>
+            <tr><td><kbd>Shift</kbd> + Click a pattern</td><td>Stage it as CUE</td></tr>
+            <tr><td><kbd>Shift</kbd> + <kbd>1</kbd>–<kbd>9</kbd> <kbd>0</kbd></td><td>Stage CUE (hold a second to blend)</td></tr>
+            <tr><td><kbd>Enter</kbd></td><td>GO LIVE</td></tr>
+            <tr><td><kbd>Esc</kbd></td><td>Cancel CUE</td></tr>
+
+            <tr class="key-map-group"><td colspan="2">Blend (while merging)</td></tr>
+            <tr><td><kbd>+</kbd> / <kbd>−</kbd></td><td>Adjust blend amount</td></tr>
+            <tr><td><kbd>Tab</kbd></td><td>Toggle blend mode</td></tr>
+          </tbody>
+        </table>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    this.keyMapModal = modal;
+    modal.querySelector('#key-map-modal-close').onclick = () => this.dismissKeyMapModal();
+  }
+
+  showKeyMapModal() {
+    this.buildKeyMapModal();
+    this.keyMapModal.hidden = false;
+  }
+
+  dismissKeyMapModal() {
+    const modal = this.keyMapModal;
+    if (!modal || modal.hidden) return;
+    modal.hidden = true;
   }
 }

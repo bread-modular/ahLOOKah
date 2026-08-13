@@ -105,27 +105,36 @@ test.describe('control panel window', () => {
     await expect(control.locator('#config-panel')).toBeVisible();
   });
 
-  test('devices & setup section collapses via its header and persists', async ({ context }) => {
+  test('header menu exposes Docs, Key Map, and Setup', async ({ context }) => {
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
 
-    const section = control.locator('#device-setup');
-    // Fresh profile (no saved device): the section starts open
-    await expect(section).toHaveAttribute('open', '');
-    await expect(control.locator('#audio-select')).toBeVisible();
+    // Hamburger button sits in the header and starts closed.
+    const menuBtn = control.locator('#app-menu-btn');
+    await expect(menuBtn).toBeVisible();
+    const menuList = control.locator('#app-menu-list');
+    await expect(menuList).toBeHidden();
 
-    // Clicking the header collapses the section and hides the setup controls
-    await section.locator('summary').click();
-    await expect(section).not.toHaveAttribute('open', '');
-    await expect(control.locator('#audio-select')).not.toBeVisible();
+    // Clicking the button opens the dropdown with all three items.
+    await menuBtn.click();
+    await expect(menuList).toBeVisible();
+    await expect(control.locator('#app-menu-docs')).toHaveText('Docs');
+    await expect(control.locator('#app-menu-keymap')).toHaveText('Key Map');
+    await expect(control.locator('#app-menu-setup')).toHaveText('Setup');
 
-    // The collapsed state survives a reload
-    await control.reload();
-    await expect(control.locator('#device-setup')).not.toHaveAttribute('open', '');
+    // Key Map opens the read-only shortcuts modal.
+    await control.locator('#app-menu-keymap').click();
+    await expect(control.locator('#key-map-modal')).toBeVisible();
+    await expect(control.locator('#key-map-modal-title')).toHaveText('Key Map');
+    await control.locator('#key-map-modal-close').click();
+    await expect(control.locator('#key-map-modal')).toBeHidden();
 
-    // And the header reopens it
-    await control.locator('#device-setup summary').click();
-    await expect(control.locator('#device-setup')).toHaveAttribute('open', '');
+    // Setup opens the device setup modal.
+    await menuBtn.click();
+    await control.locator('#app-menu-setup').click();
+    await expect(control.locator('#device-setup-modal')).toBeVisible();
+    await control.locator('#device-setup-modal-close').click();
+    await expect(control.locator('#device-setup-modal')).toBeHidden();
   });
 });
 

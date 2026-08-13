@@ -12,23 +12,26 @@ async function openScreenAndControl(context, screen) {
   return control;
 }
 
-async function ensureAudioOptions(control) {
-  await control.waitForFunction(() => document.querySelectorAll('#audio-select option').length > 0);
-  if (await control.locator('#audio-select option').count() < 2) {
-    await control.locator('#setup-all-btn').click();
-    await control.waitForFunction(() => document.querySelectorAll('#audio-select option').length > 1);
-  }
+async function selectAudioInput(control) {
+  // Device selection lives in the setup modal (header menu → Setup).
+  await control.locator('#app-menu-btn').click();
+  await control.locator('#app-menu-setup').click();
+  const audio = control.locator('#device-setup-modal-audio');
+  await audio.waitFor({ state: 'visible' });
+  // Fake media flags grant permission up front, so the select is populated.
+  const selectedId = await audio.locator('option').nth(1).getAttribute('value');
+  await audio.selectOption(selectedId);
+  await control.locator('#device-setup-modal-ok').click();
+  return selectedId;
 }
 
 test.describe('audio input lifecycle', () => {
   test('the control starts the selected input, feeds its EQ, and sends frames to the screen', async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
 
-    await expect(control.locator('#band-eq-idle')).toHaveText('Select an audio input in Devices & Setup.');
-    await ensureAudioOptions(control);
-    const selectedId = await control.locator('#audio-select option').nth(1).getAttribute('value');
+    await expect(control.locator('#band-eq-idle')).toHaveText('Select an audio input in Setup.');
+    const selectedId = await selectAudioInput(control);
     expect(selectedId).toBeTruthy();
-    await control.locator('#audio-select').selectOption(selectedId);
 
     await control.waitForFunction((deviceId) => (
       window.__viz.audioOwner
@@ -123,7 +126,7 @@ test.describe('audio input lifecycle', () => {
 
     expect(started).toBe(false);
     await expect(control.locator('#band-eq-idle')).toHaveText(
-      'Microphone access denied. Re-initialize Devices & Setup.',
+      'Microphone access denied. Re-initialize Setup.',
     );
     expect(await control.evaluate(() => window.__viz.audioStatus.error?.name)).toBe('NotAllowedError');
   });

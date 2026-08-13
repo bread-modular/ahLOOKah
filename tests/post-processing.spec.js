@@ -28,7 +28,7 @@ test.describe('post processing section', () => {
     const order = await control.evaluate(() =>
       [...document.querySelectorAll('#controls-pane > details')].map((s) => s.id)
     );
-    expect(order).toEqual(['post-fx', 'band-eq', 'device-setup']);
+    expect(order).toEqual(['post-fx', 'band-eq']);
 
     // Three offset sliders at the natural level
     for (const key of ['brightness', 'contrast', 'saturation']) {
