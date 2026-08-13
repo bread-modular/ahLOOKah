@@ -86,7 +86,7 @@ test.describe('CUE mode', () => {
         },
       });
       try {
-        const { SharedCameraSource } = await import('/shared-camera-source.js');
+        const { SharedCameraSource } = await import('/src/shared-camera-source.js');
         const source = new SharedCameraSource();
         const makeP = () => ({
           createVideo: () => ({
@@ -116,7 +116,7 @@ test.describe('CUE mode', () => {
   test('parents program canvases at construction and safely serializes/disposes fresh-frame waiters', async ({ page }) => {
     await page.goto(SCREEN_URL);
     const result = await page.evaluate(async () => {
-      const { ProgramRuntime } = await import('/program-runtime.js');
+      const { ProgramRuntime } = await import('/src/program-runtime.js');
       const originalRequest = window.requestAnimationFrame;
       const originalCancel = window.cancelAnimationFrame;
       const callbacks = new Map();
@@ -233,7 +233,7 @@ test.describe('CUE mode', () => {
   test('keeps a warming camera runtime looping until media-ready plus a later draw', async ({ page }) => {
     await page.goto(SCREEN_URL);
     const result = await page.evaluate(async () => {
-      const { ProgramRuntime } = await import('/program-runtime.js');
+      const { ProgramRuntime } = await import('/src/program-runtime.js');
       const originalRequest = window.requestAnimationFrame;
       const originalCancel = window.cancelAnimationFrame;
       const callbacks = new Map();

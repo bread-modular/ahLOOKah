@@ -57,7 +57,7 @@ test.describe('all-pattern controls-only audio transport', () => {
     // the preview stage shows the placeholder note instead (the live camera video
     // stays on the output screen). Everything else must produce its preview canvas.
     const cameraIds = await page.evaluate(async () => {
-      const { SKETCHES } = await import('/sketch-registry.js');
+      const { SKETCHES } = await import('/src/sketch-registry.js');
       return SKETCHES.filter((sketch) => sketch.camera).map((sketch) => sketch.id);
     });
     const cameraSet = new Set(cameraIds);

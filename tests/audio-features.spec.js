@@ -11,7 +11,7 @@ test.describe('musical audio feature extraction', () => {
     await page.goto(SCREEN_URL);
 
     const result = await page.evaluate(async () => {
-      const { makeAudioFeatures } = await import('/sketches/audio-features.js');
+      const { makeAudioFeatures } = await import('/src/sketches/audio-features.js');
 
       const runHit = (range, { sampleRate = 48000, rightOnly = false } = {}) => {
         const fftSize = 2048;
@@ -65,7 +65,7 @@ test.describe('musical audio feature extraction', () => {
     await page.goto(SCREEN_URL);
 
     const result = await page.evaluate(async () => {
-      const { makeAudioFeatures } = await import('/sketches/audio-features.js');
+      const { makeAudioFeatures } = await import('/src/sketches/audio-features.js');
       const sampleRate = 48000;
       const fftSize = 2048;
       const bins = fftSize / 2;
