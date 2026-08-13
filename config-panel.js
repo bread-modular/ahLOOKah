@@ -23,6 +23,7 @@ import {
   getNoiseFloorMeta,
   sampleNoiseFloorDb,
 } from './noise-floor.js';
+import { button } from './ui.js';
 
 // Band colours of the split EQ — same hues as the legend chips in style.css.
 const EQ_COLORS = {
@@ -1732,7 +1733,7 @@ export class ConfigPanel {
 
         <div id="device-setup-modal-notice" class="device-setup-modal-notice">
           <p>Permissions are needed to list and use your audio &amp; camera inputs.</p>
-          <button id="device-setup-modal-init" type="button">Initialize</button>
+          ${button({ id: 'device-setup-modal-init', label: 'Initialize', variant: 'solid' })}
         </div>
 
         <div class="device-setup-modal-field">
@@ -1750,8 +1751,8 @@ export class ConfigPanel {
         </div>
 
         <div class="device-setup-modal-actions">
-          <button id="device-setup-modal-refresh" type="button">Refresh Devices</button>
-          <button id="device-setup-modal-ok" type="button">OK</button>
+          ${button({ id: 'device-setup-modal-refresh', label: 'Refresh Devices', size: 'md' })}
+          ${button({ id: 'device-setup-modal-ok', label: 'OK', size: 'md' })}
         </div>
       </div>
     `;
