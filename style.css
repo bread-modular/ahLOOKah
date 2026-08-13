@@ -583,10 +583,10 @@ body.is-screen #config-container {
   font-weight: 600;
 }
 
-/* Inline stroke icons inside buttons — sized to the text so they sit on the
-   same baseline instead of floating like emoji / text glyphs. */
-#config-panel .btn-icon,
-#screen-toolbar .btn-icon {
+/* Inline stroke icons inside config-panel buttons — sized to the text so they
+   sit on the same baseline instead of floating like emoji / text glyphs.
+   (Icons inside the shared .btn component are styled by .btn .btn-icon below.) */
+#config-panel .btn-icon {
   width: 12px;
   height: 12px;
   vertical-align: -2px;
@@ -597,6 +597,117 @@ body.is-screen #config-container {
   stroke-linecap: round;
   stroke-linejoin: round;
   flex-shrink: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Button component — the single shared button style for the whole UI.
+   Rectangle corners (4px) match the Open Screen control; variants customize
+   color/emphasis and size via modifier classes. Use the `button()` factory in
+   ui.js so markup stays consistent everywhere.
+--------------------------------------------------------------------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--border-gray);
+  border-radius: 4px;              /* rectangle — the canonical corner */
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.05rem;
+  text-transform: uppercase;
+  line-height: 1.25;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color var(--transition-speed) ease-out,
+    border-color var(--transition-speed) ease-out,
+    background var(--transition-speed) ease-out;
+}
+
+.btn:hover {
+  color: var(--text-main);
+  border-color: var(--accent);
+  background: rgba(77, 163, 255, 0.12);
+}
+
+.btn:focus-visible {
+  outline: none;
+  border-color: #888;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn .btn-icon {
+  width: 12px;
+  height: 12px;
+  margin: 0;                       /* .btn uses `gap`, not icon margin */
+  flex-shrink: 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Emphasis variants */
+.btn--amber:hover {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.85);
+  background: rgba(251, 191, 36, 0.09);
+}
+
+.btn--danger {
+  border-color: rgba(231, 76, 60, 0.85);
+  color: #e74c3c;
+  background: rgba(231, 76, 60, 0.07);
+}
+
+.btn--danger:hover {
+  color: #ff6b6b;
+  border-color: rgba(231, 76, 60, 0.95);
+  background: rgba(231, 76, 60, 0.14);
+}
+
+.btn--solid {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #00101f;
+  font-weight: 800;
+}
+
+.btn--solid:hover {
+  background: #6fb4ff;
+  border-color: #6fb4ff;
+  color: #00101f;
+}
+
+/* Size variants */
+.btn--sm {
+  padding: 6px 8px;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+}
+
+.btn--md {
+  padding: 7px 16px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+/* Icon-only square button (e.g. hamburger / close affordances) */
+.btn--icon {
+  width: 30px;
+  height: 30px;
+  padding: 0;
 }
 
 /* Selects share the button metrics (common control style) but render their
@@ -1531,28 +1642,24 @@ body.singleton-blocked canvas { display: none !important; }
   box-sizing: border-box;
 }
 
-#screen-toolbar button {
+#screen-toolbar .btn {
   background: rgba(16, 16, 16, 0.85);
-  border: 1px solid var(--border-gray);
   color: var(--text-main);
-  padding: 8px 14px;
-  border-radius: 20px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  cursor: pointer;
-  text-transform: uppercase;
-  letter-spacing: 0.05rem;
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--transition-speed) ease-out;
+  transition:
+    opacity var(--transition-speed) ease-out,
+    color var(--transition-speed) ease-out,
+    border-color var(--transition-speed) ease-out,
+    background var(--transition-speed) ease-out;
 }
 
-#screen-toolbar:hover button {
+#screen-toolbar:hover .btn {
   opacity: 1;
   pointer-events: auto;
 }
 
-#screen-toolbar button:hover {
+#screen-toolbar .btn:hover {
   background: #222;
   border-color: var(--accent);
 }
@@ -1706,23 +1813,11 @@ body.is-control #screen-toolbar {
   color: #cfd8e3;
 }
 
-.device-setup-modal-notice button {
+.device-setup-modal-notice .btn {
   width: 100%;
   padding: 9px 12px;
-  border: 1px solid var(--accent);
-  border-radius: 6px;
-  background: var(--accent);
-  color: #00101f;
   font-size: 0.78rem;
-  font-weight: 800;
-  text-transform: uppercase;
   letter-spacing: 0.04em;
-  cursor: pointer;
-}
-
-.device-setup-modal-notice button:hover {
-  background: #6fb4ff;
-  border-color: #6fb4ff;
 }
 
 .device-setup-modal-field {
@@ -1764,31 +1859,12 @@ body.is-control #screen-toolbar {
   margin-top: 18px;
 }
 
-/* Mirrors the "Open Screen" pill style: transparent background, hairline
-   border, rounded pill — so the modal actions read like the rest of the UI
-   instead of solid blue buttons stuck together. */
-.device-setup-modal-actions button {
+/* Mirrors the "Open Screen" rectangle style: transparent background, hairline
+   border — so the modal actions read like the rest of the UI instead of solid
+   blue buttons stuck together. Shared .btn component (see Button component
+   section above); `--md` size is applied via the button() factory. */
+.device-setup-modal-actions .btn {
   min-width: 96px;
-  padding: 7px 16px;
-  border: 1px solid var(--border-gray);
-  border-radius: 20px;
-  background: transparent;
-  color: var(--text-dim);
-  font-size: 0.68rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  cursor: pointer;
-  transition:
-    color var(--transition-speed) ease-out,
-    border-color var(--transition-speed) ease-out,
-    background var(--transition-speed) ease-out;
-}
-
-.device-setup-modal-actions button:hover {
-  color: var(--text-main);
-  border-color: var(--accent);
-  background: rgba(77, 163, 255, 0.12);
 }
 
 /* ---------------------------------------------------------------------------
