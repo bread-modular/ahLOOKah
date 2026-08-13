@@ -1,0 +1,119 @@
+/* ---------------------------------------------------------------------------
+   Band-split EQ (Ableton-style log spectrum + draggable bass/mid/high borders)
+--------------------------------------------------------------------------- */
+
+.band-eq-wrap {
+  position: relative;
+  border: 1px solid var(--border-gray);
+  border-radius: 4px;
+  overflow: hidden;
+  background: #0b0d10;
+}
+
+/* The global `canvas` rule above pins canvases fullscreen for the p5 stage —
+   the EQ canvas is an ordinary inline element inside the panel. */
+#band-eq-canvas {
+  position: static;
+  top: auto;
+  left: auto;
+  width: 100%;
+  height: 150px;
+  touch-action: none;
+  cursor: default;
+}
+
+.band-eq-idle {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  text-align: center;
+  font-size: 0.68rem;
+  line-height: 1.45;
+  letter-spacing: 0.08rem;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  background: rgba(8, 8, 8, 0.45);
+  pointer-events: none;
+}
+
+.band-eq-idle[hidden] {
+  display: none;
+}
+
+.band-eq-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.band-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04rem;
+  text-transform: uppercase;
+  padding: 4px 9px;
+  border: 1px solid var(--border-gray);
+  border-radius: 14px;
+  color: var(--text-dim);
+}
+
+.band-chip i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.band-chip b {
+  color: var(--text-main);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.band-chip-bass i {
+  background: var(--band-bass);
+}
+
+.band-chip-mid i {
+  background: var(--band-mid);
+}
+
+.band-chip-high i {
+  background: var(--band-high);
+}
+
+/* Noise-floor capture row (inside the band-split EQ section) */
+.band-eq-noise {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-gray);
+}
+
+.noise-status {
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+
+.noise-status.noise-active {
+  color: var(--text-main);
+}
+
+.noise-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* Common button metrics (no size override); the pair shares the row. */
+.noise-actions button {
+  flex: 1;
+}
+
