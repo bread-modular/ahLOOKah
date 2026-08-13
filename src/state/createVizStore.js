@@ -1,9 +1,9 @@
-// Per-window vanilla Zustand store. This is a *renderable mirror* of accepted
+// Per-window in-house vanilla store. This is a *renderable mirror* of accepted
 // runtime authority — never an alternate protocol authority. Long-lived browser
 // resources (p5, MediaStream, AudioContext, FFT buffers, observers, timers, RAF
 // ids, BroadcastChannel, Web Locks) and the canonical mutable parameter objects
 // live in the runtime services, NOT here (see docs/react-refactor-plan.md §3.2).
-import { createStore } from 'zustand/vanilla';
+import { createStore } from './vanillaStore.js';
 
 export function createVizStore(role) {
   return createStore(() => ({
