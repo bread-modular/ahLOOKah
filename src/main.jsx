@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { Analytics } from '@vercel/analytics/react';
 import './styles/index.css';
 import { createWindowIdentity } from './platform/identity.js';
 import { createVizStore } from './state/createVizStore.js';
@@ -39,7 +40,12 @@ function Root() {
   );
 }
 
-createRoot(document.getElementById('root')).render(<Root />);
+createRoot(document.getElementById('root')).render(
+  <>
+    <Root />
+    <Analytics />
+  </>
+);
 
 // HMR: dispose the runtime + re-mount without leaking leases/channels.
 if (import.meta.hot) {
