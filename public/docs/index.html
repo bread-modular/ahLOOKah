@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- Primary SEO -->
+  <title>ahLOOKah — Docs: Getting Started &amp; Video Walkthrough</title>
+  <meta name="description" content="Learn ahLOOKah with a video walkthrough — browse the pattern library, cue mode, dual-effect merge, and live parameter control." />
+  <meta name="author" content="Arunoda Susiripal" />
+  <meta name="robots" content="index, follow" />
+  <meta name="theme-color" content="#0b0b0f" />
+  <link rel="canonical" href="https://ahlookah.com/docs/" />
+
+  <!-- Open Graph (Facebook, LinkedIn, WhatsApp, etc.) -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="ahLOOKah" />
+  <meta property="og:url" content="https://ahlookah.com/docs/" />
+  <meta property="og:title" content="ahLOOKah — Docs: Getting Started &amp; Video Walkthrough" />
+  <meta property="og:description" content="Watch the ahLOOKah walkthrough and learn to drive live audio-reactive visuals — patterns, cue mode, and live control." />
+  <meta property="og:image" content="https://ahlookah.com/ahlookah-in-action.png" />
+  <meta property="og:image:secure_url" content="https://ahlookah.com/ahlookah-in-action.png" />
+  <meta property="og:image:type" content="image/png" />
+  <meta property="og:image:width" content="2560" />
+  <meta property="og:image:height" content="1440" />
+  <meta property="og:image:alt" content="The ahLOOKah control panel — pattern library, cue preview, and realtime parameter sliders." />
+  <meta property="og:locale" content="en_US" />
+
+  <!-- Twitter / X card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="ahLOOKah — Docs: Getting Started &amp; Video Walkthrough" />
+  <meta name="twitter:description" content="Watch the ahLOOKah walkthrough and learn to drive live audio-reactive visuals." />
+  <meta name="twitter:image" content="https://ahlookah.com/ahlookah-in-action.png" />
+  <meta name="twitter:image:alt" content="The ahLOOKah control panel — pattern library, cue preview, and realtime parameter sliders." />
+
+  <style>
+    :root {
+      --bg: #0b0b0f;
+      --bg-soft: #14141b;
+      --panel: #1a1a23;
+      --border: #2a2a36;
+      --text: #e9e9f0;
+      --muted: #9a9ab0;
+      --accent: #6c8cff;
+      --accent-2: #ff4f9a;
+      --accent-3: #22d3a5;
+      --radius: 14px;
+      --maxw: 960px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: radial-gradient(1200px 600px at 50% -10%, #1b1b2a 0%, var(--bg) 55%);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+
+    /* Header */
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: rgba(11, 11, 15, 0.82);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+    }
+    .brand {
+      font-weight: 800;
+      font-size: 1.25rem;
+      letter-spacing: 0.5px;
+      color: var(--text);
+    }
+    .brand .glow {
+      background: linear-gradient(90deg, var(--accent), var(--accent-2), var(--accent-3));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .nav-links { display: flex; gap: 20px; font-size: 0.95rem; }
+
+    /* Hero */
+    .hero { padding: 72px 0 40px; text-align: center; }
+    .kicker {
+      display: inline-block;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--accent-3);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 4px 14px;
+      margin-bottom: 20px;
+    }
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 3.2rem);
+      line-height: 1.15;
+      margin: 0 0 16px;
+      letter-spacing: -0.5px;
+    }
+    .hero h1 .glow {
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .hero p {
+      max-width: 640px;
+      margin: 0 auto 32px;
+      color: var(--muted);
+      font-size: 1.1rem;
+    }
+
+    /* Video */
+    .video-frame {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #000;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+    }
+    .video-frame iframe {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      border: 0;
+    }
+
+    /* Sections */
+    section { padding: 40px 0; }
+    section h2 {
+      font-size: 1.6rem;
+      margin: 0 0 12px;
+      letter-spacing: -0.3px;
+    }
+    section h2 .emoji { margin-right: 8px; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+      margin-top: 24px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+    .card h3 { margin: 0 0 8px; font-size: 1.05rem; }
+    .card p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+
+    code {
+      background: var(--bg-soft);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 2px 6px;
+      font-size: 0.9em;
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    }
+
+    pre {
+      background: #101018;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      overflow-x: auto;
+      font-size: 0.9rem;
+    }
+    pre code { background: none; border: none; padding: 0; }
+
+    .cta {
+      text-align: center;
+      padding: 24px 0 64px;
+    }
+    .btn {
+      display: inline-block;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      color: #fff;
+      font-weight: 700;
+      padding: 12px 28px;
+      border-radius: 999px;
+      transition: opacity 0.15s ease;
+    }
+    .btn:hover { opacity: 0.9; text-decoration: none; }
+
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 28px 0 48px;
+      color: var(--muted);
+      font-size: 0.9rem;
+      text-align: center;
+    }
+
+    @media (max-width: 560px) {
+      .nav-links { display: none; }
+      .hero { padding-top: 48px; }
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <div class="wrap nav">
+      <a class="brand" href="/">ah<span class="glow">LOOK</span>ah</a>
+      <nav class="nav-links">
+        <a href="/">App</a>
+        <a href="#video">Walkthrough</a>
+        <a href="#features">Features</a>
+        <a href="#quickstart">Quick start</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="hero">
+      <span class="kicker">Documentation</span>
+      <h1>Drive live visuals with <span class="glow">ahLOOKah</span></h1>
+      <p>Realtime, audio-reactive VJ visuals in the browser. Watch the walkthrough below, then fire up the app and start cueing patterns live.</p>
+    </div>
+
+    <section id="video">
+      <h2><span class="emoji">🎬</span>Video walkthrough</h2>
+      <div class="video-frame">
+        <iframe
+          src="https://www.youtube-nocookie.com/embed/UZ4wlbPm_kk"
+          title="ahLOOKah video walkthrough"
+          loading="lazy"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowfullscreen
+          referrerpolicy="strict-origin-when-cross-origin">
+        </iframe>
+      </div>
+    </section>
+
+    <section id="features">
+      <h2><span class="emoji">✨</span>What ahLOOKah does</h2>
+      <p style="color:var(--muted)">A floating control panel drives a fullscreen output window in realtime — tweak parameters, morph between effects, key patterns to the number row, and take cues live with zero blank gaps.</p>
+      <div class="grid">
+        <div class="card">
+          <h3>🎛️ Audio-reactive library</h3>
+          <p>Beat-driven patterns, cinematic GPU shaders, neon/laser looks, glitch effects, and camera-input video FX.</p>
+        </div>
+        <div class="card">
+          <h3>🪟 Dual-window sync</h3>
+          <p>A fullscreen output window plus a control panel, synchronized over <code>BroadcastChannel</code> — no server state.</p>
+        </div>
+        <div class="card">
+          <h3>⚡ CUE mode</h3>
+          <p>Warm the next program in a hidden renderer with <code>Shift+click</code>, then hit <code>Enter</code> to take it live instantly.</p>
+        </div>
+        <div class="card">
+          <h3>🔀 Dual-effect merge</h3>
+          <p>Blend two sketches with a crossfade or additive composite, layered on the GPU.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="quickstart">
+      <h2><span class="emoji">🚀</span>Quick start</h2>
+      <pre><code>npm install
+npm run dev      # start the dev server</code></pre>
+      <p style="color:var(--muted)">Open the printed URL — a control window launches. Use <strong>Open Output</strong> to show the fullscreen stage. Audio from your system (or an attached device) drives the visuals.</p>
+    </section>
+
+    <div class="cta">
+      <a class="btn" href="/">Launch ahLOOKah →</a>
+    </div>
+  </main>
+
+  <footer class="wrap">
+    <p>ahLOOKah — realtime audio-reactive VJ visuals. <a href="/">Back to the app</a> · <a href="https://github.com/bread-modular/ahlookah" rel="noopener" target="_blank">GitHub</a></p>
+    <p style="margin-top:6px">&copy; Arunoda Susiripal · MIT License</p>
+  </footer>
+</body>
+
+</html>

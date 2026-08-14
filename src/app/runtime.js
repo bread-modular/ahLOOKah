@@ -2298,10 +2298,10 @@ export function createAppRuntime({
     currentVideoDeviceId = localStorage.getItem(STORAGE.video) || null;
 
     if (role === 'screen') {
-      document.title = 'ahLOOKah Screen';
+      document.title = 'ahLOOKah — Output';
       document.body.classList.add('is-screen');
     } else {
-      document.title = 'ahLOOKah';
+      document.title = 'ahLOOKah — Realtime Audio-Reactive Visuals';
       document.body.classList.add('is-control');
       store.setState({ padOrder: getOrderedSketches().map((s) => s.id) });
     }
