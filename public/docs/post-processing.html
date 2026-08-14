@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ahLOOKah — Docs: Post-processing</title>
+  <meta name="description" content="Apply a global brightness, contrast, and saturation trim to your ahLOOKah output." />
+  <meta name="theme-color" content="#0b0b0f" />
+  <link rel="canonical" href="https://ahlookah.com/docs/post-processing.html" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="ahLOOKah — Docs: Post-processing" />
+  <meta property="og:image" content="https://ahlookah.com/ahlookah-in-action.png" />
+  <link rel="stylesheet" href="/docs/docs.css" />
+</head>
+
+<body>
+  <header class="topbar">
+    <button class="menu-toggle" id="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="sidebar">
+      <span></span><span></span><span></span>
+    </button>
+    <a class="topbar__brand" href="/docs/index.html">ahLOOKah Docs</a>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar__header">
+        <a class="sidebar__brand" href="/docs/index.html">ah<span class="glow">LOOK</span>ah</a>
+        <span class="sidebar__tag">Docs</span>
+      </div>
+      <nav class="sidebar__nav" aria-label="Documentation">
+        <ul>
+          <li><a href="/docs/index.html">Introduction</a></li>
+          <li><a href="/docs/getting-started.html">Getting Started</a></li>
+          <li><a href="/docs/interface.html">The Interface</a></li>
+          <li><a href="/docs/patterns.html">Patterns &amp; Parameters</a></li>
+          <li><a href="/docs/slots.html">Slots &amp; Shortcuts</a></li>
+          <li><a href="/docs/blending.html">Blending Two Patterns</a></li>
+          <li><a href="/docs/post-processing.html" class="is-active" aria-current="page">Post-processing</a></li>
+          <li><a href="/docs/eq-noise.html">EQ &amp; Noise</a></li>
+          <li><a href="/docs/cue-mode.html">Cue Mode</a></li>
+          <li><a href="/docs/devices.html">Devices &amp; Setup</a></li>
+        </ul>
+      </nav>
+      <div class="sidebar__footer">
+        <a href="/">← Back to app</a>
+      </div>
+    </aside>
+
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+    <main class="content">
+      <article class="article">
+        <h1>Post-processing</h1>
+        <p class="lede">Post-processing is a global trim applied on top of <em>every</em> effect — a final grade for the whole output, regardless of which pattern is playing.</p>
+
+        <h2>The three controls</h2>
+        <ul>
+          <li><strong>Brightness</strong> — lift or dim the overall image.</li>
+          <li><strong>Contrast</strong> — increase or soften the difference between light and dark.</li>
+          <li><strong>Saturation</strong> — push colors richer, or pull them back toward grayscale.</li>
+        </ul>
+
+        <figure class="figure">
+          <img src="/docs/shots/post-processing.jpg" alt="The ahLOOKah post-processing section with brightness, contrast, and saturation sliders" />
+          <figcaption>The post-processing section, with a <em>Reset to Natural</em> button.</figcaption>
+        </figure>
+
+        <h2>Resetting</h2>
+        <p>Went too far? Hit <strong>Reset to Natural</strong> to snap brightness, contrast, and saturation back to their neutral defaults without touching your pattern selection or parameters.</p>
+
+        <div class="callout">
+          <p><strong>Note</strong> Post-processing is the last link in the chain — it applies after your pattern, blend, and EQ. Use it to match a projector's color, or to give a whole set a consistent look.</p>
+        </div>
+
+        <div class="pager">
+          <a href="/docs/blending.html"><span class="label">Previous</span><span class="title">Blending Two Patterns</span></a>
+          <a class="next" href="/docs/eq-noise.html"><span class="label">Next</span><span class="title">EQ &amp; Noise</span></a>
+        </div>
+      </article>
+    </main>
+  </div>
+
+  <script src="/docs/docs.js"></script>
+</body>
+
+</html>

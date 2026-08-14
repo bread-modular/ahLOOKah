@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ahLOOKah — Docs: Patterns &amp; Parameters</title>
+  <meta name="description" content="Browse the ahLOOKah pattern library and tweak each effect's parameters live." />
+  <meta name="theme-color" content="#0b0b0f" />
+  <link rel="canonical" href="https://ahlookah.com/docs/patterns.html" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="ahLOOKah — Docs: Patterns &amp; Parameters" />
+  <meta property="og:image" content="https://ahlookah.com/ahlookah-in-action.png" />
+  <link rel="stylesheet" href="/docs/docs.css" />
+</head>
+
+<body>
+  <header class="topbar">
+    <button class="menu-toggle" id="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="sidebar">
+      <span></span><span></span><span></span>
+    </button>
+    <a class="topbar__brand" href="/docs/index.html">ahLOOKah Docs</a>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar__header">
+        <a class="sidebar__brand" href="/docs/index.html">ah<span class="glow">LOOK</span>ah</a>
+        <span class="sidebar__tag">Docs</span>
+      </div>
+      <nav class="sidebar__nav" aria-label="Documentation">
+        <ul>
+          <li><a href="/docs/index.html">Introduction</a></li>
+          <li><a href="/docs/getting-started.html">Getting Started</a></li>
+          <li><a href="/docs/interface.html">The Interface</a></li>
+          <li><a href="/docs/patterns.html" class="is-active" aria-current="page">Patterns &amp; Parameters</a></li>
+          <li><a href="/docs/slots.html">Slots &amp; Shortcuts</a></li>
+          <li><a href="/docs/blending.html">Blending Two Patterns</a></li>
+          <li><a href="/docs/post-processing.html">Post-processing</a></li>
+          <li><a href="/docs/eq-noise.html">EQ &amp; Noise</a></li>
+          <li><a href="/docs/cue-mode.html">Cue Mode</a></li>
+          <li><a href="/docs/devices.html">Devices &amp; Setup</a></li>
+        </ul>
+      </nav>
+      <div class="sidebar__footer">
+        <a href="/">← Back to app</a>
+      </div>
+    </aside>
+
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+    <main class="content">
+      <article class="article">
+        <h1>Patterns &amp; Parameters</h1>
+        <p class="lede">A pattern is one audio-reactive visual. There are 58 of them, organized into themed groups. Click one and it appears on screen instantly.</p>
+
+        <h2>Browsing the library</h2>
+        <p>The <strong>pattern library</strong> sits in the middle of the control panel. Patterns are grouped by theme:</p>
+
+        <ul>
+          <li><strong>Rhythmic</strong> — beat-driven shapes like <em>Circles</em>, <em>Bars</em>, and <em>Pulse Rings</em>.</li>
+          <li><strong>3D</strong> — rotating, depth-mapped structures.</li>
+          <li><strong>Cinematic / Shaders</strong> — GPU shaders and atmospheric looks.</li>
+          <li><strong>Neon / Lasers</strong> — glow lines and light effects.</li>
+          <li><strong>Video FX</strong> — camera-input effects like chroma key and kaleidoscope.</li>
+          <li><strong>Glitch / Effects</strong> — RGB split, scanlines, CRT, and distortion.</li>
+          <li><strong>Basics</strong> — solid color, gradient wash, checkerboard, and more.</li>
+        </ul>
+
+        <figure class="figure">
+          <img src="/docs/shots/patterns.jpg" alt="The ahLOOKah pattern library with a selected pattern and its parameter sliders" />
+          <figcaption>Click a pattern in the library to play it; its parameters appear on the right.</figcaption>
+        </figure>
+
+        <h2>Tweaking parameters</h2>
+        <p>Every pattern exposes its own sliders. The <strong>Parameters</strong> panel on the right updates to match the selected effect — bass/mid/high responsiveness, counts, speeds, and more. Drag a slider and the change applies to the output <em>live</em>, so you can shape a look while it's on the projector.</p>
+
+        <div class="callout tip">
+          <p><strong>Tip</strong> Most patterns react to three frequency bands — bass, mid, and high. The <em>responsiveness</em> sliders control how strongly each band drives the visual.</p>
+        </div>
+
+        <div class="pager">
+          <a href="/docs/interface.html"><span class="label">Previous</span><span class="title">The Interface</span></a>
+          <a class="next" href="/docs/slots.html"><span class="label">Next</span><span class="title">Slots &amp; Shortcuts</span></a>
+        </div>
+      </article>
+    </main>
+  </div>
+
+  <script src="/docs/docs.js"></script>
+</body>
+
+</html>

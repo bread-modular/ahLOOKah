@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ahLOOKah — Docs: The Interface</title>
+  <meta name="description" content="A tour of the ahLOOKah control panel and output window: live preview, pattern pad, pattern library, and parameter controls." />
+  <meta name="theme-color" content="#0b0b0f" />
+  <link rel="canonical" href="https://ahlookah.com/docs/interface.html" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="ahLOOKah — Docs: The Interface" />
+  <meta property="og:image" content="https://ahlookah.com/ahlookah-in-action.png" />
+  <link rel="stylesheet" href="/docs/docs.css" />
+</head>
+
+<body>
+  <header class="topbar">
+    <button class="menu-toggle" id="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="sidebar">
+      <span></span><span></span><span></span>
+    </button>
+    <a class="topbar__brand" href="/docs/index.html">ahLOOKah Docs</a>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar__header">
+        <a class="sidebar__brand" href="/docs/index.html">ah<span class="glow">LOOK</span>ah</a>
+        <span class="sidebar__tag">Docs</span>
+      </div>
+      <nav class="sidebar__nav" aria-label="Documentation">
+        <ul>
+          <li><a href="/docs/index.html">Introduction</a></li>
+          <li><a href="/docs/getting-started.html">Getting Started</a></li>
+          <li><a href="/docs/interface.html" class="is-active" aria-current="page">The Interface</a></li>
+          <li><a href="/docs/patterns.html">Patterns &amp; Parameters</a></li>
+          <li><a href="/docs/slots.html">Slots &amp; Shortcuts</a></li>
+          <li><a href="/docs/blending.html">Blending Two Patterns</a></li>
+          <li><a href="/docs/post-processing.html">Post-processing</a></li>
+          <li><a href="/docs/eq-noise.html">EQ &amp; Noise</a></li>
+          <li><a href="/docs/cue-mode.html">Cue Mode</a></li>
+          <li><a href="/docs/devices.html">Devices &amp; Setup</a></li>
+        </ul>
+      </nav>
+      <div class="sidebar__footer">
+        <a href="/">← Back to app</a>
+      </div>
+    </aside>
+
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+    <main class="content">
+      <article class="article">
+        <h1>The Interface</h1>
+        <p class="lede">ahLOOKah is two windows working together: a <strong>control panel</strong> for driving the show, and a fullscreen <strong>screen window</strong> that goes to your projector.</p>
+
+        <h2>The control panel</h2>
+        <p>The control panel is a three-pane layout. Everything you need to run a set lives here.</p>
+
+        <figure class="figure">
+          <img src="/docs/shots/interface.jpg" alt="The ahLOOKah control panel showing the live preview, pattern pad, pattern library, and parameter sliders" />
+          <figcaption>The control panel: preview on the left, pattern library in the middle, controls on the right.</figcaption>
+        </figure>
+
+        <ul>
+          <li><strong>Live preview</strong> (left) — a realtime thumbnail of exactly what's on screen right now, labeled <em>LIVE PREVIEW</em>.</li>
+          <li><strong>Pattern pad</strong> (left, below preview) — your ten favorite patterns keyed to <kbd>1</kbd>–<kbd>9</kbd> and <kbd>0</kbd>.</li>
+          <li><strong>Pattern library</strong> (middle) — the full, grouped catalog of effects. Click any pattern to play it live.</li>
+          <li><strong>Parameters &amp; post-processing</strong> (right) — sliders for the selected effect, plus global brightness/contrast/saturation trim and the band-split EQ.</li>
+        </ul>
+
+        <h2>The screen window</h2>
+        <p>The <strong>screen window</strong> is the fullscreen output. It's meant to be dragged onto your projector or second monitor. It renders only the visuals — no controls — and stays in sync with the control panel in realtime.</p>
+
+        <div class="callout">
+          <p><strong>Two windows, one show</strong> The control panel and screen window sync over <code>BroadcastChannel</code> — no server, no lag. Drag the screen window wherever the audience is looking and keep the control panel on your laptop.</p>
+        </div>
+
+        <div class="pager">
+          <a href="/docs/getting-started.html"><span class="label">Previous</span><span class="title">Getting Started</span></a>
+          <a class="next" href="/docs/patterns.html"><span class="label">Next</span><span class="title">Patterns &amp; Parameters</span></a>
+        </div>
+      </article>
+    </main>
+  </div>
+
+  <script src="/docs/docs.js"></script>
+</body>
+
+</html>

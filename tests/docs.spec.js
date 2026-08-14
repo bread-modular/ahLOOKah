@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-const DOCS_TITLE = /ahLOOKah — Docs: Getting Started/;
+const DOCS_TITLE = /ahLOOKah — Docs: Introduction/;
 
 test.describe('docs static page', () => {
   test('/docs renders the docs page, not the app', async ({ page }) => {
@@ -32,5 +32,20 @@ test.describe('docs static page', () => {
     await page.goto('/docs');
     await expect(page.locator('meta[property="og:image"]')).toHaveAttribute('content', /ahlookah-in-action\.png/);
     await expect(page.locator('a[href="/"]').first()).toBeVisible();
+  });
+
+  test('docs site has a sidebar that navigates to a sub-page', async ({ page }) => {
+    await page.goto('/docs');
+
+    // Sidebar navigation is present and marks the current page.
+    const nav = page.locator('.sidebar__nav');
+    await expect(nav.locator('a[href="/docs/getting-started.html"]')).toBeVisible();
+    await expect(nav.locator('a.is-active')).toHaveAttribute('href', '/docs/index.html');
+
+    // Follow a sidebar link to a sub-page (static HTML, its own title + active state).
+    await nav.locator('a[href="/docs/cue-mode.html"]').click();
+    await expect(page).toHaveTitle(/ahLOOKah — Docs: Cue Mode/);
+    await expect(page.locator('#root')).toHaveCount(0);
+    await expect(page.locator('.sidebar__nav a.is-active')).toHaveAttribute('href', '/docs/cue-mode.html');
   });
 });
