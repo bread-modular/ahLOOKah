@@ -264,6 +264,14 @@
   color: #fff;
 }
 
+/* Anchor variant (Docs link) — reset inline-anchor defaults so it renders
+   identically to the button items. */
+#config-panel .app-menu-item[href] {
+  display: block;
+  box-sizing: border-box;
+  text-decoration: none;
+}
+
 /* ---------------------------------------------------------------------------
    Key map modal — read-only reference of mouse + keyboard shortcuts.
 --------------------------------------------------------------------------- */

@@ -40,7 +40,7 @@ test.describe('docs static page', () => {
     // Sidebar navigation is present and marks the current page.
     const nav = page.locator('.sidebar__nav');
     await expect(nav.locator('a[href="/docs/getting-started.html"]')).toBeVisible();
-    await expect(nav.locator('a.is-active')).toHaveAttribute('href', '/docs/index.html');
+    await expect(nav.locator('a.is-active')).toHaveAttribute('href', '/docs/');
 
     // Follow a sidebar link to a sub-page (static HTML, its own title + active state).
     await nav.locator('a[href="/docs/cue-mode.html"]').click();

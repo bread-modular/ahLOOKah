@@ -42,7 +42,7 @@ export function AppMenu() {
         {ICON_MENU}
       </button>
       <div id="app-menu-list" ref={listRef} className="app-menu-list" role="menu" hidden={!open}>
-        <button id="app-menu-docs" className="app-menu-item" type="button" role="menuitem" onClick={() => { close(); window.open('/docs', '_blank'); }}>Docs</button>
+        <a id="app-menu-docs" className="app-menu-item" role="menuitem" href="/docs" target="_blank" rel="noopener" onClick={close}>Docs</a>
         <button id="app-menu-keymap" className="app-menu-item" type="button" role="menuitem" onClick={() => { close(); store.setState({ keyMapOpen: true }); }}>Key Map</button>
         <button id="app-menu-setup" className="app-menu-item" type="button" role="menuitem" onClick={() => { close(); store.setState({ setupModalOpen: true }); }}>Setup</button>
       </div>
