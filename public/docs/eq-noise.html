@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ahLOOKah — Docs: EQ &amp; Noise</title>
+  <meta name="description" content="Shape how audio drives your ahLOOKah visuals with the band-split EQ, and remove background noise with the noise-floor capture." />
+  <meta name="theme-color" content="#0b0b0f" />
+  <link rel="canonical" href="https://ahlookah.com/docs/eq-noise.html" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="ahLOOKah — Docs: EQ &amp; Noise" />
+  <meta property="og:image" content="https://ahlookah.com/ahlookah-in-action.png" />
+  <link rel="stylesheet" href="/docs/docs.css" />
+</head>
+
+<body>
+  <header class="topbar">
+    <button class="menu-toggle" id="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="sidebar">
+      <span></span><span></span><span></span>
+    </button>
+    <a class="topbar__brand" href="/docs/index.html">ahLOOKah Docs</a>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar__header">
+        <a class="sidebar__brand" href="/docs/index.html">ah<span class="glow">LOOK</span>ah</a>
+        <span class="sidebar__tag">Docs</span>
+      </div>
+      <nav class="sidebar__nav" aria-label="Documentation">
+        <ul>
+          <li><a href="/docs/index.html">Introduction</a></li>
+          <li><a href="/docs/getting-started.html">Getting Started</a></li>
+          <li><a href="/docs/interface.html">The Interface</a></li>
+          <li><a href="/docs/patterns.html">Patterns &amp; Parameters</a></li>
+          <li><a href="/docs/slots.html">Slots &amp; Shortcuts</a></li>
+          <li><a href="/docs/blending.html">Blending Two Patterns</a></li>
+          <li><a href="/docs/post-processing.html">Post-processing</a></li>
+          <li><a href="/docs/eq-noise.html" class="is-active" aria-current="page">EQ &amp; Noise</a></li>
+          <li><a href="/docs/cue-mode.html">Cue Mode</a></li>
+          <li><a href="/docs/devices.html">Devices &amp; Setup</a></li>
+        </ul>
+      </nav>
+      <div class="sidebar__footer">
+        <a href="/">← Back to app</a>
+      </div>
+    </aside>
+
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+    <main class="content">
+      <article class="article">
+        <h1>EQ &amp; Noise</h1>
+        <p class="lede">The band-split EQ controls how audio drives the visuals, and the noise-floor capture keeps a noisy room from muddying the show.</p>
+
+        <h2>Band-split EQ</h2>
+        <p>Most patterns are audio-reactive — they respond to the <strong>bass</strong>, <strong>mid</strong>, and <strong>high</strong> frequency bands. The EQ lets you define exactly where those bands split.</p>
+
+        <figure class="figure">
+          <img src="/docs/shots/eq.jpg" alt="The ahLOOKah band-split EQ with draggable bass, mid, and high crossover handles" />
+          <figcaption>Drag the crossover handles to set where bass, mid, and high begin and end.</figcaption>
+        </figure>
+
+        <p>Drag the handles between the bands to reshape how the audio maps onto the visual — for example, widen the bass region so low frequencies drive more of the effect.</p>
+
+        <h2>Noise-floor capture</h2>
+        <p>If your microphone picks up room noise — fans, crowd chatter, a noisy PA — capture a <strong>noise floor</strong> and ahLOOKah subtracts it from the signal before driving the visuals.</p>
+
+        <figure class="figure">
+          <img src="/docs/shots/noise.jpg" alt="The ahLOOKah noise-floor control showing an active capture with a re-capture and clear button" />
+          <figcaption>Capture a few seconds of room noise; the dashed line shows what gets removed.</figcaption>
+        </figure>
+
+        <ol>
+          <li>Click <strong>Capture Noise</strong> and stay quiet for a few seconds.</li>
+          <li>ahLOOKah averages the captured noise and normalizes the flow.</li>
+          <li>Use <strong>Clear</strong> any time to remove the profile and go back to the raw signal.</li>
+        </ol>
+
+        <div class="callout warn">
+          <p><strong>When to use it</strong> Only capture a noise floor if the environment is genuinely noisy. In a quiet room it's unnecessary — and clearing it is instant.</p>
+        </div>
+
+        <div class="pager">
+          <a href="/docs/post-processing.html"><span class="label">Previous</span><span class="title">Post-processing</span></a>
+          <a class="next" href="/docs/cue-mode.html"><span class="label">Next</span><span class="title">Cue Mode</span></a>
+        </div>
+      </article>
+    </main>
+  </div>
+
+  <script src="/docs/docs.js"></script>
+</body>
+
+</html>

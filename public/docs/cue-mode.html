@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ahLOOKah — Docs: Cue Mode</title>
+  <meta name="description" content="Stage the next ahLOOKah pattern behind the scenes with Cue mode, then take it live instantly with no blank gaps." />
+  <meta name="theme-color" content="#0b0b0f" />
+  <link rel="canonical" href="https://ahlookah.com/docs/cue-mode.html" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="ahLOOKah — Docs: Cue Mode" />
+  <meta property="og:image" content="https://ahlookah.com/ahlookah-in-action.png" />
+  <link rel="stylesheet" href="/docs/docs.css" />
+</head>
+
+<body>
+  <header class="topbar">
+    <button class="menu-toggle" id="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="sidebar">
+      <span></span><span></span><span></span>
+    </button>
+    <a class="topbar__brand" href="/docs/index.html">ahLOOKah Docs</a>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar__header">
+        <a class="sidebar__brand" href="/docs/index.html">ah<span class="glow">LOOK</span>ah</a>
+        <span class="sidebar__tag">Docs</span>
+      </div>
+      <nav class="sidebar__nav" aria-label="Documentation">
+        <ul>
+          <li><a href="/docs/index.html">Introduction</a></li>
+          <li><a href="/docs/getting-started.html">Getting Started</a></li>
+          <li><a href="/docs/interface.html">The Interface</a></li>
+          <li><a href="/docs/patterns.html">Patterns &amp; Parameters</a></li>
+          <li><a href="/docs/slots.html">Slots &amp; Shortcuts</a></li>
+          <li><a href="/docs/blending.html">Blending Two Patterns</a></li>
+          <li><a href="/docs/post-processing.html">Post-processing</a></li>
+          <li><a href="/docs/eq-noise.html">EQ &amp; Noise</a></li>
+          <li><a href="/docs/cue-mode.html" class="is-active" aria-current="page">Cue Mode</a></li>
+          <li><a href="/docs/devices.html">Devices &amp; Setup</a></li>
+        </ul>
+      </nav>
+      <div class="sidebar__footer">
+        <a href="/">← Back to app</a>
+      </div>
+    </aside>
+
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+    <main class="content">
+      <article class="article">
+        <h1>Cue Mode</h1>
+        <p class="lede">Cue mode lets you prepare the next look without touching what's on screen — then cut to it the instant you're ready. No blank gaps, no surprises.</p>
+
+        <h2>Why cue?</h2>
+        <p>Normally, clicking a pattern changes the projector immediately. But say you have one pattern playing and you want to get the next one ready <em>now</em> without switching yet. Cue mode stages that pattern in a hidden renderer, so it's already warmed up and waiting.</p>
+
+        <h2>Entering cue mode</h2>
+        <p><strong>Shift-click</strong> a pattern in the pad or library (or press <kbd>Shift</kbd> + a number key). The app drops into cue mode — the preview switches to an amber <em>CUE PREVIEW</em> with <strong>GO LIVE</strong> and <strong>CANCEL</strong> controls.</p>
+
+        <figure class="figure">
+          <img src="/docs/shots/cue.jpg" alt="The ahLOOKah cue preview showing an amber CUE badge with GO LIVE and CANCEL buttons" />
+          <figcaption>Cue preview: edit the candidate safely while live output stays put.</figcaption>
+        </figure>
+
+        <h2>Editing the cue</h2>
+        <p>While cueing, any parameter changes apply only to the <strong>cued preview</strong> — your live projector output is untouched. The preview title changes to <em>CUE PREVIEW</em>, and the parameters panel switches to <em>CUE Parameters</em>.</p>
+
+        <h2>Taking it live</h2>
+        <p>When you're happy, press <kbd>Enter</kbd> (or click <strong>GO LIVE</strong>). The cued pattern cuts to the projector on the next frame. Change your mind? Press <kbd>Esc</kbd> (or <strong>CANCEL</strong>) and live output carries on as if nothing happened.</p>
+
+        <h2>Cueing a blend</h2>
+        <p>You can cue two patterns at once, too. Hold <kbd>Shift</kbd> and press two number keys — for example <kbd>Shift</kbd>+<kbd>9</kbd> then <kbd>5</kbd> — to stage a blend, then set the blend mode and level before taking it live.</p>
+
+        <figure class="figure">
+          <img src="/docs/shots/cue-blend.jpg" alt="The ahLOOKah cue preview staging a two-pattern blend with blend mode controls" />
+          <figcaption>A cued blend — two effects staged together, ready to take live.</figcaption>
+        </figure>
+
+        <div class="pager">
+          <a href="/docs/eq-noise.html"><span class="label">Previous</span><span class="title">EQ &amp; Noise</span></a>
+          <a class="next" href="/docs/devices.html"><span class="label">Next</span><span class="title">Devices &amp; Setup</span></a>
+        </div>
+      </article>
+    </main>
+  </div>
+
+  <script src="/docs/docs.js"></script>
+</body>
+
+</html>
