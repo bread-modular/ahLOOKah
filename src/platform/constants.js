@@ -15,6 +15,7 @@ export const STORAGE = Object.freeze({
   deviceSetupDone: 'viz2_device_setup_done',
   bandEqOpen: 'viz2_band_eq_open',
   postFxOpen: 'viz2_post_fx_open',
+  libraryCollapsed: 'viz2_library_collapsed',
 });
 
 export const SINGLETON_KEY = Object.freeze({
