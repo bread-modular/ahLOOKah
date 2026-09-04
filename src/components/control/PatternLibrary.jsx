@@ -51,6 +51,7 @@ export function PatternLibrary() {
                   <button
                     type="button"
                     className="media-add-btn"
+                    aria-label="Add media"
                     title="Load images or videos from this computer as patterns (kept as file references; content is read from disk when played)"
                     onClick={() => {
                       // File System Access picker (Desktop Chrome): persists a
@@ -58,7 +59,7 @@ export function PatternLibrary() {
                       if (canUseFileSystemPicker()) runtime.commands.addMediaFiles();
                       else mediaInputRef.current?.click();
                     }}
-                  >＋ Add media</button>
+                  >ADD</button>
                   {!canUseFileSystemPicker() && (
                     <input
                       ref={mediaInputRef}
