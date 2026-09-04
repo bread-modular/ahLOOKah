@@ -4,6 +4,7 @@ import { useRuntime } from '../../app/RuntimeContext.jsx';
 import { useVizStore } from '../../state/useVizStore.js';
 import { formatParamValue, formatPostFxValue } from './panelHelpers.js';
 import { ParamSlider } from './ParamSlider.jsx';
+import { ParamSelect } from './ParamSelect.jsx';
 
 function blendName(index, id, ordered) {
   return ordered[index]?.name || SKETCHES.find((s) => s.id === id)?.name || 'Effect';
@@ -72,7 +73,15 @@ function EffectParams({ currentPattern, currentPatternId, getValue, changeParam,
     return <p className="param-empty">No parameters for this effect.</p>;
   }
 
-  return defs.map((def) => (
+  return defs.map((def) => (def.options ? (
+    <ParamSelect
+      key={`${scope}:${currentPatternId}:${def.key}`}
+      def={def}
+      value={getValue(currentPatternId, def.key)}
+      onChange={(v) => changeParam(currentPatternId, def.key, v)}
+      disabled={locked}
+    />
+  ) : (
     <ParamSlider
       key={`${scope}:${currentPatternId}:${def.key}`}
       scope={scope}
@@ -82,7 +91,7 @@ function EffectParams({ currentPattern, currentPatternId, getValue, changeParam,
       onChange={(v) => changeParam(currentPatternId, def.key, v)}
       disabled={locked}
     />
-  ));
+  )));
 }
 
 function BlendControls({ getValue, changeParam, scope, nameA, nameB, locked }) {

@@ -39,6 +39,20 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Dropdown params (def.options) share the slider row layout; the control
+   chrome (chevron etc.) comes from the shared #config-panel select rules. */
+#params-list select.param-select {
+  width: 100%;
+  height: 26px;
+  padding: 0 26px 0 8px;
+  border: 1px solid var(--border-gray);
+  border-radius: 5px;
+  background-color: #111;
+  color: var(--text-main);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
 #params-list input[type="range"],
 #post-fx-list input[type="range"] {
   -webkit-appearance: none;

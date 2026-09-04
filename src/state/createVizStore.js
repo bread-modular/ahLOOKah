@@ -19,6 +19,10 @@ export function createVizStore(role) {
     editingScope: 'live', // 'live' | 'cue'
     editingSelection: { ids: [], merge: false },
     padOrder: [],
+    // Bumped whenever the user-loaded media pattern list changes (add/remove in
+    // this window or synced from the other window) so library UI re-reads
+    // SKETCHES without storing sketch objects in the store.
+    mediaRevision: 0,
     // Bumped whenever the accepted param bank changes so param UI re-reads the
     // mutable runtime objects without storing them in the store.
     paramRevision: 0,

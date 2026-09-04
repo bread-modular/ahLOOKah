@@ -1264,9 +1264,14 @@ export const GROUP_ORDER = [
   'Video FX',
   'Glitch / Effects',
   'Basics',
+  'Media',
 ];
 
 // Group names present in SKETCHES, in GROUP_ORDER (unknown groups appended).
+// 'Media' is always present: it hosts the add-media control even before the
+// user has loaded any media patterns.
+const ALWAYS_PRESENT_GROUPS = new Set(['Media']);
+
 export function getGroups() {
   const present = [];
   const seen = new Set();
@@ -1276,7 +1281,7 @@ export function getGroups() {
       present.push(s.group);
     }
   }
-  const ordered = GROUP_ORDER.filter((g) => seen.has(g));
+  const ordered = GROUP_ORDER.filter((g) => seen.has(g) || ALWAYS_PRESENT_GROUPS.has(g));
   for (const g of present) if (!ordered.includes(g)) ordered.push(g);
   return ordered;
 }
@@ -1378,3 +1383,12 @@ export function defaultParamValues(id) {
   for (const def of defs) out[def.key] = def.default;
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// User-loaded media patterns (local images / videos)
+// ---------------------------------------------------------------------------
+// Registered synchronously at module load so BOTH windows resolve media ids
+// before any param/selection validation runs. Metadata comes from localStorage;
+// the file bytes are fetched lazily from IndexedDB inside the sketch factory.
+import { registerMediaSketches } from './media/media-registry.js';
+registerMediaSketches(SKETCHES);

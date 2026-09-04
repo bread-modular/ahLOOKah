@@ -57,14 +57,18 @@ test.describe('control panel window', () => {
     await expect(control.locator('#pattern-pad [data-index="0"]')).toHaveAttribute('data-id', 'circles');
     await expect(control.locator('#pattern-pad [data-index="9"]')).toHaveAttribute('data-id', 'chroma-mandala');
 
-    // Library: all 58 patterns grouped under 7 headers (52 registered + 6
-    // camera-input Video FX effects surfaced in the library)
+    // Library: all 58 patterns grouped under 8 headers (52 registered + 6
+    // camera-input Video FX effects surfaced in the library; the 8th header is
+    // the always-present Media group, which starts empty).
     const items = control.locator('#pattern-library .pattern-btn');
     await expect(items).toHaveCount(58);
     const headers = control.locator('.library-group-header');
-    await expect(headers).toHaveCount(7);
+    await expect(headers).toHaveCount(8);
     await expect(headers.first()).toHaveText('Rhythmic');
-    await expect(headers.last()).toHaveText('Basics');
+    await expect(headers.nth(6)).toHaveText('Basics');
+    await expect(headers.last().locator('span')).toHaveText('Media');
+    // The Media group always renders its add-media control, even when empty.
+    await expect(control.locator('.media-add-btn')).toHaveCount(1);
 
     // The Video FX group lists all 6 camera effects, each marked with a
     // camera glyph; Glitch / Effects holds 5

@@ -3,6 +3,15 @@
 // reads accepted snapshots from the per-window store; components invoke the
 // `commands` surface below and never touch BroadcastChannel or p5 directly.
 import p5 from 'p5';
+
+// Disable p5's Friendly Error System app-wide. Two reasons:
+//  1. Its sketch checker fetches the LAST <script> in the document to parse the
+//     "user code" — in production that is the Vercel analytics tag (which 404s
+//     or is a remote bundle), producing a spurious "Error parsing code:
+//     SyntaxError: Unexpected token (1:0)" on every pattern activation.
+//  2. FES adds per-call argument validation overhead that a 60fps VJ output
+//     does not need. All sketch code here is bundled, not user-authored.
+p5.disableFriendlyErrors = true;
 import {
   getOrderedSketches,
   SKETCHES,
@@ -15,6 +24,20 @@ import {
   defaultParamValues,
   saveSlotOrder,
 } from '../sketch-registry.js';
+import {
+  registerMediaSketches,
+  addMediaPattern,
+  removeMediaPattern,
+  mediaDisplayName,
+  MEDIA_GROUP,
+} from '../media/media-registry.js';
+import {
+  putMediaRecord,
+  deleteMediaRecord,
+  mediaKindForFile,
+  pickMediaFiles,
+  canUseFileSystemPicker,
+} from '../media/media-store.js';
 import {
   ProgramRuntime,
   copyProgramSelection,
@@ -2209,6 +2232,17 @@ export function createAppRuntime({
         break;
       }
 
+      case 'media-patterns': {
+        // Another window added/removed a user media pattern. Re-sync the
+        // dynamic SKETCHES entries from localStorage metadata.
+        registerMediaSketches(SKETCHES);
+        if (role === 'control') {
+          refreshMediaPadOrder();
+          store.setState((s) => ({ mediaRevision: s.mediaRevision + 1 }));
+        }
+        break;
+      }
+
       case 'screen-closed':
         screenOnline = false;
         if (role === 'control') cueEntryPending = null;
@@ -2399,6 +2433,24 @@ export function createAppRuntime({
   }
 
   // ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // User media patterns (local images / videos)
+  // ---------------------------------------------------------------------------
+  function refreshMediaPadOrder() {
+    // Extend/trim padOrder for media add/remove while preserving the user's
+    // existing order for everything else.
+    const order = getOrderedSketches().map((s) => s.id);
+    const current = store.getState().padOrder || [];
+    const preserved = current.filter((id) => order.includes(id));
+    const added = order.filter((id) => !preserved.includes(id));
+    store.setState({ padOrder: [...preserved, ...added] });
+  }
+
+  function bumpMediaRevision() {
+    refreshMediaPadOrder();
+    store.setState((s) => ({ mediaRevision: s.mediaRevision + 1 }));
+  }
+
   // Command API + preview host registration
   // ---------------------------------------------------------------------------
   const commands = {
@@ -2424,6 +2476,81 @@ export function createAppRuntime({
       bus.broadcast({ type: 'noise-floor', status: 'cleared' });
     },
     resumeAudio() { resumeAudioFromControlGesture(); },
+    async addMediaFiles(fileList) {
+      // Desktop Chrome (primary target): File System Access picker. Only the
+      // path-equivalent FileSystemFileHandle is persisted in IndexedDB; the
+      // bytes stay on disk and are loaded into RAM when the pattern is
+      // activated. No file picker available: fall back to <input type="file">
+      // selections (fileList), which only live for this session.
+      let sources;
+      let viaPicker = false;
+      if (!fileList && canUseFileSystemPicker()) {
+        try {
+          sources = await pickMediaFiles();
+          viaPicker = true;
+        } catch (error) {
+          if (error?.name === 'AbortError') return [];
+          console.error('[media] file picker failed', error);
+          return [];
+        }
+      } else {
+        sources = Array.from(fileList || []).map((file) => ({
+          file,
+          name: file.name,
+          kind: mediaKindForFile(file),
+          mime: file.type || '',
+          size: file.size,
+        }));
+      }
+      if (!sources.length) return [];
+      const added = [];
+      for (const source of sources) {
+        try {
+          if (!source.kind) continue;
+          const id = `m${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+          const meta = { id, name: mediaDisplayName(source.name), kind: source.kind };
+          await putMediaRecord(viaPicker ? {
+            id,
+            name: meta.name,
+            kind: meta.kind,
+            mime: source.mime || '',
+            size: source.size ?? null,
+            addedAt: Date.now(),
+            handle: source.handle,
+          } : {
+            id,
+            name: meta.name,
+            kind: meta.kind,
+            mime: source.mime || '',
+            size: source.size,
+            addedAt: Date.now(),
+            file: source.file,
+          });
+          addMediaPattern(SKETCHES, meta);
+          added.push(meta);
+        } catch (error) {
+          console.error('[media] failed to add media pattern', error);
+        }
+      }
+      if (!added.length) return added;
+      bumpMediaRevision();
+      bus.broadcast({ type: 'media-patterns' });
+      return added;
+    },
+    async removeMedia(sketchId) {
+      if (typeof sketchId !== 'string' || !sketchId.startsWith('media-')) return false;
+      const mediaId = sketchId.slice('media-'.length);
+      // Step back to the first pattern before deleting a live media sketch so
+      // the program runtime never holds a dangling selection.
+      if (activeSketchId === sketchId) requestSelection(selectionFromIndices(0));
+      try { await deleteMediaRecord(mediaId); } catch (error) {
+        console.error('[media] failed to delete media record', error);
+      }
+      const removed = removeMediaPattern(SKETCHES, mediaId);
+      bumpMediaRevision();
+      bus.broadcast({ type: 'media-patterns' });
+      return removed;
+    },
   };
 
   function registerPreviewHost(stage) { initPreviewStage(stage); }

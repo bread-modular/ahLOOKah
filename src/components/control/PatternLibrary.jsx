@@ -1,4 +1,7 @@
+import { useRef } from 'react';
 import { getGroups, getSketchesByGroup, getOrderedSketches } from '../../sketch-registry.js';
+import { MEDIA_GROUP } from '../../media/media-registry.js';
+import { canUseFileSystemPicker } from '../../media/media-store.js';
 import { useRuntime } from '../../app/RuntimeContext.jsx';
 import { useVizStore } from '../../state/useVizStore.js';
 import { slotLabel, selectionClassesFor } from './panelHelpers.js';
@@ -9,6 +12,8 @@ export function PatternLibrary() {
   const padOrder = useVizStore(store, (s) => s.padOrder);
   const liveSelection = useVizStore(store, (s) => s.liveSelection);
   const cue = useVizStore(store, (s) => s.cue);
+  const mediaRevision = useVizStore(store, (s) => s.mediaRevision);
+  const mediaInputRef = useRef(null);
 
   const ordered = padOrder.length ? padOrder : getOrderedSketches().map((s) => s.id);
   const slotOf = new Map(ordered.map((id, i) => [id, i]));
@@ -30,13 +35,50 @@ export function PatternLibrary() {
   };
 
   return (
-    <div id="pattern-library" className="pattern-library">
+    <div id="pattern-library" className="pattern-library" data-media-revision={mediaRevision}>
       {getGroups().map((group) => {
         const sketches = getSketchesByGroup(group);
-        if (sketches.length === 0) return null;
+        const isMediaGroup = group === MEDIA_GROUP;
+        // The Media group always renders so new files can be added even before
+        // any media pattern exists.
+        if (sketches.length === 0 && !isMediaGroup) return null;
         return (
           <div className="library-group" key={group}>
-            <div className="library-group-header">{group}</div>
+            <div className="library-group-header">
+              <span>{group}</span>
+              {isMediaGroup && (
+                <>
+                  <button
+                    type="button"
+                    className="media-add-btn"
+                    title="Load images or videos from this computer as patterns (kept as file references; content is read from disk when played)"
+                    onClick={() => {
+                      // File System Access picker (Desktop Chrome): persists a
+                      // path-equivalent handle only. Fallback: hidden input.
+                      if (canUseFileSystemPicker()) runtime.commands.addMediaFiles();
+                      else mediaInputRef.current?.click();
+                    }}
+                  >＋ Add media</button>
+                  {!canUseFileSystemPicker() && (
+                    <input
+                      ref={mediaInputRef}
+                      type="file"
+                      accept="image/*,video/*"
+                      multiple
+                      className="media-file-input"
+                      onChange={(event) => {
+                        const files = event.target.files;
+                        if (files?.length) runtime.commands.addMediaFiles(files);
+                        event.target.value = '';
+                      }}
+                    />
+                  )}
+                </>
+              )}
+            </div>
+            {isMediaGroup && sketches.length === 0 && (
+              <div className="media-empty">No media loaded — add an image or video file.</div>
+            )}
             <div className="library-group-grid">
               {sketches.map((sketch) => {
                 const slotIdx = slotOf.get(sketch.id);
@@ -68,8 +110,22 @@ export function PatternLibrary() {
                   >
                     <span className="pattern-name">{sketch.name}</span>
                     {sketch.camera && <span className="camera-badge" title="Uses camera input">📷</span>}
+                    {sketch.media && sketch.kind === 'image' && <span className="media-badge" title="Loaded image">🖼️</span>}
+                    {sketch.media && sketch.kind === 'video' && <span className="media-badge" title="Loaded video">🎬</span>}
                     {slotIdx !== undefined && <span className="slot-badge" title={`Assigned to pad slot ${slotLabel(slotIdx)}`}>{slotLabel(slotIdx)}</span>}
                     <span className="drag-handle" title="Drag to pad slot">⠿</span>
+                    {sketch.media && (
+                      <span
+                        className="media-remove-btn"
+                        role="button"
+                        tabIndex={-1}
+                        title="Remove this media pattern"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          runtime.commands.removeMedia(sketch.id);
+                        }}
+                      >✕</span>
+                    )}
                   </button>
                 );
               })}
