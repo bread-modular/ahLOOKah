@@ -50,7 +50,18 @@ test.describe('media patterns', () => {
     await control.goto('/?role=control');
 
     // --- Add a local image through the Media group's FS Access picker --------
-    await control.locator('.media-add-btn').click();
+    const addMediaBtn = control.locator('.media-add-btn');
+    const mediaHeader = addMediaBtn.locator('..');
+    await expect(addMediaBtn).toHaveText('ADD');
+    const [addButtonBox, headerBox] = await Promise.all([
+      addMediaBtn.boundingBox(),
+      mediaHeader.boundingBox(),
+    ]);
+    expect(addButtonBox).not.toBeNull();
+    expect(headerBox).not.toBeNull();
+    expect(addButtonBox.width).toBeLessThan(headerBox.width);
+    expect(addButtonBox.x + addButtonBox.width).toBeGreaterThanOrEqual(headerBox.x + headerBox.width - 2);
+    await addMediaBtn.click();
 
     const mediaBtn = control.locator('.pattern-btn[data-id^="media-"]').first();
     await expect(mediaBtn).toBeVisible();
