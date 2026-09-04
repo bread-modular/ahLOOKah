@@ -44,6 +44,9 @@ export function ParameterPanel() {
             changeParam={changeParam}
             scope={editingScope}
             locked={locked}
+            ids={ids}
+            indices={indices}
+            ordered={ordered}
             nameA={blendName(indices[0], ids[0], ordered)}
             nameB={blendName(indices[1], ids[1], ordered)}
           />
@@ -76,6 +79,8 @@ function EffectParams({ currentPattern, currentPatternId, getValue, changeParam,
   return defs.map((def) => (def.options ? (
     <ParamSelect
       key={`${scope}:${currentPatternId}:${def.key}`}
+      scope={scope}
+      id={currentPatternId}
       def={def}
       value={getValue(currentPatternId, def.key)}
       onChange={(v) => changeParam(currentPatternId, def.key, v)}
@@ -94,7 +99,7 @@ function EffectParams({ currentPattern, currentPatternId, getValue, changeParam,
   )));
 }
 
-function BlendControls({ getValue, changeParam, scope, nameA, nameB, locked }) {
+function BlendControls({ getValue, changeParam, scope, ids, indices, ordered, nameA, nameB, locked }) {
   const additive = getValue(BLEND_ID, 'mode') === 1;
   const activeDef = BLEND_PARAMS.find((d) => d.key === (additive ? 'add' : 'mix'));
 
@@ -119,6 +124,55 @@ function BlendControls({ getValue, changeParam, scope, nameA, nameB, locked }) {
         onChange={(v) => changeParam(BLEND_ID, activeDef.key, v)}
         disabled={locked}
       />
+      {(ids || []).slice(0, 2).map((patternId, slot) => (
+        <MergePatternParams
+          key={`${scope}:merge:${patternId}`}
+          patternId={patternId}
+          slotLabel={slot === 0 ? 'A' : 'B'}
+          name={slot === 0 ? nameA : nameB}
+          getValue={getValue}
+          changeParam={changeParam}
+          scope={scope}
+          locked={locked}
+        />
+      ))}
     </>
+  );
+}
+
+function MergePatternParams({ patternId, slotLabel, name, getValue, changeParam, scope, locked }) {
+  const sketch = SKETCHES.find((s) => s.id === patternId);
+  const defs = (sketch && sketch.params) || [];
+
+  return (
+    <section className="merge-pattern-params" data-pattern-id={patternId} aria-label={`${name} parameters`}>
+      <div className="merge-pattern-header">
+        <span className="merge-pattern-slot">{slotLabel}</span>
+        <span className="merge-pattern-name">{name}</span>
+      </div>
+      {defs.length === 0 ? (
+        <p className="param-empty">No parameters for this effect.</p>
+      ) : defs.map((def) => (def.options ? (
+        <ParamSelect
+          key={`${scope}:${patternId}:${def.key}`}
+          scope={scope}
+          id={patternId}
+          def={def}
+          value={getValue(patternId, def.key)}
+          onChange={(v) => changeParam(patternId, def.key, v)}
+          disabled={locked}
+        />
+      ) : (
+        <ParamSlider
+          key={`${scope}:${patternId}:${def.key}`}
+          scope={scope}
+          id={patternId}
+          def={def}
+          getValue={() => getValue(patternId, def.key)}
+          onChange={(v) => changeParam(patternId, def.key, v)}
+          disabled={locked}
+        />
+      )))}
+    </section>
   );
 }

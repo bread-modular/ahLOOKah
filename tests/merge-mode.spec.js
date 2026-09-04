@@ -48,7 +48,7 @@ test.describe('dual-effect merge mode', () => {
     expect(await page.evaluate(() => JSON.stringify(window.__viz.merge))).toBe('[4,6]');
   });
 
-  test('merge mode shows blend params instead of individual params', async ({ context }) => {
+  test('merge mode shows blend params plus both patterns params', async ({ context }) => {
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
 
@@ -67,10 +67,29 @@ test.describe('dual-effect merge mode', () => {
       .evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(bg).toBe('rgb(77, 163, 255)');
     await expect(control.locator('#params-list input[data-key="mix"]')).toHaveValue('0.5');
-    await expect(control.locator('#params-list input[type="range"]')).toHaveCount(1);
 
-    // Individual effect sliders are NOT shown while merging
-    await expect(control.locator('#params-list input[data-key="bass"]')).toHaveCount(0);
+    // Both patterns render their own editable param groups below the blend
+    await expect(control.locator('#params-list .merge-pattern-params')).toHaveCount(2);
+    await expect(control.locator('#params-list .merge-pattern-params').first()).toContainText('Circles');
+    await expect(control.locator('#params-list .merge-pattern-params').nth(1)).toContainText('Bars');
+    // Individual effect sliders ARE shown while merging (scoped per pattern):
+    // Circles (pattern A) has bass, Bars (pattern B) has gain
+    const circlesGroup = control.locator('.merge-pattern-params[data-pattern-id="circles"]');
+    const barsGroup = control.locator('.merge-pattern-params[data-pattern-id="bars"]');
+    await expect(circlesGroup.locator('input[data-key="bass"]')).toBeVisible();
+    await expect(barsGroup.locator('input[data-key="gain"]')).toBeVisible();
+
+    // Editing each pattern's slider reaches the screen live and independently
+    await circlesGroup.locator('input[data-key="bass"]').evaluate((el) => {
+      el.value = '1.5';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await barsGroup.locator('input[data-key="gain"]').evaluate((el) => {
+      el.value = '2';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await expect(circlesGroup.locator('input[data-key="bass"]')).toHaveValue('1.5');
+    await expect(barsGroup.locator('input[data-key="gain"]')).toHaveValue('2');
 
     // Both buttons highlight as the merge pair
     await expect(control.locator('.pattern-btn[data-index="0"]')).toHaveClass(/merge-active/);
