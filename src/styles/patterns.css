@@ -289,6 +289,49 @@
   color: #00101f;
 }
 
+/* Per-pattern param groups shown below the blend controls in merge mode */
+.merge-pattern-params {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-gray);
+}
+
+.merge-pattern-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-main);
+}
+
+.merge-pattern-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: #2a2a2a;
+  color: #c084fc;
+  font-size: 0.68rem;
+}
+
+.merge-pattern-name {
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ---------------------------------------------------------------------------
    User-loaded media patterns (local images / videos)
    --------------------------------------------------------------------------- */

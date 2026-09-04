@@ -7,15 +7,16 @@ function labelFor(def, value) {
   return match ? match.label : String(value);
 }
 
-export function ParamSelect({ def, value, onChange, disabled = false }) {
+export function ParamSelect({ scope, id, def, value, onChange, disabled = false }) {
+  const controlId = `param-${scope || 'live'}-${id || 'unknown'}-${def.key}`;
   return (
     <div className="param-row">
       <div className="param-head">
-        <label htmlFor={`param-${def.key}`}>{def.label}</label>
+        <label htmlFor={controlId}>{def.label}</label>
         <span className="param-value" data-value={def.key}>{labelFor(def, value)}</span>
       </div>
       <select
-        id={`param-${def.key}`}
+        id={controlId}
         data-key={def.key}
         className="param-select"
         value={String(value)}

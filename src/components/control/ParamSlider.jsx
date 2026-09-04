@@ -10,6 +10,7 @@ export function ParamSlider({ scope, id, def, getValue, onChange, valueFormat = 
   const inputRef = useRef(null);
   const draggingRef = useRef(false);
   const [label, setLabel] = useState(() => valueFormat(getValue(), def));
+  const controlId = `param-${scope || 'live'}-${id || 'unknown'}-${def.key}`;
 
   useEffect(() => {
     const el = inputRef.current;
@@ -46,13 +47,13 @@ export function ParamSlider({ scope, id, def, getValue, onChange, valueFormat = 
   return (
     <div className="param-row">
       <div className="param-head">
-        <label htmlFor={`param-${def.key}`}>{def.label}</label>
+        <label htmlFor={controlId}>{def.label}</label>
         <span className="param-value" data-value={def.key}>{label}</span>
       </div>
       <input
         ref={inputRef}
         type="range"
-        id={`param-${def.key}`}
+        id={controlId}
         data-key={def.key}
         min={String(def.min)}
         max={String(def.max)}
