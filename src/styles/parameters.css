@@ -39,6 +39,46 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Media manage row pinned to the bottom of the params list (media patterns
+   only). Buttons use the shared .btn component (+ .btn--danger for Remove);
+   the row just lays them out side by side. */
+.media-manage-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-gray);
+}
+
+/* .btn is inline-flex; stretch both buttons across the row. These are
+   ID-scoped because the generic `#config-panel button` rule (ID specificity)
+   otherwise steamrolls the shared .btn / .btn--danger styling. */
+#config-panel .media-manage-row .btn {
+  flex: 1;
+  display: flex;
+  width: auto;
+  background: transparent;
+  color: var(--text-dim);
+}
+
+#config-panel .media-manage-row .btn:hover:not(:disabled) {
+  color: var(--text-main);
+  border-color: var(--accent);
+  background: rgba(77, 163, 255, 0.12);
+}
+
+#config-panel .media-manage-row .btn--danger {
+  border-color: rgba(231, 76, 60, 0.85);
+  color: #e74c3c;
+  background: rgba(231, 76, 60, 0.07);
+}
+
+#config-panel .media-manage-row .btn--danger:hover:not(:disabled) {
+  color: #ff6b6b;
+  border-color: rgba(231, 76, 60, 0.95);
+  background: rgba(231, 76, 60, 0.14);
+}
+
 /* Dropdown params (def.options) share the slider row layout; the control
    chrome (chevron etc.) comes from the shared #config-panel select rules. */
 #params-list select.param-select {
