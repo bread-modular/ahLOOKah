@@ -15,14 +15,15 @@ fi
 
 echo "Initializing workspace from: $ORIGINAL_DIR"
 
-# Install npm modules preferring local cache
+# Install npm modules preferring local cache. Disable audit/funding checks so
+# workspace startup does not wait on npm registry security endpoints.
 echo "Installing npm modules..."
 if [ -d "$ORIGINAL_DIR/node_modules" ]; then
   echo "Found local node_modules cache, copying..."
   cp -r "$ORIGINAL_DIR/node_modules" . 2>/dev/null || true
 fi
 
-npm install --prefer-offline
+npm install --prefer-offline --no-audit --no-fund
 
 
 echo "Workspace initialization complete!"
