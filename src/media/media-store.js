@@ -206,6 +206,22 @@ export async function deleteMediaRecord(id) {
   });
 }
 
+// Rename a persisted media record (display name only). Reads the stored
+// record, patches just the name, and writes it back so the handle/blob and
+// all other fields survive untouched. Returns the new name, or null when the
+// record does not exist.
+export async function renameMediaRecord(id, name) {
+  const clean = typeof name === 'string' ? name.trim().slice(0, 80) : '';
+  if (!clean) return null;
+  const existing = await withStore('readonly', (store) => requestToPromise(store.get(id)));
+  if (!existing) return null;
+  if (existing.name === clean) return null;
+  await withStore('readwrite', (store) => {
+    store.put({ ...existing, name: clean });
+  });
+  return clean;
+}
+
 export function isLiveSource(id) {
   return liveSources.has(id);
 }

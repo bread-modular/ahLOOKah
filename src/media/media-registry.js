@@ -76,10 +76,16 @@ export function registerMediaSketches(sketches) {
   for (let i = sketches.length - 1; i >= 0; i--) {
     if (sketches[i]?.media && !wanted.has(sketches[i].id)) sketches.splice(i, 1);
   }
-  // Append missing entries (declaration order = metadata order).
+  // Append missing entries (declaration order = metadata order), and replace
+  // entries whose name/kind changed elsewhere (e.g. a rename in the other
+  // window) so the in-memory entry — including the factory closure over the
+  // display name — stays in sync.
   for (const [sketchId, meta] of wanted) {
-    if (!sketches.some((sketch) => sketch.id === sketchId)) {
+    const idx = sketches.findIndex((sketch) => sketch.id === sketchId);
+    if (idx === -1) {
       sketches.push(buildMediaSketchEntry(meta));
+    } else if (sketches[idx].name !== meta.name || sketches[idx].kind !== meta.kind) {
+      sketches[idx] = buildMediaSketchEntry(meta);
     }
   }
 }
@@ -106,7 +112,24 @@ export function removeMediaPattern(sketches, mediaId) {
   return true;
 }
 
-// Human-friendly display name derived from the file name ("my_loop.mp4").
+// Rename a media pattern. Validates centrally: trims, rejects blank values,
+// caps at 80 chars, no-ops unchanged names. Returns the sanitized new name,
+// or null when nothing changed / the id is unknown.
+export function renameMediaPattern(sketches, mediaId, name) {
+  const clean = typeof name === 'string' ? name.trim().slice(0, 80) : '';
+  if (!clean) return null;
+  const list = loadMediaMeta();
+  const entry = list.find((item) => item.id === mediaId);
+  if (!entry || entry.name === clean) return null;
+  entry.name = clean;
+  saveMediaMeta(list);
+  registerMediaSketches(sketches);
+  return clean;
+}
+
+// Human-friendly display name derived from the file name ("my_loop.mp4" ->
+// "my_loop"). Only the extension is stripped; the rest is kept verbatim so
+// the library label matches the file the user picked.
 export function mediaDisplayName(fileName) {
   const base = String(fileName || '').replace(/\.[^.]+$/, '').trim();
   return (base || 'Untitled media').slice(0, 80);

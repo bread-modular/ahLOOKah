@@ -17,6 +17,9 @@ export function ParameterPanel() {
   const cue = useVizStore(store, (s) => s.cue);
   // Re-reads the mutable param bank whenever the accepted values change.
   useVizStore(store, (s) => s.paramRevision);
+  // Refreshes names shown here (blend pair, cue heading, media rename row)
+  // after a media rename in either window.
+  useVizStore(store, (s) => s.mediaRevision);
 
   const ordered = getOrderedSketches();
   const ids = editingSelection.ids || [];
@@ -58,6 +61,8 @@ export function ParameterPanel() {
             changeParam={changeParam}
             scope={editingScope}
             locked={locked}
+            onRenameMedia={(id, name) => runtime.commands.renameMedia(id, name)}
+            onRemoveMedia={(id) => runtime.commands.removeMedia(id)}
           />
         )}
       </div>
@@ -65,18 +70,16 @@ export function ParameterPanel() {
   );
 }
 
-function EffectParams({ currentPattern, currentPatternId, getValue, changeParam, scope, locked }) {
+function EffectParams({ currentPattern, currentPatternId, getValue, changeParam, scope, locked, onRenameMedia, onRemoveMedia }) {
   const ordered = getOrderedSketches();
   const sketch = currentPattern >= 0
     ? ordered[currentPattern]
     : SKETCHES.find((s) => s.id === currentPatternId);
   const defs = (sketch && sketch.params) || [];
 
-  if (defs.length === 0) {
-    return <p className="param-empty">No parameters for this effect.</p>;
-  }
-
-  return defs.map((def) => (def.options ? (
+  const rows = defs.length === 0
+    ? [<p key="empty" className="param-empty">No parameters for this effect.</p>]
+    : defs.map((def) => (def.options ? (
     <ParamSelect
       key={`${scope}:${currentPatternId}:${def.key}`}
       scope={scope}
@@ -97,6 +100,38 @@ function EffectParams({ currentPattern, currentPatternId, getValue, changeParam,
       disabled={locked}
     />
   )));
+
+  return (
+    <>
+      {rows}
+      {sketch?.media && (
+        <div className="media-manage-row">
+          <button
+            type="button"
+            className="btn btn--md"
+            disabled={locked}
+            onClick={() => {
+              const next = window.prompt('Rename media pattern', sketch.name);
+              if (next === null) return;
+              const clean = next.trim().slice(0, 80);
+              if (!clean || clean === sketch.name) return;
+              onRenameMedia(sketch.id, clean);
+            }}
+          >Rename</button>
+          <button
+            type="button"
+            className="btn btn--md btn--danger"
+            disabled={locked}
+            onClick={() => {
+              const ok = window.confirm(`Remove "${sketch.name}" from the library?`);
+              if (!ok) return;
+              onRemoveMedia(sketch.id);
+            }}
+          >Remove</button>
+        </div>
+      )}
+    </>
+  );
 }
 
 function BlendControls({ getValue, changeParam, scope, ids, indices, ordered, nameA, nameB, locked }) {

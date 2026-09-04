@@ -114,18 +114,6 @@ export function PatternLibrary() {
                     {sketch.media && sketch.kind === 'video' && <span className="media-badge" title="Loaded video">🎬</span>}
                     {slotIdx !== undefined && <span className="slot-badge" title={`Assigned to pad slot ${slotLabel(slotIdx)}`}>{slotLabel(slotIdx)}</span>}
                     <span className="drag-handle" title="Drag to pad slot">⠿</span>
-                    {sketch.media && (
-                      <span
-                        className="media-remove-btn"
-                        role="button"
-                        tabIndex={-1}
-                        title="Remove this media pattern"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          runtime.commands.removeMedia(sketch.id);
-                        }}
-                      >✕</span>
-                    )}
                   </button>
                 );
               })}

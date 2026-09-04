@@ -28,12 +28,14 @@ import {
   registerMediaSketches,
   addMediaPattern,
   removeMediaPattern,
+  renameMediaPattern,
   mediaDisplayName,
   MEDIA_GROUP,
 } from '../media/media-registry.js';
 import {
   putMediaRecord,
   deleteMediaRecord,
+  renameMediaRecord,
   mediaKindForFile,
   pickMediaFiles,
   canUseFileSystemPicker,
@@ -2550,6 +2552,26 @@ export function createAppRuntime({
       bumpMediaRevision();
       bus.broadcast({ type: 'media-patterns' });
       return removed;
+    },
+    async renameMedia(sketchId, name) {
+      if (typeof sketchId !== 'string' || !sketchId.startsWith('media-')) return null;
+      const mediaId = sketchId.slice('media-'.length);
+      const clean = typeof name === 'string' ? name.trim().slice(0, 80) : '';
+      if (!clean) return null;
+      // Rename the localStorage registry first: it validates the id exists
+      // and no-ops unchanged names. Only bump/broadcast on success so an
+      // orphan IndexedDB record can never report a successful rename.
+      const renamed = renameMediaPattern(SKETCHES, mediaId, clean);
+      if (!renamed) return null;
+      // Best-effort IndexedDB patch so the persisted record keeps the new
+      // name. Failures (e.g. a test-mock handle) leave the visible label
+      // renamed — the record is re-created on next pick.
+      try { await renameMediaRecord(mediaId, renamed); } catch (error) {
+        console.error('[media] failed to rename media record', error);
+      }
+      bumpMediaRevision();
+      bus.broadcast({ type: 'media-patterns' });
+      return renamed;
     },
   };
 

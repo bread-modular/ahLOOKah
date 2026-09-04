@@ -91,11 +91,43 @@ test.describe('media patterns', () => {
     });
     await expect.poll(previewShowsMedia, { timeout: 8000, intervals: [250, 500, 1000] }).toBe(true);
 
+    // --- Rename via the params-panel Rename button (prompt dialog) -----------
+    // The media pattern is the editing selection, so the manage row sits at
+    // the bottom of the params list.
+    const renameBtn = control.locator('.media-manage-row .btn:not(.btn--danger)');
+    await expect(renameBtn).toBeVisible();
+    control.once('dialog', async (dialog) => {
+      await dialog.accept('Encore Visual');
+    });
+    await renameBtn.click();
+    await expect(mediaBtn).toContainText('Encore Visual');
+
+    // The IndexedDB record keeps the new name while kind/mime/addedAt survive
+    // untouched (picker files record size as null — only the <input> fallback
+    // carries a byte size).
+    const recordAfterRename = await control.evaluate(() => new Promise((resolve, reject) => {
+      const req = indexedDB.open('viz2_media', 2);
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction('media', 'readonly');
+        const getAll = tx.objectStore('media').getAll();
+        getAll.onsuccess = () => resolve(getAll.result);
+        getAll.onerror = () => reject(getAll.error);
+      };
+    }));
+    expect(recordAfterRename).toHaveLength(1);
+    expect(recordAfterRename[0].name).toBe('Encore Visual');
+    expect(recordAfterRename[0].kind).toBe('image');
+    expect(recordAfterRename[0].mime).toBe('image/png');
+    expect(recordAfterRename[0].size).toBeNull();
+    expect(typeof recordAfterRename[0].addedAt).toBe('number');
+
     // --- Persistence: reload the control window -----------------------------
     await control.reload();
     const mediaBtnAfterReload = control.locator('.pattern-btn[data-id^="media-"]').first();
     await expect(mediaBtnAfterReload).toBeVisible();
-    await expect(mediaBtnAfterReload).toContainText('my_test_image');
+    await expect(mediaBtnAfterReload).toContainText('Encore Visual');
 
     // The screen window re-registered from the same storage too. Wait until it
     // has finished booting and restored its own default pattern before
@@ -109,9 +141,20 @@ test.describe('media patterns', () => {
       typeof window.__viz?.patternId === 'string' && window.__viz.patternId.startsWith('media-'),
     );
 
-    // --- Removal -------------------------------------------------------------
-    await mediaBtnAfterReload.hover();
-    await mediaBtnAfterReload.locator('.media-remove-btn').click();
+    // --- Removal via the params-panel Remove button --------------------------
+    // Confirm dialog: dismiss keeps, accept removes.
+    const removeBtn = control.locator('.media-manage-row .btn--danger');
+    await expect(removeBtn).toBeVisible();
+    control.once('dialog', async (dialog) => {
+      await dialog.dismiss();
+    });
+    await removeBtn.click();
+    await expect(control.locator('.pattern-btn[data-id^="media-"]')).toHaveCount(1);
+
+    control.once('dialog', async (dialog) => {
+      await dialog.accept();
+    });
+    await removeBtn.click();
     await expect(control.locator('.pattern-btn[data-id^="media-"]')).toHaveCount(0);
 
     await control.reload();

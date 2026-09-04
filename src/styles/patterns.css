@@ -376,32 +376,4 @@
   opacity: 0.75;
 }
 
-.media-remove-btn {
-  position: absolute;
-  top: 2px;
-  right: 4px;
-  width: 16px;
-  height: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.62rem;
-  line-height: 1;
-  border-radius: 3px;
-  color: var(--text-dim);
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
-}
-
-.library-btn:hover .media-remove-btn,
-.media-remove-btn:focus {
-  opacity: 1;
-}
-
-.media-remove-btn:hover {
-  background: #b91c1c;
-  color: #fff;
-}
-
 
