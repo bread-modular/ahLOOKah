@@ -347,6 +347,8 @@ body.is-control #library-pane > h3 {
 
 body.is-control #library-pane > h3 {
   margin-top: 0;
+  /* Extra breathing room between the "Pattern Library" title and the groups */
+  margin-bottom: 14px;
 }
 
 body.is-control #library-pane .pattern-library {

@@ -238,6 +238,70 @@ test.describe('pattern pad + library interactions', () => {
     await expect(control.locator('#pattern-pad [data-index="1"]')).toHaveAttribute('data-id', 'circles');
   });
 
+  test('library groups collapse independently and persist across a reload', async ({ context }) => {
+    const control = await context.newPage();
+    await control.goto(CONTROL_URL);
+
+    // Everything starts expanded
+    const rhythmic = control.locator('.library-group', { hasText: 'Rhythmic' });
+    const rhythmicToggle = rhythmic.locator('.library-group-toggle');
+    await expect(rhythmicToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(control.locator('#pattern-library [data-id="echo-ripples"]')).toBeVisible();
+
+    // Collapsing one group hides only that group's items
+    await rhythmicToggle.click();
+    await expect(rhythmicToggle).toHaveAttribute('aria-expanded', 'false');
+    // The section stays mounted (hidden) so aria-controls keeps resolving
+    await expect(control.locator('#pattern-library [data-id="echo-ripples"]')).toBeHidden();
+    await expect(control.locator('#pattern-library [data-id="glitch-matrix"]')).toBeVisible();
+    await expect(control.locator('.library-group-toggle')).toHaveCount(8);
+
+    // The Media group header (toggle + Add media) stays usable alongside:
+    // both keep positive, non-overlapping hit areas inside the header row.
+    const mediaHeaderBoxes = await control.evaluate(() => {
+      const headers = document.querySelectorAll('.library-group-header');
+      const last = headers[headers.length - 1];
+      const toggle = last.querySelector('.library-group-toggle').getBoundingClientRect();
+      const add = last.querySelector('.media-add-btn').getBoundingClientRect();
+      return { toggleWidth: toggle.width, addWidth: add.width, toggleRight: toggle.right, addLeft: add.left };
+    });
+    expect(mediaHeaderBoxes.toggleWidth).toBeGreaterThan(0);
+    expect(mediaHeaderBoxes.addWidth).toBeGreaterThan(0);
+    expect(mediaHeaderBoxes.toggleRight).toBeLessThanOrEqual(mediaHeaderBoxes.addLeft + 0.5);
+    await expect(control.locator('.media-add-btn')).toBeVisible();
+
+    // Collapse state persisted
+    await expect.poll(() =>
+      control.evaluate(() => JSON.parse(localStorage.getItem('viz2_library_collapsed') || '[]'))
+    ).toEqual(['Rhythmic']);
+
+    // ...and survives a reload
+    await control.reload();
+    const rhythmicAfter = control.locator('.library-group', { hasText: 'Rhythmic' });
+    await expect(rhythmicAfter.locator('.library-group-toggle')).toHaveAttribute('aria-expanded', 'false');
+    await expect(control.locator('#pattern-library [data-id="echo-ripples"]')).toBeHidden();
+
+    // Expanding again restores the items and clears the stored entry
+    await rhythmicAfter.locator('.library-group-toggle').click();
+    await expect(rhythmicAfter.locator('.library-group-toggle')).toHaveAttribute('aria-expanded', 'true');
+    await expect(control.locator('#pattern-library [data-id="echo-ripples"]')).toBeVisible();
+    await expect.poll(() =>
+      control.evaluate(() => JSON.parse(localStorage.getItem('viz2_library_collapsed') || '[]'))
+    ).toEqual([]);
+  });
+
+  test('a corrupted collapse-state entry never breaks boot', async ({ context }) => {
+    const control = await context.newPage();
+    await control.goto(CONTROL_URL);
+    await control.evaluate(() => localStorage.setItem('viz2_library_collapsed', '{not json'));
+    await control.reload();
+
+    // Malformed data falls back to "everything expanded"
+    await expect(control.locator('.library-group-header')).toHaveCount(8);
+    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(58);
+    await expect(control.locator('.library-group-toggle').first()).toHaveAttribute('aria-expanded', 'true');
+  });
+
   test('second control window is blocked (singleton)', async ({ context }) => {
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
