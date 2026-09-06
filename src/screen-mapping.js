@@ -17,6 +17,31 @@ export const IDENTITY_QUAD = Object.freeze([
 
 export const SCREEN_MAPPING_CORNER_LABELS = Object.freeze(['TL', 'TR', 'BR', 'BL']);
 
+// Inward feather width as a percentage of each source axis. Zero is an exact
+// bypass; finite numbers are clamped and absent/invalid messages retain state.
+export const SCREEN_MAPPING_EDGE_BLUR_MAX = 25;
+export function normalizeMappingEdgeBlur(raw, fallback = 0) {
+  return typeof raw === 'number' && Number.isFinite(raw)
+    ? Math.min(SCREEN_MAPPING_EDGE_BLUR_MAX, Math.max(0, raw))
+    : fallback;
+}
+
+// CSS fallback approximates the shader's smoothstep with eight linear segments.
+// Intersect the two axis masks to match the shader's multiplied corner fades.
+export function mappingEdgeMask(edgeBlur) {
+  const width = normalizeMappingEdgeBlur(edgeBlur);
+  if (!width) return 'none';
+  const stops = Array.from({ length: 9 }, (_, i) => {
+    const t = i / 8;
+    return { alpha: t * t * (3 - 2 * t), position: t * width };
+  });
+  const cssStops = [
+    ...stops,
+    ...stops.slice().reverse().map(({ alpha, position }) => ({ alpha, position: 100 - position })),
+  ].map(({ alpha, position }) => `rgba(0, 0, 0, ${alpha}) ${position}%`).join(', ');
+  return `linear-gradient(to right, ${cssStops}), linear-gradient(to bottom, ${cssStops})`;
+}
+
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 
 // Smallest normalized quad area we still accept — anything smaller projects as
@@ -200,6 +225,22 @@ export function storeMappingQuad(quad) {
   try {
     if (quad) localStorage.setItem(STORAGE.screenMapping, JSON.stringify({ v: 1, quad: cloneQuad(quad) }));
     else localStorage.removeItem(STORAGE.screenMapping);
+  } catch {
+    // Storage may be unavailable (private mode); the session keeps working.
+  }
+}
+
+export function loadStoredMappingEdgeBlur() {
+  try {
+    return normalizeMappingEdgeBlur(JSON.parse(localStorage.getItem(STORAGE.screenMappingEdgeBlur)));
+  } catch {
+    return 0;
+  }
+}
+
+export function storeMappingEdgeBlur(edgeBlur) {
+  try {
+    localStorage.setItem(STORAGE.screenMappingEdgeBlur, String(normalizeMappingEdgeBlur(edgeBlur)));
   } catch {
     // Storage may be unavailable (private mode); the session keeps working.
   }

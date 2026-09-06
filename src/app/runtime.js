@@ -63,11 +63,16 @@ import {
 } from '../pattern-audio-protocol.js';
 import { setBandSplit, computeLogSpectrum } from '../sketches/audio-features.js';
 import {
+  IDENTITY_QUAD,
   cloneQuad,
+  loadStoredMappingEdgeBlur,
   loadStoredMappingEnabled,
   loadStoredMappingQuad,
+  mappingEdgeMask,
+  normalizeMappingEdgeBlur,
   parseMappingQuad,
   quadToMatrix3d,
+  storeMappingEdgeBlur,
   storeMappingEnabled,
   storeMappingQuad,
 } from '../screen-mapping.js';
@@ -227,6 +232,7 @@ export function createAppRuntime({
   // disabled the output renders to the full frame untouched.
   let screenMappingEnabled = loadStoredMappingEnabled();
   let screenMappingQuad = loadStoredMappingQuad();
+  let screenMappingEdgeBlur = loadStoredMappingEdgeBlur();
   let screenMappingRenderer = null;
   let screenMappingRaf = 0;
   let screenMappingError = null;
@@ -516,6 +522,7 @@ export function createAppRuntime({
           canvases: liveRuntime.instances.map((instance) => instance.canvas),
           blend: liveRuntime.getParams(BLEND_ID),
           postFx: getParams(POSTFX_ID),
+          edgeBlur: screenMappingEdgeBlur,
         });
         if (presented) {
           // Never hide the fallback until every LIVE source has been captured.
@@ -547,7 +554,10 @@ export function createAppRuntime({
       ? quadToMatrix3d(screenMappingQuad, window.innerWidth, window.innerHeight)
       : null;
     wrap.style.transform = matrix || 'none';
-    if (!matrix) {
+    const edgeBlur = screenMappingEnabled ? screenMappingEdgeBlur : 0;
+    wrap.classList.toggle('has-edge-blur', edgeBlur > 0);
+    wrap.style.setProperty('--screen-edge-mask', mappingEdgeMask(edgeBlur));
+    if (!screenMappingEnabled || (!matrix && !edgeBlur)) {
       stopScreenMappingRenderer();
       screenMappingError = null;
       return;
@@ -563,7 +573,7 @@ export function createAppRuntime({
         canvas.addEventListener('webglcontextlost', mappingContextLost);
         host.appendChild(canvas);
       }
-      screenMappingRenderer.configure(screenMappingQuad, innerWidth, innerHeight, devicePixelRatio || 1);
+      screenMappingRenderer.configure(screenMappingQuad || IDENTITY_QUAD, innerWidth, innerHeight, devicePixelRatio || 1);
       if (created) {
         // Static/noLoop sources also need a fresh synchronous capture when AA
         // is enabled after boot. Looping sources will arrive on their next draw.
@@ -579,19 +589,23 @@ export function createAppRuntime({
     }
   }
 
-  function acceptScreenMapping(enabled, quad) {
+  function acceptScreenMapping(enabled, quad, edgeBlur) {
     screenMappingEnabled = Boolean(enabled);
     screenMappingQuad = cloneQuad(quad);
+    screenMappingEdgeBlur = normalizeMappingEdgeBlur(edgeBlur, screenMappingEdgeBlur);
+    storeMappingEdgeBlur(screenMappingEdgeBlur);
     storeMappingEnabled(screenMappingEnabled);
     storeMappingQuad(screenMappingQuad);
     applyScreenMapping();
   }
 
-  function setControlScreenMapping(enabled, quad) {
+  function setControlScreenMapping(enabled, quad, edgeBlur) {
     if (role !== 'control') return;
     const nextEnabled = Boolean(enabled);
     const nextQuad = cloneQuad(quad);
     const current = store.getState();
+    const nextEdgeBlur = normalizeMappingEdgeBlur(edgeBlur, current.screenMappingEdgeBlur);
+    storeMappingEdgeBlur(nextEdgeBlur);
     const prevQuad = current.screenMappingQuad;
     const quadChanged = (nextQuad === null) !== (prevQuad === null)
       || (nextQuad !== null && (nextQuad.some((pt, i) => !prevQuad?.[i]
@@ -600,8 +614,8 @@ export function createAppRuntime({
     storeMappingEnabled(nextEnabled);
     // Only bump the store when something actually changed so state echoes
     // cannot spam re-renders.
-    if (nextEnabled !== current.screenMappingEnabled || quadChanged) {
-      store.setState({ screenMappingEnabled: nextEnabled, screenMappingQuad: nextQuad });
+    if (nextEnabled !== current.screenMappingEnabled || quadChanged || nextEdgeBlur !== current.screenMappingEdgeBlur) {
+      store.setState({ screenMappingEnabled: nextEnabled, screenMappingQuad: nextQuad, screenMappingEdgeBlur: nextEdgeBlur });
     }
   }
 
@@ -2314,8 +2328,8 @@ export function createAppRuntime({
         // sender's own panel, the screen window warps the output stage.
         const parsedMapping = parseMappingQuad(msg.quad);
         if (!parsedMapping.valid) return; // retain the last valid mapping
-        if (role === 'screen') acceptScreenMapping(msg.enabled, parsedMapping.quad);
-        else setControlScreenMapping(msg.enabled, parsedMapping.quad);
+        if (role === 'screen') acceptScreenMapping(msg.enabled, parsedMapping.quad, msg.edgeBlur);
+        else setControlScreenMapping(msg.enabled, parsedMapping.quad, msg.edgeBlur);
         return;
       }
 
@@ -2579,6 +2593,7 @@ export function createAppRuntime({
     store.setState({
       screenMappingEnabled: loadStoredMappingEnabled(),
       screenMappingQuad: loadStoredMappingQuad(),
+      screenMappingEdgeBlur: loadStoredMappingEdgeBlur(),
     });
     syncUI();
     beginAudioOwnership();
@@ -2628,6 +2643,7 @@ export function createAppRuntime({
       screenMapping: () => ({
         enabled: screenMappingEnabled,
         quad: cloneQuad(screenMappingQuad),
+        edgeBlur: screenMappingEdgeBlur,
         resolution: currentScreenResolution(),
         antialiasing: screenMappingRenderer ? 'supersample-4x4' : 'none',
         antialiasingError: screenMappingError,
@@ -2707,6 +2723,7 @@ export function createAppRuntime({
       // screen window receives the same message and warps the output stage.
       bus.broadcast({
         type: 'screen-mapping',
+        edgeBlur: store.getState().screenMappingEdgeBlur,
         enabled: Boolean(store.getState().screenMappingEnabled),
         quad: parsed.quad,
       });
@@ -2715,13 +2732,24 @@ export function createAppRuntime({
     setScreenMappingEnabled(enabled) {
       bus.broadcast({
         type: 'screen-mapping',
+        edgeBlur: store.getState().screenMappingEdgeBlur,
         enabled: Boolean(enabled),
         quad: cloneQuad(store.getState().screenMappingQuad),
+      });
+    },
+    setScreenMappingEdgeBlur(edgeBlur) {
+      const current = store.getState();
+      bus.broadcast({
+        type: 'screen-mapping',
+        enabled: Boolean(current.screenMappingEnabled),
+        quad: cloneQuad(current.screenMappingQuad),
+        edgeBlur: normalizeMappingEdgeBlur(edgeBlur, current.screenMappingEdgeBlur),
       });
     },
     resetScreenMapping() {
       bus.broadcast({
         type: 'screen-mapping',
+        edgeBlur: store.getState().screenMappingEdgeBlur,
         enabled: Boolean(store.getState().screenMappingEnabled),
         quad: null,
       });

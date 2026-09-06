@@ -578,17 +578,28 @@ test.describe('screen mapping section', () => {
     const transformBefore = await screen.evaluate(() => getComputedStyle(document.getElementById('screen-wrap')).transform);
     expect(transformBefore.startsWith('matrix3d')).toBe(true);
 
+    // Hardware calibration stays outside the cueable program state.
+    await control.getByRole('slider', { name: 'Edge blurring' }).evaluate((input) => {
+      input.value = '25'; input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await expect.poll(() => screen.evaluate(() => window.__viz.screenMapping.edgeBlur)).toBe(25);
+    const featherPoint = expectedMappedPoint(TRAPEZOID, 0.125, 0.5, 800, 450);
     const expectOutputColor = async (expected) => {
+      expect(await screen.evaluate(() => window.__viz.screenMapping.edgeBlur)).toBe(25);
       await expect(screen.locator('#screen-mapping-output')).toHaveClass('is-active');
       await screen.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       const shot = await screen.screenshot();
-      const pixel = await screen.evaluate(async (b64) => {
+      const { pixel, edge } = await screen.evaluate(async ({ b64, featherPoint }) => {
         const img = new Image(); img.src = `data:image/png;base64,${b64}`; await img.decode();
         const canvas = document.createElement('canvas'); canvas.width = img.width; canvas.height = img.height;
         const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0);
-        return [...ctx.getImageData(Math.floor(img.width / 2), Math.floor(img.height / 2), 1, 1).data].slice(0, 3);
-      }, shot.toString('base64'));
-      expected.forEach((value, i) => expect(Math.abs(pixel[i] - value), JSON.stringify({ expected, pixel })).toBeLessThanOrEqual(3));
+        const sample = (x, y) => [...ctx.getImageData(Math.floor(x), Math.floor(y), 1, 1).data].slice(0, 3);
+        return { pixel: sample(img.width / 2, img.height / 2), edge: sample(featherPoint.x, featherPoint.y) };
+      }, { b64: shot.toString('base64'), featherPoint });
+      expected.forEach((value, i) => {
+        expect(Math.abs(pixel[i] - value), JSON.stringify({ expected, pixel })).toBeLessThanOrEqual(3);
+        expect(Math.abs(edge[i] - value * 0.5), JSON.stringify({ expected, edge })).toBeLessThanOrEqual(3);
+      });
     };
     await expectOutputColor([200, 20, 20]);
 

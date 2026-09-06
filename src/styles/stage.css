@@ -71,3 +71,11 @@
 #screen-mapping-output canvas {
   pointer-events: none;
 }
+
+/* Final-output fallback: masks apply after filters and follow the source quad.
+   The GPU output already includes this feather, so never apply it twice. */
+#screen-wrap.has-edge-blur:not(.is-antialiased) {
+  mask-image: var(--screen-edge-mask);
+  mask-mode: alpha;
+  mask-composite: intersect;
+}

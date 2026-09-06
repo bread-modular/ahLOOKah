@@ -2,7 +2,7 @@
 // minifying a canvas with a single bilinear lookup leaves stair-stepped lines.
 // Integrate a 4x4 grid across each *physical output pixel*, after merge/post-FX.
 // This does not increase sketch resolution or blur the whole source image.
-import { quadToInverseMatrix3 } from './screen-mapping.js';
+import { normalizeMappingEdgeBlur, quadToInverseMatrix3 } from './screen-mapping.js';
 
 const VERTEX = `#version 300 es
 void main() {
@@ -20,11 +20,19 @@ uniform float uOpacity;
 uniform bool uScreenBlend;
 uniform vec3 uPostFx;
 uniform bool uApplyPostFx;
+uniform float uEdgeBlur;
 out vec4 outColor;
 
 vec2 sourcePoint(vec2 pixel) {
   vec3 p = uInverse * vec3(pixel / uResolution, 1.0);
   return p.xy / p.z;
+}
+
+float edgeCoverage(vec2 uv) {
+  if (uEdgeBlur <= 0.0) return 1.0;
+  vec2 distanceToEdge = min(uv, 1.0 - uv);
+  vec2 fade = smoothstep(vec2(0.0), vec2(uEdgeBlur), distanceToEdge);
+  return fade.x * fade.y;
 }
 
 vec3 sampleProgram(vec2 uv, vec2 dx, vec2 dy) {
@@ -37,14 +45,14 @@ vec3 sampleProgram(vec2 uv, vec2 dx, vec2 dy) {
   vec3 color = uScreenBlend
     ? base.rgb + overlay.rgb - base.rgb * overlay.rgb
     : overlay.rgb + base.rgb * (1.0 - overlay.a);
-  if (!uApplyPostFx) return color;
+  if (!uApplyPostFx) return color * edgeCoverage(uv);
   float alpha = overlay.a + base.a * (1.0 - overlay.a);
   color /= max(alpha, 0.00001);
   color = clamp(color * uPostFx.x, 0.0, 1.0);
   color = clamp((color - 0.5) * uPostFx.y + 0.5, 0.0, 1.0);
   float luma = dot(color, vec3(0.213, 0.715, 0.072));
   color = clamp(mix(vec3(luma), color, uPostFx.z), 0.0, 1.0);
-  return color * alpha;
+  return color * alpha * edgeCoverage(uv);
 }
 
 void main() {
@@ -97,7 +105,7 @@ export class ScreenMappingRenderer {
     try {
       this.program = createProgram(gl);
       this.uniforms = Object.fromEntries([
-        'uBase', 'uOverlay', 'uInverse', 'uResolution', 'uOpacity', 'uScreenBlend', 'uPostFx', 'uApplyPostFx',
+        'uBase', 'uOverlay', 'uInverse', 'uResolution', 'uOpacity', 'uScreenBlend', 'uPostFx', 'uApplyPostFx', 'uEdgeBlur',
       ].map((name) => [name, gl.getUniformLocation(this.program, name)]));
       this.empty = this.createTexture();
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
@@ -157,7 +165,7 @@ export class ScreenMappingRenderer {
     gl.generateMipmap(gl.TEXTURE_2D);
   }
 
-  render({ canvases, blend = {}, postFx = {} }) {
+  render({ canvases, blend = {}, postFx = {}, edgeBlur = 0 }) {
     const gl = this.gl;
     if (gl.isContextLost()) throw new Error('Screen-mapping context was lost.');
     if (!this.inverse || !canvases?.length || canvases.some((source) => !this.textures.has(source))) return false;
@@ -168,6 +176,7 @@ export class ScreenMappingRenderer {
       gl.bindTexture(gl.TEXTURE_2D, this.textures.get(canvases[i])?.texture || this.empty);
     }
     const u = this.uniforms;
+    gl.uniform1f(u.uEdgeBlur, normalizeMappingEdgeBlur(edgeBlur) / 100);
     gl.uniform1i(u.uBase, 0);
     gl.uniform1i(u.uOverlay, 1);
     gl.uniformMatrix3fv(u.uInverse, false, this.inverse);
