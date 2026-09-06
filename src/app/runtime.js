@@ -46,6 +46,7 @@ import {
   disposeP5Instance,
   selectionsEqual,
 } from '../program-runtime.js';
+import { ScreenMappingRenderer } from '../screen-mapping-renderer.js';
 import { SharedCameraSource } from '../shared-camera-source.js';
 import { AudioManager } from '../audio-manager.js';
 import { PreviewAudio } from '../preview-audio.js';
@@ -226,6 +227,10 @@ export function createAppRuntime({
   // disabled the output renders to the full frame untouched.
   let screenMappingEnabled = loadStoredMappingEnabled();
   let screenMappingQuad = loadStoredMappingQuad();
+  let screenMappingRenderer = null;
+  let screenMappingRaf = 0;
+  let screenMappingError = null;
+
 
   // Audio broadcast loop.
   let audioBroadcastRaf = 0;
@@ -472,10 +477,68 @@ export function createAppRuntime({
     };
   }
 
-  // The homography is applied to the stage wrapper itself — AFTER the post-fx
-  // filter, merge blend and CUE layer swap — so every program is warped
-  // identically and nothing else (toolbar, preview) is touched. Opt-in: when
-  // the feature is off (or the quad is full-frame) no transform is applied.
+  // The CSS warp remains for pointer hit-testing and as a GPU-failure fallback.
+  // Visible output uses explicit subpixel coverage instead of the browser's
+  // single-sample canvas transform. Only LIVE is presented; CUE textures are
+  // captured during warm-up and atomically selected with the runtime swap.
+  function stopScreenMappingRenderer() {
+    if (screenMappingRaf) cancelAnimationFrame(screenMappingRaf);
+    screenMappingRaf = 0;
+    const renderer = screenMappingRenderer;
+    screenMappingRenderer = null;
+    if (renderer) {
+      renderer.canvas.removeEventListener('webglcontextlost', mappingContextLost);
+      renderer.dispose();
+      renderer.canvas.remove();
+    }
+    screenStage?.classList.remove('is-antialiased');
+    document.getElementById('screen-mapping-output')?.classList.remove('is-active');
+  }
+
+  function failScreenMappingRenderer(error) {
+    screenMappingError = String(error?.message || error);
+    stopScreenMappingRenderer();
+    console.warn('Screen-mapping antialiasing unavailable; retaining CSS mapping:', screenMappingError);
+  }
+
+  function mappingContextLost(event) {
+    event.preventDefault();
+    failScreenMappingRenderer(new Error('WebGL context lost'));
+  }
+
+  function queueScreenMappingFrame() {
+    if (!screenMappingRenderer || screenMappingRaf) return;
+    screenMappingRaf = requestAnimationFrame(() => {
+      screenMappingRaf = 0;
+      if (!screenMappingRenderer || !liveRuntime || liveRuntime.disposed) return;
+      try {
+        const presented = screenMappingRenderer.render({
+          canvases: liveRuntime.instances.map((instance) => instance.canvas),
+          blend: liveRuntime.getParams(BLEND_ID),
+          postFx: getParams(POSTFX_ID),
+        });
+        if (presented) {
+          // Never hide the fallback until every LIVE source has been captured.
+          screenStage.classList.add('is-antialiased');
+          document.getElementById('screen-mapping-output')?.classList.add('is-active');
+        }
+      } catch (error) {
+        failScreenMappingRenderer(error);
+      }
+    });
+  }
+
+  function captureMappedFrame(canvas) {
+    if (!screenMappingRenderer) return;
+    try {
+      screenMappingRenderer.capture(canvas);
+      queueScreenMappingFrame();
+    } catch (error) {
+      // AA failures must not stop a running sketch or prevent CUE readiness.
+      failScreenMappingRenderer(error);
+    }
+  }
+
   function applyScreenMapping() {
     if (role !== 'screen') return;
     const wrap = ensureScreenStage();
@@ -484,6 +547,36 @@ export function createAppRuntime({
       ? quadToMatrix3d(screenMappingQuad, window.innerWidth, window.innerHeight)
       : null;
     wrap.style.transform = matrix || 'none';
+    if (!matrix) {
+      stopScreenMappingRenderer();
+      screenMappingError = null;
+      return;
+    }
+    if (screenMappingError) return; // Retry on the next off/on, not every frame.
+    const host = document.getElementById('screen-mapping-output');
+    if (!host) return;
+    try {
+      const created = !screenMappingRenderer;
+      if (created) {
+        const canvas = document.createElement('canvas');
+        screenMappingRenderer = new ScreenMappingRenderer(canvas);
+        canvas.addEventListener('webglcontextlost', mappingContextLost);
+        host.appendChild(canvas);
+      }
+      screenMappingRenderer.configure(screenMappingQuad, innerWidth, innerHeight, devicePixelRatio || 1);
+      if (created) {
+        // Static/noLoop sources also need a fresh synchronous capture when AA
+        // is enabled after boot. Looping sources will arrive on their next draw.
+        for (const runtime of new Set([liveRuntime, cueRuntime, incomingRuntime])) {
+          runtime?.instances.forEach((instance) => {
+            if (instance.isLooping?.() === false) instance.redraw?.()?.catch?.(() => {});
+          });
+        }
+      }
+      queueScreenMappingFrame();
+    } catch (error) {
+      failScreenMappingRenderer(error);
+    }
   }
 
   function acceptScreenMapping(enabled, quad) {
@@ -547,6 +640,7 @@ export function createAppRuntime({
       generation: ++runtimeGeneration,
       warmTimeoutMs: CUE_WARM_TIMEOUT_MS,
       onTiming: (name, detail) => recordCueTiming(name, { reason, ...detail }),
+      onDraw: captureMappedFrame,
       audioControlStore: patternAudioStore,
       consumerSessionId: windowId,
       audioRole: reason === 'cue' ? 'cue' : (reason === 'direct-live' ? 'incoming' : 'live'),
@@ -556,6 +650,7 @@ export function createAppRuntime({
 
   function disposeRuntime(runtime) {
     if (!runtime) return;
+    runtime.instances.forEach((instance) => screenMappingRenderer?.release(instance.canvas));
     runtime.dispose();
     queuePatternAudioPlanPublish();
   }
@@ -578,6 +673,7 @@ export function createAppRuntime({
 
   function applyBlendStyles(runtime = liveRuntime) {
     runtime?.applyBlendStyles();
+    queueScreenMappingFrame();
   }
 
   function postFxFilterString(resolve = getParams) {
@@ -603,6 +699,7 @@ export function createAppRuntime({
       liveRuntime?.setFilter('none');
       incomingRuntime?.setFilter('none');
     }
+    queueScreenMappingFrame();
   }
 
   function initialLiveRuntime(selection) {
@@ -2400,6 +2497,7 @@ export function createAppRuntime({
   // Teardown
   // ---------------------------------------------------------------------------
   function disposeViz() {
+    stopScreenMappingRenderer();
     try { if (audioBroadcastRaf) cancelAnimationFrame(audioBroadcastRaf); } catch { /* noop */ }
     try { if (cueStageRaf) cancelAnimationFrame(cueStageRaf); } catch { /* noop */ }
     try { if (cueMutationRaf) cancelAnimationFrame(cueMutationRaf); } catch { /* noop */ }
@@ -2531,6 +2629,9 @@ export function createAppRuntime({
         enabled: screenMappingEnabled,
         quad: cloneQuad(screenMappingQuad),
         resolution: currentScreenResolution(),
+        antialiasing: screenMappingRenderer ? 'supersample-4x4' : 'none',
+        antialiasingError: screenMappingError,
+
       }),
       eq: () => ({
         split: { ...eqSink.split },

@@ -90,21 +90,9 @@ export function quadToPointsString(quad, scale = 100) {
   return pts.map((pt) => `${(pt.x * scale).toFixed(2)},${(pt.y * scale).toFixed(2)}`).join(' ');
 }
 
-// Heckbert's unit-square -> quad projective map, re-based into the stage's
-// pixel coordinate space and emitted as a CSS matrix3d() (column-major). The
-// stage's local coordinates are window CSS pixels, so the unit-square mapping
-// is composed as pixel -> unit (S) -> normalized quad (H) -> pixel (T):
-//   m11 = a        m12 = W*b/H     m14 = W*c
-//   m21 = H*d/W    m22 = e         m24 = H*f
-//   m41 = g/W      m42 = h/H       m44 = 1
-// With transform-origin: 0 0 the full-frame canvas is warped exactly into the
-// operator's quad. Returns null for identity/absent quads (caller clears the
-// transform) and for quads that fail renderability.
-export function quadToMatrix3d(quad, width, height) {
+// Shared unit-square -> quad projective map (Heckbert).
+function quadToHomography(quad) {
   if (!quad || !isRenderableQuad(quad)) return null;
-  if (isIdentityQuad(quad)) return null;
-  const W = Math.max(1, Number(width) || 1);
-  const H = Math.max(1, Number(height) || 1);
   const [tl, tr, br, bl] = quad.map((pt) => ({ x: clamp01(pt.x), y: clamp01(pt.y) }));
 
   const dx1 = tr.x - br.x;
@@ -125,17 +113,53 @@ export function quadToMatrix3d(quad, width, height) {
   const e = bl.y - tl.y + hc * bl.y;
   const f = tl.y;
 
-  // 12 decimal places keeps full double precision in the string itself. All 16
-  // arguments are then scaled by a constant K (a power of two: exact binary
-  // scaling) — homogeneous matrices are invariant under this, but it lifts the
-  // small perspective terms (g/W, hc/H ~1e-5) into the range where browser CSS
-  // serializers (which keep ~7 decimal places) retain 6+ significant digits.
-  // Without it, Chrome rounds hc/H to -7.71e-05 and corner error grows to a
-  // noticeable fraction of a pixel at 1440p+; painted-output and hit-test
-  // specs verify the actual rendered result at 4K.
-  const K = 4096;
-  const n = (v) => (v * K).toFixed(12);
-  return `matrix3d(${n(a)}, ${n(H * d / W)}, 0, ${n(g / W)}, ${n(W * b / H)}, ${n(e)}, 0, ${n(hc / H)}, 0, 0, ${n(1)}, 0, ${n(W * c)}, ${n(H * f)}, 0, ${n(1)})`;
+  return { a, b, c, d, e, f, g, hc };
+}
+
+// Column-major inverse maps normalized output pixels back into source UVs.
+// Share the exact homography with CSS hit-testing, not a rounded CSS string.
+export function quadToInverseMatrix3(quad) {
+  const h = quadToHomography(quad);
+  if (!h) return null;
+  const { a, b, c, d, e, f, g, hc } = h;
+  const A = e - f * hc;
+  const B = f * g - d;
+  const C = d * hc - e * g;
+  const det = a * A + b * B + c * C;
+  if (!Number.isFinite(det) || Math.abs(det) < 1e-12) return null;
+  return new Float32Array([
+    A, B, C,
+    c * hc - b, a - c * g, b * g - a * hc,
+    b * f - c * e, c * d - a * f, a * e - b * d,
+  ].map((value) => value / det));
+}
+
+// Heckbert's unit-square -> quad projective map, re-based into the stage's
+// pixel coordinate space and emitted as a CSS matrix3d() (column-major). The
+// stage's local coordinates are window CSS pixels, so the unit-square mapping
+// is composed as pixel -> unit (S) -> normalized quad (H) -> pixel (T):
+//   m11 = a        m12 = W*b/H     m14 = W*c
+//   m21 = H*d/W    m22 = e         m24 = H*f
+//   m41 = g/W      m42 = h/H       m44 = 1
+// With transform-origin: 0 0 the full-frame canvas is warped exactly into the
+// operator's quad. Returns null for identity/absent quads (caller clears the
+// transform) and for quads that fail renderability.
+export function quadToMatrix3d(quad, width, height) {
+  const h = quadToHomography(quad);
+  if (!h || isIdentityQuad(quad)) return null;
+  const { a, b, c, d, e, f, g, hc } = h;
+  const W = Math.max(1, Number(width) || 1);
+  const H = Math.max(1, Number(height) || 1);
+  // Scientific notation retains tiny perspective coefficients in CSS without
+  // scaling the homogeneous matrix. This is positional precision, not AA;
+  // screen-mapping-renderer.js handles coverage of the actual output pixels.
+  const matrix = [
+    a, H * d / W, 0, g / W,
+    W * b / H, e, 0, hc / H,
+    0, 0, 1, 0,
+    W * c, H * f, 0, 1,
+  ];
+  return `matrix3d(${matrix.map((value) => value.toExponential(16)).join(', ')})`;
 }
 
 // ---------------------------------------------------------------------------
