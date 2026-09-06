@@ -32,6 +32,10 @@ cues live with zero blank gaps.
   the Screen Mapping section, then drag the four corners while watching the
   projection until the picture forms a true rectangle that fills your physical
   screen. Off by default (full-frame output).
+- **Projection mapping patterns** — add reusable patterns containing up to eight
+  named, independently warped surfaces. Assign any ordinary pattern, image, or
+  video; edit its controls independently in the third column. Projection patterns
+  bypass the global screen calibration without deleting it.
 - **Camera-input FX** — chroma key, kaleidoscope, pixelate, trails, and more
   (opt-in via browser permissions).
 - **Pattern audio engine** — beat/band-driven control with kick/snare/hat
@@ -97,11 +101,47 @@ PORT=8080 ./run.sh  # custom port
   works in full-frame mode too. CSS mapping with an edge mask remains the
   hit-testing/failure fallback; disabling mapping releases the extra GPU resources.
 
+### Projection mapping patterns
+
+In **Pattern Library → Projection Mapping → ADD**, name your pattern. In the
+third column, click **Add mapping** to open the large mapping editor. Give it a
+name (for example, “Left wall”), choose a source pattern, and position its corners. Images and videos loaded through the Media library are also
+available. Mapping patterns cannot contain other mapping patterns.
+
+In the popup, drag the four corner handles to place each surface, or open **Corner positions
+(%)** for exact coordinates. Focus a handle and use arrow keys for fine placement
+(Shift for larger steps). Each mapping has its own complete source-parameter
+group, even when multiple mappings use the same source. Corner changes update the
+output **in real time**, and valid name/source/corner edits save automatically.
+Name a new mapping to create it; an unnamed mapping is not added. **Close** or
+Escape keeps your changes—there is no separate Save or Cancel. The popup contains no
+source parameters. In the sidebar, each mapping has **Edit** and **Remove** actions;
+click its title to reveal or hide its parameters (collapsed by default). Newly assigned sources
+start from that source's current settings; later edits remain independent.
+
+Layouts and parameters persist locally and sync across the control/output
+windows. CUE updates the staged corners and source controls in real time without
+changing LIVE; TAKE applies them
+atomically. Finish or cancel CUE before changing names, assignments, or structure.
+If a replacement cannot start, the previous output stays intact and the third
+column shows **Retry projection layout** (also **Retry output** inside the editor);
+saved edits remain pending on the output until it can start successfully. Missing sources are flagged in the editor and render black; inaccessible files
+show their existing permission/missing-file message inside their surface.
+
+Unmapped areas are black. Later surfaces cover earlier surfaces, including their
+black backgrounds. Global post-processing still applies. The global screen warp
+is bypassed for the entire live program if either merge input is a projection
+pattern; selecting an ordinary program restores the saved calibration. GPU
+failure retains a calibrated CSS fallback. Camera sources render only on the
+output. Each surface owns a renderer, so reduce surface count or shader complexity
+if the projector machine cannot keep up (especially during CUE warm-up).
+
 ## 🧪 Testing
 
 ```bash
 npm test            # Playwright E2E suite
 npm test -- tests/screen-mapping*.spec.js --workers=1  # Mapping + pixel coverage
+npm test -- tests/projection-mapping.spec.js --workers=1 # Projection patterns
 ```
 
 Screen-mapping tests scan complete horizontal and vertical bar edges, including

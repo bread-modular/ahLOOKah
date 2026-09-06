@@ -68,8 +68,8 @@ export function buildMediaSketchEntry(meta) {
 
 // Sync the SKETCHES array with the persisted metadata list. Idempotent; safe to
 // call on every boot and after every cross-window 'media-patterns' message.
-export function registerMediaSketches(sketches) {
-  const metas = loadMediaMeta();
+export function registerMediaSketches(sketches, snapshot = undefined) {
+  const metas = Array.isArray(snapshot) ? snapshot.slice(0, 256).map(sanitizeMeta).filter(Boolean) : loadMediaMeta();
   const wanted = new Map(metas.map((meta) => [mediaSketchId(meta.id), meta]));
 
   // Drop entries whose metadata disappeared (removed in the other window).

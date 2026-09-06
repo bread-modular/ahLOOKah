@@ -16,6 +16,11 @@ export function createKeyboardController(ctx) {
 
   function onKeydown(e) {
     if (ctx.getRole() !== 'control') return;
+    if (document.querySelector('dialog.projection-editor[open]')) {
+      heldKeys.length = 0;
+      heldCueKeys.length = 0;
+      return;
+    }
 
     if (e.code === 'Enter' && ctx.hasCueSession()) {
       e.preventDefault();

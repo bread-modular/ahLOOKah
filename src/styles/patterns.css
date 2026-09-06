@@ -394,10 +394,11 @@
   gap: 8px;
 }
 
-#config-panel .media-add-btn {
+#config-panel .library-add-btn {
   /* Override the panel's full-width button default: keep this compact action
-     pinned to the Media header's right edge. */
+     pinned to the Media / Projection Mapping header's right edge. */
   width: auto;
+  flex: 0 0 auto;
   margin-left: auto;
   font-size: 0.68rem;
   padding: 2px 8px;
@@ -409,7 +410,7 @@
   transition: color 0.15s ease, border-color 0.15s ease;
 }
 
-#config-panel .media-add-btn:hover {
+#config-panel .library-add-btn:hover {
   color: var(--text-main);
   border-color: var(--text-dim);
   background: transparent;

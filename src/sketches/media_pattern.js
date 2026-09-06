@@ -124,6 +124,7 @@ export default function createMediaPatternFactory(meta) {
       if (cleaned) return;
       if (result.status !== 'ready' || !result.url) {
         loadState = result.status === 'permission' ? 'permission' : 'missing';
+        runtimeContext?.reportMediaSettled?.();
         return;
       }
       loadState = 'ready';
@@ -137,6 +138,7 @@ export default function createMediaPatternFactory(meta) {
             runtimeContext?.reportMediaReady?.();
           }, () => {
             loadState = 'missing';
+            runtimeContext?.reportMediaSettled?.();
           });
           return;
         }
@@ -172,7 +174,7 @@ export default function createMediaPatternFactory(meta) {
           });
         };
         videoElt.addEventListener('loadeddata', onReady, { once: true });
-        videoElt.addEventListener('error', () => { loadState = 'missing'; }, { once: true });
+        videoElt.addEventListener('error', () => { loadState = 'missing'; runtimeContext?.reportMediaSettled?.(); }, { once: true });
         videoElt.src = objectUrl;
         try { videoElt.load?.(); } catch {}
     }

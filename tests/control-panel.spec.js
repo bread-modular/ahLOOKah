@@ -57,18 +57,20 @@ test.describe('control panel window', () => {
     await expect(control.locator('#pattern-pad [data-index="0"]')).toHaveAttribute('data-id', 'circles');
     await expect(control.locator('#pattern-pad [data-index="9"]')).toHaveAttribute('data-id', 'chroma-mandala');
 
-    // Library: all 58 patterns grouped under 8 headers (52 registered + 6
-    // camera-input Video FX effects surfaced in the library; the 8th header is
-    // the always-present Media group, which starts empty).
+    // Library: all 58 patterns grouped under 9 headers (52 registered + 6
+    // camera-input Video FX effects surfaced in the library; Media and Projection
+    // Mapping groups are always present and start empty).
     const items = control.locator('#pattern-library .pattern-btn');
     await expect(items).toHaveCount(58);
     const headers = control.locator('.library-group-header');
-    await expect(headers).toHaveCount(8);
+    await expect(headers).toHaveCount(9);
     await expect(headers.first()).toHaveText('Rhythmic');
     await expect(headers.nth(6)).toHaveText('Basics');
-    await expect(headers.last().locator('span')).toHaveText('Media');
+    await expect(headers.nth(7).locator('span')).toHaveText('Media');
     // The Media group always renders its add-media control, even when empty.
     await expect(control.locator('.media-add-btn')).toHaveCount(1);
+    await expect(headers.last().locator('span')).toHaveText('Projection Mapping');
+    await expect(control.getByRole('button', { name: 'Add projection mapping pattern' })).toHaveCount(1);
 
     // The Video FX group lists all 6 camera effects, each marked with a
     // camera glyph; Glitch / Effects holds 5
@@ -94,6 +96,70 @@ test.describe('control panel window', () => {
     // Control mode now has a real p5 preview plus the band-split EQ canvas.
     await expect(control.locator('canvas')).toHaveCount(2);
     await expect(control.locator('#band-eq-canvas')).toBeVisible();
+  });
+
+  test('projection header keeps its title and shares the compact Media ADD control', async ({ page }, testInfo) => {
+    await page.goto(CONTROL_URL);
+    const projection = page.locator('.library-group').filter({ has: page.locator('.projection-add-btn') });
+    const toggle = projection.locator('.library-group-toggle');
+    const add = page.getByRole('button', { name: 'Add projection mapping pattern', exact: true });
+    const mediaAdd = page.getByRole('button', { name: 'Add media', exact: true });
+    const appearance = (button) => button.evaluate((el) => {
+      const style = getComputedStyle(el);
+      const box = el.getBoundingClientRect();
+      return { width: box.width, height: box.height, color: style.color,
+        background: style.backgroundColor, border: style.border, radius: style.borderRadius,
+        fontSize: style.fontSize, padding: style.padding };
+    });
+
+    for (const width of [1100, 1600]) {
+      await page.setViewportSize({ width, height: 900 });
+      await add.scrollIntoViewIfNeeded();
+      await page.mouse.move(0, 0);
+      await expect(toggle.locator('span')).toHaveText('Projection Mapping');
+      await expect.poll(() => appearance(add)).toEqual(await appearance(mediaAdd));
+      const boxes = await projection.evaluate((group) => {
+        const toggle = group.querySelector('.library-group-toggle').getBoundingClientRect();
+        const add = group.querySelector('.projection-add-btn').getBoundingClientRect();
+        const header = group.querySelector('.library-group-header').getBoundingClientRect();
+        const range = document.createRange();
+        range.selectNodeContents(group.querySelector('.library-group-toggle span'));
+        const text = range.getBoundingClientRect();
+        return { toggle: toggle.toJSON(), add: add.toJSON(), header: header.toJSON(), text: text.toJSON() };
+      });
+      // Actual glyph bounds must fit, not just a visible span in a zero-width toggle.
+      expect(boxes.text.width).toBeGreaterThan(100);
+      expect(boxes.text.left).toBeGreaterThanOrEqual(boxes.toggle.left);
+      expect(boxes.text.right).toBeLessThanOrEqual(boxes.toggle.right + 0.5);
+      expect(boxes.toggle.right).toBeLessThan(boxes.add.left);
+      expect(boxes.add.right).toBeLessThanOrEqual(boxes.header.right + 0.5);
+      expect(boxes.add.width).toBeLessThan(70);
+      expect(boxes.add.height).toBeLessThan(30);
+    }
+
+    await mediaAdd.hover();
+    // Wait for the shared hover transition before comparing computed colors.
+    await expect.poll(() => mediaAdd.evaluate((el) => el.getAnimations().length)).toBe(0);
+    const hovered = await appearance(mediaAdd);
+    await add.hover();
+    await expect.poll(() => appearance(add)).toEqual(hovered);
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(projection.locator('.library-group-body')).toBeHidden();
+    const dialogPromise = page.waitForEvent('dialog').then(async (dialog) => {
+      expect(dialog.message()).toBe('Name your projection mapping pattern');
+      await dialog.dismiss();
+    });
+    await add.click();
+    await dialogPromise;
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await toggle.click();
+    await page.keyboard.press('Tab');
+    await expect(add).toBeFocused();
+    await expect(add).toHaveCSS('border-color', 'rgb(136, 136, 136)');
+    await expect(projection.locator('.library-group-body')).toBeVisible();
+    await page.locator('#library-pane').screenshot({ path: testInfo.outputPath('projection-library-header.png') });
   });
 
   test('opens from the screen toolbar button', async ({ context, page }) => {
@@ -254,13 +320,12 @@ test.describe('pattern pad + library interactions', () => {
     // The section stays mounted (hidden) so aria-controls keeps resolving
     await expect(control.locator('#pattern-library [data-id="echo-ripples"]')).toBeHidden();
     await expect(control.locator('#pattern-library [data-id="glitch-matrix"]')).toBeVisible();
-    await expect(control.locator('.library-group-toggle')).toHaveCount(8);
+    await expect(control.locator('.library-group-toggle')).toHaveCount(9);
 
     // The Media group header (toggle + Add media) stays usable alongside:
     // both keep positive, non-overlapping hit areas inside the header row.
     const mediaHeaderBoxes = await control.evaluate(() => {
-      const headers = document.querySelectorAll('.library-group-header');
-      const last = headers[headers.length - 1];
+      const last = document.querySelector('.media-add-btn').closest('.library-group-header');
       const toggle = last.querySelector('.library-group-toggle').getBoundingClientRect();
       const add = last.querySelector('.media-add-btn').getBoundingClientRect();
       return { toggleWidth: toggle.width, addWidth: add.width, toggleRight: toggle.right, addLeft: add.left };
@@ -297,7 +362,7 @@ test.describe('pattern pad + library interactions', () => {
     await control.reload();
 
     // Malformed data falls back to "everything expanded"
-    await expect(control.locator('.library-group-header')).toHaveCount(8);
+    await expect(control.locator('.library-group-header')).toHaveCount(9);
     await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(58);
     await expect(control.locator('.library-group-toggle').first()).toHaveAttribute('aria-expanded', 'true');
   });

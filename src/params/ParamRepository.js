@@ -12,6 +12,7 @@ import {
   POSTFX_PARAMS,
   defaultParamValues,
 } from '../sketch-registry.js';
+import { MAX_PROJECTION_PARAMS, validProjectionPatch } from '../projection/projection-registry.js';
 import { STORAGE } from '../platform/constants.js';
 
 export function createParamRepository({ dev = false } = {}) {
@@ -22,7 +23,7 @@ export function createParamRepository({ dev = false } = {}) {
   function sanitizeParamEntry(id, values) {
     if (!values || typeof values !== 'object' || Array.isArray(values)) return null;
     const keys = Object.keys(values);
-    if (keys.length > 16) return null;
+    if (keys.length > (SKETCHES.find((s) => s.id === id)?.projection ? MAX_PROJECTION_PARAMS : 16)) return null;
     const defs = id === BLEND_ID ? BLEND_PARAMS : id === POSTFX_ID ? POSTFX_PARAMS : id === BANDS_ID ? [] : (SKETCHES.find((s) => s.id === id)?.params || []);
     const defaults = defaultParamValues(id);
     const out = {};
@@ -33,11 +34,13 @@ export function createParamRepository({ dev = false } = {}) {
       if (Math.abs(v) > 1e6) continue;
       const def = defs.find((d) => d.key === k);
       let clamped = v;
+      if (SKETCHES.find((s) => s.id === id)?.projection && !def) continue;
       if (def) clamped = Math.min(Math.max(v, def.min - 1e-6), def.max + 1e-6);
       out[k] = clamped;
     }
     const merged = { ...defaults, ...out };
     for (const kk of Object.keys(merged)) if (!Number.isFinite(merged[kk])) merged[kk] = defaults[kk] ?? 0;
+    if (!validProjectionPatch(SKETCHES.find((s) => s.id === id), {}, merged)) return defaults;
     return merged;
   }
 
@@ -45,14 +48,14 @@ export function createParamRepository({ dev = false } = {}) {
     let raw = {};
     try {
       const txt = localStorage.getItem(STORAGE.params);
-      if (txt && txt.length > 50000) throw new Error('oversize');
+      if (txt && txt.length > 1000000) throw new Error('oversize');
       raw = JSON.parse(txt) || {};
     } catch {
       raw = {};
     }
     if (typeof raw !== 'object' || raw === null) raw = {};
     const entries = Object.entries(raw);
-    if (entries.length > 80) raw = Object.fromEntries(entries.slice(0, 80));
+    if (entries.length > 256) raw = Object.fromEntries(entries.slice(0, 256));
     if (typeof raw !== 'object' || raw === null) raw = {};
 
     const out = {};
@@ -81,7 +84,7 @@ export function createParamRepository({ dev = false } = {}) {
 
     // Migrate legacy numeric (position-keyed) entries to sketch ids.
     for (const [key, value] of Object.entries(raw)) {
-      if (Object.keys(out).length > 80) break;
+      if (Object.keys(out).length > 256) break;
       const n = parseInt(key, 10);
       if (!Number.isNaN(n) && SKETCHES[n] && !out[SKETCHES[n].id]) {
         const sanitized = sanitizeParamEntry(SKETCHES[n].id, value);
