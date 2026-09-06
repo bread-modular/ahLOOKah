@@ -1,6 +1,6 @@
 // Projection topology is library metadata; geometry and child controls live in
 // the parent's numeric param bank, so CUE copies/TAKE promotes them atomically.
-import { IDENTITY_QUAD, cloneQuad, parseMappingQuad } from '../screen-mapping.js';
+import { IDENTITY_QUAD, cloneQuad, parseMappingQuad, normalizeMappingEdgeBlur, SCREEN_MAPPING_EDGE_BLUR_MAX } from '../screen-mapping.js';
 
 export const PROJECTION_GROUP = 'Projection Mapping';
 export const PROJECTION_STORAGE_KEY = 'viz2_projection_patterns';
@@ -63,6 +63,16 @@ export function surfaceQuadValues(surfaceId, quad) {
     ['x', 'y'].map((axis) => [projectionKey(surfaceId, `${i}${axis}`), point[axis]])));
 }
 
+// Mapping-owned values share the geometry channel, independent of source params.
+export function surfaceEdgeBlur(surface, values = {}) {
+  return normalizeMappingEdgeBlur(values[projectionKey(surface.id, 'mappingEdgeBlur')]);
+}
+
+export function surfaceMappingValues(surfaceId, quad, edgeBlur) {
+  const geometry = surfaceQuadValues(surfaceId, quad);
+  return geometry && { ...geometry, [projectionKey(surfaceId, 'mappingEdgeBlur')]: normalizeMappingEdgeBlur(edgeBlur) };
+}
+
 export function surfaceParamView(surface, sketch, resolveParent) {
   // Getter-backed view retains its identity while LIVE/CUE banks are adopted.
   return Object.defineProperties({}, Object.fromEntries((sketch.params || []).map((def) => [def.key, {
@@ -87,6 +97,8 @@ export function registerProjectionSketches(sketches, snapshot = undefined) {
           key: projectionKey(surface.id, `${i}${axis}`), label: `${i}${axis}`,
           min: 0, max: 1, step: 0.001, default: point[axis], geometry: true,
         }))),
+        { key: projectionKey(surface.id, 'mappingEdgeBlur'), label: 'Edge smoothing',
+          min: 0, max: SCREEN_MAPPING_EDGE_BLUR_MAX, step: 0.5, default: 0, geometry: true },
         ...(child?.params || []).map((def) => ({ ...def, key: projectionKey(surface.id, def.key) })),
       ];
     });

@@ -104,7 +104,7 @@ PORT=8080 ./run.sh  # custom port
 ### Projection mapping patterns
 
 In **Pattern Library → Projection Mapping → ADD**, name your pattern. In the
-third column, click **Add mapping** to open the large mapping editor. Give it a
+third column, click **Add mapping** to open the mapping editor. Give it a
 name (for example, “Left wall”), choose a source pattern, and position its corners. Images and videos loaded through the Media library are also
 available. Mapping patterns cannot contain other mapping patterns.
 
@@ -113,6 +113,10 @@ In the popup, drag the four corner handles to place each surface, or open **Corn
 (Shift for larger steps). Each mapping has its own complete source-parameter
 group, even when multiple mappings use the same source. Corner changes update the
 output **in real time**, and valid name/source/corner edits save automatically.
+**Edge smoothing** softens each mapping's four edges using the same feathering as
+screen mapping (0–25%; off by default), without blurring the picture. It saves
+with the mapping, survives source changes, and works in both GPU and CSS fallback.
+Overlapping mappings blend through their softened edges; interiors remain opaque.
 Name a new mapping to create it; an unnamed mapping is not added. **Close** or
 Escape keeps your changes—there is no separate Save or Cancel. The popup contains no
 source parameters. In the sidebar, each mapping has **Edit** and **Remove** actions;
@@ -120,7 +124,7 @@ click its title to reveal or hide its parameters (collapsed by default). Newly a
 start from that source's current settings; later edits remain independent.
 
 Layouts and parameters persist locally and sync across the control/output
-windows. CUE updates the staged corners and source controls in real time without
+windows. CUE updates the staged corners, edge smoothing and source controls in real time without
 changing LIVE; TAKE applies them
 atomically. Finish or cancel CUE before changing names, assignments, or structure.
 If a replacement cannot start, the previous output stays intact and the third

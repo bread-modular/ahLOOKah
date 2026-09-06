@@ -466,7 +466,8 @@ body.is-screen #config-container {
 
 #config-panel select:hover,
 #config-panel button:hover {
-  background: #222;
+  /* Preserve the shared dropdown chevron while changing its hover fill. */
+  background-color: #222;
   border-color: #444;
 }
 

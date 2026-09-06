@@ -80,43 +80,65 @@
 
 /* Native modal lives in the top layer, not inside the narrow parameter pane. */
 .projection-editor {
-  width: min(1180px, calc(100vw - 48px)); max-width: none; max-height: calc(100dvh - 48px);
-  margin: auto; padding: 0; border: 1px solid #3b424a; border-radius: 12px;
-  color: var(--text-main); background: #121316; box-shadow: 0 24px 80px #000b; overflow: hidden;
+  width: min(920px, calc(100vw - 48px)); max-width: none; max-height: calc(100dvh - 48px);
+  margin: auto; padding: 0; border: 1px solid #383838; border-radius: 10px;
+  color: var(--text-main); background: #141414; box-shadow: 0 24px 80px #000b; overflow: hidden;
+  color-scheme: dark;
 }
-.projection-editor::backdrop { background: #06080bc4; backdrop-filter: blur(5px); }
+.projection-editor::backdrop { background: #060606c4; backdrop-filter: blur(5px); }
 .projection-editor form { display: flex; flex-direction: column; max-height: calc(100dvh - 50px); }
-.projection-editor-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 22px 26px; border-bottom: 1px solid var(--border-gray); }
-.projection-editor-header h2 { margin: 5px 0 0; font-size: 20px; overflow-wrap: anywhere; }
-.projection-editor-header .btn { flex: 0 0 auto; }
-.projection-editor-eyebrow { margin: 0; font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--accent); overflow-wrap: anywhere; }
-.projection-editor-body { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 26px; padding: 24px 26px; min-height: 0; overflow-y: auto; }
-.projection-editor-settings { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
-.projection-editor-settings .projection-source-label { font-size: 12px; font-weight: 600; gap: 9px; }
-.projection-editor-settings input, .projection-editor-settings select {
-  box-sizing: border-box; width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid #3b424a;
-  border-radius: 5px; background: #0b1015; color: var(--text-main); font: inherit; font-size: 12px;
+.projection-editor-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 18px 22px; border-bottom: 1px solid #ffffff12; flex-shrink: 0; }
+.projection-editor-header h2 { margin: 5px 0 0; font-size: 18px; font-weight: 600; overflow-wrap: anywhere; }
+.projection-editor-header .btn { flex: 0 0 auto; border-color: transparent; }
+.projection-editor-eyebrow { margin: 0; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: #a3a3a3; overflow-wrap: anywhere; }
+.projection-editor-body { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 24px; padding: 22px; min-height: 0; overflow-y: auto; }
+.projection-editor-settings { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.projection-editor-settings .projection-source-label { font-size: 12px; font-weight: 500; gap: 8px; }
+.projection-editor-settings input[type="text"], .projection-editor-settings select {
+  box-sizing: border-box; width: 100%; min-width: 0; height: 36px; border: 1px solid #3a3a3a;
+  border-radius: 5px; background-color: #101010; color: var(--text-main); font: inherit; font-size: 12px;
+  text-transform: none; letter-spacing: normal;
 }
+.projection-editor-settings input[type="text"] { padding: 8px 10px; }
+.projection-editor-settings select { padding: 8px 32px 8px 10px; }
 .projection-editor :is(input, select, button):disabled { opacity: .45; cursor: not-allowed; }
-.projection-editor :is(input, select, button):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.projection-editor .projection-hint, .projection-editor .projection-warning { font-size: 12px; }
+.projection-editor :is(input, select, button, summary):focus-visible { outline: 1px solid #b0b0b0; outline-offset: 3px; border-color: #888; }
+.projection-editor :is(input[type="text"], input[type="number"]):focus { border-color: #888; }
+.projection-editor .btn { text-transform: none; letter-spacing: normal; font-weight: 500; }
+.projection-editor .btn:hover:not(:disabled) { color: #f5f5f5; border-color: #777; background: #ffffff0d; }
+.projection-editor .btn--solid { background: #e0e0e0; border-color: #e0e0e0; color: #181818; padding-inline: 20px; }
+.projection-editor .btn--solid:hover:not(:disabled) { background: #fff; border-color: #fff; color: #181818; }
+.projection-editor .projection-hint, .projection-editor .projection-warning { font-size: 11px; line-height: 1.5; }
+.projection-editor .projection-source-help { margin-top: -10px; }
+.projection-edge-control { display: flex; flex-direction: column; gap: 8px; padding-top: 18px; border-top: 1px solid #ffffff12; }
+.projection-edge-control .param-head { gap: 10px; }
+.projection-edge-control .param-head label { font-size: 12px; font-weight: 500; }
+.projection-edge-control .param-value { color: #ccc; font-size: 11px; font-weight: 400; }
+.projection-editor input[type="range"]::-webkit-slider-thumb { background: #d0d0d0; border-color: #202020; }
+.projection-editor input[type="range"]::-moz-range-thumb { background: #d0d0d0; border-color: #202020; }
 .projection-editor-workspace { min-width: 0; }
-.projection-editor-canvas-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; margin-bottom: 14px; }
-.projection-editor-canvas-heading span { color: var(--text-dim); font-size: 11px; }
-.projection-editor .projection-quad-editor { box-sizing: border-box; margin: 8px 0 16px; width: min(100%, calc(42dvh * var(--projection-aspect))); align-self: center; }
-.projection-editor .projection-coordinates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 20px; margin-top: 14px; }
-.projection-editor .projection-coordinates input { box-sizing: border-box; font-size: 12px; }
-.projection-editor .projection-geometry > .btn { align-self: flex-start; margin-top: 8px; font-size: 10px; }
-.projection-editor-footer { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 18px 26px; border-top: 1px solid var(--border-gray); }
-.projection-editor-actions { display: flex; flex: 0 0 auto; gap: 10px; }
-@media (max-width: 760px) {
+.projection-editor-canvas-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+.projection-editor-canvas-heading strong { font-weight: 500; }
+.projection-editor-canvas-heading span { color: var(--text-dim); font-size: 10px; font-variant-numeric: tabular-nums; }
+.projection-editor .projection-canvas-help { margin: 6px 0 14px; }
+.projection-canvas { display: flex; justify-content: center; align-items: center; min-width: 0; padding: 20px; border: 1px solid #ffffff12; border-radius: 6px; background: #0c0c0c; }
+.projection-editor .projection-quad-editor { box-sizing: border-box; margin: 0; width: min(100%, calc(40dvh * var(--projection-aspect))); flex: 0 1 auto; }
+.projection-editor .projection-keyboard-help { font-size: 10px; }
+.projection-editor .projection-geometry details { border-top: 1px solid #ffffff12; padding-top: 12px; }
+.projection-editor .projection-geometry summary { color: #bbb; width: fit-content; }
+.projection-editor .projection-coordinates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; margin-top: 12px; }
+.projection-editor .projection-coordinates input { box-sizing: border-box; font-size: 11px; background: #101010; border-color: #3a3a3a; }
+.projection-editor .projection-geometry > .btn { align-self: flex-start; margin-top: 2px; font-size: 11px; padding: 6px 10px; }
+.projection-editor-footer { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 14px 22px; border-top: 1px solid #ffffff12; flex-shrink: 0; }
+.projection-editor-actions { display: flex; flex: 0 0 auto; gap: 10px; flex-wrap: wrap; }
+@media (max-width: 700px) {
   .projection-editor { width: calc(100vw - 24px); max-height: calc(100dvh - 24px); }
   .projection-editor form { max-height: calc(100dvh - 26px); }
-  .projection-editor-header, .projection-editor-footer { padding: 16px; }
-  .projection-editor-header h2 { font-size: 17px; }
+  .projection-editor-header, .projection-editor-footer { padding: 14px 16px; }
+  .projection-editor-header h2 { font-size: 16px; }
   .projection-editor-body { grid-template-columns: minmax(0, 1fr); padding: 16px; gap: 24px; }
-  .projection-editor-settings { gap: 12px; }
-  .projection-editor-footer { align-items: stretch; flex-direction: column; gap: 12px; }
-  .projection-editor-actions { justify-content: flex-end; }
+  .projection-editor-settings { gap: 16px; }
+  .projection-editor-footer { gap: 12px; flex-wrap: wrap; }
+  .projection-editor-actions { margin-left: auto; justify-content: flex-end; }
   .projection-editor .projection-coordinates { grid-template-columns: minmax(0, 1fr); }
 }

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { registerProjectionSketches, surfaceEdgeBlur, surfaceMappingValues, validProjectionPatch } from '../src/projection/projection-registry.js';
 
 test.setTimeout(90000);
 test.use({ launchOptions: { args: [
@@ -117,7 +118,8 @@ test('create named mapping patterns and surfaces, assign sources, rename and rem
   for (const name of ['Left wall', 'Ceiling']) {
     await control.getByRole('button', { name: 'Add mapping', exact: true }).click();
     await control.getByRole('dialog').getByRole('textbox', { name: 'Mapping name', exact: true }).fill(name);
-    await expect(control.getByRole('dialog').locator('.param-row')).toHaveCount(0);
+    await expect(control.getByRole('dialog').getByRole('slider', { name: 'Edge smoothing' })).toBeVisible();
+    await expect(control.getByRole('dialog').locator('.param-row')).toHaveCount(1);
     await closeMapping(control);
     await expect(control.getByRole('region', { name: `${name} mapping`, exact: true })).toBeVisible();
   }
@@ -163,7 +165,8 @@ test('renders independent duplicate patterns, bypasses global warp, persists >16
   await page.reload();
   await expect.poll(() => page.evaluate(() => window.__viz?.params?.['sleft:0x'])).toBe(.1);
   await expectWalls(page);
-  expect(await page.evaluate(() => Object.keys(window.__viz.params).length)).toBe(24);
+  expect(await page.evaluate(() => Object.keys(window.__viz.params).length)).toBe(26); // 9 mapping + 4 source values per surface.
+  expect(await page.evaluate(() => window.__viz.params['sleft:mappingEdgeBlur'])).toBe(0);
   await control.reload();
   await expect(control.locator('.projection-surface')).toHaveCount(2);
   await expect(control.locator('#screen-mapping')).toContainText('Bypassed');
@@ -472,8 +475,9 @@ test('mapping popup autosaves while sidebar parameters stay independently collap
   await control.locator('#controls-pane').screenshot({ path: testInfo.outputPath('mapping-sidebar.png') });
 
   let editor = await editMapping(control, 'Left wall');
-  await expect(editor.locator('.param-row')).toHaveCount(0);
-  expect((await editor.boundingBox()).width).toBeGreaterThan(1000);
+  await expect(editor.locator('.param-row')).toHaveCount(1);
+  expect((await editor.boundingBox()).width).toBeGreaterThan(800);
+  expect((await editor.boundingBox()).width).toBeLessThan(1000);
   await editor.getByLabel('Mapping name', { exact: true }).fill('Front wall');
   await editor.getByLabel('Source pattern').selectOption('color-bars');
   // Name/source and corner edits autosave while the popup stays open.
@@ -486,7 +490,7 @@ test('mapping popup autosaves while sidebar parameters stay independently collap
   await editor.locator('summary').click();
   await expect(editor.getByRole('spinbutton', { name: 'Front wall TL X', exact: true })).toHaveValue('12');
   await expect.poll(() => page.evaluate(() => window.__viz.params['sleft:0x'])).toBeCloseTo(.12, 5);
-  await expect(editor.locator('.projection-editor-footer')).toContainText('Changes saved automatically');
+  await expect(editor.locator('.projection-editor-footer')).toContainText('All changes saved');
   await control.screenshot({ path: testInfo.outputPath('mapping-editor-desktop.png') });
   await closeMapping(control);
   await expect(control.getByRole('dialog')).toHaveCount(0);
@@ -716,6 +720,8 @@ test('rapid autosaved names and sources serialize while keeping the newest geome
     };
   });
   const editor = await editMapping(control, 'Left wall');
+  await smoothing(editor, 8.5);
+  await expect.poll(() => page.evaluate(() => window.__viz.params['sleft:mappingEdgeBlur'])).toBe(8.5);
   await editor.getByLabel('Source pattern').selectOption('color-bars');
   await expect.poll(() => page.evaluate(() => window.__metadataEchoes.length)).toBe(1);
   await editor.getByLabel('Mapping name', { exact: true }).fill('Final wall');
@@ -736,6 +742,7 @@ test('rapid autosaved names and sources serialize while keeping the newest geome
     { id: 'sleft', name: 'Final wall', patternId: 'solid-color' }, META.surfaces[1],
   ]);
   expect(await page.evaluate(() => window.__viz.params['sleft:0x'])).toBe(.1535);
+  expect(await page.evaluate(() => window.__viz.params['sleft:mappingEdgeBlur'])).toBe(8.5);
 });
 
 test('unnamed geometry waits for a name, creates once, and flushes the latest edits on Close', async ({ context, page }) => {
@@ -744,6 +751,7 @@ test('unnamed geometry waits for a name, creates once, and flushes the latest ed
   await expectWalls(page);
   await control.getByRole('button', { name: 'Add mapping', exact: true }).click();
   const editor = control.getByRole('dialog');
+  await smoothing(editor, 6);
   await editor.locator('summary').click();
   await editor.getByRole('spinbutton', { name: 'New mapping TL X', exact: true }).fill('12.35');
   await control.waitForTimeout(5100); // An unnamed local mapping is not a failed autosave.
@@ -751,6 +759,7 @@ test('unnamed geometry waits for a name, creates once, and flushes the latest ed
   expect(await control.evaluate(() => JSON.parse(localStorage.getItem('viz2_projection_patterns'))[0].surfaces.length)).toBe(2);
   await editor.getByLabel('Mapping name', { exact: true }).fill('Ceiling');
   await editor.getByRole('spinbutton', { name: 'Ceiling TL X', exact: true }).fill('15.35');
+  await smoothing(editor, 12.5);
   await control.keyboard.press('Escape'); // Also flushes a newly named surface before its ACK.
   await expect(control.getByRole('dialog')).toHaveCount(0);
   const row = control.getByRole('region', { name: 'Ceiling mapping', exact: true });
@@ -758,6 +767,12 @@ test('unnamed geometry waits for a name, creates once, and flushes the latest ed
   await expect(control.locator('.projection-surface')).toHaveCount(3);
   const id = await row.getAttribute('data-surface-id');
   expect(await page.evaluate((id) => window.__viz.params[`${id}:0x`], id)).toBe(.1535);
+  expect(await page.evaluate((id) => window.__viz.params[`${id}:mappingEdgeBlur`], id)).toBe(12.5);
+  const reopened = await editMapping(control, 'Ceiling');
+  await expect(reopened.getByRole('slider', { name: 'Edge smoothing' })).toHaveValue('12.5');
+  await closeMapping(control);
+  await page.reload();
+  await expect.poll(() => page.evaluate((id) => window.__viz?.params?.[`${id}:mappingEdgeBlur`], id)).toBe(12.5);
 });
 
 test('closing after autosave failure is explicit and external topology is not overwritten', async ({ context, page }) => {
@@ -922,3 +937,170 @@ for (const global of [null, GLOBAL]) {
     await assertBypass();
   });
 }
+
+async function smoothing(editor, value) {
+  await editor.getByRole('slider', { name: 'Edge smoothing' }).fill(String(value));
+}
+
+test('mapping editor shares Media dropdown chrome and has neutral focus at desktop, portrait and short sizes', async ({ context, page }, testInfo) => {
+  await seed(context);
+  const control = await open(context, page, { width: 405, height: 819 });
+  const editor = await editMapping(control, 'Left wall');
+  const source = editor.getByLabel('Source pattern');
+  await expect(source).toHaveClass(/control-select/);
+  await expect(source.locator('optgroup')).not.toHaveCount(0);
+  await expect(source.locator('option[value^="projection-"]')).toHaveCount(0);
+  await expect(source).toHaveCSS('appearance', 'none');
+  await expect(source).toHaveCSS('background-repeat', 'no-repeat');
+  await expect(source).toHaveCSS('background-size', '12px');
+  await expect(source).toHaveCSS('background-image', /data:image\/svg\+xml/);
+  await source.hover();
+  await expect(source).toHaveCSS('background-image', /data:image\/svg\+xml/);
+  await expect(editor.getByLabel('Mapping name', { exact: true })).toBeFocused();
+  await control.keyboard.press('Tab'); // Establish keyboard focus-visible modality.
+  for (const input of [editor.getByLabel('Mapping name', { exact: true }), source,
+    editor.getByRole('button', { name: 'Close mapping editor', exact: true }),
+    editor.getByRole('slider', { name: 'Edge smoothing' })]) {
+    await input.focus();
+    await expect(input).toHaveCSS('outline-color', 'rgb(176, 176, 176)');
+    await expect(input).toHaveCSS('outline-style', 'solid');
+  }
+  const close = editor.getByRole('button', { name: 'Close mapping editor', exact: true });
+  await close.hover();
+  await expect(close).toHaveCSS('border-top-color', 'rgb(119, 119, 119)');
+  await editor.locator('summary').click();
+  const coordinate = editor.getByRole('spinbutton', { name: 'Left wall TL X', exact: true });
+  await coordinate.focus();
+  await expect(coordinate).toHaveCSS('outline-color', 'rgb(176, 176, 176)');
+  await editor.locator('summary').click();
+  await smoothing(editor, 10);
+  await expect(editor.locator('.projection-editor-footer')).toContainText('All changes saved');
+  for (const [width, height, name] of [[1280, 800, 'desktop-portrait'], [420, 780, 'mobile'], [920, 460, 'short']]) {
+    await control.setViewportSize({ width, height });
+    const bounds = await editor.boundingBox();
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.y).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(height);
+    expect(await editor.locator('.projection-editor-body').evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await expect(editor.getByRole('button', { name: 'Close', exact: true })).toBeInViewport();
+    await control.screenshot({ path: testInfo.outputPath(`clean-editor-${name}.png`) });
+    const reset = editor.getByRole('button', { name: 'Reset mapping to full frame' });
+    await reset.scrollIntoViewIfNeeded();
+    await expect(reset).toBeInViewport();
+    await editor.getByLabel('Mapping name', { exact: true }).scrollIntoViewIfNeeded();
+  }
+  await closeMapping(control);
+});
+
+test('per-surface smoothing feathers all four edges and overlaps identically in GPU and CSS, including static sources', async ({ context, page }, testInfo) => {
+  await context.route('**/src/sketches/solid_color.js', async (route) => {
+    const response = await route.fetch();
+    const source = await response.text();
+    await route.fulfill({ response, body: source.slice(0, source.indexOf('export default')) + `
+      export default (audio, videoDeviceId, params) => (p) => {
+        p.setup = () => { p.createCanvas(p.windowWidth, p.windowHeight); p.noLoop(); };
+        p.draw = () => { p.background(params.hue < 0.1 ? '#ff0000' : '#00ff00'); };
+        p.windowResized = () => p.resizeCanvas(p.windowWidth, p.windowHeight);
+      };
+    ` });
+  });
+  await seed(context, { values: { ...VALUES,
+    ...geometry('sleft', rectangle(0, 0, 1, 1)), ...geometry('sright', rectangle(.25, .25, .75, .75)),
+  } });
+  const control = await open(context, page, { width: 400, height: 400 });
+  const points = [[.5, .5], [.3125, .5], [.6875, .5], [.5, .3125], [.5, .6875], [.3125, .3125], [.1, .5]];
+  await expect.poll(() => colors(page, points)).toEqual([
+    [0, 255, 0], [0, 255, 0], [0, 255, 0], [0, 255, 0], [0, 255, 0], [0, 255, 0], [255, 0, 0],
+  ]);
+  const editor = await editMapping(control, 'Right wall');
+  await expect(editor.getByRole('slider', { name: 'Edge smoothing' })).toHaveValue('0');
+  await smoothing(editor, 25);
+  await expect.poll(() => page.evaluate(() => window.__viz.params['sright:mappingEdgeBlur'])).toBe(25);
+  await expect.poll(async () => (await colors(page, points))[1][0]).toBeGreaterThan(100);
+  const gpu = await colors(page, points);
+  expect(gpu[0]).toEqual([0, 255, 0]);
+  for (const edge of gpu.slice(1, 5)) {
+    expect(edge[0]).toBeGreaterThan(110); expect(edge[0]).toBeLessThan(145);
+    expect(edge[1]).toBeGreaterThan(110); expect(edge[1]).toBeLessThan(145);
+  }
+  expect(gpu[5][0]).toBeGreaterThan(175); expect(gpu[5][1]).toBeLessThan(80);
+  expect(gpu[6]).toEqual([255, 0, 0]);
+  await page.screenshot({ path: testInfo.outputPath('edge-smoothing-gpu.png') });
+  await page.locator('.program-layer-live .projection-output').evaluate((canvas) => canvas.getContext('webgl2').getExtension('WEBGL_lose_context').loseContext());
+  await expect(page.locator('.program-layer-live .projection-layer')).toHaveAttribute('data-fallback', 'true');
+  const fallback = await colors(page, points);
+  fallback.forEach((pixel, i) => pixel.forEach((channel, c) => expect(Math.abs(channel - gpu[i][c])).toBeLessThan(8)));
+  await page.screenshot({ path: testInfo.outputPath('edge-smoothing-css.png') });
+  await smoothing(editor, 0);
+  await expect.poll(() => colors(page, points)).toEqual([
+    [0, 255, 0], [0, 255, 0], [0, 255, 0], [0, 255, 0], [0, 255, 0], [0, 255, 0], [255, 0, 0],
+  ]);
+  await closeMapping(control);
+});
+
+for (const scope of ['live', 'cue']) {
+  test(`edge smoothing A→B→A waits for the latest ${scope} acknowledgement`, async ({ context, page }) => {
+    await seed(context, { values: { ...VALUES, 'sleft:mappingEdgeBlur': 5 } });
+    const control = await open(context, page);
+    if (scope === 'cue') {
+      await control.locator(`.library-btn[data-id="${ID}"]`).click({ modifiers: ['Shift'] });
+      await expect.poll(() => page.evaluate(() => window.__viz.cue?.phase)).toBe('same');
+    }
+    const editor = await editMapping(control, 'Left wall');
+    await page.evaluate((scope) => {
+      const post = BroadcastChannel.prototype.postMessage;
+      const echoes = [];
+      window.__restoreSmoothingEchoes = () => {
+        BroadcastChannel.prototype.postMessage = post;
+        echoes.forEach((flush) => flush());
+      };
+      BroadcastChannel.prototype.postMessage = function(message) {
+        if ((scope === 'live' && message.type === 'live-params') || (scope === 'cue' && message.type === 'cue-state')) {
+          echoes.push(() => post.call(this, message));
+        } else post.call(this, message);
+      };
+    }, scope);
+    await smoothing(editor, 15);
+    const accepted = () => page.evaluate((scope) => (scope === 'cue' ? window.__viz.cueParams['projection-test'] : window.__viz.params)['sleft:mappingEdgeBlur'], scope);
+    await expect.poll(accepted).toBe(15);
+    if (scope === 'cue') expect(await page.evaluate(() => window.__viz.params['sleft:mappingEdgeBlur'])).toBe(5);
+    await smoothing(editor, 5);
+    await editor.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(editor).toBeVisible();
+    await page.evaluate(() => window.__restoreSmoothingEchoes());
+    await expect(control.getByRole('dialog')).toHaveCount(0);
+    await expect.poll(accepted).toBe(5);
+    const reopened = await editMapping(control, 'Left wall');
+    await smoothing(reopened, 12.5);
+    await closeMapping(control);
+    if (scope === 'cue') {
+      expect(await page.evaluate(() => window.__viz.params['sleft:mappingEdgeBlur'])).toBe(5);
+      await control.keyboard.press('Enter');
+      await expect.poll(() => page.evaluate(() => window.__viz.cue)).toBe(null);
+    }
+    await expect.poll(() => page.evaluate(() => window.__viz.params['sleft:mappingEdgeBlur'])).toBe(12.5);
+    await page.reload();
+    await expect.poll(() => page.evaluate(() => window.__viz?.params?.['sleft:mappingEdgeBlur'])).toBe(12.5);
+  });
+}
+
+
+test('mapping smoothing defaults to off and validates independently of source controls', () => {
+  const sketches = [{ id: 'solid-color', params: [{ key: 'hue', min: 0, max: 1, default: 0 }] }];
+  registerProjectionSketches(sketches, [META]);
+  const sketch = sketches.find((entry) => entry.id === ID);
+  expect(sketch.params.find((def) => def.key === 'sleft:mappingEdgeBlur')).toMatchObject({
+    geometry: true, default: 0, min: 0, max: 25, step: 0.5,
+  });
+  expect(surfaceEdgeBlur(META.surfaces[0], VALUES)).toBe(0);
+  expect(surfaceEdgeBlur(META.surfaces[0], { 'sright:mappingEdgeBlur': 20 })).toBe(0);
+  for (const invalid of [-1, 26, NaN, Infinity, '5', null]) {
+    expect(validProjectionPatch(sketch, VALUES, { 'sleft:mappingEdgeBlur': invalid })).toBe(false);
+  }
+  expect(validProjectionPatch(sketch, VALUES, { 'sleft:mappingEdgeBlur': 12.5 })).toBe(true);
+  const patch = surfaceMappingValues('sleft', rectangle(.1, .1, .9, .9), 15);
+  expect(patch['sleft:mappingEdgeBlur']).toBe(15);
+  expect(Object.keys(patch)).toHaveLength(9);
+  expect(patch).not.toHaveProperty('sleft:hue');
+});

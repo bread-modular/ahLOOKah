@@ -81,6 +81,12 @@ test.describe('media patterns', () => {
     // Scaling renders as a dropdown (def.options) — switch modes and confirm
     // the pattern keeps playing and the shown label follows.
     const scalingSelect = control.locator('select.param-select[data-key="scaleMode"]');
+    await expect(scalingSelect).toHaveClass(/control-select/);
+    await expect(scalingSelect).toHaveCSS('appearance', 'none');
+    await expect(scalingSelect).toHaveCSS('background-image', /data:image\/svg\+xml/);
+    await expect(scalingSelect).toHaveCSS('height', '26px');
+    await scalingSelect.hover();
+    await expect(scalingSelect).toHaveCSS('background-image', /data:image\/svg\+xml/);
     await expect(scalingSelect).toBeVisible();
     await expect(scalingSelect).toHaveValue('2');
     await scalingSelect.selectOption({ label: 'Fit Width' });

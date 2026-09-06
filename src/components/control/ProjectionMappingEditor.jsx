@@ -3,9 +3,11 @@ import { createPortal } from 'react-dom';
 import { SKETCHES, getGroups, getSketchesByGroup } from '../../sketch-registry.js';
 import { useRuntime } from '../../app/RuntimeContext.jsx';
 import { useVizStore } from '../../state/useVizStore.js';
-import { IDENTITY_QUAD, cloneQuad, parseMappingQuad, quadToPointsString, SCREEN_MAPPING_CORNER_LABELS } from '../../screen-mapping.js';
-import { PROJECTION_GROUP, surfaceQuad } from '../../projection/projection-registry.js';
+import { IDENTITY_QUAD, cloneQuad, parseMappingQuad, quadToPointsString, SCREEN_MAPPING_CORNER_LABELS, SCREEN_MAPPING_EDGE_BLUR_MAX } from '../../screen-mapping.js';
+import { PROJECTION_GROUP, surfaceQuad, surfaceEdgeBlur } from '../../projection/projection-registry.js';
 
+import { Select } from './Select.jsx';
+import { ParamSlider } from './ParamSlider.jsx';
 import { useProjectionAutosave } from './useProjectionAutosave.js';
 
 // Child controls stay in the sidebar; mapping edits are applied as you work.
@@ -24,8 +26,9 @@ export function ProjectionMappingEditor({ sketch, surface, isNew, scope, locked,
   const [name, setName] = useState(surface.name);
   const [patternId, setPatternId] = useState(surface.patternId);
   const [quad, setQuad] = useState(() => isNew ? cloneQuad(IDENTITY_QUAD) : surfaceQuad(surface, runtime.getEditingParams(sketch.id)));
+  const [edgeBlur, setEdgeBlur] = useState(() => isNew ? 0 : surfaceEdgeBlur(surface, runtime.getEditingParams(sketch.id)));
   const [geometryEdited, setGeometryEdited] = useState(false);
-  const autosave = useProjectionAutosave({ runtime, store, sketch, surface, name, setName, patternId, quad,
+  const autosave = useProjectionAutosave({ runtime, store, sketch, surface, name, setName, patternId, quad, edgeBlur,
     geometryEdited, locked, structuralLock, onClose });
   const child = SKETCHES.find((s) => s.id === patternId && !s.projection);
   const currentSurface = sketch.surfaces.find((s) => s.id === surface.id);
@@ -38,7 +41,7 @@ export function ProjectionMappingEditor({ sketch, surface, isNew, scope, locked,
     const trigger = document.activeElement;
     runtime.commands.clearPatternKeys();
     dialog.showModal();
-    dialog.querySelector('input:not(:disabled), select:not(:disabled), button')?.focus();
+    (dialog.querySelector('input:not(:disabled)') || dialog.querySelector('button'))?.focus();
     return () => {
       dialog.close();
       if (trigger?.isConnected) trigger.focus();
@@ -51,7 +54,9 @@ export function ProjectionMappingEditor({ sketch, surface, isNew, scope, locked,
       <header className="projection-editor-header">
         <div><p className="projection-editor-eyebrow">{sketch.name} · {scope === 'cue' ? 'CUE' : 'LIVE'}</p>
           <h2 id={titleId}>{!currentSurface ? 'Add mapping' : `Edit mapping — ${currentSurface.name}`}</h2></div>
-        <button type="button" className="btn btn--icon" aria-label="Close mapping editor" onClick={autosave.close}>×</button>
+        <button type="button" className="btn btn--icon" aria-label="Close mapping editor" onClick={autosave.close}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+        </button>
       </header>
       <div className="projection-editor-body">
         <aside className="projection-editor-settings">
@@ -59,22 +64,28 @@ export function ProjectionMappingEditor({ sketch, surface, isNew, scope, locked,
             <input type="text" maxLength={80} required placeholder="e.g. Left wall" value={name} disabled={disabled || structuralLock} onChange={(event) => setName(event.target.value)} />
           </label>
           <label className="projection-source-label">Source pattern
-            <select className="projection-source" value={patternId} disabled={disabled || structuralLock} onChange={(event) => setPatternId(event.target.value)}>
+            <Select className="projection-source" value={patternId} disabled={disabled || structuralLock} onChange={(event) => setPatternId(event.target.value)}>
               {!child && <option value={patternId}>Missing pattern — choose a replacement</option>}
               {getGroups().filter((group) => group !== PROJECTION_GROUP).map((group) => <optgroup key={group} label={group}>
                 {getSketchesByGroup(group).filter((s) => !s.projection).map((s) => <option key={s.id} value={s.id}>{s.name}{s.media ? ` (${s.kind})` : ''}</option>)}
               </optgroup>)}
-            </select>
+            </Select>
           </label>
-          <p id={hintId} className="projection-hint">Choose a pattern, image, or video. Drag the four corners to position this mapping on the output.</p>
-          <p className="projection-hint">Faint outlines show the other mappings. Use arrow keys on a corner for fine adjustments, or Shift + arrows for larger steps.</p>
-          <p className="projection-hint">Changes save automatically. Pattern parameters are available in the sidebar.</p>
-          {cue && <p className="projection-warning">CUE: corners update the staged mapping only. LIVE stays unchanged until TAKE. Name and source stay locked.</p>}
+          <p className="projection-hint projection-source-help">Patterns, images and videos. Source controls stay in the sidebar.</p>
+          <div className="projection-edge-control">
+            <ParamSlider scope={scope} id={surface.id}
+              def={{ key: 'mappingEdgeBlur', label: 'Edge smoothing', min: 0, max: SCREEN_MAPPING_EDGE_BLUR_MAX, step: 0.5 }}
+              getValue={() => edgeBlur} onChange={(value) => { setEdgeBlur(value); setGeometryEdited(true); }}
+              valueFormat={(value) => value === 0 ? 'Off' : `${value}%`} disabled={disabled} />
+            <p className="projection-hint">Soften all four edges for a smoother blend. Keeps the picture sharp.</p>
+          </div>
+          {cue && <p className="projection-warning">Corners and smoothing are staged in CUE. TAKE applies them to LIVE. Name and source are locked.</p>}
           {!child && <p className="projection-warning">This source is unavailable. The mapping will remain black until a replacement is selected.</p>}
           {child?.camera && <p className="projection-hint">Camera input renders on the output only.</p>}
         </aside>
         <main className="projection-editor-workspace">
           <div className="projection-editor-canvas-heading"><strong>Output mapping</strong><span>{resolution ? `${resolution.width} × ${resolution.height}` : '16:9 output'}</span></div>
+          <p id={hintId} className="projection-hint projection-canvas-help">Drag corners to fit the output. Faint outlines show other mappings.</p>
           <ProjectionQuadEditor quad={quad} name={name.trim() || 'New mapping'} locked={disabled} resolution={resolution}
             others={sketch.surfaces.filter((s) => s.id !== surface.id).map((s) => surfaceQuad(s, currentValues))} onChange={changeQuad} />
         </main>
@@ -84,8 +95,8 @@ export function ProjectionMappingEditor({ sketch, surface, isNew, scope, locked,
           {autosave.error ? <p role="alert" className="projection-warning">{autosave.error}</p>
             : <p className="projection-hint">{!name.trim() ? (currentSurface ? 'Enter a name. The last saved name is kept while this is empty.' : 'Enter a name to create this mapping automatically.')
               : autosave.saving ? 'Saving changes…'
-                : cue ? 'Changes staged automatically · TAKE to apply to LIVE.'
-                  : screenOnline ? 'Changes saved automatically · Close keeps your changes.' : 'Saved locally · Output is offline.'}</p>}
+                : cue ? 'Changes staged · TAKE to apply'
+                  : screenOnline ? 'All changes saved' : 'Saved locally · Output is offline.'}</p>}
           {failure?.selection?.ids.includes(sketch.id) && <p role="alert" className="projection-warning">
             Output kept the previous layout: {failure.error}
           </p>}
@@ -126,6 +137,7 @@ function ProjectionQuadEditor({ quad, others, name, resolution, onChange, locked
     setDraft(null);
   };
   return <div className="projection-geometry">
+    <div className="projection-canvas">
     <svg ref={svg} className={`projection-quad-editor${invalid ? ' is-invalid' : ''}`} viewBox="0 0 100 100" preserveAspectRatio="none"
       style={{ aspectRatio: resolution ? `${resolution.width} / ${resolution.height}` : '16 / 9', '--projection-aspect': resolution ? resolution.width / resolution.height : 16 / 9 }} aria-label={`${name} corner editor`}>
       <defs><pattern id={gridId} width="10" height="10" patternUnits="userSpaceOnUse"><path d="M 10 0 L 0 0 0 10" fill="none" stroke="#ffffff12" strokeWidth="0.15" /></pattern></defs>
@@ -153,6 +165,8 @@ function ProjectionQuadEditor({ quad, others, name, resolution, onChange, locked
           }} />
       </g>)}
     </svg>
+    </div>
+    <p className="projection-hint projection-keyboard-help">Arrow keys to fine-tune · Shift for larger steps</p>
     <details><summary>Corner positions (%)</summary><div className="projection-coordinates">
       {quad.map((point, i) => <div key={i}><span>{SCREEN_MAPPING_CORNER_LABELS[i]}</span>
         {['x', 'y'].map((axis) => <label key={axis}>{axis.toUpperCase()}

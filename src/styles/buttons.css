@@ -112,7 +112,22 @@
 /* Selects share the button metrics (common control style) but render their
    own chevron — the native arrow is removed so it can't sit at a weird
    offset; the custom one is pinned right-center. */
-#config-panel select {
+.control-select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border-gray);
+  border-radius: 5px;
+  padding: 8px 30px 8px 10px;
+  background-color: #111;
+  color: var(--text-main);
+  font: inherit;
+  cursor: pointer;
+  color-scheme: dark;
+}
+
+#config-panel select,
+.control-select {
   -webkit-appearance: none;
   appearance: none;
   font-size: 0.75rem;
