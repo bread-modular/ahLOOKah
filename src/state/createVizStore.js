@@ -35,6 +35,7 @@ export function createVizStore(role) {
     // the output window's innerWidth/innerHeight reported over the bus.
     screenMappingEnabled: false,
     screenMappingQuad: null,
+    screenMappingEdgeBlur: 0, // inward feather width, percent of each source axis
     screenResolution: null,
 
     // audio

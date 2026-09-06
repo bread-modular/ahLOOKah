@@ -94,7 +94,8 @@
 }
 
 #params-list input[type="range"],
-#post-fx-list input[type="range"] {
+#post-fx-list input[type="range"],
+.screen-mapping-body input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
@@ -109,14 +110,16 @@
 }
 
 #params-list input[type="range"]::-webkit-slider-runnable-track,
-#post-fx-list input[type="range"]::-webkit-slider-runnable-track {
+#post-fx-list input[type="range"]::-webkit-slider-runnable-track,
+.screen-mapping-body input[type="range"]::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 2px;
   background: #2a2a2a;
 }
 
 #params-list input[type="range"]::-webkit-slider-thumb,
-#post-fx-list input[type="range"]::-webkit-slider-thumb {
+#post-fx-list input[type="range"]::-webkit-slider-thumb,
+.screen-mapping-body input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   /* (track 4px - thumb 14px) / 2 = -5px centers the thumb on the track */
@@ -131,19 +134,22 @@
 }
 
 #params-list input[type="range"]::-webkit-slider-thumb:hover,
-#post-fx-list input[type="range"]::-webkit-slider-thumb:hover {
+#post-fx-list input[type="range"]::-webkit-slider-thumb:hover,
+.screen-mapping-body input[type="range"]::-webkit-slider-thumb:hover {
   transform: scale(1.15);
 }
 
 #params-list input[type="range"]::-moz-range-track,
-#post-fx-list input[type="range"]::-moz-range-track {
+#post-fx-list input[type="range"]::-moz-range-track,
+.screen-mapping-body input[type="range"]::-moz-range-track {
   height: 4px;
   border-radius: 2px;
   background: #2a2a2a;
 }
 
 #params-list input[type="range"]::-moz-range-thumb,
-#post-fx-list input[type="range"]::-moz-range-thumb {
+#post-fx-list input[type="range"]::-moz-range-thumb,
+.screen-mapping-body input[type="range"]::-moz-range-thumb {
   width: 14px;
   height: 14px;
   border-radius: 50%;
@@ -152,3 +158,12 @@
   cursor: pointer;
 }
 
+.screen-mapping-body input[type="range"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.screen-mapping-body input[type="range"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

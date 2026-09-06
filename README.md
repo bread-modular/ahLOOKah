@@ -90,7 +90,11 @@ PORT=8080 ./run.sh  # custom port
   keystone correction. Mapped output uses a WebGL2 4×4 subpixel sampling pass
   (16 samples per physical output pixel) to antialias sloping edges and gaps,
   after merge and post-FX. It keeps sketch backing resolutions unchanged and
-  runs only for an enabled, non-identity mapping. CSS mapping remains the
+  runs only when mapping is enabled and the quad is warped or edge blurring is on.
+  **Edge blurring** (0–25%) gently fades all four edges into black; higher values
+  widen the blend without softening the picture itself. At 0% it is off. The
+  setting persists with your screen calibration, including across CUE/TAKE, and
+  works in full-frame mode too. CSS mapping with an edge mask remains the
   hit-testing/failure fallback; disabling mapping releases the extra GPU resources.
 
 ## 🧪 Testing

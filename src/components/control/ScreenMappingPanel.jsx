@@ -4,11 +4,13 @@ import { useVizStore } from '../../state/useVizStore.js';
 import {
   IDENTITY_QUAD,
   SCREEN_MAPPING_CORNER_LABELS,
+  SCREEN_MAPPING_EDGE_BLUR_MAX,
   cloneQuad,
   isIdentityQuad,
   parseMappingQuad,
   quadToPointsString,
 } from '../../screen-mapping.js';
+import { ParamSlider } from './ParamSlider.jsx';
 import { ICON_RESET } from '../common/icons.jsx';
 
 const CORNER_HAND_CURSOR = { tl: 'nwse-resize', tr: 'nesw-resize', br: 'nwse-resize', bl: 'nesw-resize' };
@@ -26,6 +28,7 @@ export function ScreenMappingPanel() {
   const { runtime, store } = useRuntime();
   const quad = useVizStore(store, (s) => s.screenMappingQuad);
   const mappingEnabled = useVizStore(store, (s) => s.screenMappingEnabled);
+  const edgeBlur = useVizStore(store, (s) => s.screenMappingEdgeBlur);
   const resolution = useVizStore(store, (s) => s.screenResolution);
   const svgRef = useRef(null);
   const dragRaf = useRef(0);
@@ -211,6 +214,17 @@ export function ScreenMappingPanel() {
           Reset to Full Frame
         </button>
       </div>
+
+      <ParamSlider
+        scope="screen"
+        id="mapping"
+        def={{ key: 'edgeBlur', label: 'Edge blurring', min: 0, max: SCREEN_MAPPING_EDGE_BLUR_MAX, step: 0.5 }}
+        getValue={() => edgeBlur}
+        onChange={(value) => runtime.commands.setScreenMappingEdgeBlur(value)}
+        valueFormat={(value) => value === 0 ? '0% (off)' : `${value}%`}
+        disabled={!mappingEnabled}
+      />
+      <p>Softens all four edges into black without blurring the picture. Increase the percentage for a wider blend; 0% turns it off.</p>
 
       <p>
         Software keystone for projectors: enable it, then drag the four corners
