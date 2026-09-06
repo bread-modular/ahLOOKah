@@ -99,6 +99,7 @@ export class ProgramRuntime {
     generation = 0,
     warmTimeoutMs = DEFAULT_WARM_TIMEOUT_MS,
     onTiming = null,
+    onDraw = null,
     audioControlStore = null,
     consumerSessionId = 'runtime',
     audioRole = 'live',
@@ -115,6 +116,7 @@ export class ProgramRuntime {
     this.generation = generation;
     this.warmTimeoutMs = warmTimeoutMs;
     this.onTiming = onTiming;
+    this.onDraw = onDraw;
     // Pattern-control transport is optional for standalone ProgramRuntime tests,
     // but output runtimes receive a store before any sketch factory is called.
     this.audioControlStore = audioControlStore;
@@ -408,6 +410,8 @@ export class ProgramRuntime {
             // A migrated child becomes fresh only when it explicitly read a
             // matching controls packet during this draw. The binding records
             // that fact before ProgramRuntime evaluates fresh-frame waiters.
+            // Capture before the browser can clear an unpreserved WebGL buffer.
+            this.onDraw?.(p.canvas);
             audioSlot?.binding?.noteDraw();
             this._noteDraw(index);
             return result;

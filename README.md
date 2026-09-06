@@ -86,12 +86,27 @@ PORT=8080 ./run.sh  # custom port
   Blend / Additive slider to crossfade or layer.
 - **Remap the pad** — reorder sketches in the pattern library; the pad and
   keyboard shortcuts follow.
+- **Screen mapping** — enable the four-corner output mapping for projector
+  keystone correction. Mapped output uses a WebGL2 4×4 subpixel sampling pass
+  (16 samples per physical output pixel) to antialias sloping edges and gaps,
+  after merge and post-FX. It keeps sketch backing resolutions unchanged and
+  runs only for an enabled, non-identity mapping. CSS mapping remains the
+  hit-testing/failure fallback; disabling mapping releases the extra GPU resources.
 
 ## 🧪 Testing
 
 ```bash
 npm test            # Playwright E2E suite
+npm test -- tests/screen-mapping*.spec.js --workers=1  # Mapping + pixel coverage
 ```
+
+Screen-mapping tests scan complete horizontal and vertical bar edges, including
+intentional black gaps, at HD, 4K and high-DPI resolutions. They cover both the
+software and GPU compositors (using SwiftShader in headless Chromium), as well as
+resize, post-processing, merge and CUE transitions. An A/B raster test compares
+fractional pixel coverage against the old CSS-only warp (binary edge-position
+checks alone cannot detect aliasing). Colour checks cover transparent 2D/WebGL
+sources, and lifecycle tests exercise noLoop sources, toggling and context loss.
 
 ## 📁 Project layout
 

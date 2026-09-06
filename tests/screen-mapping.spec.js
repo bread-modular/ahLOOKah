@@ -32,6 +32,44 @@ async function seedMapping(page, quad, { enabled = true } = {}) {
   }, { q: quad, en: enabled });
 }
 
+// A deterministic p5 source, not a DOM overlay that bypasses final output.
+// Still exercises ProgramRuntime's after-draw capture (including noLoop),
+// native density, CSS fallback and the production mapping compositor.
+async function installMappingPattern(context) {
+  await context.addInitScript(() => {
+    try { localStorage.setItem('viz2_slot_order', JSON.stringify(['color-bars'])); } catch {}
+  });
+  await context.route('**/src/sketches/color_bars.js', async (route) => {
+    const response = await route.fetch();
+    const source = await response.text();
+    await route.fulfill({ response, body: source.slice(0, source.indexOf('export default')) + `
+      export default () => (p) => {
+        p.setup = () => { p.createCanvas(p.windowWidth, p.windowHeight); p.noLoop(); };
+        p.draw = () => {
+          const ctx = p.drawingContext;
+          const dpr = p.canvas.width / innerWidth;
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          ctx.fillStyle = '#000'; ctx.fillRect(0, 0, innerWidth, innerHeight);
+          ctx.fillStyle = '#fff';
+          const pattern = window.__mappingPattern || {};
+          if (pattern.bars) {
+            const size = pattern.horizontal ? innerHeight : innerWidth;
+            for (let i = 0; i < pattern.bars; ++i) {
+              if (pattern.horizontal) ctx.fillRect(0, i * size / pattern.bars, innerWidth, size / pattern.bars - 8);
+              else ctx.fillRect(i * size / pattern.bars, 0, size / pattern.bars - 8, innerHeight);
+            }
+          } else {
+            ctx.fillRect(0, 0, innerWidth, innerHeight);
+            ctx.fillStyle = '#000'; ctx.fillRect(innerWidth / 2 - 30, innerHeight / 2 - 30, 60, 60);
+          }
+        };
+        p.windowResized = () => p.resizeCanvas(p.windowWidth, p.windowHeight);
+        window.__redrawMappingPattern = () => p.redraw();
+      };
+    ` });
+  });
+}
+
 // Post a raw mapping message over the app channel (simulates another sender).
 async function broadcastQuad(page, quad) {
   await page.evaluate((q) => {
@@ -147,6 +185,49 @@ test.describe('screen mapping section', () => {
     });
   });
 
+  test('keeps the matrix normalized without losing tiny perspective coefficients in CSS', async ({ page }) => {
+    await page.goto(CONTROL_URL);
+    const results = await page.evaluate(async (quad) => {
+      const { quadToMatrix3d } = await import('/src/screen-mapping.js');
+      const probe = document.createElement('div');
+      document.body.appendChild(probe);
+      try {
+        // Include an almost-affine quad: fixed-decimal CSS numbers can silently
+        // round its small perspective coefficients to zero at projector sizes.
+        const quads = [quad, [
+          { x: 0.1, y: 0.1 }, { x: 0.9, y: 0.10001 },
+          { x: 0.89999, y: 0.9 }, { x: 0.1, y: 0.89998 },
+        ]];
+        return quads.flatMap((q) => [1920, 3840, 7680].map((width) => {
+          const transform = quadToMatrix3d(q, width, width * 9 / 16);
+          const values = transform.slice(9, -1).split(',').map(Number);
+          probe.style.transform = transform;
+          // Typed OM reads the actual numeric values, not a rounded diagnostic
+          // string fed through the CSS parser for a second time.
+          const parsed = probe.computedStyleMap().get('transform').toMatrix();
+          return {
+            w: values[15],
+            z: values[10],
+            maxTranslation: Math.max(Math.abs(values[12]), Math.abs(values[13])),
+            width,
+            perspectiveError: Math.max(
+              Math.abs(parsed.m14 - values[3]),
+              Math.abs(parsed.m24 - values[7]),
+            ),
+          };
+        }));
+      } finally {
+        probe.remove();
+      }
+    }, ASYM);
+    for (const result of results) {
+      expect(result.w).toBe(1);
+      expect(result.z).toBe(1);
+      expect(result.maxTranslation).toBeLessThanOrEqual(result.width);
+      expect(result.perspectiveError).toBeLessThan(1e-15);
+    }
+  });
+
   test('a seeded trapezoid warps the output stage through the exact homography', async ({ context }) => {
     const seeder = await context.newPage();
     await seedMapping(seeder, TRAPEZOID);
@@ -183,6 +264,7 @@ test.describe('screen mapping section', () => {
   });
 
   test('painted output fills the quad and stays black outside at full 4K', async ({ context }) => {
+    await installMappingPattern(context);
     const seeder = await context.newPage();
     await seedMapping(seeder, ASYM);
     await seeder.close();
@@ -191,8 +273,8 @@ test.describe('screen mapping section', () => {
     await screen.goto(SCREEN_URL);
     await screen.waitForSelector('#screen-wrap canvas');
 
-    // All four content corners must land on the quad corners (serialized
-    // coefficients, K=4096 precision path).
+    // All four content corners must land on the quad corners, including
+    // when the perspective coefficients are tiny at projector resolutions.
     const width = 3840;
     const height = 2160;
     const corners = await mappedCorners(screen);
@@ -201,26 +283,9 @@ test.describe('screen mapping section', () => {
       expect(Math.abs(corners[i].y - expected.y * height)).toBeLessThanOrEqual(0.25);
     });
 
-    // Hide the animated sketch and paint a deterministic pattern across the
-    // content plane: white everywhere except a black marker at the centre.
-    // The pattern lives inside the transformed stage, so the projector-facing
-    // composite must show white exactly inside the quad and black outside.
-    await screen.evaluate(() => {
-      const layer = document.querySelector('[data-program-slot="live"]');
-      layer.querySelector('canvas').style.display = 'none';
-      const pattern = document.createElement('canvas');
-      pattern.id = 'sm-pattern';
-      pattern.width = window.innerWidth;
-      pattern.height = window.innerHeight;
-      pattern.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;z-index:50;';
-      const ctx = pattern.getContext('2d');
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, pattern.width, pattern.height);
-      ctx.fillStyle = '#000000';
-      ctx.fillRect(pattern.width / 2 - 30, pattern.height / 2 - 30, 60, 60);
-      layer.appendChild(pattern);
-    });
-    await screen.waitForTimeout(150);
+    // The p5 fixture paints white with a black centre marker. Wait for the
+    // antialiased output to be presented rather than testing a DOM-only probe.
+    await expect(screen.locator('#screen-mapping-output')).toHaveClass('is-active');
 
     // Capture the ACTUAL composited pixels and sample them in-page.
     const shot = await screen.screenshot({ type: 'png' });
@@ -264,7 +329,9 @@ test.describe('screen mapping section', () => {
     }
   });
 
-  test('rendered hit-testing follows the warp at full 4K with an asymmetric quad', async ({ context }) => {    const seeder = await context.newPage();
+  test('rendered hit-testing follows the warp at full 4K with an asymmetric quad', async ({ context }) => {
+    await installMappingPattern(context);
+    const seeder = await context.newPage();
     await seedMapping(seeder, ASYM);
     await seeder.close();
     const screen = await context.newPage();
@@ -468,12 +535,41 @@ test.describe('screen mapping section', () => {
   });
 
   test('an enabled mapping stays end-of-chain through merge, post-fx and a CUE take', async ({ context }) => {
+    // Five compositor readbacks alongside LIVE/CUE WebGL can exceed 30s on
+    // software-only CI. Keep individual readiness assertions bounded below.
+    test.setTimeout(60_000);
+    await context.addInitScript(() => {
+      try { localStorage.setItem('viz2_slot_order', JSON.stringify(['color-bars', 'gradient-wash'])); } catch {}
+    });
+    // Different solid colours make stale or leaked CUE frames detectable. The
+    // second source is real p5 WebGL with an unpreserved drawing buffer.
+    for (const [file, webgl, color] of [
+      ['color_bars', false, '200, 20, 20'], ['gradient_wash', true, '20, 40, 200'],
+    ]) {
+      await context.route(`**/src/sketches/${file}.js`, async (route) => {
+        const response = await route.fetch();
+        const source = await response.text();
+        await route.fulfill({ response, body: source.slice(0, source.indexOf('export default')) + `
+          export default (audio, video, params, runtimeContext = {}) => (p) => {
+            p.setup = () => {
+              p.createCanvas(p.windowWidth, p.windowHeight${webgl ? ', p.WEBGL' : ''});
+              ${webgl ? 'p.setAttributes({ preserveDrawingBuffer: false });' : ''}
+              p.frameRate(10); // Keep software GL free for screenshot readbacks.
+            };
+            p.draw = () => { runtimeContext.audioControls?.read(); p.background(${color}); };
+            p.windowResized = () => p.resizeCanvas(p.windowWidth, p.windowHeight);
+          };
+        ` });
+      });
+    }
+
     // Seed storage, then close the seeder: it counts as a control window and
     // the singleton coordinator would block the real panel below.
     const seeder = await context.newPage();
     await seedMapping(seeder, TRAPEZOID);
     await seeder.close();
     const screen = await context.newPage();
+    await screen.setViewportSize({ width: 800, height: 450 });
     await screen.goto(SCREEN_URL);
     await screen.waitForSelector('#screen-wrap canvas');
     const control = await context.newPage();
@@ -482,13 +578,29 @@ test.describe('screen mapping section', () => {
     const transformBefore = await screen.evaluate(() => getComputedStyle(document.getElementById('screen-wrap')).transform);
     expect(transformBefore.startsWith('matrix3d')).toBe(true);
 
+    const expectOutputColor = async (expected) => {
+      await expect(screen.locator('#screen-mapping-output')).toHaveClass('is-active');
+      await screen.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const shot = await screen.screenshot();
+      const pixel = await screen.evaluate(async (b64) => {
+        const img = new Image(); img.src = `data:image/png;base64,${b64}`; await img.decode();
+        const canvas = document.createElement('canvas'); canvas.width = img.width; canvas.height = img.height;
+        const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0);
+        return [...ctx.getImageData(Math.floor(img.width / 2), Math.floor(img.height / 2), 1, 1).data].slice(0, 3);
+      }, shot.toString('base64'));
+      expected.forEach((value, i) => expect(Math.abs(pixel[i] - value), JSON.stringify({ expected, pixel })).toBeLessThanOrEqual(3));
+    };
+    await expectOutputColor([200, 20, 20]);
+
     // Merge two patterns live (keys 1+2, exactly like merge-mode.spec.js)
     await control.keyboard.down('1');
     await control.keyboard.down('2');
     await control.keyboard.up('1');
     await control.keyboard.up('2');
     await expect(screen.locator('canvas.merge-canvas')).toHaveCount(2);
+    await screen.waitForFunction(() => window.__viz.merge?.length === 2);
     await expect(screen.locator('#screen-wrap')).toHaveCSS('transform', transformBefore);
+    await expectOutputColor([110, 30, 110]);
 
     // The post-fx trim lands on the same wrapper; the warp is applied after it
     await control.waitForSelector('#post-fx-list input[data-key="brightness"]', { state: 'attached' });
@@ -500,6 +612,7 @@ test.describe('screen mapping section', () => {
     });
     await screen.waitForFunction(() => document.getElementById('screen-wrap').style.filter.includes('brightness(1.25)'));
     await expect(screen.locator('#screen-wrap')).toHaveCSS('transform', transformBefore);
+    await expectOutputColor([138, 38, 138]);
 
     // CUE pattern 2 (Shift+2), wait for the session to be live in the panel,
     // then take it (Enter) — the warp survives the whole program swap.
@@ -507,9 +620,247 @@ test.describe('screen mapping section', () => {
     await control.keyboard.press('2');
     await control.keyboard.up('Shift');
     await expect(control.locator('#config-panel')).toHaveClass(/cue-active/, { timeout: 10_000 });
+    await expectOutputColor([138, 38, 138]); // hidden blue CUE must not leak
     await control.keyboard.press('Enter');
     await expect(control.locator('#config-panel')).not.toHaveClass(/cue-active/, { timeout: 15_000 });
     await expect(screen.locator('canvas.merge-canvas')).toHaveCount(0);
     await expect(screen.locator('#screen-wrap')).toHaveCSS('transform', transformBefore);
+    await expectOutputColor([25, 50, 250]);
+  });
+});
+
+// Check complete rasterized edges, not just corners or a few interior samples.
+// The normal headless browser uses software compositing; explicitly exercise
+// the GPU compositor too (SwiftShader makes that path available on Linux CI).
+const gpuTest = test.extend({
+  launchOptions: async ({ launchOptions }, use) => {
+    await use({
+      ...launchOptions,
+      args: [
+        ...(launchOptions.args || []),
+        '--use-gl=angle', '--use-angle=swiftshader',
+        '--enable-unsafe-swiftshader', '--enable-gpu-rasterization',
+        '--ignore-gpu-blocklist',
+      ],
+    });
+  },
+});
+
+for (const gpu of [false, true]) {
+  const edgeTest = gpu ? gpuTest : test;
+  edgeTest.describe(`screen mapping painted edges (${gpu ? 'GPU' : 'software'})`, () => {
+    for (const { width, height, dpr } of [
+      { width: 1920, height: 1080, dpr: 1 },
+      { width: 3840, height: 2160, dpr: 1 },
+      { width: 1920, height: 1080, dpr: 2 },
+    ]) {
+      edgeTest.describe(`${width}×${height} at DPR ${dpr}`, () => {
+        edgeTest.use({ viewport: { width, height }, deviceScaleFactor: dpr });
+
+        edgeTest('vertical and horizontal gaps have continuous straight edges', async ({ page, context, browser, browserName }, testInfo) => {
+          await installMappingPattern(context);
+          edgeTest.skip(browserName !== 'chromium' && gpu, 'GPU flags and diagnostics are Chromium-specific.');
+          if (gpu) {
+            const session = await browser.newBrowserCDPSession();
+            const { gpu: info } = await session.send('SystemInfo.getInfo');
+            await session.detach();
+            expect(info.featureStatus.gpu_compositing).toBe('enabled');
+          }
+
+          // All sides are inset so toolbar pixels cannot masquerade as edges.
+          const quad = [
+            { x: 0.15, y: 0.13 }, { x: 0.91, y: 0.19 },
+            { x: 0.88, y: 0.89 }, { x: 0.08, y: 0.8 },
+          ];
+          await seedMapping(page, quad);
+          await page.goto(SCREEN_URL);
+          await page.waitForSelector('#screen-wrap canvas');
+          await expect(page.locator('#screen-mapping-output')).toHaveClass('is-active');
+
+          for (const horizontal of [false, true]) {
+            await page.evaluate(async (horizontal) => {
+              window.__mappingPattern = { bars: 8, horizontal };
+              // Also exercise end-of-chain post-processing. The renderer reads
+              // the same live parameter bank as the CSS fallback.
+              Object.assign(window.__viz.postfx, horizontal
+                ? { brightness: 15, contrast: 10, saturation: -20 }
+                : { brightness: 0, contrast: 0, saturation: 0 });
+              await window.__redrawMappingPattern();
+              await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            }, horizontal);
+
+            const boundaries = [];
+            const size = horizontal ? height : width;
+            for (let i = 0; i < 8; i += 1) {
+              for (const position of [i / 8, (i + 1) / 8 - 8 / size]) {
+                const points = horizontal ? [[0, position], [1, position]] : [[position, 0], [position, 1]];
+                boundaries.push(points.map(([u, v]) => {
+                  const point = expectedMappedPoint(quad, u, v, width, height);
+                  return { x: point.x * dpr, y: point.y * dpr };
+                }));
+              }
+            }
+
+            const shot = await page.screenshot({ path: testInfo.outputPath(`${horizontal ? 'horizontal' : 'vertical'}-edges.png`) });
+            const measured = await page.evaluate(async ({ b64, boundaries, horizontal }) => {
+              const image = new Image();
+              image.src = `data:image/png;base64,${b64}`;
+              await image.decode();
+              const canvas = document.createElement('canvas');
+              canvas.width = image.naturalWidth;
+              canvas.height = image.naturalHeight;
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(image, 0, 0);
+              const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+              const scanAxis = horizontal ? 'x' : 'y';
+              const edgeAxis = horizontal ? 'y' : 'x';
+              const start = Math.ceil(Math.max(...boundaries.map(([a]) => a[scanAxis]))) + 4;
+              const end = Math.floor(Math.min(...boundaries.map(([, b]) => b[scanAxis]))) - 4;
+              const edgeLimit = horizontal ? canvas.height : canvas.width;
+              let brokenScanlines = 0;
+              let maxEdgeError = 0;
+              for (let scan = start; scan <= end; scan += 1) {
+                const edges = [];
+                let previous = false;
+                for (let edge = 0; edge < edgeLimit; edge += 1) {
+                  const x = horizontal ? scan : edge;
+                  const y = horizontal ? edge : scan;
+                  const white = pixels[(y * canvas.width + x) * 4] > 128;
+                  if (white !== previous) edges.push(edge);
+                  previous = white;
+                }
+                if (edges.length !== boundaries.length) {
+                  brokenScanlines += 1;
+                  continue;
+                }
+                edges.forEach((edge, i) => {
+                  const [a, b] = boundaries[i];
+                  const t = (scan + 0.5 - a[scanAxis]) / (b[scanAxis] - a[scanAxis]);
+                  const expected = a[edgeAxis] + t * (b[edgeAxis] - a[edgeAxis]);
+                  maxEdgeError = Math.max(maxEdgeError, Math.abs(edge - expected));
+                });
+              }
+              return { brokenScanlines, maxEdgeError, scanlines: end - start + 1 };
+            }, { b64: shot.toString('base64'), boundaries, horizontal });
+
+            expect(measured.scanlines).toBeGreaterThan(500);
+            expect(measured.brokenScanlines, 'all bars and intentional gaps remain continuous').toBe(0);
+            // A physical raster naturally has sub-pixel steps; multi-pixel
+            // kinks, seams and broken segments are not acceptable.
+            expect(measured.maxEdgeError, 'every boundary follows its projective straight line').toBeLessThanOrEqual(1);
+          }
+        });
+      });
+    }
+  });
+}
+
+test.describe('screen mapping antialiasing', () => {
+  test.use({ viewport: { width: 1920, height: 1080 } });
+
+  test('integrates edge coverage instead of leaving minified stair-steps', async ({ page, context }, testInfo) => {
+    await installMappingPattern(context);
+    const quad = [
+      { x: 0.38, y: 0.09 }, { x: 0.61, y: 0.11 },
+      { x: 0.93, y: 0.93 }, { x: 0.07, y: 0.9 },
+    ];
+    await seedMapping(page, quad);
+    await page.goto(SCREEN_URL);
+    await expect(page.locator('#screen-mapping-output')).toHaveClass('is-active');
+    await page.evaluate(async () => {
+      window.__mappingPattern = { bars: 24 };
+      await window.__redrawMappingPattern();
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    });
+    const boundaries = [];
+    for (let i = 0; i < 24; i += 1) {
+      for (const x of [i * 80, i * 80 + 72]) {
+        boundaries.push([0, 1].map((v) => expectedMappedPoint(quad, x / 1920, v, 1920, 1080)));
+      }
+    }
+    const measure = async (name) => {
+      const shot = await page.screenshot({ path: testInfo.outputPath(`${name}.png`) });
+      return page.evaluate(async ({ b64, boundaries }) => {
+        const image = new Image();
+        image.src = `data:image/png;base64,${b64}`;
+        await image.decode();
+        const canvas = document.createElement('canvas');
+        canvas.width = 1920; canvas.height = 1080;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(image, 0, 0);
+        const pixels = ctx.getImageData(0, 0, 1920, 1080).data;
+        let samples = 0, error = 0, gray = 0, expectedGray = 0;
+        let blackGaps = 0, gaps = 0;
+        for (let y = 145; y < 940; y += 1) {
+          const positions = boundaries.map(([a, b]) => a.x + (y + 0.5 - a.y) * (b.x - a.x) / (b.y - a.y));
+          boundaries.forEach(([a, b], i) => {
+            const x = Math.floor(positions[i]);
+            // Independent geometric pixel-area reference: integrate a straight
+            // edge over 64 subrows, not the implementation's 4x4 texture taps.
+            let expected = 0;
+            for (let j = 0; j < 64; j += 1) {
+              const crossing = a.x + (y + (j + 0.5) / 64 - a.y) * (b.x - a.x) / (b.y - a.y);
+              const leftCoverage = Math.min(1, Math.max(0, crossing - x));
+              expected += (i % 2 ? leftCoverage : 1 - leftCoverage) / 64;
+            }
+            const value = pixels[(y * 1920 + x) * 4] / 255;
+            error += Math.abs(expected - value);
+            samples += 1;
+            if (expected > 0.1 && expected < 0.9) {
+              expectedGray += 1;
+              if (value > 0.07 && value < 0.93) gray += 1;
+            }
+            if (i % 2 && i + 1 < positions.length) {
+              const middle = Math.floor((positions[i] + positions[i + 1]) / 2);
+              gaps += 1;
+              if (pixels[(y * 1920 + middle) * 4] < 20) blackGaps += 1;
+            }
+          });
+        }
+        return { meanEdgeError: error / samples, smoothCoverage: gray / expectedGray, blackGaps: blackGaps / gaps };
+      }, { b64: shot.toString('base64'), boundaries });
+    };
+    const antialiased = await measure('antialiased');
+    // A/B against the exact previous CSS-only path using the same frozen frame.
+    await page.evaluate(() => {
+      document.getElementById('screen-mapping-output').classList.remove('is-active');
+      document.getElementById('screen-wrap').classList.remove('is-antialiased');
+    });
+    const css = await measure('css-only');
+    expect(antialiased.smoothCoverage, 'fractional edge pixels must actually be antialiased').toBeGreaterThan(0.98);
+    expect(antialiased.meanEdgeError).toBeLessThan(0.04);
+    expect(antialiased.meanEdgeError).toBeLessThan(css.meanEdgeError / 3);
+    expect(antialiased.blackGaps, 'do not blur away the black gap centres').toBeGreaterThan(0.98);
+  });
+
+  test('off/on recreates AA for a noLoop source and context loss leaves a usable fallback', async ({ page, context }) => {
+    await installMappingPattern(context);
+    await seedMapping(page, ASYM);
+    await page.goto(SCREEN_URL);
+    const output = page.locator('#screen-mapping-output');
+    await expect(output).toHaveClass('is-active');
+    const toggle = async (enabled) => {
+      await page.evaluate((enabled) => {
+        const channel = new BroadcastChannel('viz2_channel');
+        channel.postMessage({ type: 'screen-mapping', enabled, quad: window.__viz.screenMapping.quad });
+        channel.close();
+      }, enabled);
+    };
+    for (let i = 0; i < 3; i += 1) {
+      await toggle(false);
+      await expect(output.locator('canvas')).toHaveCount(0);
+      await expect(page.locator('#screen-wrap')).toHaveCSS('transform', 'none');
+      await toggle(true);
+      await expect(output).toHaveClass('is-active');
+      await expect(output.locator('canvas')).toHaveCount(1);
+    }
+    await output.locator('canvas').evaluate((canvas) => canvas.getContext('webgl2').getExtension('WEBGL_lose_context').loseContext());
+    await expect(output.locator('canvas')).toHaveCount(0);
+    await expect(page.locator('#screen-wrap')).toHaveCSS('opacity', '1');
+    expect(await page.evaluate(() => window.__viz.screenMapping.antialiasingError)).toMatch(/context lost/i);
+    await expect(page.locator('#screen-wrap')).not.toHaveCSS('transform', 'none');
+    await toggle(false);
+    await toggle(true);
+    await expect(output).toHaveClass('is-active');
   });
 });

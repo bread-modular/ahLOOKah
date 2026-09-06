@@ -15,6 +15,7 @@ export function ScreenApp() {
         <div className="program-layer program-layer-live" data-program-slot="live" />
         <div className="program-layer program-layer-cue" data-program-slot="cue" />
       </div>
+      <div id="screen-mapping-output" aria-hidden="true" />
       <div id="screen-toolbar">
         <button
           id="open-control-btn"

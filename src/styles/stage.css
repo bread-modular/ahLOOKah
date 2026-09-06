@@ -49,3 +49,25 @@
   pointer-events: auto;
 }
 
+
+/* Keep the original projective hit area without painting its aliased pixels.
+   Opacity (not display/visibility) also keeps p5's warmed CUE surfaces alive. */
+#screen-wrap.is-antialiased {
+  opacity: 0;
+}
+
+#screen-mapping-output {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  display: none;
+}
+
+#screen-mapping-output.is-active {
+  display: block;
+}
+
+#screen-mapping-output canvas {
+  pointer-events: none;
+}
