@@ -1,3 +1,5 @@
+import { Select } from './Select.jsx';
+
 // Dropdown control for discrete parameters. A sketch opts in by giving its
 // param def an `options` array: [{ value, label }, ...]. Values stay numeric
 // (matching slider-based params) so persistence and the CUE/TAKE param
@@ -15,7 +17,7 @@ export function ParamSelect({ scope, id, def, value, onChange, disabled = false 
         <label htmlFor={controlId}>{def.label}</label>
         <span className="param-value" data-value={def.key}>{labelFor(def, value)}</span>
       </div>
-      <select
+      <Select
         id={controlId}
         data-key={def.key}
         className="param-select"
@@ -26,7 +28,7 @@ export function ParamSelect({ scope, id, def, value, onChange, disabled = false 
         {(def.options || []).map((opt) => (
           <option key={opt.value} value={String(opt.value)}>{opt.label}</option>
         ))}
-      </select>
+      </Select>
     </div>
   );
 }

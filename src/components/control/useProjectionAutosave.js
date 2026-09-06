@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { sanitizeProjection, surfaceQuad, surfaceQuadValues } from '../../projection/projection-registry.js';
+import { sanitizeProjection, surfaceQuad, surfaceMappingValues, surfaceEdgeBlur } from '../../projection/projection-registry.js';
 
-// Geometry uses the numeric parameter channel, never the topology/rebuild path.
+// Corners and edge smoothing use the numeric parameter channel, never the topology/rebuild path.
 // Metadata is serialized against the last accepted pattern. Both channels keep
 // local intent separate from delayed echoes, so dragging never waits for an ACK.
-export function useProjectionAutosave({ runtime, store, sketch, surface, name, setName, patternId, quad,
+export function useProjectionAutosave({ runtime, store, sketch, surface, name, setName, patternId, quad, edgeBlur,
   geometryEdited, locked, structuralLock, onClose }) {
   const session = useRef(store.getState().cue?.sessionId);
   const inContext = () => store.getState().cue?.sessionId === session.current
@@ -16,15 +16,15 @@ export function useProjectionAutosave({ runtime, store, sketch, surface, name, s
   const [retryRevision, setRetryRevision] = useState(0);
   const [sentGeometry, setSentGeometry] = useState(null);
   const geometryRetry = useRef(0);
-  const latestQuad = useRef(quad);
-  latestQuad.current = quad;
+  const latestGeometry = useRef(null);
+  latestGeometry.current = surfaceMappingValues(surface.id, quad, edgeBlur);
   const current = sketch.surfaces.find((s) => s.id === surface.id);
   const currentPattern = JSON.stringify(sanitizeProjection(sketch));
   const stale = currentPattern !== JSON.stringify(base) && currentPattern !== pending?.serialized;
   const metadataDirty = name.trim() && (!current || current.name !== name.trim() || current.patternId !== patternId);
-  const geometry = JSON.stringify(surfaceQuadValues(surface.id, quad));
+  const geometry = JSON.stringify(latestGeometry.current);
   const values = runtime.getEditingParams(sketch.id);
-  const currentGeometry = JSON.stringify(surfaceQuadValues(surface.id, surfaceQuad(surface, values)));
+  const currentGeometry = JSON.stringify(surfaceMappingValues(surface.id, surfaceQuad(surface, values), surfaceEdgeBlur(surface, values)));
   const geometryAccepted = Boolean(current) && currentGeometry === geometry;
   const geometryPending = Boolean(sentGeometry || ((current || pending) && geometryEdited && !geometryAccepted));
   const saving = Boolean(pending || metadataDirty || geometryPending);
@@ -49,7 +49,7 @@ export function useProjectionAutosave({ runtime, store, sketch, surface, name, s
       setPending({ pattern, serialized: JSON.stringify(pattern) });
       // Only creation includes geometry. Later metadata edits preserve the
       // authority's newest numeric bank, including any drag already in flight.
-      if (!runtime.commands.saveProjection(pattern, current ? {} : surfaceQuadValues(surface.id, latestQuad.current), base)) {
+      if (!runtime.commands.saveProjection(pattern, current ? {} : latestGeometry.current, base)) {
         setPending(null);
         setClosing(false);
         setError('Automatic saving is unavailable. Finish CUE or reopen the editor.');

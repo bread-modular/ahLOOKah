@@ -1,6 +1,6 @@
 import { ScreenMappingRenderer } from '../screen-mapping-renderer.js';
-import { IDENTITY_QUAD, quadToMatrix3d } from '../screen-mapping.js';
-import { surfaceQuad } from './projection-registry.js';
+import { IDENTITY_QUAD, quadToMatrix3d, mappingEdgeMask } from '../screen-mapping.js';
+import { surfaceQuad, surfaceEdgeBlur } from './projection-registry.js';
 
 // One presentation layer per top-level projection pattern (also in a merge).
 // Child canvases remain the CSS fallback and pointer targets; GPU failure must
@@ -15,6 +15,7 @@ export class ProjectionLayer {
     this.getParams = getParams;
     this.getSize = getSize;
     this.children = [];
+    this.edgeBlurs = new WeakMap();
     this.presented = false;
     this.disposed = false;
     this.element = document.createElement('div');
@@ -74,12 +75,21 @@ export class ProjectionLayer {
   render() {
     if (this.disposed) return;
     const [width, height] = this.getSize();
+    const values = this.getParams();
     const surfaces = this.children.map((node) => ({
       canvas: node.canvas,
-      quad: node.surface ? surfaceQuad(node.surface, this.getParams()) : IDENTITY_QUAD,
+      quad: node.surface ? surfaceQuad(node.surface, values) : IDENTITY_QUAD,
+      edgeBlur: node.surface ? surfaceEdgeBlur(node.surface, values) : 0,
     }));
-    for (const { canvas, quad } of surfaces) {
+    for (const { canvas, quad, edgeBlur } of surfaces) {
       if (!canvas) continue;
+      // Mask the opaque source only for CSS presentation; texture capture is raw.
+      if (this.edgeBlurs.get(canvas) !== edgeBlur) {
+        canvas.style.maskImage = mappingEdgeMask(edgeBlur);
+        canvas.style.maskMode = 'alpha';
+        canvas.style.maskComposite = 'intersect';
+        this.edgeBlurs.set(canvas, edgeBlur);
+      }
       canvas.style.transformOrigin = '0 0';
       canvas.style.transform = quadToMatrix3d(quad, width, height) || 'none';
     }

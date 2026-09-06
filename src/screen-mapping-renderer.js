@@ -67,7 +67,7 @@ void main() {
       vec2 offset = (vec2(float(x), float(y)) + 0.5) / 4.0 - 0.5;
       vec2 uv = sourcePoint(pixel + offset);
       color += sampleProgram(uv, dx, dy);
-      coverage += all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0))) ? 1.0 : 0.0;
+      coverage += all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0))) ? edgeCoverage(uv) : 0.0;
     }
   }
   outColor = vec4(color / 16.0, uSurface ? coverage / 16.0 : 1.0);
@@ -199,7 +199,8 @@ export class ScreenMappingRenderer {
 
   // Ordered, opaque surfaces over black; outside each quad is transparent.
   // Reuse one context/texture cache and the same subpixel integration as the
-  // global mapper. Later surfaces cover earlier ones where they overlap.
+  // global mapper. Later surfaces cover earlier ones, with feathered edges
+  // revealing underlying surfaces. RGB and coverage remain premultiplied.
   renderSurfaces(surfaces) {
     const gl = this.gl;
     if (gl.isContextLost()) throw new Error('Projection-mapping context was lost.');
@@ -209,9 +210,9 @@ export class ScreenMappingRenderer {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     try {
-      for (const { canvas, quad } of surfaces) {
+      for (const { canvas, quad, edgeBlur = 0 } of surfaces) {
         this.inverse = quadToInverseMatrix3(quad);
-        this.render({ canvases: [canvas], surface: true });
+        this.render({ canvases: [canvas], surface: true, edgeBlur });
       }
     } finally { gl.disable(gl.BLEND); }
     return true;
