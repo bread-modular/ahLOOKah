@@ -1,0 +1,122 @@
+/* All child rendering is clipped at the projector frame, not at a surface's
+   untransformed box. One opaque presentation group is one merge input. */
+.projection-layer, .projection-sources {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  isolation: isolate;
+}
+.projection-layer { background: #000; overflow: hidden; }
+.projection-sources { z-index: 1; }
+.projection-layer canvas, .projection-runtime-preview > canvas {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+}
+.projection-output { pointer-events: none !important; z-index: 0; }
+.projection-panel { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.projection-title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.projection-title strong { flex: 1; overflow-wrap: anywhere; }
+.projection-title .btn { font-size: 10px; padding: 4px 6px; }
+.projection-hint, .projection-warning { font-size: 11px; line-height: 1.5; margin: 0; color: var(--text-dim); }
+.projection-warning { color: #e7b66c !important; }
+.projection-add { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.projection-coordinates input {
+  background: #0b1015; color: var(--text-main); border: 1px solid var(--border-gray); border-radius: 4px; padding: 7px; font: inherit;
+}
+.projection-surface { border: 1px solid var(--border-gray); border-radius: 6px; padding: 10px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.projection-source-label { display: flex; flex-direction: column; gap: 6px; font-size: 11px; }
+.projection-param-heading { margin: 2px 0; font-size: 12px; color: var(--accent); overflow-wrap: anywhere; }
+.projection-geometry { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.projection-geometry summary { cursor: pointer; font-size: 11px; }
+.projection-coordinates { margin-top: 8px; display: flex; flex-direction: column; gap: 5px; }
+.projection-coordinates > div { display: flex; gap: 6px; align-items: center; }
+.projection-coordinates span { width: 20px; font-size: 11px; }
+.projection-coordinates label { display: flex; align-items: center; flex: 1; gap: 4px; min-width: 0; font-size: 10px; }
+.projection-coordinates input { width: 0; flex: 1; min-width: 0; }
+.projection-quad-editor { width: 100%; display: block; background: #05070a; border: 1px solid var(--border-gray); overflow: visible; touch-action: none; user-select: none; margin: 6px 0; }
+.projection-quad-editor .sm-quad { fill: #4da3ff25; stroke: var(--accent); stroke-width: 0.35; }
+.projection-quad-editor .sm-handle { fill: var(--accent); pointer-events: none; }
+.projection-quad-editor .sm-handle-hit { fill: transparent; cursor: grab; }
+.projection-quad-editor .sm-handle-hit:focus { stroke: white; stroke-width: 0.7; outline: none; }
+.projection-quad-editor.is-invalid .sm-quad { stroke: #ff7676; fill: #ff767625; }
+.projection-other { fill: #ffffff08; stroke: #ffffff35; stroke-width: 0.2; stroke-dasharray: 2 2; pointer-events: none; }
+
+.projection-sources canvas { background: #000; }
+
+/* Override the panel's default full-width action buttons inside compact rows. */
+#config-panel .projection-title .btn,
+#config-panel .projection-add .btn {
+  width: auto;
+  flex: 0 0 auto;
+  min-width: 0;
+  display: inline-flex;
+}
+
+
+/* Compact sidebar: only mapping titles/actions are visible until expanded. */
+.projection-surface-header { display: flex; align-items: center; gap: 8px; }
+#config-panel .projection-surface-toggle {
+  display: flex; flex: 1 1 0; min-width: 0; width: auto; gap: 7px; align-items: center;
+  padding: 2px 0; border: 0; background: transparent; text-align: left; text-transform: none;
+}
+/* Highlight text only, overriding the generic panel button hover fill. */
+#config-panel .projection-surface-toggle:is(:hover, :focus-visible) {
+  background: transparent;
+  color: var(--accent);
+}
+#config-panel .projection-surface-toggle:is(:hover, :focus-visible) :is(small, .projection-chevron) { color: inherit; }
+#config-panel .projection-surface-toggle:focus-visible { outline: 1px solid var(--accent); outline-offset: 3px; }
+.projection-chevron { flex: 0 0 auto; color: var(--text-dim); }
+.projection-surface-label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.projection-surface-label strong { overflow-wrap: anywhere; font-size: 12px; }
+.projection-surface-label small { color: var(--text-dim); font-size: 10px; font-weight: 400; overflow-wrap: anywhere; }
+.projection-surface-actions { display: flex; flex: 0 0 auto; gap: 4px; }
+#config-panel .projection-surface-actions .btn { width: auto; font-size: 10px; padding: 5px 6px; letter-spacing: 0; }
+.projection-surface-params { display: flex; flex-direction: column; gap: 12px; padding-top: 10px; border-top: 1px solid var(--border-gray); }
+.projection-surface-params[hidden] { display: none; }
+
+/* Native modal lives in the top layer, not inside the narrow parameter pane. */
+.projection-editor {
+  width: min(1180px, calc(100vw - 48px)); max-width: none; max-height: calc(100dvh - 48px);
+  margin: auto; padding: 0; border: 1px solid #3b424a; border-radius: 12px;
+  color: var(--text-main); background: #121316; box-shadow: 0 24px 80px #000b; overflow: hidden;
+}
+.projection-editor::backdrop { background: #06080bc4; backdrop-filter: blur(5px); }
+.projection-editor form { display: flex; flex-direction: column; max-height: calc(100dvh - 50px); }
+.projection-editor-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 22px 26px; border-bottom: 1px solid var(--border-gray); }
+.projection-editor-header h2 { margin: 5px 0 0; font-size: 20px; overflow-wrap: anywhere; }
+.projection-editor-header .btn { flex: 0 0 auto; }
+.projection-editor-eyebrow { margin: 0; font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--accent); overflow-wrap: anywhere; }
+.projection-editor-body { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 26px; padding: 24px 26px; min-height: 0; overflow-y: auto; }
+.projection-editor-settings { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.projection-editor-settings .projection-source-label { font-size: 12px; font-weight: 600; gap: 9px; }
+.projection-editor-settings input, .projection-editor-settings select {
+  box-sizing: border-box; width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid #3b424a;
+  border-radius: 5px; background: #0b1015; color: var(--text-main); font: inherit; font-size: 12px;
+}
+.projection-editor :is(input, select, button):disabled { opacity: .45; cursor: not-allowed; }
+.projection-editor :is(input, select, button):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.projection-editor .projection-hint, .projection-editor .projection-warning { font-size: 12px; }
+.projection-editor-workspace { min-width: 0; }
+.projection-editor-canvas-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; margin-bottom: 14px; }
+.projection-editor-canvas-heading span { color: var(--text-dim); font-size: 11px; }
+.projection-editor .projection-quad-editor { box-sizing: border-box; margin: 8px 0 16px; width: min(100%, calc(42dvh * var(--projection-aspect))); align-self: center; }
+.projection-editor .projection-coordinates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 20px; margin-top: 14px; }
+.projection-editor .projection-coordinates input { box-sizing: border-box; font-size: 12px; }
+.projection-editor .projection-geometry > .btn { align-self: flex-start; margin-top: 8px; font-size: 10px; }
+.projection-editor-footer { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 18px 26px; border-top: 1px solid var(--border-gray); }
+.projection-editor-actions { display: flex; flex: 0 0 auto; gap: 10px; }
+@media (max-width: 760px) {
+  .projection-editor { width: calc(100vw - 24px); max-height: calc(100dvh - 24px); }
+  .projection-editor form { max-height: calc(100dvh - 26px); }
+  .projection-editor-header, .projection-editor-footer { padding: 16px; }
+  .projection-editor-header h2 { font-size: 17px; }
+  .projection-editor-body { grid-template-columns: minmax(0, 1fr); padding: 16px; gap: 24px; }
+  .projection-editor-settings { gap: 12px; }
+  .projection-editor-footer { align-items: stretch; flex-direction: column; gap: 12px; }
+  .projection-editor-actions { justify-content: flex-end; }
+  .projection-editor .projection-coordinates { grid-template-columns: minmax(0, 1fr); }
+}

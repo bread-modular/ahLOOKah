@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { getGroups, getSketchesByGroup, getOrderedSketches } from '../../sketch-registry.js';
+import { PROJECTION_GROUP } from '../../projection/projection-registry.js';
 import { MEDIA_GROUP } from '../../media/media-registry.js';
 import { canUseFileSystemPicker } from '../../media/media-store.js';
 import { STORAGE } from '../../platform/constants.js';
@@ -32,6 +33,7 @@ export function PatternLibrary() {
   const liveSelection = useVizStore(store, (s) => s.liveSelection);
   const cue = useVizStore(store, (s) => s.cue);
   const mediaRevision = useVizStore(store, (s) => s.mediaRevision);
+  useVizStore(store, (s) => s.projectionRevision);
   const mediaInputRef = useRef(null);
   const [collapsedGroups, setCollapsedGroups] = useState(loadCollapsedGroups);
 
@@ -70,10 +72,11 @@ export function PatternLibrary() {
     <div id="pattern-library" className="pattern-library" data-media-revision={mediaRevision}>
       {getGroups().map((group) => {
         const sketches = getSketchesByGroup(group);
+        const isProjectionGroup = group === PROJECTION_GROUP;
         const isMediaGroup = group === MEDIA_GROUP;
         // The Media group always renders so new files can be added even before
         // any media pattern exists.
-        if (sketches.length === 0 && !isMediaGroup) return null;
+        if (sketches.length === 0 && !isMediaGroup && !isProjectionGroup) return null;
         const collapsed = collapsedGroups.includes(group);
         return (
           <div className="library-group" key={group}>
@@ -88,11 +91,15 @@ export function PatternLibrary() {
               >
                 <span>{group}</span>
               </button>
+              {isProjectionGroup && <button type="button" className="library-add-btn projection-add-btn" aria-label="Add projection mapping pattern" disabled={Boolean(cue)} onClick={() => {
+                const name = window.prompt('Name your projection mapping pattern');
+                if (name?.trim()) runtime.commands.addProjection(name);
+              }}>ADD</button>}
               {isMediaGroup && (
                 <>
                   <button
                     type="button"
-                    className="media-add-btn"
+                    className="library-add-btn media-add-btn"
                     aria-label="Add media"
                     title="Load images or videos from this computer as patterns (kept as file references; content is read from disk when played)"
                     onClick={() => {
@@ -129,6 +136,7 @@ export function PatternLibrary() {
               {isMediaGroup && sketches.length === 0 && (
                 <div className="media-empty">No media loaded — add an image or video file.</div>
               )}
+              {isProjectionGroup && sketches.length === 0 && <div className="media-empty">Add a pattern with named projection surfaces.</div>}
               <div className="library-group-grid">
                   {sketches.map((sketch) => {
                     const slotIdx = slotOf.get(sketch.id);
@@ -159,6 +167,7 @@ export function PatternLibrary() {
                         onDrop={(e) => { e.preventDefault(); if (slotIdx !== undefined) commitDrop(slotIdx); }}
                       >
                         <span className="pattern-name">{sketch.name}</span>
+                        {sketch.projection && <span className="media-badge" title="Projection mapping">▱</span>}
                         {sketch.camera && <span className="camera-badge" title="Uses camera input">📷</span>}
                         {sketch.media && sketch.kind === 'image' && <span className="media-badge" title="Loaded image">🖼️</span>}
                         {sketch.media && sketch.kind === 'video' && <span className="media-badge" title="Loaded video">🎬</span>}

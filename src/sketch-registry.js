@@ -1265,12 +1265,13 @@ export const GROUP_ORDER = [
   'Glitch / Effects',
   'Basics',
   'Media',
+  'Projection Mapping',
 ];
 
 // Group names present in SKETCHES, in GROUP_ORDER (unknown groups appended).
 // 'Media' is always present: it hosts the add-media control even before the
 // user has loaded any media patterns.
-const ALWAYS_PRESENT_GROUPS = new Set(['Media']);
+const ALWAYS_PRESENT_GROUPS = new Set(['Media', 'Projection Mapping']);
 
 export function getGroups() {
   const present = [];
@@ -1392,3 +1393,6 @@ export function defaultParamValues(id) {
 // the file bytes are fetched lazily from IndexedDB inside the sketch factory.
 import { registerMediaSketches } from './media/media-registry.js';
 registerMediaSketches(SKETCHES);
+
+import { registerProjectionSketches } from './projection/projection-registry.js';
+registerProjectionSketches(SKETCHES);

@@ -26,6 +26,7 @@ import {
 } from '../sketch-registry.js';
 import {
   registerMediaSketches,
+  loadMediaMeta,
   addMediaPattern,
   removeMediaPattern,
   renameMediaPattern,
@@ -46,6 +47,9 @@ import {
   disposeP5Instance,
   selectionsEqual,
 } from '../program-runtime.js';
+import { registerProjectionSketches, loadProjectionMeta, saveProjectionMeta, sanitizeProjection,
+  newProjectionId, cleanProjectionName, MAX_PROJECTIONS, MAX_PROJECTION_PARAMS,
+  validProjectionPatch } from '../projection/projection-registry.js';
 import { ScreenMappingRenderer } from '../screen-mapping-renderer.js';
 import { SharedCameraSource } from '../shared-camera-source.js';
 import { AudioManager } from '../audio-manager.js';
@@ -213,6 +217,7 @@ export function createAppRuntime({
   // Preview state.
   let previewStage = null;
   let previewP5 = [];
+  let projectionPreview = null;
   let previewAudioSlots = [];
   let previewSelection = { ids: [], merge: false };
   let lastPreviewKey = null;
@@ -357,6 +362,10 @@ export function createAppRuntime({
 
   function applyAcceptedLiveParamValues(id, values) {
     Object.assign(getParams(id), values);
+    if (SKETCHES.find((s) => s.id === id)?.projection) {
+      liveRuntime?.applyBlendStyles();
+      projectionPreview?.applyBlendStyles();
+    }
     params.saveParamValues();
     const editingCue = Boolean(cueSession);
     if (id === BLEND_ID) {
@@ -550,14 +559,17 @@ export function createAppRuntime({
     if (role !== 'screen') return;
     const wrap = ensureScreenStage();
     if (!wrap) return;
-    const matrix = screenMappingEnabled
+    // Projection patterns bypass the entire global calibration, including the
+    // edge feather and its CSS fallback, without changing the stored settings.
+    const applyGlobalMapping = screenMappingEnabled && !liveRuntime?.hasProjection;
+    const matrix = applyGlobalMapping
       ? quadToMatrix3d(screenMappingQuad, window.innerWidth, window.innerHeight)
       : null;
     wrap.style.transform = matrix || 'none';
-    const edgeBlur = screenMappingEnabled ? screenMappingEdgeBlur : 0;
+    const edgeBlur = applyGlobalMapping ? screenMappingEdgeBlur : 0;
     wrap.classList.toggle('has-edge-blur', edgeBlur > 0);
     wrap.style.setProperty('--screen-edge-mask', mappingEdgeMask(edgeBlur));
-    if (!screenMappingEnabled || (!matrix && !edgeBlur)) {
+    if (!applyGlobalMapping || (!matrix && !edgeBlur)) {
       stopScreenMappingRenderer();
       screenMappingError = null;
       return;
@@ -723,9 +735,12 @@ export function createAppRuntime({
     setLayerRoles(stageLiveLayer, stageCueLayer);
     const runtime = createRuntime(selection, getParams, stageLiveLayer, 'initial-live');
     liveRuntime = runtime;
+    // prepare() establishes the projection presentation layers below.
     syncLegacyLiveProjection();
     applyPostFx();
-    runtime.prepare()
+    const prepared = runtime.prepare();
+    applyScreenMapping();
+    prepared
       .then(() => {
         if (runtime !== liveRuntime) return;
         applyPostFx();
@@ -770,6 +785,10 @@ export function createAppRuntime({
         syncLegacyLiveProjection();
         recordCueTiming('role-visibility-swap', { ids: runtime.selection.ids });
         onPromoted?.();
+        // A promoted runtime must never resolve against a subsequent CUE
+        // session. Its adopted bank is LIVE now (including surface getters).
+        runtime.getParams = getParams;
+        applyScreenMapping();
         applyPostFx();
         queuePatternAudioPlanPublish();
 
@@ -791,8 +810,9 @@ export function createAppRuntime({
       initialLiveRuntime(selection);
       return;
     }
-    if (!force && selectionsEqual(selection, liveProgram) && !incomingRuntime) return;
+    if (!force && selectionsEqual(selection, liveProgram) && !incomingRuntime && !liveRuntime.projectionParamSnapshots.size) return;
 
+    bus.broadcast({ type: 'projection-status', failure: null });
     ensureScreenStage();
     const token = ++directGeneration;
     disposeRuntime(incomingRuntime);
@@ -810,6 +830,7 @@ export function createAppRuntime({
       .catch((error) => {
         if (runtime.disposed || token !== directGeneration) return;
         console.error('Unable to prepare requested live program:', error);
+        if (runtime.hasProjection) bus.broadcast({ type: 'projection-status', failure: { selection: copyProgramSelection(runtime.selection), error: String(error?.message || error) } });
         disposeRuntime(runtime);
         if (incomingRuntime === runtime) incomingRuntime = null;
         applyPostFx();
@@ -1006,6 +1027,16 @@ export function createAppRuntime({
     }
   }
 
+  function requiresCueRuntime(session) {
+    if (cueRequiresRuntime(session, { getParams, currentLiveSelection })) return true;
+    return liveRuntime?.projectionLayers.some((layer) => {
+      const current = SKETCHES.find((s) => s.id === layer.pattern.id);
+      const shape = (pattern) => JSON.stringify(pattern?.surfaces.map((s) => [s.id, s.patternId]));
+      return shape(current) !== shape(layer.pattern)
+        || !paramObjectsEqual(liveRuntime.resolveProjectionParams(layer.pattern.id), getCueParams(layer.pattern.id));
+    }) || false;
+  }
+
   function enterCueSession(initiatorId, requestedSelection = null, entryRequestId = null) {
     if (role !== 'screen' || cueSession || !liveRuntime) return;
     if (entryRequestId && canceledCueEntryRequests.delete(entryRequestId)) return;
@@ -1033,7 +1064,7 @@ export function createAppRuntime({
       error: null,
       runtimeRequired: false,
     };
-    cueSession.runtimeRequired = cueRequiresRuntime(cueSession, { getParams, currentLiveSelection });
+    cueSession.runtimeRequired = requiresCueRuntime(cueSession);
     if (cueSession.runtimeRequired) {
       cueSession.phase = 'warming';
       cueSession.renderedRevision = null;
@@ -1206,7 +1237,7 @@ export function createAppRuntime({
     cueSession.revision += 1;
     cueSession.renderedRevision = null;
     cueSession.error = null;
-    cueSession.runtimeRequired = cueRequiresRuntime(cueSession, { getParams, currentLiveSelection });
+    cueSession.runtimeRequired = requiresCueRuntime(cueSession);
     cueSession.phase = cueSession.runtimeRequired ? 'warming' : 'same';
     queueCueRuntime();
     broadcastCueState();
@@ -1224,7 +1255,8 @@ export function createAppRuntime({
       typeof change?.id === 'string'
         && isCueVisualParamId(cueSession, change.id)
         && change.values
-        && typeof change.values === 'object',
+        && typeof change.values === 'object'
+        && validProjectionPatch(SKETCHES.find((s) => s.id === change.id), getCueParams(change.id), change.values),
     );
     if (!valid.length) {
       broadcastCueState();
@@ -1243,7 +1275,7 @@ export function createAppRuntime({
     const revision = session.revision;
     const selectionGeneration = session.selectionGeneration || 0;
     session.error = null;
-    session.runtimeRequired = cueRequiresRuntime(session, { getParams, currentLiveSelection });
+    session.runtimeRequired = requiresCueRuntime(session);
     if (!session.runtimeRequired) {
       if (cueStageRaf) cancelAnimationFrame(cueStageRaf);
       cueStageRaf = 0;
@@ -1273,6 +1305,7 @@ export function createAppRuntime({
     disposeRuntime(cueRuntime);
     cueRuntime = null;
     cueSession = null;
+    if (liveRuntime?.projectionParamSnapshots.size) prepareThenPromoteLive(currentLiveSelection(), { force: true });
     applyPostFx();
     recordCueTiming('cue-canceled');
     broadcastCueState(notice);
@@ -1525,6 +1558,7 @@ export function createAppRuntime({
   }
 
   function requestParamChange(id, values) {
+    if (!validProjectionPatch(SKETCHES.find((s) => s.id === id), getEditingParams(id), values)) return;
     if (id === BANDS_ID) {
       bus.broadcast({ type: 'params', id, values });
       return;
@@ -1555,12 +1589,16 @@ export function createAppRuntime({
       appendRuntime(incomingRuntime, 'incoming');
       appendRuntime(retiringRuntime, 'retiring');
     } else {
+      appendRuntime(projectionPreview, 'preview');
       for (const descriptor of previewAudioSlots || []) {
         refreshPreviewAudioSlot(descriptor);
         slots.push({ ...descriptor, params: { ...descriptor.params } });
       }
     }
-    return slots;
+    // A removed media entry may still be painting in the retiring LIVE
+    // runtime. Do not let its now-unresolvable controller invalidate the
+    // complete plan and starve the replacement runtime's fresh-frame gate.
+    return slots.filter((slot) => SKETCHES.some((sketch) => sketch.id === slot.patternId));
   }
 
   function publishPatternAudioPlan({ force = false } = {}) {
@@ -1636,6 +1674,7 @@ export function createAppRuntime({
   function applyPreviewCompositing() {
     if (!previewStage) return;
     previewStage.style.filter = postFxFilterString(getEditingParams);
+    projectionPreview?.applyBlendStyles();
 
     previewP5.forEach((inst, index) => {
       const canvas = inst && inst.canvas;
@@ -1665,6 +1704,7 @@ export function createAppRuntime({
       if (canvas.parentElement !== previewStage) previewStage.appendChild(canvas);
       canvas.classList.add('preview-canvas');
       canvas.dataset.previewSketch = sketch.id;
+      canvas.dataset.previewScope = cueSession ? 'cue' : 'live';
       canvas.style.zIndex = String(layer);
       canvas.style.pointerEvents = 'none';
       applyPreviewCompositing();
@@ -1742,12 +1782,15 @@ export function createAppRuntime({
   }
 
   function clearPreview() {
+    projectionPreview?.dispose();
+    projectionPreview = null;
     previewGeneration += 1;
     patternAudioStore.retireSlots(previewAudioSlots.map((slot) => slot.runtimeId));
     previewAudioSlots = [];
     previewP5.forEach((inst) => disposeP5Instance(inst));
     previewP5 = [];
     if (previewStage) {
+      previewStage.classList.remove('projection-runtime-preview');
       previewStage.replaceChildren();
       previewStage.style.filter = 'none';
       delete previewStage.dataset.previewSketches;
@@ -1771,6 +1814,23 @@ export function createAppRuntime({
 
     if (!sketches.length) {
       previewStage.innerHTML = '<div class="preview-empty">Select a pattern to start the preview.</div>';
+      return;
+    }
+
+    if (sketches.some((sketch) => sketch.projection)) {
+      previewStage.classList.add('projection-runtime-preview');
+      projectionPreview = new ProgramRuntime({
+        p5Constructor: p5, selection: previewSelection, sketches: SKETCHES,
+        audio: previewAudio, getParams: getEditingParams, layer: previewStage,
+        getSize: getPreviewSize, preview: true, generation: `preview-${previewGeneration}`,
+        audioControlStore: patternAudioStore, consumerSessionId: windowId, audioRole: 'preview',
+        onAudioSlotsChanged: () => queuePatternAudioPlanPublish(),
+      });
+      projectionPreview.prepare().catch((error) => {
+        if (projectionPreview?.error === error && !projectionPreview.disposed) console.warn('Projection preview:', error.message);
+      });
+      applyPreviewCompositing();
+      queuePatternAudioPlanPublish();
       return;
     }
 
@@ -1808,6 +1868,7 @@ export function createAppRuntime({
     previewResizeRaf = requestAnimationFrame(() => {
       previewResizeRaf = 0;
       const [width, height] = getPreviewSize();
+      projectionPreview?.resize(width, height);
       previewP5.forEach((inst) => {
         if (inst && !inst._removed && (inst.width !== width || inst.height !== height)) {
           inst.resizeCanvas(width, height);
@@ -2210,7 +2271,7 @@ export function createAppRuntime({
           }
         }
         if (msg.liveParams && typeof msg.liveParams === 'object' && !Array.isArray(msg.liveParams)) {
-          if (Object.keys(msg.liveParams).length <= 80) applyCanonicalLiveParamBank(msg.liveParams);
+          if (Object.keys(msg.liveParams).length <= 256) applyCanonicalLiveParamBank(msg.liveParams);
         }
         if ('cue' in msg) {
           const cue = msg.cue;
@@ -2309,8 +2370,8 @@ export function createAppRuntime({
           }
         }
         if (msg.bands && typeof msg.bands === 'object' && !Array.isArray(msg.bands) && Object.keys(msg.bands).length <= 16) applyCanonicalBandValues(msg.bands);
-        if (msg.liveParams && typeof msg.liveParams === 'object' && !Array.isArray(msg.liveParams) && Object.keys(msg.liveParams).length <= 80) applyCanonicalLiveParamBank(msg.liveParams);
-        if (msg.committedParams && typeof msg.committedParams === 'object' && !Array.isArray(msg.committedParams) && Object.keys(msg.committedParams).length <= 80 && !(role === 'screen' && msg.windowId === windowId)) {
+        if (msg.liveParams && typeof msg.liveParams === 'object' && !Array.isArray(msg.liveParams) && Object.keys(msg.liveParams).length <= 256) applyCanonicalLiveParamBank(msg.liveParams);
+        if (msg.committedParams && typeof msg.committedParams === 'object' && !Array.isArray(msg.committedParams) && Object.keys(msg.committedParams).length <= 256 && !(role === 'screen' && msg.windowId === windowId)) {
           adoptVisualParamBank(msg.committedParams);
         }
         const notice = typeof msg.notice === 'string' ? msg.notice.slice(0, 200) : '';
@@ -2369,7 +2430,7 @@ export function createAppRuntime({
         return;
 
       case 'params': {
-        if (role !== 'screen' || typeof msg.id !== 'string' || msg.id.length > 64 || !msg.values || typeof msg.values !== 'object' || Array.isArray(msg.values) || Object.keys(msg.values).length > 16) return;
+        if ((role !== 'screen' && (screenOnline || !SKETCHES.find((s) => s.id === msg.id)?.projection)) || typeof msg.id !== 'string' || msg.id.length > 64 || !msg.values || typeof msg.values !== 'object' || Array.isArray(msg.values) || Object.keys(msg.values).length > MAX_PROJECTION_PARAMS) return;
         if (!isKnownLiveParamId(msg.id)) return;
         const cleanParams = {};
         for (const [k, v] of Object.entries(msg.values)) {
@@ -2379,6 +2440,7 @@ export function createAppRuntime({
           cleanParams[k] = v;
         }
         if (!Object.keys(cleanParams).length) return;
+        if (!validProjectionPatch(SKETCHES.find((s) => s.id === msg.id), getParams(msg.id), cleanParams)) return;
         if (cueSession && msg.id !== BANDS_ID) {
           broadcastCueState('LIVE PARAMETER IGNORED — CUE ACTIVE');
           return;
@@ -2389,7 +2451,7 @@ export function createAppRuntime({
       }
 
       case 'live-params': {
-        if (role !== 'screen' && typeof msg.id === 'string' && msg.id.length <= 64 && isKnownLiveParamId(msg.id) && msg.values && typeof msg.values === 'object' && !Array.isArray(msg.values) && Object.keys(msg.values).length <= 16) {
+        if (role !== 'screen' && typeof msg.id === 'string' && msg.id.length <= 64 && isKnownLiveParamId(msg.id) && msg.values && typeof msg.values === 'object' && !Array.isArray(msg.values) && Object.keys(msg.values).length <= MAX_PROJECTION_PARAMS) {
           const clean = {};
           for (const [k, v] of Object.entries(msg.values)) { if (typeof k === 'string' && k.length <= 64 && Number.isFinite(v) && Math.abs(v) <= 1e6) clean[k] = v; }
           if (Object.keys(clean).length) applyAcceptedLiveParamValues(msg.id, clean);
@@ -2458,10 +2520,58 @@ export function createAppRuntime({
         break;
       }
 
+      case 'projection-status': {
+        if (role === 'control') store.setState({ projectionFailure: msg.failure || null });
+        break;
+      }
+      case 'projection-retry': {
+        if (role !== 'screen' || cueSession) return;
+        const selection = validCueSelection(msg.selection);
+        if (selection) prepareThenPromoteLive(selection, { force: true });
+        return;
+      }
+      case 'projection-edit': {
+        if (role !== 'screen' && screenOnline) return;
+        acceptProjectionEdit(msg);
+        break;
+      }
+      case 'projection-patterns': {
+        // Send topology with the notification; another renderer process may
+        // receive BroadcastChannel before its localStorage cache updates.
+        registerProjectionSketches(SKETCHES, msg.patterns);
+        if (msg.id && msg.values && role === 'control') {
+          const clean = params.sanitizeParamEntry(msg.id, msg.values);
+          if (clean) Object.assign(getParams(msg.id), clean);
+        }
+        refreshProjectionUI();
+        if (role === 'control' && msg.selectId) requestSelection(selectionFromId(msg.selectId));
+        break;
+      }
+
+      case 'media-remove': {
+        if (role !== 'screen' && screenOnline) return;
+        if (cueSession || cueEntryPending || typeof msg.id !== 'string' || !msg.id.startsWith('media-')) return;
+        // Remove topology synchronously on the screen authority, before any
+        // asynchronous file deletion can race a new CUE session.
+        const removed = removeMediaPattern(SKETCHES, msg.id.slice(6));
+        if (!removed) return;
+        if (currentLiveSelection().ids.includes(msg.id)) requestSelection(singleSelection(SKETCHES[0].id));
+        bus.broadcast({ type: 'media-patterns', metas: loadMediaMeta(), removedId: msg.id });
+        deleteMediaRecord(msg.id.slice(6)).catch((error) => console.error('[media] failed to delete media record', error));
+        return;
+      }
+
       case 'media-patterns': {
         // Another window added/removed a user media pattern. Re-sync the
         // dynamic SKETCHES entries from localStorage metadata.
-        registerMediaSketches(SKETCHES);
+        const before = new Map(SKETCHES.filter((s) => s.media).map((s) => [s.id, s.kind]));
+        registerMediaSketches(SKETCHES, msg.metas);
+        const after = new Map(SKETCHES.filter((s) => s.media).map((s) => [s.id, s.kind]));
+        const changedIds = new Set([...before.keys(), ...after.keys()].filter((id) => before.get(id) !== after.get(id)));
+        if (typeof msg.removedId === 'string' && !after.has(msg.removedId)) changedIds.add(msg.removedId);
+        registerProjectionSketches(SKETCHES, SKETCHES.filter((s) => s.projection));
+        refreshProjectionUI();
+        refreshProjectionDependencies(changedIds);
         if (role === 'control') {
           refreshMediaPadOrder();
           store.setState((s) => ({ mediaRevision: s.mediaRevision + 1 }));
@@ -2627,6 +2737,10 @@ export function createAppRuntime({
         ready: cueRuntime.ready,
         generation: cueRuntime.generation,
       } : null),
+      programs: () => Object.fromEntries([['live', liveRuntime], ['incoming', incomingRuntime], ['cue', cueRuntime]].map(([name, r]) => [name, r ? {
+        generation: r.generation, ready: r.ready, error: r.error?.message, fresh: r.hasPendingFreshFrame,
+        children: r.nodes.map((node) => node.sketch.id),
+      } : null])),
       runtimeCounts: () => ({
         live: liveRuntime?.count || 0,
         cue: cueRuntime?.count || 0,
@@ -2642,6 +2756,7 @@ export function createAppRuntime({
       postfx: () => getParams(POSTFX_ID),
       screenMapping: () => ({
         enabled: screenMappingEnabled,
+        bypassed: Boolean(liveRuntime?.hasProjection),
         quad: cloneQuad(screenMappingQuad),
         edgeBlur: screenMappingEdgeBlur,
         resolution: currentScreenResolution(),
@@ -2692,9 +2807,115 @@ export function createAppRuntime({
     store.setState((s) => ({ mediaRevision: s.mediaRevision + 1 }));
   }
 
+  function refreshProjectionDependencies(changedIds) {
+    if (role !== 'screen' || cueSession || !changedIds.size) return;
+    const depends = (runtime) => runtime?.projectionLayers.some((layer) => changedIds.has(layer.pattern.id)
+      || layer.pattern.surfaces.some((surface) => changedIds.has(surface.patternId)));
+    // Refresh the operator's incoming selection first, even if LIVE is ordinary.
+    const target = depends(incomingRuntime) ? incomingRuntime : depends(liveRuntime) ? liveRuntime : null;
+    if (!target) return;
+    liveRuntime?.freezeProjectionParams();
+    prepareThenPromoteLive(copyProgramSelection(target.selection), { force: true });
+  }
+
+  function refreshProjectionUI() {
+    refreshMediaPadOrder();
+    store.setState((s) => ({ projectionRevision: s.projectionRevision + 1 }));
+    previewNeedsRebuild = true;
+    queuePreviewRender();
+  }
+
+  function acceptProjectionEdit(msg) {
+    // The screen is authority while online. Check here as well as in commands:
+    // a CUE entry can race a control-window click/message.
+    if (cueSession || cueEntryPending) return;
+    const list = loadProjectionMeta();
+    const old = SKETCHES.find((entry) => entry.id === msg.id && entry.projection);
+    if (msg.action === 'remove') {
+      if (!old) return;
+      if (incomingRuntime?.selection.ids.includes(old.id)) {
+        directGeneration += 1;
+        disposeRuntime(incomingRuntime);
+        incomingRuntime = null;
+      }
+      saveProjectionMeta(list.filter((entry) => entry.id !== old.id));
+      registerProjectionSketches(SKETCHES);
+      if (currentLiveSelection().ids.includes(old.id)) {
+        const fallback = singleSelection(SKETCHES[0].id);
+        if (role === 'screen') prepareThenPromoteLive(fallback);
+        else { liveProgram = fallback; syncLegacyLiveProjection(); }
+      }
+      bus.broadcast({ type: 'projection-patterns', patterns: loadProjectionMeta(), selectId: currentLiveSelection().ids.includes(old.id) ? SKETCHES[0].id : null });
+      return;
+    }
+    if (msg.action !== 'save') return;
+    const clean = sanitizeProjection(msg.pattern);
+    if (!clean || clean.id !== msg.id || (!old && list.length >= MAX_PROJECTIONS)) return;
+    if (clean.surfaces.some((surface) => surface.patternId
+      && !SKETCHES.some((entry) => entry.id === surface.patternId && !entry.projection)
+      && !old?.surfaces.some((entry) => entry.id === surface.id && entry.patternId === surface.patternId))) return;
+    // Modal drafts must not overwrite an externally changed layout.
+    if (msg.expectedPattern && JSON.stringify(sanitizeProjection(old)) !== JSON.stringify(sanitizeProjection(msg.expectedPattern))) return;
+    // Build and validate the proposed parameter definitions without mutating the
+    // registry or persistence. Topology and all corner coordinates commit once.
+    const proposed = [...SKETCHES];
+    registerProjectionSketches(proposed, [clean]);
+    const entry = proposed.find((entry) => entry.id === clean.id);
+    const previous = { ...getParams(clean.id) };
+    const next = Object.fromEntries(entry.params.map((def) => [def.key, def.default]));
+    for (const surface of entry.surfaces) {
+      const sameSource = old?.surfaces.some((s) => s.id === surface.id && s.patternId === surface.patternId);
+      const child = SKETCHES.find((s) => s.id === surface.patternId);
+      for (const def of entry.params.filter((def) => def.key.startsWith(`${surface.id}:`))) {
+        if ((sameSource || def.geometry) && Number.isFinite(previous[def.key])) next[def.key] = previous[def.key];
+        else if (!def.geometry && child) next[def.key] = getParams(child.id)[def.key.slice(surface.id.length + 1)] ?? def.default;
+      }
+    }
+    const geometry = msg.geometry ?? {};
+    const geometryKeys = new Set(entry.params.filter((def) => def.geometry).map((def) => def.key));
+    if (!geometry || typeof geometry !== 'object' || Array.isArray(geometry)
+      || !Object.keys(geometry).every((key) => geometryKeys.has(key))
+      || !validProjectionPatch(entry, next, geometry)) return;
+    Object.assign(next, geometry);
+    saveProjectionMeta([...list.filter((entry) => entry.id !== clean.id), clean]);
+    registerProjectionSketches(SKETCHES);
+    const topologyChanged = JSON.stringify(old?.surfaces.map((s) => [s.id, s.patternId]))
+      !== JSON.stringify(clean.surfaces.map((s) => [s.id, s.patternId]));
+    if (topologyChanged && currentLiveSelection().ids.includes(clean.id)) liveRuntime?.freezeProjectionParams();
+    const target = getParams(clean.id);
+    Object.keys(target).forEach((key) => { delete target[key]; });
+    Object.assign(target, next);
+    params.saveParamValues();
+    if (topologyChanged) refreshProjectionDependencies(new Set([clean.id]));
+    bus.broadcast({ type: 'projection-patterns', patterns: loadProjectionMeta(), id: clean.id, values: next, selectId: !old ? clean.id : null });
+  }
+
   // Command API + preview host registration
   // ---------------------------------------------------------------------------
   const commands = {
+    clearPatternKeys() { keyboard.clearHeldKeys(); },
+    retryProjection() {
+      if (cueSession || cueEntryPending) return false;
+      bus.broadcast({ type: 'projection-retry', selection: store.getState().editingSelection });
+      return true;
+    },
+    addProjection(name) {
+      const clean = cleanProjectionName(name);
+      if (!clean || cueSession || cueEntryPending) return null;
+      const id = newProjectionId();
+      bus.broadcast({ type: 'projection-edit', action: 'save', id, pattern: { id, name: clean, surfaces: [] } });
+      return id;
+    },
+    saveProjection(pattern, geometry = {}, expectedPattern = null) {
+      if (cueSession || cueEntryPending || !sanitizeProjection(pattern)) return false;
+      bus.broadcast({ type: 'projection-edit', action: 'save', id: pattern.id, pattern, geometry, expectedPattern });
+      return true;
+    },
+    removeProjection(id) {
+      if (cueSession || cueEntryPending) return false;
+      bus.broadcast({ type: 'projection-edit', action: 'remove', id });
+      return true;
+    },
     select(index) { requestSelection(selectionFromIndices(index)); },
     selectById(id) { requestSelection(selectionFromId(id)); },
     cueSelect(index) { requestCueSelection(selectionFromIndices(index)); },
@@ -2813,22 +3034,13 @@ export function createAppRuntime({
       }
       if (!added.length) return added;
       bumpMediaRevision();
-      bus.broadcast({ type: 'media-patterns' });
+      bus.broadcast({ type: 'media-patterns', metas: loadMediaMeta() });
       return added;
     },
     async removeMedia(sketchId) {
-      if (typeof sketchId !== 'string' || !sketchId.startsWith('media-')) return false;
-      const mediaId = sketchId.slice('media-'.length);
-      // Step back to the first pattern before deleting a live media sketch so
-      // the program runtime never holds a dangling selection.
-      if (activeSketchId === sketchId) requestSelection(selectionFromIndices(0));
-      try { await deleteMediaRecord(mediaId); } catch (error) {
-        console.error('[media] failed to delete media record', error);
-      }
-      const removed = removeMediaPattern(SKETCHES, mediaId);
-      bumpMediaRevision();
-      bus.broadcast({ type: 'media-patterns' });
-      return removed;
+      if (cueSession || cueEntryPending || typeof sketchId !== 'string' || !sketchId.startsWith('media-')) return false;
+      bus.broadcast({ type: 'media-remove', id: sketchId });
+      return true;
     },
     async renameMedia(sketchId, name) {
       if (typeof sketchId !== 'string' || !sketchId.startsWith('media-')) return null;
@@ -2847,7 +3059,7 @@ export function createAppRuntime({
         console.error('[media] failed to rename media record', error);
       }
       bumpMediaRevision();
-      bus.broadcast({ type: 'media-patterns' });
+      bus.broadcast({ type: 'media-patterns', metas: loadMediaMeta() });
       return renamed;
     },
   };

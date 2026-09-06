@@ -1,3 +1,4 @@
+import { SKETCHES } from '../../sketch-registry.js';
 import { useRef, useState } from 'react';
 import { useRuntime } from '../../app/RuntimeContext.jsx';
 import { useVizStore } from '../../state/useVizStore.js';
@@ -30,6 +31,9 @@ export function ScreenMappingPanel() {
   const mappingEnabled = useVizStore(store, (s) => s.screenMappingEnabled);
   const edgeBlur = useVizStore(store, (s) => s.screenMappingEdgeBlur);
   const resolution = useVizStore(store, (s) => s.screenResolution);
+  const live = useVizStore(store, (s) => s.liveSelection);
+  useVizStore(store, (s) => s.projectionRevision);
+  const bypassed = live.ids.some((id) => SKETCHES.find((s) => s.id === id)?.projection);
   const svgRef = useRef(null);
   const dragRaf = useRef(0);
   const draftRef = useRef(null);
@@ -125,6 +129,7 @@ export function ScreenMappingPanel() {
 
   return (
     <div className={`config-section-body screen-mapping-body${mappingEnabled ? '' : ' is-disabled'}`}>
+      {bypassed && <p className="projection-warning">Bypassed by the live projection mapping pattern. Your global calibration is preserved.</p>}
       <label className="screen-mapping-toggle" title="Warp the output into the mapped quad (software keystone for projectors)">
         <input
           id="screen-mapping-enabled"

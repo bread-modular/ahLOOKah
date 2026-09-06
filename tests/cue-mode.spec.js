@@ -372,7 +372,7 @@ test.describe('CUE mode', () => {
     // The sender does not create a local CUE bank until the screen acknowledges
     // entry, so wait for that round-trip before dispatching slider input.
     await expect(control.locator('#preview-title')).toHaveText('CUE PREVIEW');
-    const cuePreview = control.locator('#preview-stage canvas[data-preview-sketch="plasma-waves"]');
+    const cuePreview = control.locator('#preview-stage canvas[data-preview-sketch="plasma-waves"][data-preview-scope="cue"]');
     await expect(cuePreview).toBeVisible();
     await cuePreview.evaluate((canvas) => {
       const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');

@@ -21,6 +21,7 @@ uniform bool uScreenBlend;
 uniform vec3 uPostFx;
 uniform bool uApplyPostFx;
 uniform float uEdgeBlur;
+uniform bool uSurface;
 out vec4 outColor;
 
 vec2 sourcePoint(vec2 pixel) {
@@ -60,13 +61,16 @@ void main() {
   vec2 dx = (sourcePoint(pixel + vec2(0.5, 0.0)) - sourcePoint(pixel - vec2(0.5, 0.0))) / 4.0;
   vec2 dy = (sourcePoint(pixel + vec2(0.0, 0.5)) - sourcePoint(pixel - vec2(0.0, 0.5))) / 4.0;
   vec3 color = vec3(0.0);
+  float coverage = 0.0;
   for (int y = 0; y < 4; ++y) {
     for (int x = 0; x < 4; ++x) {
       vec2 offset = (vec2(float(x), float(y)) + 0.5) / 4.0 - 0.5;
-      color += sampleProgram(sourcePoint(pixel + offset), dx, dy);
+      vec2 uv = sourcePoint(pixel + offset);
+      color += sampleProgram(uv, dx, dy);
+      coverage += all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0))) ? 1.0 : 0.0;
     }
   }
-  outColor = vec4(color / 16.0, 1.0);
+  outColor = vec4(color / 16.0, uSurface ? coverage / 16.0 : 1.0);
 }`;
 
 function createProgram(gl) {
@@ -105,7 +109,7 @@ export class ScreenMappingRenderer {
     try {
       this.program = createProgram(gl);
       this.uniforms = Object.fromEntries([
-        'uBase', 'uOverlay', 'uInverse', 'uResolution', 'uOpacity', 'uScreenBlend', 'uPostFx', 'uApplyPostFx', 'uEdgeBlur',
+        'uBase', 'uOverlay', 'uInverse', 'uResolution', 'uOpacity', 'uScreenBlend', 'uPostFx', 'uApplyPostFx', 'uEdgeBlur', 'uSurface',
       ].map((name) => [name, gl.getUniformLocation(this.program, name)]));
       this.empty = this.createTexture();
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
@@ -165,7 +169,7 @@ export class ScreenMappingRenderer {
     gl.generateMipmap(gl.TEXTURE_2D);
   }
 
-  render({ canvases, blend = {}, postFx = {}, edgeBlur = 0 }) {
+  render({ canvases, blend = {}, postFx = {}, edgeBlur = 0, surface = false }) {
     const gl = this.gl;
     if (gl.isContextLost()) throw new Error('Screen-mapping context was lost.');
     if (!this.inverse || !canvases?.length || canvases.some((source) => !this.textures.has(source))) return false;
@@ -177,6 +181,7 @@ export class ScreenMappingRenderer {
     }
     const u = this.uniforms;
     gl.uniform1f(u.uEdgeBlur, normalizeMappingEdgeBlur(edgeBlur) / 100);
+    gl.uniform1i(u.uSurface, surface);
     gl.uniform1i(u.uBase, 0);
     gl.uniform1i(u.uOverlay, 1);
     gl.uniformMatrix3fv(u.uInverse, false, this.inverse);
@@ -189,6 +194,26 @@ export class ScreenMappingRenderer {
       1 + (Number(postFx.contrast) || 0) / 100,
       1 + (Number(postFx.saturation) || 0) / 100);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
+    return true;
+  }
+
+  // Ordered, opaque surfaces over black; outside each quad is transparent.
+  // Reuse one context/texture cache and the same subpixel integration as the
+  // global mapper. Later surfaces cover earlier ones where they overlap.
+  renderSurfaces(surfaces) {
+    const gl = this.gl;
+    if (gl.isContextLost()) throw new Error('Projection-mapping context was lost.');
+    if (surfaces.some(({ canvas }) => !this.textures.has(canvas))) return false;
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    try {
+      for (const { canvas, quad } of surfaces) {
+        this.inverse = quadToInverseMatrix3(quad);
+        this.render({ canvases: [canvas], surface: true });
+      }
+    } finally { gl.disable(gl.BLEND); }
     return true;
   }
 

@@ -9,7 +9,7 @@ export const PATTERN_AUDIO_PLAN_REQUEST_TYPE = 'pattern-audio-plan-request';
 export const PATTERN_CONTROLS_TRANSPORT = 'pattern-controls';
 
 export const PATTERN_AUDIO_LIMITS = Object.freeze({
-  maxSlots: 8,
+  maxSlots: 64, // Up to 8 surfaces × 2 merge inputs × 4 runtime roles.
   maxParamKeys: 16,
   maxControlKeys: 64,
   maxKeyLength: 64,

@@ -3,6 +3,7 @@ import { selectionName } from '../../program/selection.js';
 import { useRuntime } from '../../app/RuntimeContext.jsx';
 import { useVizStore } from '../../state/useVizStore.js';
 import { formatParamValue, formatPostFxValue } from './panelHelpers.js';
+import { ProjectionMappingPanel } from './ProjectionMappingPanel.jsx';
 import { ParamSlider } from './ParamSlider.jsx';
 import { ParamSelect } from './ParamSelect.jsx';
 
@@ -20,6 +21,7 @@ export function ParameterPanel() {
   // Refreshes names shown here (blend pair, cue heading, media rename row)
   // after a media rename in either window.
   useVizStore(store, (s) => s.mediaRevision);
+  useVizStore(store, (s) => s.projectionRevision);
 
   const ordered = getOrderedSketches();
   const ids = editingSelection.ids || [];
@@ -75,6 +77,7 @@ function EffectParams({ currentPattern, currentPatternId, getValue, changeParam,
   const sketch = currentPattern >= 0
     ? ordered[currentPattern]
     : SKETCHES.find((s) => s.id === currentPatternId);
+  if (sketch?.projection) return <ProjectionMappingPanel key={`${scope}:${sketch.id}`} sketch={sketch} scope={scope} locked={locked} />;
   const defs = (sketch && sketch.params) || [];
 
   const rows = defs.length === 0
@@ -177,6 +180,7 @@ function BlendControls({ getValue, changeParam, scope, ids, indices, ordered, na
 
 function MergePatternParams({ patternId, slotLabel, name, getValue, changeParam, scope, locked }) {
   const sketch = SKETCHES.find((s) => s.id === patternId);
+  if (sketch?.projection) return <ProjectionMappingPanel key={`${scope}:${sketch.id}`} sketch={sketch} scope={scope} locked={locked} />;
   const defs = (sketch && sketch.params) || [];
 
   return (

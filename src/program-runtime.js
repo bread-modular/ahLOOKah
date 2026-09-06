@@ -11,6 +11,9 @@ import {
   snapshotPatternParams,
 } from './pattern-audio-protocol.js';
 
+import { ProjectionLayer } from './projection/ProjectionLayer.js';
+import { surfaceParamView } from './projection/projection-registry.js';
+
 const DEFAULT_WARM_TIMEOUT_MS = 12_000;
 
 function cloneSelection(selection = {}) {
@@ -104,7 +107,15 @@ export class ProgramRuntime {
     consumerSessionId = 'runtime',
     audioRole = 'live',
     onAudioSlotsChanged = null,
+    getSize = null,
+    preview = false,
   }) {
+    this.getSize = getSize || (() => [window.innerWidth, window.innerHeight]);
+    this.preview = preview;
+    this.nodes = [];
+    this.projectionLayers = [];
+    this.projectionParamSnapshots = new Map();
+    this.presentationElements = [];
     this.p5Constructor = p5Constructor;
     this.selection = cloneSelection(selection);
     this.sketches = sketches;
@@ -185,21 +196,56 @@ export class ProgramRuntime {
       return this.readyPromise;
     }
 
+    this.layer.replaceChildren();
+    this.nodes = selected.flatMap((sketch, topIndex) => {
+      if (!sketch.projection) {
+        if (this.preview && sketch.camera) {
+          return [{ sketch: this.sketches.find((s) => s.id === 'solid-color'), topIndex, host: this.layer,
+            getParams: () => ({ hue: 0, saturation: 0, brightness: 0, pulse: 0 }) }];
+        }
+        return [{ sketch, topIndex, host: this.layer, getParams: () => this.getParams(sketch.id) }];
+      }
+      const projection = new ProjectionLayer({ host: this.layer, pattern: sketch,
+        getParams: () => this.resolveProjectionParams(sketch.id), getSize: this.getSize,
+        onPresented: () => { this._checkReady(); this._checkFreshFrame(); } });
+      this.projectionLayers.push(projection);
+      this.presentationElements[topIndex] = projection.element;
+      projection.element.style.zIndex = String(topIndex);
+      const children = sketch.surfaces.map((surface) => {
+        const child = this.sketches.find((entry) => entry.id === surface.patternId && !entry.projection);
+        if (!child || (this.preview && child.camera)) {
+          return { sketch: this.sketches.find((s) => s.id === 'solid-color'), surface,
+            topIndex, projection, host: projection.sources,
+            getParams: () => ({ hue: 0, saturation: 0, brightness: 0, pulse: 0 }) };
+        }
+        const view = surfaceParamView(surface, child, () => this.resolveProjectionParams(sketch.id));
+        return { sketch: child, surface, topIndex, projection, host: projection.sources, getParams: () => view };
+      }).filter(Boolean);
+      // Empty/missing-only mappings still present black and participate in the
+      // normal readiness/control protocol without introducing a fake registry id.
+      if (!children.length) {
+        const black = this.sketches.find((entry) => entry.id === 'solid-color');
+        children.push({ sketch: black, topIndex, projection, host: projection.sources,
+          getParams: () => ({ hue: 0, saturation: 0, brightness: 0, pulse: 0 }) });
+      }
+      projection.children = children;
+      return children;
+    });
+
     // Create stable child identities and their bindings before factories run.
     // A CUE promotion changes role metadata only; its runtime generation and
     // therefore controller identity remain intact.
-    this._prepareAudioSlots(selected);
+    this._prepareAudioSlots(this.nodes.map((node) => node.sketch));
 
-    this.cameraIndices = new Set(selected
-      .map((sketch, index) => (sketch.camera ? index : -1))
+    this.cameraIndices = new Set(this.nodes
+      .map((node, index) => ((node.sketch.camera || (node.projection && node.sketch.media)) ? index : -1))
       .filter((index) => index >= 0));
     this.preparedAt = performance.now();
     this._mark('runtime-construction-started', { ids: this.selection.ids });
-    this.layer.replaceChildren();
     this.layer.dataset.programIds = this.selection.ids.join(',');
     this.layer.dataset.programMerge = this.merge ? 'true' : 'false';
 
-    selected.forEach((sketch, index) => this._createInstance(sketch, index));
+    this.nodes.forEach((node, index) => this._createInstance(node.sketch, index));
     this.applyBlendStyles();
 
     this.timeoutId = window.setTimeout(() => {
@@ -211,7 +257,7 @@ export class ProgramRuntime {
 
   _prepareAudioSlots(selected) {
     this.audioSlots = selected.map((sketch, childIndex) => {
-      const params = snapshotPatternParams(sketch, this.getParams(sketch.id));
+      const params = snapshotPatternParams(sketch, this.nodes[childIndex].getParams());
       const descriptor = {
         runtimeId: `${this.consumerSessionId}:${this.generation}:${childIndex}`,
         patternId: sketch.id,
@@ -241,8 +287,9 @@ export class ProgramRuntime {
     let changed = false;
     for (const descriptor of this.audioSlots) {
       descriptor.role = role || descriptor.role;
-      const sketch = this.sketches.find((entry) => entry.id === descriptor.patternId);
-      const params = snapshotPatternParams(sketch, this.getParams(descriptor.patternId));
+      const node = this.nodes[descriptor.childIndex];
+      const sketch = node.sketch;
+      const params = snapshotPatternParams(sketch, node.getParams());
       const fingerprint = paramsFingerprint(params);
       if (fingerprint !== descriptor.paramsFingerprint) {
         descriptor.params = params;
@@ -291,6 +338,7 @@ export class ProgramRuntime {
   }
 
   _createInstance(sketch, index) {
+    const node = this.nodes[index];
     const audioSlot = this.audioSlots[index] || null;
     const runtimeContext = {
       // Every pattern receives a narrow, renderer-safe controls binding.
@@ -325,6 +373,9 @@ export class ProgramRuntime {
         return consumer.capture;
       },
       reportMediaReady: () => this._noteMediaReady(index, sketch.id),
+      // A broken file settles with its visible missing/permission placeholder;
+      // loading files must not acknowledge a black frame as ready.
+      reportMediaSettled: () => this._noteMediaReady(index, sketch.id),
       addCleanup: (cleanup) => {
         if (typeof cleanup === 'function') this.cleanup.push(cleanup);
       },
@@ -333,7 +384,7 @@ export class ProgramRuntime {
     const factory = sketch.factory(
       this.audio,
       this.videoDeviceId,
-      this.getParams(sketch.id),
+      node.getParams(),
       runtimeContext,
     );
 
@@ -343,8 +394,8 @@ export class ProgramRuntime {
         // installed. Keep normal sketches viewport-sized, but retain an explicit
         // shader-utils request for a reduced backing buffer (renderScale).
         const viewportSize = () => [
-          Math.max(1, Math.round(window.innerWidth)),
-          Math.max(1, Math.round(window.innerHeight)),
+          Math.max(1, Math.round(this.getSize()[0])),
+          Math.max(1, Math.round(this.getSize()[1])),
         ];
         // Some deterministic ProgramRuntime tests use a deliberately minimal p5
         // fake with no canvas APIs. Keep that supported: only install sizing
@@ -358,6 +409,7 @@ export class ProgramRuntime {
             const width = Math.max(1, Math.round(Number(requestedWidth) || viewportWidth));
             const height = Math.max(1, Math.round(Number(requestedHeight) || viewportHeight));
             const requestedScale = Math.min(width / viewportWidth, height / viewportHeight);
+            if (this.preview) return [viewportWidth, viewportHeight];
             // Only preserve proportional, intentionally reduced buffers. This
             // distinguishes shader renderScale from stale/default 100×100 canvases.
             if (requestedScale >= 0.4 && requestedScale < 0.98) {
@@ -411,7 +463,8 @@ export class ProgramRuntime {
             // matching controls packet during this draw. The binding records
             // that fact before ProgramRuntime evaluates fresh-frame waiters.
             // Capture before the browser can clear an unpreserved WebGL buffer.
-            this.onDraw?.(p.canvas);
+            if (node.projection) node.projection.capture(node, p.canvas);
+            else this.onDraw?.(p.canvas);
             audioSlot?.binding?.noteDraw();
             this._noteDraw(index);
             return result;
@@ -434,7 +487,7 @@ export class ProgramRuntime {
       // canvas asynchronously, and constructing without a parent briefly puts
       // it in the document body where it can flash above LIVE before our attach
       // retry moves it into the hidden CUE layer.
-      instance = new this.p5Constructor(wrappedSketch, this.layer);
+      instance = new this.p5Constructor(wrappedSketch, node.host);
     } catch (error) {
       this._fail(error);
       return;
@@ -453,16 +506,19 @@ export class ProgramRuntime {
         return;
       }
 
-      if (canvas.parentElement !== this.layer) this.layer.appendChild(canvas);
+      const node = this.nodes[index];
+      if (canvas.parentElement !== node.host) node.host.appendChild(canvas);
+      node.canvas = canvas;
+      if (!node.projection) this.presentationElements[node.topIndex] = canvas;
       canvas.classList.add('program-canvas');
       canvas.dataset.programLayer = String(index);
-      canvas.style.zIndex = String(index);
+      canvas.style.zIndex = String(node.projection ? index : node.topIndex);
       canvas.style.pointerEvents = 'auto';
       if (this.merge) canvas.classList.add('merge-canvas');
       else canvas.classList.remove('merge-canvas');
 
       this.attached.add(index);
-      this._mark('canvas-attached', { sketchId: this.selection.ids[index] });
+      this._mark('canvas-attached', { sketchId: this.nodes[index]?.sketch.id });
       this.applyBlendStyles();
       this._checkReady();
     };
@@ -474,7 +530,7 @@ export class ProgramRuntime {
     this.drawCounts[index] = (this.drawCounts[index] || 0) + 1;
     this.drawn.add(index);
     this._mark('first-draw-completed', {
-      sketchId: this.selection.ids[index],
+      sketchId: this.nodes[index]?.sketch.id,
       count: this.drawCounts[index],
     });
     this._checkFreshFrame();
@@ -501,6 +557,7 @@ export class ProgramRuntime {
     const count = this.instances.length;
     if (!count || this.attached.size < count || this.drawn.size < count) return;
     if (!this._hasUsableCameraFrames()) return;
+    if (this.projectionLayers.some((layer) => !layer.presented)) return;
 
     // One compositor frame after the successful draw makes a canvas existence
     // acknowledgement useful to operators, rather than merely observable in JS.
@@ -509,6 +566,7 @@ export class ProgramRuntime {
         if (this.disposed || this.ready || this.error) return;
         if (this.attached.size < this.instances.length || this.drawn.size < this.instances.length) return;
         if (!this._hasUsableCameraFrames()) return;
+        if (this.projectionLayers.some((layer) => !layer.presented)) return;
         this.ready = true;
         this.readyAt = performance.now();
         if (this.timeoutId) clearTimeout(this.timeoutId);
@@ -617,6 +675,10 @@ export class ProgramRuntime {
     waiter.compositorRaf = requestAnimationFrame(() => {
       waiter.compositorRaf = 0;
       if (this.disposed || this.freshWaiter !== waiter || waiter.state !== 'awaiting-compositor') return;
+      if (waiter.projectionFrames?.some(({ layer, revision }) => layer.presentedRevision < revision)) {
+        this._finishFreshCompositorFrame(waiter);
+        return;
+      }
       // The second rAF is the compositor-confirmation gate: a p5 draw observed
       // in JavaScript is not yet a safe visible frame until the browser has had
       // an opportunity to composite it.
@@ -636,6 +698,10 @@ export class ProgramRuntime {
       entry.binding.hasRenderedAfter(entry.paramsRevision, entry.marker),
     );
     if (!controlsComplete) return;
+    // Latch controls at draw time, before newer audio packets advance the
+    // receiver sequence. Compositing may happen in the following animation
+    // frame; it must not require those already-rendered packets to stay newest.
+    waiter.projectionFrames = this.projectionLayers.map((layer) => ({ layer, revision: layer.captureRevision }));
 
     // Keep `freshWaiter` installed through the compositor gate. A request that
     // arrives now must wait for a new draw rather than resolving against this
@@ -726,6 +792,7 @@ export class ProgramRuntime {
   // would clear 2D buffers and can reset WebGL programs.
   resize(width, height) {
     if (this.disposed) return;
+    this.projectionLayers.forEach((layer) => layer.resize());
     const targetWidth = Math.max(1, Math.round(Number(width) || window.innerWidth || 1));
     const targetHeight = Math.max(1, Math.round(Number(height) || window.innerHeight || 1));
     for (const instance of this.instances) {
@@ -743,19 +810,33 @@ export class ProgramRuntime {
   }
 
   applyBlendStyles() {
-    if (!this.merge || this.instances.length !== 2) return;
-    const [base, overlay] = this.instances;
-    if (!base?.canvas || !overlay?.canvas) return;
+    this.projectionLayers.forEach((layer) => layer.queueRender());
+    if (!this.merge || this.presentationElements.length !== 2) return;
+    const [base, overlay] = this.presentationElements;
+    if (!base || !overlay) return;
 
     const params = this.getParams('__merge') || {};
     const additive = params.mode === 1;
     const mix = typeof params.mix === 'number' ? params.mix : 0.5;
     const add = typeof params.add === 'number' ? params.add : 0.5;
-    base.canvas.style.opacity = '1';
-    base.canvas.style.mixBlendMode = 'normal';
-    overlay.canvas.style.mixBlendMode = additive ? 'screen' : 'normal';
-    overlay.canvas.style.opacity = String(additive ? add : mix);
+    base.style.opacity = '1';
+    base.style.mixBlendMode = 'normal';
+    overlay.style.mixBlendMode = additive ? 'screen' : 'normal';
+    overlay.style.opacity = String(additive ? add : mix);
   }
+
+  resolveProjectionParams(id) {
+    return this.projectionParamSnapshots.get(id) || this.getParams(id);
+  }
+
+  freezeProjectionParams() {
+    for (const layer of this.projectionLayers) {
+      const id = layer.pattern.id;
+      if (!this.projectionParamSnapshots.has(id)) this.projectionParamSnapshots.set(id, { ...this.getParams(id) });
+    }
+  }
+
+  get hasProjection() { return this.projectionLayers.length > 0; }
 
   setFilter(filter) {
     if (!this.layer || this.disposed) return;
@@ -808,6 +889,8 @@ export class ProgramRuntime {
     // contexts active long enough for rapid LIVE/CUE switches to exhaust Chrome.
     this.instances.forEach((instance) => disposeP5Instance(instance));
     this.instances = [];
+    this.projectionLayers.forEach((layer) => layer.dispose());
+    this.projectionLayers = [];
     const retiredAudioSlots = this.audioSlots.splice(0);
     if (this.audioControlStore) {
       this.audioControlStore.retireSlots(retiredAudioSlots.map((slot) => slot.runtimeId));
