@@ -62,6 +62,15 @@ import {
 } from '../pattern-audio-protocol.js';
 import { setBandSplit, computeLogSpectrum } from '../sketches/audio-features.js';
 import {
+  cloneQuad,
+  loadStoredMappingEnabled,
+  loadStoredMappingQuad,
+  parseMappingQuad,
+  quadToMatrix3d,
+  storeMappingEnabled,
+  storeMappingQuad,
+} from '../screen-mapping.js';
+import {
   loadNoiseFloor,
   clearNoiseFloor,
   startNoiseCapture,
@@ -210,6 +219,13 @@ export function createAppRuntime({
   // Screen resize.
   let screenResizeObserver = null;
   let screenResizeRaf = 0;
+
+  // Screen mapping (projector keystone). Both roles load the persisted state
+  // so either boot order starts from the same projection calibration; live
+  // updates arrive over the bus as `screen-mapping` messages. Opt-in: while
+  // disabled the output renders to the full frame untouched.
+  let screenMappingEnabled = loadStoredMappingEnabled();
+  let screenMappingQuad = loadStoredMappingQuad();
 
   // Audio broadcast loop.
   let audioBroadcastRaf = 0;
@@ -412,6 +428,10 @@ export function createAppRuntime({
       screenResizeRaf = requestAnimationFrame(() => {
         screenResizeRaf = 0;
         resizeScreenRuntimes();
+        // The mapping quad is normalized; recompute the pixel-space matrix and
+        // tell control windows the new output resolution.
+        applyScreenMapping();
+        broadcastScreenInfo();
       });
     };
     screenResizeObserver = new ResizeObserver(queueResize);
@@ -437,7 +457,65 @@ export function createAppRuntime({
     stageLiveLayer = liveLayer;
     stageCueLayer = cueLayer;
     observeScreenResize();
+    // A freshly mounted stage must pick up the persisted keystone mapping.
+    applyScreenMapping();
     return wrap;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Screen mapping (end-of-chain projector keystone)
+  // ---------------------------------------------------------------------------
+  function currentScreenResolution() {
+    return {
+      width: Math.max(1, Math.round(window.innerWidth)),
+      height: Math.max(1, Math.round(window.innerHeight)),
+    };
+  }
+
+  // The homography is applied to the stage wrapper itself — AFTER the post-fx
+  // filter, merge blend and CUE layer swap — so every program is warped
+  // identically and nothing else (toolbar, preview) is touched. Opt-in: when
+  // the feature is off (or the quad is full-frame) no transform is applied.
+  function applyScreenMapping() {
+    if (role !== 'screen') return;
+    const wrap = ensureScreenStage();
+    if (!wrap) return;
+    const matrix = screenMappingEnabled
+      ? quadToMatrix3d(screenMappingQuad, window.innerWidth, window.innerHeight)
+      : null;
+    wrap.style.transform = matrix || 'none';
+  }
+
+  function acceptScreenMapping(enabled, quad) {
+    screenMappingEnabled = Boolean(enabled);
+    screenMappingQuad = cloneQuad(quad);
+    storeMappingEnabled(screenMappingEnabled);
+    storeMappingQuad(screenMappingQuad);
+    applyScreenMapping();
+  }
+
+  function setControlScreenMapping(enabled, quad) {
+    if (role !== 'control') return;
+    const nextEnabled = Boolean(enabled);
+    const nextQuad = cloneQuad(quad);
+    const current = store.getState();
+    const prevQuad = current.screenMappingQuad;
+    const quadChanged = (nextQuad === null) !== (prevQuad === null)
+      || (nextQuad !== null && (nextQuad.some((pt, i) => !prevQuad?.[i]
+        || pt.x !== prevQuad[i].x || pt.y !== prevQuad[i].y)));
+    storeMappingQuad(nextQuad);
+    storeMappingEnabled(nextEnabled);
+    // Only bump the store when something actually changed so state echoes
+    // cannot spam re-renders.
+    if (nextEnabled !== current.screenMappingEnabled || quadChanged) {
+      store.setState({ screenMappingEnabled: nextEnabled, screenMappingQuad: nextQuad });
+    }
+  }
+
+  function broadcastScreenInfo() {
+    if (role !== 'screen' || !bus) return;
+    const { width, height } = currentScreenResolution();
+    bus.broadcast({ type: 'screen-info', width, height });
   }
 
   function setLayerRoles(liveLayer, cueLayer) {
@@ -679,6 +757,7 @@ export function createAppRuntime({
       live: copyProgramSelection(selection),
       liveParams: canonicalLiveParamBank(),
       bands: canonicalBandValues(),
+      screen: currentScreenResolution(),
       cue: cueStatePayload(),
       audioOwner: isAudioOwner,
       audioStatus: { ...lastAudioStatus },
@@ -2009,6 +2088,16 @@ export function createAppRuntime({
           const keys = Object.keys(msg.bands);
           if (keys.length <= 16) applyCanonicalBandValues(msg.bands);
         }
+        if (msg.screen && typeof msg.screen === 'object' && !Array.isArray(msg.screen)) {
+          const stateWidth = Math.round(Number(msg.screen.width));
+          const stateHeight = Math.round(Number(msg.screen.height));
+          if (Number.isFinite(stateWidth) && Number.isFinite(stateHeight) && stateWidth >= 1 && stateHeight >= 1) {
+            const res = store.getState().screenResolution;
+            if (!res || res.width !== stateWidth || res.height !== stateHeight) {
+              store.setState({ screenResolution: { width: stateWidth, height: stateHeight } });
+            }
+          }
+        }
         if (msg.liveParams && typeof msg.liveParams === 'object' && !Array.isArray(msg.liveParams)) {
           if (Object.keys(msg.liveParams).length <= 80) applyCanonicalLiveParamBank(msg.liveParams);
         }
@@ -2120,6 +2209,30 @@ export function createAppRuntime({
           takeRequestId: typeof msg.takeRequestId === 'string' ? msg.takeRequestId.slice(0, 128) : null,
           rejectedTakeRequestId: typeof msg.rejectedTakeRequestId === 'string' ? msg.rejectedTakeRequestId.slice(0, 128) : null,
         });
+        return;
+      }
+
+      case 'screen-mapping': {
+        // Control windows are the only senders; the local echo updates the
+        // sender's own panel, the screen window warps the output stage.
+        const parsedMapping = parseMappingQuad(msg.quad);
+        if (!parsedMapping.valid) return; // retain the last valid mapping
+        if (role === 'screen') acceptScreenMapping(msg.enabled, parsedMapping.quad);
+        else setControlScreenMapping(msg.enabled, parsedMapping.quad);
+        return;
+      }
+
+      case 'screen-info': {
+        const infoWidth = Math.round(Number(msg.width));
+        const infoHeight = Math.round(Number(msg.height));
+        if (!Number.isFinite(infoWidth) || !Number.isFinite(infoHeight)) return;
+        if (infoWidth < 1 || infoHeight < 1 || infoWidth > 20000 || infoHeight > 20000) return;
+        if (role === 'control') {
+          const res = store.getState().screenResolution;
+          if (!res || res.width !== infoWidth || res.height !== infoHeight) {
+            store.setState({ screenResolution: { width: infoWidth, height: infoHeight } });
+          }
+        }
         return;
       }
 
@@ -2365,6 +2478,10 @@ export function createAppRuntime({
   function bootControl() {
     updateActiveSketchId();
     store.setState({ padOrder: getOrderedSketches().map((s) => s.id) });
+    store.setState({
+      screenMappingEnabled: loadStoredMappingEnabled(),
+      screenMappingQuad: loadStoredMappingQuad(),
+    });
     syncUI();
     beginAudioOwnership();
     // First-run device setup gate (mirrors the legacy ConfigPanel.maybeShowSetupModal).
@@ -2410,6 +2527,11 @@ export function createAppRuntime({
       audioFeatures: () => currentP5?.__audioFeatures || null,
       bands: () => getParams(BANDS_ID),
       postfx: () => getParams(POSTFX_ID),
+      screenMapping: () => ({
+        enabled: screenMappingEnabled,
+        quad: cloneQuad(screenMappingQuad),
+        resolution: currentScreenResolution(),
+      }),
       eq: () => ({
         split: { ...eqSink.split },
         drawn: eqSink.drawn,
@@ -2476,6 +2598,32 @@ export function createAppRuntime({
     noiseClear() {
       clearNoiseFloor();
       bus.broadcast({ type: 'noise-floor', status: 'cleared' });
+    },
+    setScreenMapping(quad) {
+      const parsed = parseMappingQuad(quad);
+      if (!parsed.valid) return false;
+      // The local echo updates this panel's store + persistence; an online
+      // screen window receives the same message and warps the output stage.
+      bus.broadcast({
+        type: 'screen-mapping',
+        enabled: Boolean(store.getState().screenMappingEnabled),
+        quad: parsed.quad,
+      });
+      return true;
+    },
+    setScreenMappingEnabled(enabled) {
+      bus.broadcast({
+        type: 'screen-mapping',
+        enabled: Boolean(enabled),
+        quad: cloneQuad(store.getState().screenMappingQuad),
+      });
+    },
+    resetScreenMapping() {
+      bus.broadcast({
+        type: 'screen-mapping',
+        enabled: Boolean(store.getState().screenMappingEnabled),
+        quad: null,
+      });
     },
     resumeAudio() { resumeAudioFromControlGesture(); },
     async addMediaFiles(fileList) {

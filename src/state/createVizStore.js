@@ -29,6 +29,14 @@ export function createVizStore(role) {
     bandValues: { low: 180, high: 2800 },
     postFxRevision: 0,
 
+    // Screen mapping (projector keystone). Opt-in: when `enabled` is false the
+    // output renders to the full frame untouched. quad is null = full frame;
+    // each corner is normalized 0..1 against the OUTPUT window. Resolution is
+    // the output window's innerWidth/innerHeight reported over the bus.
+    screenMappingEnabled: false,
+    screenMappingQuad: null,
+    screenResolution: null,
+
     // audio
     audioStatus: { status: 'idle' },
     audioDeviceId: null,

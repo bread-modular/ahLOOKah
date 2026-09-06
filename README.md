@@ -28,6 +28,10 @@ cues live with zero blank gaps.
 - **Band-split EQ** — drag bass/mid/high crossover handles to reshape how
   audio drives the visuals.
 - **Post-processing trim** — global brightness / contrast / saturation.
+- **Screen mapping (opt-in)** — software keystone for projectors: enable it in
+  the Screen Mapping section, then drag the four corners while watching the
+  projection until the picture forms a true rectangle that fills your physical
+  screen. Off by default (full-frame output).
 - **Camera-input FX** — chroma key, kaleidoscope, pixelate, trails, and more
   (opt-in via browser permissions).
 - **Pattern audio engine** — beat/band-driven control with kick/snare/hat

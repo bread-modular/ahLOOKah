@@ -24,11 +24,11 @@ test.describe('post processing section', () => {
     const section = control.locator('#post-fx');
     await expect(section).toHaveAttribute('open', '');
 
-    // Section order in the controls pane
+    // Section order in the controls pane (screen mapping is the last section)
     const order = await control.evaluate(() =>
       [...document.querySelectorAll('#controls-pane > details')].map((s) => s.id)
     );
-    expect(order).toEqual(['post-fx', 'band-eq']);
+    expect(order).toEqual(['post-fx', 'band-eq', 'screen-mapping']);
 
     // Three offset sliders at the natural level
     for (const key of ['brightness', 'contrast', 'saturation']) {

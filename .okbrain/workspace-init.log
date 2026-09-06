@@ -2,15 +2,5 @@ Initializing workspace from: /home/arunoda/projects/ahlookah
 Installing npm modules...
 Found local node_modules cache, copying...
 
-up to date, audited 50 packages in 3s
-
-12 packages are looking for funding
-  run `npm fund` for details
-
-1 high severity vulnerability
-
-To address all issues, run:
-  npm audit fix
-
-Run `npm audit` for details.
+up to date in 145ms
 Workspace initialization complete!

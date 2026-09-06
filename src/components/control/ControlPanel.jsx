@@ -7,6 +7,7 @@ import { PatternLibrary } from './PatternLibrary.jsx';
 import { ParameterPanel } from './ParameterPanel.jsx';
 import { PostFxPanel } from './PostFxPanel.jsx';
 import { BandEqPanel } from './BandEqPanel.jsx';
+import { ScreenMappingPanel } from './ScreenMappingPanel.jsx';
 import { StatusLine } from './StatusLine.jsx';
 import { AppMenu } from './AppMenu.jsx';
 import { DeviceSetupModal } from './DeviceSetupModal.jsx';
@@ -78,6 +79,10 @@ export function ControlPanel() {
 
           <CollapsibleSection id="band-eq" storageKey="viz2_band_eq_open" title="Band Split EQ">
             <BandEqPanel />
+          </CollapsibleSection>
+
+          <CollapsibleSection id="screen-mapping" storageKey="viz2_screen_mapping_open" title="Screen Mapping">
+            <ScreenMappingPanel />
           </CollapsibleSection>
         </div>
       </div>

@@ -1,0 +1,130 @@
+/* Screen Mapping (projector keystone) — column 3 section body. */
+
+.screen-mapping-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.screen-mapping-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-main);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  user-select: none;
+}
+
+.screen-mapping-toggle input {
+  width: auto;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+/* While the feature is off the output renders full-frame; the editor is
+   inert so stored corners can't be changed by accident. */
+.screen-mapping-body.is-disabled #screen-mapping-editor {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.screen-mapping-body.is-disabled .screen-mapping-meta,
+.screen-mapping-body.is-disabled p {
+  opacity: 0.72;
+}
+
+.screen-mapping-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.66rem;
+  color: var(--text-dim);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.screen-mapping-meta b {
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+.screen-mapping-meta b.screen-offline {
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+#screen-mapping-editor {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--border-gray);
+  border-radius: 4px;
+  background:
+    linear-gradient(135deg, rgba(77, 163, 255, 0.05), transparent 60%),
+    #05070a;
+  touch-action: none;
+  user-select: none;
+  /* Corner handles sit ON the frame edges — let their hit areas extend past
+     the SVG viewport instead of being clipped. */
+  overflow: visible;
+}
+
+#screen-mapping-editor .sm-grid {
+  stroke: rgba(255, 255, 255, 0.07);
+  stroke-width: 0.5;
+}
+
+#screen-mapping-editor .sm-frame {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.28);
+  stroke-width: 0.6;
+  stroke-dasharray: 3 2;
+}
+
+#screen-mapping-editor .sm-quad {
+  fill: rgba(77, 163, 255, 0.12);
+  stroke: var(--accent);
+  stroke-width: 0.9;
+}
+
+#screen-mapping-editor.is-invalid .sm-quad {
+  stroke: #ff7676;
+  fill: rgba(255, 118, 118, 0.12);
+}
+
+#screen-mapping-editor .sm-handle {
+  fill: var(--accent);
+  stroke: #04121f;
+  stroke-width: 0.8;
+  cursor: grab;
+}
+
+#screen-mapping-editor .sm-handle.is-dragging {
+  fill: #ffffff;
+  cursor: grabbing;
+}
+
+#screen-mapping-editor .sm-handle-hit {
+  fill: transparent;
+  cursor: grab;
+}
+
+#screen-mapping-editor .sm-label {
+  fill: rgba(255, 255, 255, 0.55);
+  font-size: 5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  pointer-events: none;
+}
+
+.screen-mapping-body p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.66rem;
+  line-height: 1.45;
+}

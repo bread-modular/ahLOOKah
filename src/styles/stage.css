@@ -6,6 +6,9 @@
   position: fixed;
   inset: 0;
   pointer-events: none;
+  /* Screen-mapping homography maps stage-local coords == window CSS pixels,
+     so the warp origin must be the top-left corner. */
+  transform-origin: 0 0;
 }
 
 /* Two isolated program layers let a fully drawn CUE sit behind LIVE without

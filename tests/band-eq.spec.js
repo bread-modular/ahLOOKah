@@ -37,11 +37,11 @@ test.describe('band split EQ section', () => {
     await expect(eq).toHaveAttribute('open', '');
 
     // Sits directly below post-processing in the controls pane (post-processing
-    // is the first collapsible section, above the EQ)
+    // is the first collapsible section, above the EQ; screen mapping is last)
     const order = await control.evaluate(() =>
       [...document.querySelectorAll('#controls-pane > details')].map((s) => s.id)
     );
-    expect(order).toEqual(['post-fx', 'band-eq']);
+    expect(order).toEqual(['post-fx', 'band-eq', 'screen-mapping']);
 
     // Coloured band legend showing the default MUSICAL_BANDS borders
     await expect(control.locator('.band-chip')).toHaveCount(3);
