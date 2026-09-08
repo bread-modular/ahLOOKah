@@ -152,12 +152,29 @@ failure retains a calibrated CSS fallback. Camera sources render only on the
 output. Each surface owns a renderer, so reduce surface count or shader complexity
 if the projector machine cannot keep up (especially during CUE warm-up).
 
+### Performance budget and media playback
+
+LIVE patterns show CPU-budget badges in the pad/library and on individual mapping
+rows. The parameter panel adds a budget bar and output FPS; the status line shows
+the total. These are main-thread rendering measurements against a 16.67 ms target,
+**not GPU or video-decoder utilization**. CUE is measured once taken LIVE, and
+stale measurements disappear automatically.
+
+Mapping passes are bounded to each surface, full-frame edge smoothing has a
+single-sample fast path, and unchanged images/video frames reuse their existing
+textures. Warped/minified surfaces keep 4×4 antialiasing; output resolution is not
+reduced. Parked CUE videos pause decoding until resumed. See
+[performance findings and benchmark](docs/render-performance.md) for details and
+hardware limitations.
+
 ## 🧪 Testing
 
 ```bash
 npm test            # Playwright E2E suite
 npm test -- tests/screen-mapping*.spec.js --workers=1  # Mapping + pixel coverage
 npm test -- tests/projection-mapping.spec.js --workers=1 # Projection patterns
+npm test -- tests/*performance.spec.js --workers=1 # Budget and media invalidation
+PLAYWRIGHT_PORT=5273 npm test # Isolate a worktree from another server on 5173
 ```
 
 Screen-mapping tests scan complete horizontal and vertical bar edges, including

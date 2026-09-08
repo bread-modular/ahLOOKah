@@ -1,3 +1,4 @@
+import { PerformanceBudget } from './PerformanceBudget.jsx';
 import { getOrderedSketches } from '../../sketch-registry.js';
 import { useRuntime } from '../../app/RuntimeContext.jsx';
 import { useVizStore } from '../../state/useVizStore.js';
@@ -54,7 +55,7 @@ export function PatternPad() {
             onDrop={(e) => { e.preventDefault(); commitDrop(i); }}
           >
             <span className="pattern-key">{slotLabel(i)}</span>
-            <span className="pattern-name">{sketch ? sketch.name : '—'}</span>
+            <span className="pattern-label"><span className="pattern-name">{sketch ? sketch.name : '—'}</span><PerformanceBudget patternId={id} compact /></span>
             <span className="drag-handle" title="Drag to swap slots">⠿</span>
           </button>
         );

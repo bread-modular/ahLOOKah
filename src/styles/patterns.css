@@ -435,3 +435,25 @@
 }
 
 
+
+/* Performance changes are isolated to these small subscribers, not the sliders
+   or the entire library. Labels can shrink without widening resizable panes. */
+.pattern-label { display: flex; flex: 1; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; }
+.pattern-label > .pattern-name { display: block; max-width: 100%; }
+.performance-badge { font-size: 0.58rem; line-height: 1.25; font-variant-numeric: tabular-nums; letter-spacing: 0; }
+.performance-badge.is-low, .performance-budget.is-low { --budget-color: #70cfa3; }
+.performance-badge.is-warn, .performance-budget.is-warn { --budget-color: #e6b868; }
+.performance-badge.is-high, .performance-budget.is-high { --budget-color: #f48181; }
+.performance-badge { color: var(--budget-color); }
+.performance-budget { padding: 10px; margin-bottom: 12px; border: 1px solid var(--border-gray); border-radius: 6px; font-size: 0.65rem; font-variant-numeric: tabular-nums; }
+.performance-budget-heading, .performance-budget-detail { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px; }
+.performance-budget-heading strong { color: var(--budget-color); }
+.performance-budget-track { height: 4px; margin: 8px 0; border-radius: 2px; background: #ffffff14; overflow: hidden; }
+.performance-budget-track > span { display: block; height: 100%; background: var(--budget-color); }
+.performance-budget-detail, .performance-budget small, .performance-budget.is-unmeasured { color: var(--text-dim); }
+.performance-budget small { display: block; margin-top: 6px; font-size: 0.6rem; }
+.output-performance { color: var(--text-dim); font-size: 0.65rem; font-variant-numeric: tabular-nums; }
+.performance-slow { color: #e6b868; }
+.status-line { flex-wrap: wrap; gap: 8px; }
+
+.pattern-btn.active .performance-badge { color: #102c45; font-weight: 600; }

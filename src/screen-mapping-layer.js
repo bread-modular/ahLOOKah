@@ -4,10 +4,11 @@ import { IDENTITY_QUAD, mappingEdgeMask, quadToMatrix3d } from './screen-mapping
 // A calibrated ordinary input in a mixed projection/ordinary program. Keep it
 // inside the program's blend/post-FX group, not in the global output overlay.
 export class ScreenMappingLayer {
-  constructor({ host, getMapping, getSize, onPresented }) {
+  constructor({ host, getMapping, getSize, onPresented, onRenderCost }) {
     this.getMapping = getMapping;
     this.getSize = getSize;
     this.onPresented = onPresented;
+    this.onRenderCost = onRenderCost;
     this.captureRevision = 0;
     this.presentedRevision = 0;
     this.presented = false;
@@ -71,8 +72,9 @@ export class ScreenMappingLayer {
     return created;
   }
 
-  capture(canvas) {
+  capture(canvas, changed = true) {
     if (this.disposed) return;
+    if (!changed && this.source === canvas && (!this.renderer || this.renderer.textures.has(canvas))) return;
     this.source = canvas;
     this.captureRevision += 1;
     // Synchronous capture is required for unpreserved WebGL source buffers.
@@ -92,17 +94,21 @@ export class ScreenMappingLayer {
 
   render() {
     if (this.disposed || !this.source) return;
-    this.source.style.transformOrigin = '0 0';
-    this.source.style.transform = this.matrix || 'none';
-    this.source.style.maskImage = mappingEdgeMask(this.edgeBlur);
-    this.source.style.maskMode = 'alpha';
-    this.source.style.maskComposite = 'intersect';
+    const started = this.onRenderCost ? performance.now() : 0;
+    const previous = this.presentationState;
+    if (!previous || previous.source !== this.source || previous.matrix !== this.matrix || previous.edgeBlur !== this.edgeBlur) {
+      this.source.style.transformOrigin = '0 0';
+      this.source.style.transform = this.matrix || 'none';
+      this.source.style.setProperty('--screen-mapping-edge-mask', mappingEdgeMask(this.edgeBlur));
+      this.presentationState = { source: this.source, matrix: this.matrix, edgeBlur: this.edgeBlur };
+    }
     try {
       if (this.renderer) {
         if (!this.renderer.render({ canvases: [this.source], edgeBlur: this.edgeBlur, sourceAlpha: true })) return;
-        this.sources.style.opacity = '0';
+        if (this.sources.style.opacity !== '0') this.sources.style.opacity = '0';
       }
     } catch (error) { this.fail(error); }
+    finally { this.onRenderCost?.(performance.now() - started); }
     this.presented = true;
     this.presentedRevision = this.captureRevision;
   }

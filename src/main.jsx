@@ -43,7 +43,9 @@ function Root() {
 createRoot(document.getElementById('root')).render(
   <>
     <Root />
-    <Analytics />
+    {/* Dev analytics injects a remote debug script blocked by the local CSP.
+        Keep that unnecessary request/error out of local rendering and tests. */}
+    {import.meta.env.PROD && <Analytics />}
   </>
 );
 

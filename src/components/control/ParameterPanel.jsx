@@ -1,3 +1,4 @@
+import { PerformanceBudget } from './PerformanceBudget.jsx';
 import { getOrderedSketches, SKETCHES, BLEND_ID, BLEND_PARAMS } from '../../sketch-registry.js';
 import { selectionName } from '../../program/selection.js';
 import { useRuntime } from '../../app/RuntimeContext.jsx';
@@ -106,6 +107,7 @@ function EffectParams({ currentPattern, currentPatternId, getValue, changeParam,
 
   return (
     <>
+      <PerformanceBudget patternId={currentPatternId} scope={scope} />
       {rows}
       {sketch?.media && (
         <div className="media-manage-row">
@@ -189,6 +191,7 @@ function MergePatternParams({ patternId, slotLabel, name, getValue, changeParam,
         <span className="merge-pattern-slot">{slotLabel}</span>
         <span className="merge-pattern-name">{name}</span>
       </div>
+      <PerformanceBudget patternId={patternId} scope={scope} />
       {defs.length === 0 ? (
         <p className="param-empty">No parameters for this effect.</p>
       ) : defs.map((def) => (def.options ? (

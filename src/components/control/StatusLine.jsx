@@ -1,3 +1,4 @@
+import { OutputPerformance } from './PerformanceBudget.jsx';
 import { useRuntime } from '../../app/RuntimeContext.jsx';
 import { useVizStore } from '../../state/useVizStore.js';
 import { ICON_MONITOR } from '../common/icons.jsx';
@@ -21,6 +22,7 @@ export function StatusLine() {
           {ICON_MONITOR}Open Screen
         </button>
       )}
+      <OutputPerformance />
     </div>
   );
 }
