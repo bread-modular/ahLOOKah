@@ -438,8 +438,11 @@
 
 /* Performance changes are isolated to these small subscribers, not the sliders
    or the entire library. Labels can shrink without widening resizable panes. */
-.pattern-label { display: flex; flex: 1; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; }
-.pattern-label > .pattern-name { display: block; max-width: 100%; }
+/* Keep telemetry on the name's row so appearing/disappearing CPU readings never
+   add height to pad or library buttons. Only the name gives up horizontal space. */
+.pattern-label { display: flex; flex: 1; align-items: center; gap: 6px; min-width: 0; }
+.pattern-label > .pattern-name { display: block; min-width: 0; max-width: 100%; }
+.pattern-label > .performance-badge { flex-shrink: 0; white-space: nowrap; }
 .performance-badge { font-size: 0.58rem; line-height: 1.25; font-variant-numeric: tabular-nums; letter-spacing: 0; }
 .performance-badge.is-low, .performance-budget.is-low { --budget-color: #70cfa3; }
 .performance-badge.is-warn, .performance-budget.is-warn { --budget-color: #e6b868; }
