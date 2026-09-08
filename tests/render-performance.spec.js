@@ -54,6 +54,32 @@ test('output telemetry appears on live patterns and mappings, not CUE; stale/off
   await expect(control.locator('.projection-panel .performance-budget')).toContainText('LIVE performance budget', { timeout: 20000 });
   await expect(control.locator('.library-btn[data-id="projection-budget"] .performance-badge')).toBeVisible();
   await expect(control.locator('.slot-btn[data-id="projection-budget"] .performance-badge')).toBeVisible();
+  // Telemetry must not add a second line or resize pad/library buttons, even
+  // when the CPU value grows to multiple digits in a narrow pane.
+  for (const width of [1280, 900]) {
+    await control.setViewportSize({ width, height: 800 });
+    const sizes = await control.locator('.pattern-btn[data-id="projection-budget"]').evaluateAll((buttons) => buttons.map((button) => {
+      const badge = button.querySelector('.performance-badge');
+      const original = badge.textContent;
+      badge.style.display = 'none';
+      const without = button.getBoundingClientRect().height;
+      badge.style.removeProperty('display');
+      const withBadge = button.getBoundingClientRect().height;
+      badge.textContent = 'CPU 1000%';
+      const withLargeValue = button.getBoundingClientRect().height;
+      const name = button.querySelector('.pattern-name').getBoundingClientRect();
+      const reading = badge.getBoundingClientRect();
+      badge.textContent = original;
+      return { without, withBadge, withLargeValue, sameRow: reading.top < name.bottom && reading.bottom > name.top };
+    }));
+    expect(sizes).toHaveLength(2);
+    for (const size of sizes) {
+      expect(size.withBadge).toBe(size.without);
+      expect(size.withLargeValue).toBe(size.without);
+      expect(size.sameRow).toBe(true);
+    }
+  }
+  await control.setViewportSize({ width: 1280, height: 800 });
   await expect(control.locator('.projection-surface .performance-badge')).toHaveCount(2);
   await expect(control.locator('.output-performance')).toContainText('fps');
   await expect(control.locator('.projection-panel .performance-budget')).toContainText('GPU/decoder load not included');
