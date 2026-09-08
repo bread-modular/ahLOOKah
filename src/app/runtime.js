@@ -559,8 +559,11 @@ export function createAppRuntime({
     if (role !== 'screen') return;
     const wrap = ensureScreenStage();
     if (!wrap) return;
-    // Projection patterns bypass the entire global calibration, including the
-    // edge feather and its CSS fallback, without changing the stored settings.
+    // A mixed program calibrates its ordinary inputs individually. Its projection
+    // inputs (and their children) must never receive the stage-wide warp/feather.
+    for (const runtime of new Set([liveRuntime, cueRuntime, incomingRuntime])) {
+      runtime?.updateScreenMapping();
+    }
     const applyGlobalMapping = screenMappingEnabled && !liveRuntime?.hasProjection;
     const matrix = applyGlobalMapping
       ? quadToMatrix3d(screenMappingQuad, window.innerWidth, window.innerHeight)
@@ -667,6 +670,7 @@ export function createAppRuntime({
       warmTimeoutMs: CUE_WARM_TIMEOUT_MS,
       onTiming: (name, detail) => recordCueTiming(name, { reason, ...detail }),
       onDraw: captureMappedFrame,
+      getScreenMapping: () => ({ enabled: screenMappingEnabled, quad: screenMappingQuad, edgeBlur: screenMappingEdgeBlur }),
       audioControlStore: patternAudioStore,
       consumerSessionId: windowId,
       audioRole: reason === 'cue' ? 'cue' : (reason === 'direct-live' ? 'incoming' : 'live'),
@@ -2756,12 +2760,12 @@ export function createAppRuntime({
       postfx: () => getParams(POSTFX_ID),
       screenMapping: () => ({
         enabled: screenMappingEnabled,
-        bypassed: Boolean(liveRuntime?.hasProjection),
+        bypassed: Boolean(liveRuntime?.onlyProjection),
         quad: cloneQuad(screenMappingQuad),
         edgeBlur: screenMappingEdgeBlur,
         resolution: currentScreenResolution(),
-        antialiasing: screenMappingRenderer ? 'supersample-4x4' : 'none',
-        antialiasingError: screenMappingError,
+        antialiasing: screenMappingRenderer || liveRuntime?.screenMappingLayers.some((layer) => layer.renderer) ? 'supersample-4x4' : 'none',
+        antialiasingError: screenMappingError || liveRuntime?.screenMappingLayers.find((layer) => layer.error)?.error || null,
 
       }),
       eq: () => ({

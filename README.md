@@ -137,9 +137,11 @@ saved edits remain pending on the output until it can start successfully. Missin
 show their existing permission/missing-file message inside their surface.
 
 Unmapped areas are black. Later surfaces cover earlier surfaces, including their
-black backgrounds. Global post-processing still applies. The global screen warp
-is bypassed for the entire live program if either merge input is a projection
-pattern; selecting an ordinary program restores the saved calibration. GPU
+black backgrounds. Global post-processing still applies. Projection patterns bypass
+only their own global screen calibration. When merged with an ordinary pattern,
+that ordinary input still uses the saved screen warp and edge blurring (including
+antialiasing); its transparent or feathered areas reveal the other input. In mixed
+programs, each input is mapped before the shared blend and post-processing. GPU
 failure retains a calibrated CSS fallback. Camera sources render only on the
 output. Each surface owns a renderer, so reduce surface count or shader complexity
 if the projector machine cannot keep up (especially during CUE warm-up).

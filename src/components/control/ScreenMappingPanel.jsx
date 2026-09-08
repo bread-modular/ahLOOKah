@@ -33,7 +33,8 @@ export function ScreenMappingPanel() {
   const resolution = useVizStore(store, (s) => s.screenResolution);
   const live = useVizStore(store, (s) => s.liveSelection);
   useVizStore(store, (s) => s.projectionRevision);
-  const bypassed = live.ids.some((id) => SKETCHES.find((s) => s.id === id)?.projection);
+  const hasProjection = live.ids.some((id) => SKETCHES.find((s) => s.id === id)?.projection);
+  const bypassed = live.ids.length > 0 && live.ids.every((id) => SKETCHES.find((s) => s.id === id)?.projection);
   const svgRef = useRef(null);
   const dragRaf = useRef(0);
   const draftRef = useRef(null);
@@ -130,6 +131,7 @@ export function ScreenMappingPanel() {
   return (
     <div className={`config-section-body screen-mapping-body${mappingEnabled ? '' : ' is-disabled'}`}>
       {bypassed && <p className="projection-warning">Bypassed by the live projection mapping pattern. Your global calibration is preserved.</p>}
+      {hasProjection && !bypassed && <p className="projection-warning">Screen mapping applies to non-mapping patterns only. Projection patterns keep their own mapping.</p>}
       <label className="screen-mapping-toggle" title="Warp the output into the mapped quad (software keystone for projectors)">
         <input
           id="screen-mapping-enabled"
@@ -236,8 +238,10 @@ export function ScreenMappingPanel() {
         while watching the projection — each corner is where that edge of the
         picture lands on your physical screen. Adjust until the projected
         picture forms a true rectangle that fills the screen. While off,
-        everything renders to the full screen. The warp applies after every
-        effect, blend and post-processing trim.
+        ordinary patterns render to the full screen. For ordinary-only programs,
+        the warp applies after blending and post-processing. When merged with a
+        projection pattern, ordinary patterns are mapped before the shared blend
+        and post-processing; projection patterns keep their own geometry.
       </p>
     </div>
   );

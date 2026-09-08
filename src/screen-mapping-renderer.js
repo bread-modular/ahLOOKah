@@ -22,6 +22,7 @@ uniform vec3 uPostFx;
 uniform bool uApplyPostFx;
 uniform float uEdgeBlur;
 uniform bool uSurface;
+uniform bool uSourceAlpha;
 out vec4 outColor;
 
 vec2 sourcePoint(vec2 pixel) {
@@ -67,10 +68,14 @@ void main() {
       vec2 offset = (vec2(float(x), float(y)) + 0.5) / 4.0 - 0.5;
       vec2 uv = sourcePoint(pixel + offset);
       color += sampleProgram(uv, dx, dy);
-      coverage += all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0))) ? edgeCoverage(uv) : 0.0;
+      if (all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0)))) {
+        // Intermediate ordinary inputs retain source transparency and reveal
+        // the other merge input outside their quad and through feathered edges.
+        coverage += edgeCoverage(uv) * (uSourceAlpha ? textureGrad(uBase, uv, dx, dy).a : 1.0);
+      }
     }
   }
-  outColor = vec4(color / 16.0, uSurface ? coverage / 16.0 : 1.0);
+  outColor = vec4(color / 16.0, (uSurface || uSourceAlpha) ? coverage / 16.0 : 1.0);
 }`;
 
 function createProgram(gl) {
@@ -97,11 +102,11 @@ function createProgram(gl) {
 }
 
 export class ScreenMappingRenderer {
-  constructor(canvas) {
+  constructor(canvas, { alpha = false } = {}) {
     this.canvas = canvas;
     this.textures = new Map();
     this.gl = canvas.getContext('webgl2', {
-      alpha: false, antialias: false, depth: false, stencil: false,
+      alpha, antialias: false, depth: false, stencil: false,
       premultipliedAlpha: true, preserveDrawingBuffer: false,
     });
     if (!this.gl) throw new Error('WebGL2 is unavailable for screen-mapping antialiasing.');
@@ -109,7 +114,7 @@ export class ScreenMappingRenderer {
     try {
       this.program = createProgram(gl);
       this.uniforms = Object.fromEntries([
-        'uBase', 'uOverlay', 'uInverse', 'uResolution', 'uOpacity', 'uScreenBlend', 'uPostFx', 'uApplyPostFx', 'uEdgeBlur', 'uSurface',
+        'uBase', 'uOverlay', 'uInverse', 'uResolution', 'uOpacity', 'uScreenBlend', 'uPostFx', 'uApplyPostFx', 'uEdgeBlur', 'uSurface', 'uSourceAlpha',
       ].map((name) => [name, gl.getUniformLocation(this.program, name)]));
       this.empty = this.createTexture();
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
@@ -169,7 +174,7 @@ export class ScreenMappingRenderer {
     gl.generateMipmap(gl.TEXTURE_2D);
   }
 
-  render({ canvases, blend = {}, postFx = {}, edgeBlur = 0, surface = false }) {
+  render({ canvases, blend = {}, postFx = {}, edgeBlur = 0, surface = false, sourceAlpha = false }) {
     const gl = this.gl;
     if (gl.isContextLost()) throw new Error('Screen-mapping context was lost.');
     if (!this.inverse || !canvases?.length || canvases.some((source) => !this.textures.has(source))) return false;
@@ -182,6 +187,7 @@ export class ScreenMappingRenderer {
     const u = this.uniforms;
     gl.uniform1f(u.uEdgeBlur, normalizeMappingEdgeBlur(edgeBlur) / 100);
     gl.uniform1i(u.uSurface, surface);
+    gl.uniform1i(u.uSourceAlpha, sourceAlpha);
     gl.uniform1i(u.uBase, 0);
     gl.uniform1i(u.uOverlay, 1);
     gl.uniformMatrix3fv(u.uInverse, false, this.inverse);

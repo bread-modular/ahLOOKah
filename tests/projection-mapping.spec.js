@@ -410,27 +410,110 @@ test('image and video mappings expose all media controls, render real files, and
   await expect.poll(() => page.evaluate(() => window.__viz.runtimeCounts.total)).toBe(2);
 });
 
-test('projection/ordinary merge keeps one composited input per pattern and restores mapping after exit', async ({ context, page }) => {
+for (const ordinaryFirst of [false, true]) {
+  for (const mode of [0, 1]) {
+    test(`mixed screen mapping preserves projection geometry (ordinary first: ${ordinaryFirst}, mode: ${mode})`, async ({ context, page }) => {
+      await seed(context, { live: ordinaryFirst ? 'solid-color' : ID });
+      const control = await open(context, page);
+      await send(control, { type: 'params', id: 'solid-color', values: { hue: 2 / 3, saturation: 1, brightness: 1, pulse: 0 } });
+      await control.keyboard.down('1'); await control.keyboard.down('2');
+      await control.keyboard.up('2'); await control.keyboard.up('1');
+      await expect.poll(() => page.evaluate(() => window.__viz.merge), { timeout: 20000 }).toEqual([0, 1]);
+      await expect(page.locator('.program-layer-live > .projection-layer')).toHaveCount(1);
+      await expect(page.locator('.program-layer-live > .screen-mapped-layer')).toHaveCount(1);
+      await expect(page.locator('#screen-wrap')).toHaveCSS('transform', 'none');
+      await expect(control.locator('#screen-mapping')).toContainText('non-mapping patterns only');
+      await send(control, { type: 'params', id: '__merge', values: { mode, mix: .5, add: .5 } });
+      const points = [[.08, .5], [.3, .5], [.5, .5], [.7, .5], [.5, .05]];
+      const expected = ordinaryFirst
+        ? (mode === 1 ? [[128, 0, 0], [128, 0, 255], [0, 0, 255], [0, 128, 255], [0, 0, 0]]
+          : [[128, 0, 0], [128, 0, 128], [0, 0, 128], [0, 128, 128], [0, 0, 0]])
+        : (mode === 1 ? [[255, 0, 0], [255, 0, 128], [0, 0, 128], [0, 255, 128], [0, 0, 0]]
+          : [[255, 0, 0], [128, 0, 128], [0, 0, 128], [0, 128, 128], [0, 0, 0]]);
+      const assertPixels = () => expect.poll(async () => {
+        const actual = await colors(page, points);
+        return Math.max(...actual.flatMap((rgb, i) => rgb.map((v, c) => Math.abs(v - expected[i][c]))));
+      }).toBeLessThanOrEqual(2);
+      await assertPixels();
+      expect(await page.evaluate(() => window.__viz.screenMapping.bypassed)).toBe(false);
+      expect(await page.evaluate(() => window.__viz.screenMapping.antialiasing)).toBe('supersample-4x4');
+      await page.setViewportSize({ width: 600, height: 400 });
+      await assertPixels();
+      // Both calibration paths must survive GPU loss, without moving a wall.
+      await page.locator('.program-layer-live .screen-mapped-output').evaluate((canvas) => canvas.getContext('webgl2').getExtension('WEBGL_lose_context').loseContext());
+      await expect(page.locator('.program-layer-live .screen-mapped-layer')).toHaveAttribute('data-fallback', 'true');
+      await assertPixels();
+      await control.locator('#screen-mapping-enabled').uncheck();
+      await expect(page.locator('.program-layer-live .screen-mapped-source canvas')).toHaveCSS('transform', 'none');
+      await control.locator('#screen-mapping-enabled').check();
+      await expect(page.locator('.program-layer-live .screen-mapped-output')).toHaveCount(1);
+      await assertPixels();
+      await control.keyboard.press(ordinaryFirst ? '1' : '2');
+      await expect.poll(() => page.evaluate(() => window.__viz.runtimeCounts.total)).toBe(1);
+      await expect(page.locator('.screen-mapped-layer')).toHaveCount(0);
+      await expect(page.locator('#screen-mapping-output')).toHaveClass('is-active');
+    });
+  }
+}
+
+test('mixed CUE keeps LIVE geometry and takes the latest global calibration', async ({ context, page }) => {
   await seed(context);
   const control = await open(context, page);
+  await send(control, { type: 'params', id: 'solid-color', values: { hue: 2 / 3, saturation: 1, brightness: 1, pulse: 0 } });
+  await send(control, { type: 'params', id: '__merge', values: { mode: 0, mix: 1 } });
   await expectWalls(page);
-  // Pad slots 1/2 are projection and solid-color respectively.
+  await control.keyboard.down('Shift');
   await control.keyboard.down('1'); await control.keyboard.down('2');
   await control.keyboard.up('2'); await control.keyboard.up('1');
-  await expect.poll(() => page.evaluate(() => window.__viz.merge)).toEqual([0, 1]);
-  await expect(page.locator('.program-layer-live > .projection-layer')).toHaveCount(1);
-  await expect(page.locator('.program-layer-live > canvas')).toHaveCount(1);
-  await expect(control.locator('.projection-surface')).toHaveCount(2);
-  await send(control, { type: 'params', id: '__merge', values: { mix: 0 } });
+  await control.keyboard.up('Shift');
+  await expect.poll(() => page.evaluate(() => window.__viz.cue?.phase), { timeout: 20000 }).toBe('ready');
+  await expect(page.locator('.program-layer-cue .screen-mapped-output')).toHaveCount(1);
   await expectWalls(page);
-  await send(control, { type: 'params', id: '__merge', values: { mix: 1 } });
-  await expect.poll(async () => {
-    const rgb = await colors(page); return JSON.stringify(rgb[0]) === JSON.stringify(rgb[1]) && JSON.stringify(rgb[1]) === JSON.stringify(rgb[2]);
-  }).toBe(true);
-  expect(await page.evaluate(() => window.__viz.screenMapping.bypassed)).toBe(true);
+  const quad = rectangle(.3, .25, .7, .75);
+  await send(control, { type: 'screen-mapping', enabled: true, quad, edgeBlur: 10 });
+  await expect.poll(() => page.evaluate(() => window.__viz.screenMapping.quad)).toEqual(quad);
+  await expectWalls(page); // A parked mixed CUE must not affect LIVE's walls.
+  await control.keyboard.press('Enter');
+  await expect.poll(() => page.evaluate(() => window.__viz.merge), { timeout: 20000 }).toEqual([0, 1]);
+  await expect.poll(() => colors(page, [[.08, .5], [.4, .5], [.6, .5], [.92, .5]]))
+    .toEqual([[255, 0, 0], [0, 0, 255], [0, 0, 255], [0, 255, 0]]);
+  expect(await page.evaluate(() => window.__viz.screenMapping.bypassed)).toBe(false);
+  await control.locator(`.library-btn[data-id="${ID}"]`).click({ modifiers: ['Shift'] });
+  await expect.poll(() => page.evaluate(() => window.__viz.cue?.phase)).toBe('ready');
+  await control.keyboard.press('Enter');
+  await expectWalls(page);
+  await expect.poll(() => page.evaluate(() => window.__viz.screenMapping.bypassed)).toBe(true);
+  await expect(page.locator('.screen-mapped-layer')).toHaveCount(0);
+  // Ordinary-only LIVE uses the global output. Staging/cancelling a mixed CUE
+  // must leave it intact, and TAKE must exchange the two mapping paths.
   await control.keyboard.press('2');
-  await expect.poll(() => page.evaluate(() => window.__viz.screenMapping.bypassed)).toBe(false);
-  await expect.poll(() => page.evaluate(() => window.__viz.runtimeCounts.total)).toBe(1);
+  await expect(page.locator('#screen-mapping-output')).toHaveClass('is-active');
+  const ordinaryPixels = await colors(page);
+  const stageMixed = async () => {
+    await control.keyboard.down('Shift');
+    await control.keyboard.down('1'); await control.keyboard.down('2');
+    await control.keyboard.up('2'); await control.keyboard.up('1');
+    await control.keyboard.up('Shift');
+    await expect.poll(() => page.evaluate(() => window.__viz.cue?.phase)).toBe('ready');
+    await expect(page.locator('.program-layer-cue .screen-mapped-output')).toHaveCount(1);
+    expect(await colors(page)).toEqual(ordinaryPixels);
+  };
+  await stageMixed();
+  await control.keyboard.press('Escape');
+  await expect(page.locator('.screen-mapped-layer')).toHaveCount(0);
+  await expect(page.locator('#screen-mapping-output')).toHaveClass('is-active');
+  await stageMixed();
+  await control.keyboard.press('Enter');
+  await expect(page.locator('.program-layer-live .screen-mapped-output')).toHaveCount(1);
+  await expect(page.locator('#screen-mapping-output canvas')).toHaveCount(0);
+  await expect.poll(() => colors(page, [[.08, .5], [.4, .5], [.92, .5]]))
+    .toEqual([[255, 0, 0], [0, 0, 255], [0, 255, 0]]);
+  await control.locator('.library-btn[data-id="solid-color"]').click({ modifiers: ['Shift'] });
+  await expect.poll(() => page.evaluate(() => window.__viz.cue?.phase)).toBe('ready');
+  await control.keyboard.press('Enter');
+  await expect(page.locator('#screen-mapping-output')).toHaveClass('is-active');
+  await expect(page.locator('.screen-mapped-layer')).toHaveCount(0);
+  await expect.poll(() => colors(page)).toEqual(ordinaryPixels);
 });
 
 test('maximum surface count uses independent audio slots beyond the old eight-slot plan limit', async ({ context, page }) => {
@@ -512,7 +595,7 @@ test('transparent WebGL surfaces flatten against black in both GPU and CSS fallb
   await check();
 });
 
-test('fresh-frame gate latches rendered audio before awaiting projection composition', async ({ page }) => {
+test('fresh-frame gate awaits both projection and ordinary mapping composition', async ({ page }) => {
   await page.goto('/?role=control');
   const result = await page.evaluate(async () => {
     const { ProgramRuntime } = await import('/src/program-runtime.js');
@@ -523,8 +606,9 @@ test('fresh-frame gate latches rendered audio before awaiting projection composi
       let controlsFresh = true;
       let complete = false;
       const layer = { captureRevision: 3, presentedRevision: 2 };
+      const mapping = { captureRevision: 4, presentedRevision: 3 };
       const runtime = Object.assign(Object.create(ProgramRuntime.prototype), {
-        disposed: false, instances: [{}], drawCounts: [2], projectionLayers: [layer],
+        disposed: false, instances: [{}], drawCounts: [2], projectionLayers: [layer], screenMappingLayers: [mapping],
         freshWaiter: { state: 'waiting-for-draw', before: [1], audioControls: [{ binding: { hasRenderedAfter: () => controlsFresh }, paramsRevision: 1, marker: 0 }] },
         _completeFreshWaiter: () => { complete = true; },
       });
@@ -535,11 +619,14 @@ test('fresh-frame gate latches rendered audio before awaiting projection composi
       const beforeComposite = complete;
       layer.presentedRevision = 3;
       queue.shift()();
+      const beforeMapping = complete;
+      mapping.presentedRevision = 4;
       queue.shift()();
-      return { latched, beforeComposite, complete };
+      queue.shift()();
+      return { latched, beforeComposite, beforeMapping, complete };
     } finally { window.requestAnimationFrame = original; }
   });
-  expect(result).toEqual({ latched: 'awaiting-compositor', beforeComposite: false, complete: true });
+  expect(result).toEqual({ latched: 'awaiting-compositor', beforeComposite: false, beforeMapping: false, complete: true });
 });
 
 test('camera merge preview never opens capture; failed structural changes retain LIVE and can retry', async ({ context, page }) => {
@@ -574,7 +661,7 @@ test('camera merge preview never opens capture; failed structural changes retain
   // Include a top-level camera as merge input B, in addition to the mapped one.
   await control.evaluate(async () => { const { saveSlotOrder } = await import('/src/sketch-registry.js'); saveSlotOrder(['projection-test', 'video-pixelate', 'circles', 'bars', 'techno3d', 'character3d', 'neon-spectrum', 'pulse-rings', 'particle-storm', 'waveform-tunnel']); });
   await send(control, { type: 'merge', a: 0, b: 1 });
-  await expect.poll(() => page.evaluate(() => window.__viz.merge)).toEqual([0, 1]);
+  await expect.poll(() => page.evaluate(() => window.__viz.merge), { timeout: 20000 }).toEqual([0, 1]);
   await expect.poll(() => page.evaluate(() => window.__viz.programs.live.children)).toEqual(['video-pixelate', 'solid-color', 'video-pixelate']);
   expect(await control.evaluate(() => window.__videoRequests)).toBe(0);
   expect(await page.evaluate(() => window.__videoRequests)).toBeGreaterThan(0);

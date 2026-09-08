@@ -30,7 +30,7 @@ export function ProjectionMappingPanel({ sketch, scope, locked }) {
         if (next?.trim()) runtime.commands.saveProjection({ ...sketch, name: next });
       }}>Rename pattern</button>
     </div>
-    <p className="projection-hint">Global screen mapping is bypassed while live. Later mappings cover earlier ones.</p>
+    <p className="projection-hint">This pattern uses its own mapping, not the global screen mapping. Later mappings cover earlier ones.</p>
     {cue && <p className="projection-hint">CUE: edit corners and pattern parameters. Finish or cancel CUE to change names, sources, or mappings.</p>}
     <div className="projection-add">
       <span className="projection-hint">{sketch.surfaces.length} / {MAX_SURFACES} mappings</span>
