@@ -58,7 +58,7 @@ export function PatternLibrary() {
   const commitDrop = (targetIndex) => {
     const source = getDragSource();
     clearDropTargets(document.getElementById('config-panel'));
-    if (!source || targetIndex === null) return;
+    if (!source || targetIndex === null || source.type === 'surface') return;
     const ids = getOrderedSketches().map((s) => s.id);
     const existing = ids.indexOf(source.id);
     if (existing >= 0) {

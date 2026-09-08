@@ -65,6 +65,12 @@
 /* Compact sidebar: only mapping titles/actions are visible until expanded. */
 .projection-surface.drop-target { outline: 2px dashed var(--accent); outline-offset: -2px; }
 .projection-surface-header { display: flex; align-items: center; gap: 8px; }
+.projection-drag-handle {
+  flex: 0 0 auto; cursor: grab; color: var(--text-dim); font-size: 14px; line-height: 1;
+  user-select: none; padding: 2px 4px; border-radius: 4px;
+}
+.projection-drag-handle:hover { color: var(--accent); }
+.projection-drag-handle.dragging { opacity: .4; cursor: grabbing; }
 #config-panel .projection-surface-toggle {
   display: flex; flex: 1 1 0; min-width: 0; width: auto; gap: 7px; align-items: center;
   padding: 2px 0; border: 0; background: transparent; text-align: left; text-transform: none;

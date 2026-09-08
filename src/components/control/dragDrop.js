@@ -35,10 +35,18 @@ export function onDragEnd(e) {
 
 export function onDragOver(e) {
   const btn = buttonOf(e);
+  const source = getDragSource();
+  // A projection mapping surface grab must be able to leave its list without
+  // being mistaken for a pattern: it never highlights a pad/library button and
+  // is not droppable there (no fake affordance, and commitDrop guards anyway).
+  if (source?.type === 'surface') {
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'none';
+    return;
+  }
   e.preventDefault();
   if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
   clearDropTargets(btn.closest('#config-panel'));
-  if (getDragSource() && btn.dataset.id !== getDragSource().id) {
+  if (source && btn.dataset.id !== source.id) {
     btn.classList.add('drop-target');
   }
 }
