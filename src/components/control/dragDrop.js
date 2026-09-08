@@ -6,7 +6,7 @@ export function setDragSource(src) { dragSource = src; }
 
 export function clearDropTargets(rootEl) {
   if (!rootEl) return;
-  rootEl.querySelectorAll('.pattern-btn.drop-target').forEach((b) => b.classList.remove('drop-target'));
+  rootEl.querySelectorAll('.pattern-btn.drop-target, .projection-surface.drop-target').forEach((b) => b.classList.remove('drop-target'));
 }
 
 function buttonOf(e) { return e.currentTarget; }

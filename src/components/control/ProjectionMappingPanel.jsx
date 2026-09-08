@@ -6,6 +6,7 @@ import { MAX_SURFACES, newSurfaceId, projectionKey } from '../../projection/proj
 import { ProjectionMappingEditor } from './ProjectionMappingEditor.jsx';
 import { ParamSlider } from './ParamSlider.jsx';
 import { ParamSelect } from './ParamSelect.jsx';
+import { clearDropTargets, getDragSource } from './dragDrop.js';
 
 export function ProjectionMappingPanel({ sketch, scope, locked }) {
   const { runtime, store } = useRuntime();
@@ -57,7 +58,36 @@ function MappingRow({ surface, index, sketch, scope, locked, structuralLock, onE
   const child = SKETCHES.find((entry) => entry.id === surface.patternId && !entry.projection);
   const values = runtime.getEditingParams(sketch.id);
   const regionId = `mapping-params-${scope}-${sketch.id}-${surface.id}`;
-  return <section className="projection-surface" data-surface-id={surface.id} aria-label={`${surface.name} mapping`}>
+  const droppedPattern = () => {
+    if (expanded || structuralLock) return null;
+    const source = getDragSource();
+    return source && SKETCHES.find((entry) => entry.id === source.id && !entry.projection);
+  };
+  return <section className="projection-surface" data-surface-id={surface.id} aria-label={`${surface.name} mapping`}
+    title={!expanded && !structuralLock ? 'Drop a pattern from the library or pad to assign it to this mapping.' : undefined}
+    onDragOver={(event) => {
+      event.stopPropagation();
+      clearDropTargets(event.currentTarget.closest('#config-panel'));
+      const pattern = droppedPattern();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = pattern ? 'move' : 'none';
+      if (!pattern) return;
+      event.preventDefault();
+      event.currentTarget.classList.add('drop-target');
+    }}
+    onDragLeave={(event) => {
+      if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.classList.remove('drop-target');
+    }}
+    onDrop={(event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      clearDropTargets(event.currentTarget.closest('#config-panel'));
+      const pattern = droppedPattern();
+      if (!pattern || pattern.id === surface.patternId) return;
+      // Reuse the source-change path: retain mapping geometry/smoothing and
+      // initialize independent controls from the new source's current settings.
+      runtime.commands.saveProjection({ ...sketch, surfaces: sketch.surfaces.map((entry) =>
+        entry.id === surface.id ? { ...entry, patternId: pattern.id } : entry) }, {}, sketch);
+    }}>
     <div className="projection-surface-header">
       <button type="button" className="projection-surface-toggle" aria-expanded={expanded} aria-controls={regionId}
         onClick={() => setExpanded(!expanded)}>

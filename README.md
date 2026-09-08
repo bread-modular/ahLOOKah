@@ -120,8 +120,12 @@ Overlapping mappings blend through their softened edges; interiors remain opaque
 Name a new mapping to create it; an unnamed mapping is not added. **Close** or
 Escape keeps your changes—there is no separate Save or Cancel. The popup contains no
 source parameters. In the sidebar, each mapping has **Edit** and **Remove** actions;
-click its title to reveal or hide its parameters (collapsed by default). Newly assigned sources
-start from that source's current settings; later edits remain independent.
+click its title to reveal or hide its parameters (collapsed by default). **Drag a
+pattern from the library or pad onto a collapsed mapping** to replace its source
+without opening the editor. The mapping stays collapsed and keeps its name,
+corners, and edge smoothing; the pad order is unchanged. Source changes are
+unavailable during CUE. Newly assigned sources start from that source's current
+settings; later edits remain independent.
 
 Layouts and parameters persist locally and sync across the control/output
 windows. CUE updates the staged corners, edge smoothing and source controls in real time without
