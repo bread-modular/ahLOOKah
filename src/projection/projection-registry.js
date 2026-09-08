@@ -102,6 +102,7 @@ export function registerProjectionSketches(sketches, snapshot = undefined) {
         ...(child?.params || []).map((def) => ({ ...def, key: projectionKey(surface.id, def.key) })),
       ];
     });
+    params.unshift({ key: 'alphaBlend', label: 'Alpha Blend', min: 0, max: 1, step: 1, default: 0 });
     const entry = { ...meta, projection: true, group: PROJECTION_GROUP, params };
     const index = sketches.findIndex((sketch) => sketch.id === meta.id);
     if (index < 0) sketches.push(entry);
@@ -117,7 +118,8 @@ export function validProjectionPatch(sketch, current, patch) {
   if (!patch || Object.keys(patch).length > MAX_PROJECTION_PARAMS) return false;
   if (!Object.entries(patch).every(([key, value]) => {
     const def = defs.get(key);
-    return def && Number.isFinite(value) && value >= def.min && value <= def.max;
+    return def && Number.isFinite(value) && value >= def.min && value <= def.max
+      && (key !== 'alphaBlend' || value === 0 || value === 1);
   })) return false;
   const next = { ...current, ...patch };
   return sketch.surfaces.every((surface) => parseMappingQuad(IDENTITY_QUAD.map((point, i) => ({

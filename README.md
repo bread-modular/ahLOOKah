@@ -116,7 +116,13 @@ output **in real time**, and valid name/source/corner edits save automatically.
 **Edge smoothing** softens each mapping's four edges using the same feathering as
 screen mapping (0–25%; off by default), without blurring the picture. It saves
 with the mapping, survives source changes, and works in both GPU and CSS fallback.
-Overlapping mappings blend through their softened edges; interiors remain opaque.
+Overlapping mappings blend through their softened edges; interiors remain opaque by default.
+Enable **Alpha Blend** in the projection pattern's panel to make black areas
+transparent, revealing earlier mappings or the pattern behind it in a merge.
+Non-black colors retain their color and existing transparency; unmapped areas are
+transparent too. This mask works in the output, preview, and CSS fallback, and
+combines with edge smoothing. It defaults to off and persists with the pattern's
+parameters, including across layout/source changes and CUE/TAKE.
 Name a new mapping to create it; an unnamed mapping is not added. **Close** or
 Escape keeps your changes—there is no separate Save or Cancel. The popup contains no
 source parameters. In the sidebar, each mapping has **Edit** and **Remove** actions;
@@ -133,11 +139,11 @@ changing LIVE; TAKE applies them
 atomically. Finish or cancel CUE before changing names, assignments, or structure.
 If a replacement cannot start, the previous output stays intact and the third
 column shows **Retry projection layout** (also **Retry output** inside the editor);
-saved edits remain pending on the output until it can start successfully. Missing sources are flagged in the editor and render black; inaccessible files
+saved edits remain pending on the output until it can start successfully. Missing sources are flagged in the editor and render black (transparent with Alpha Blend); inaccessible files
 show their existing permission/missing-file message inside their surface.
 
-Unmapped areas are black. Later surfaces cover earlier surfaces, including their
-black backgrounds. Global post-processing still applies. Projection patterns bypass
+With **Alpha Blend off**, unmapped areas are black and later surfaces cover
+earlier surfaces, including their black backgrounds. Global post-processing still applies. Projection patterns bypass
 only their own global screen calibration. When merged with an ordinary pattern,
 that ordinary input still uses the saved screen warp and edge blurring (including
 antialiasing); its transparent or feathered areas reveal the other input. In mixed

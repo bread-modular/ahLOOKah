@@ -2867,6 +2867,8 @@ export function createAppRuntime({
     const entry = proposed.find((entry) => entry.id === clean.id);
     const previous = { ...getParams(clean.id) };
     const next = Object.fromEntries(entry.params.map((def) => [def.key, def.default]));
+    // Pattern-wide controls survive source/topology edits, just like geometry.
+    next.alphaBlend = previous.alphaBlend === 1 ? 1 : 0;
     for (const surface of entry.surfaces) {
       const sameSource = old?.surfaces.some((s) => s.id === surface.id && s.patternId === surface.patternId);
       const child = SKETCHES.find((s) => s.id === surface.patternId);
