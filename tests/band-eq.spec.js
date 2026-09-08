@@ -39,7 +39,7 @@ test.describe('band split EQ section', () => {
     // Sits directly below post-processing in the controls pane (post-processing
     // is the first collapsible section, above the EQ; screen mapping is last)
     const order = await control.evaluate(() =>
-      [...document.querySelectorAll('#controls-pane > details')].map((s) => s.id)
+      [...document.querySelectorAll('#controls-pane .global-settings > details')].map((s) => s.id)
     );
     expect(order).toEqual(['post-fx', 'band-eq', 'screen-mapping']);
 

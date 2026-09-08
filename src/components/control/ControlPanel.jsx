@@ -71,19 +71,29 @@ export function ControlPanel() {
             <AppMenu />
           </div>
 
-          <ParameterPanel />
+          {/* Per-effect controls retain their full width above the global zone. */}
+          <section id="params-block" className="params-block" aria-label="Effect parameters">
+            <ParameterPanel />
+          </section>
 
-          <CollapsibleSection id="post-fx" storageKey="viz2_post_fx_open" title="Post Processing">
-            <PostFxPanel />
-          </CollapsibleSection>
+          {/* Everything below the parameters applies globally — on top of every
+              effect, including blends — so it is grouped under its own heading
+              and separated from the per-effect parameters above. */}
+          <section id="global-settings" className="global-settings" aria-label="Global settings">
+            <h3 className="global-settings-title">Global Settings</h3>
+            <p className="global-settings-description">Applies to all patterns and the final output.</p>
+            <CollapsibleSection id="post-fx" storageKey="viz2_post_fx_open" title="Post Processing">
+              <PostFxPanel />
+            </CollapsibleSection>
 
-          <CollapsibleSection id="band-eq" storageKey="viz2_band_eq_open" title="Band Split EQ">
-            <BandEqPanel />
-          </CollapsibleSection>
+            <CollapsibleSection id="band-eq" storageKey="viz2_band_eq_open" title="Band Split EQ">
+              <BandEqPanel />
+            </CollapsibleSection>
 
-          <CollapsibleSection id="screen-mapping" storageKey="viz2_screen_mapping_open" title="Screen Mapping">
-            <ScreenMappingPanel />
-          </CollapsibleSection>
+            <CollapsibleSection id="screen-mapping" storageKey="viz2_screen_mapping_open" title="Screen Mapping">
+              <ScreenMappingPanel />
+            </CollapsibleSection>
+          </section>
         </div>
       </div>
 

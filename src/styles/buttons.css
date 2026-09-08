@@ -224,3 +224,66 @@
   margin-top: 12px;
 }
 
+/* Keep effect controls on the normal surface, at their full usable width.
+   Global controls occupy a contrasting, full-width zone rather than another
+   nested card competing with the individual controls. */
+.params-block {
+  min-width: 0;
+  padding: 0 0 24px;
+}
+
+#config-panel .params-block > #params-heading {
+  margin-top: 0;
+}
+
+.global-settings {
+  background: #1f1f1f;
+  border-top: 3px solid #526d8c;
+  margin-top: 8px;
+  padding: 20px;
+}
+
+/* Fill unused column height with the global surface, even when collapsed. */
+body.is-control #controls-pane {
+  display: flex;
+  flex-direction: column;
+}
+
+body.is-control #controls-pane > * {
+  flex-shrink: 0;
+}
+
+body.is-control #controls-pane > .global-settings {
+  flex-grow: 1;
+  margin: 8px -20px -18px;
+}
+
+#config-panel .global-settings-title {
+  margin: 0;
+  color: #edf3fa;
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.global-settings-description {
+  margin: 6px 0 20px;
+  color: #afbdcd;
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.global-settings > .config-section {
+  border-top: 1px solid #394655;
+  padding-top: 14px;
+  margin-top: 18px;
+}
+
+.global-settings > .config-section > .config-section-header {
+  color: #d1dbe7;
+}
+
+.global-settings > .config-section > .config-section-header:hover {
+  color: #fff;
+}

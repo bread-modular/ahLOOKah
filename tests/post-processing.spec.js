@@ -26,7 +26,7 @@ test.describe('post processing section', () => {
 
     // Section order in the controls pane (screen mapping is the last section)
     const order = await control.evaluate(() =>
-      [...document.querySelectorAll('#controls-pane > details')].map((s) => s.id)
+      [...document.querySelectorAll('#controls-pane .global-settings > details')].map((s) => s.id)
     );
     expect(order).toEqual(['post-fx', 'band-eq', 'screen-mapping']);
 
