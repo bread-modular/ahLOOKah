@@ -181,6 +181,61 @@ test('library and pad drops replace a collapsed mapping source without changing 
   expect(errors).toEqual([]);
 });
 
+test('dragging a mapping surface handle cannot corrupt the pad slot order', async ({ context, page }) => {
+  await seed(context);
+  const control = await open(context, page);
+  const padOrder = await control.locator('#pattern-pad .slot-btn').evaluateAll((buttons) => buttons.map((b) => b.dataset.id));
+  const left = control.locator('.projection-surface[data-surface-id="sleft"]');
+  const slot0 = control.locator('#pattern-pad .slot-btn').first();
+  const dataTransfer = await control.evaluateHandle(() => new DataTransfer());
+  await left.locator('.projection-drag-handle').dispatchEvent('dragstart', { dataTransfer });
+  await slot0.dispatchEvent('dragover', { dataTransfer });
+  // A surface grab is never a pattern: it must not present a slot as a drop target.
+  await expect(slot0).not.toHaveClass(/drop-target/);
+  await slot0.dispatchEvent('drop', { dataTransfer });
+  await left.locator('.projection-drag-handle').dispatchEvent('dragend', { dataTransfer });
+  // And a stray drop leaves the pad slot order untouched.
+  await expect.poll(() => control.locator('#pattern-pad .slot-btn').evaluateAll((buttons) => buttons.map((b) => b.dataset.id))).toEqual(padOrder);
+  await dataTransfer.dispose();
+});
+
+test('dragging a mapping handle reorders the surfaces and persists the new order', async ({ context, page }) => {
+  await seed(context);
+  const control = await open(context, page);
+  await expectWalls(page);
+  const left = control.locator('.projection-surface[data-surface-id="sleft"]');
+  const right = control.locator('.projection-surface[data-surface-id="sright"]');
+  await expect(left.locator('strong')).toHaveText('1. Left wall');
+  await expect(right.locator('strong')).toHaveText('2. Right wall');
+  const handle = left.locator('.projection-drag-handle');
+  await expect(handle).toHaveAttribute('draggable', 'true');
+
+  const dataTransfer = await control.evaluateHandle(() => new DataTransfer());
+  // Grab the Left handle and drop it onto the Right row. Surface grabs are
+  // distinguished from source-pattern drops by the drag source type.
+  await handle.dispatchEvent('dragstart', { dataTransfer });
+  await right.dispatchEvent('dragover', { dataTransfer });
+  await expect(right).toHaveClass(/drop-target/);
+  await expect(right).toHaveCSS('outline-style', 'dashed');
+  await right.dispatchEvent('drop', { dataTransfer });
+  await handle.dispatchEvent('dragend', { dataTransfer });
+  await expect(control.locator('.drop-target, .dragging')).toHaveCount(0);
+
+  // The persisted surface list now starts with the right-hand surface, and the
+  // visible numbering reflects the new stacking order.
+  await expect.poll(() => control.evaluate(() => JSON.parse(localStorage.getItem('viz2_projection_patterns'))[0].surfaces.map((s) => s.id))).toEqual(['sright', 'sleft']);
+  await expect(right.locator('strong')).toHaveText('1. Right wall');
+  await expect(left.locator('strong')).toHaveText('2. Left wall');
+  // The output keeps rendering the same two mapped sources, only re-stacked.
+  await expect(page.locator('.program-layer-live .projection-sources canvas')).toHaveCount(2, { timeout: 15000 });
+
+  await control.reload();
+  await expect.poll(() => control.evaluate(() => window.__viz.screenOnline)).toBe(true);
+  await expect(right.locator('strong')).toHaveText('1. Right wall');
+  await expect(left.locator('strong')).toHaveText('2. Left wall');
+  await dataTransfer.dispose();
+});
+
 test('mapping drop feedback clears on leave, cancel, and pad hover; invalid and expanded drops are ignored', async ({ context, page }) => {
   await seed(context);
   const control = await open(context, page);

@@ -7,7 +7,7 @@ import { MAX_SURFACES, newSurfaceId, projectionKey } from '../../projection/proj
 import { ProjectionMappingEditor } from './ProjectionMappingEditor.jsx';
 import { ParamSlider } from './ParamSlider.jsx';
 import { ParamSelect } from './ParamSelect.jsx';
-import { clearDropTargets, getDragSource } from './dragDrop.js';
+import { clearDropTargets, getDragSource, setDragSource } from './dragDrop.js';
 
 export function ProjectionMappingPanel({ sketch, scope, locked }) {
   const { runtime, store } = useRuntime();
@@ -20,6 +20,16 @@ export function ProjectionMappingPanel({ sketch, scope, locked }) {
   const structuralLock = Boolean(cue) || locked;
   const context = `${sketch.id}:${scope}:${cue?.sessionId || ''}`;
   const save = (surfaces) => runtime.commands.saveProjection({ ...sketch, surfaces });
+  const reorderSurfaces = (fromId, toId) => {
+    const surfaces = [...sketch.surfaces];
+    const from = surfaces.findIndex((s) => s.id === fromId);
+    const to = surfaces.findIndex((s) => s.id === toId);
+    if (from < 0 || to < 0 || from === to) return;
+    const [moved] = surfaces.splice(from, 1);
+    surfaces.splice(to, 0, moved);
+    // Guard against a concurrent layout change elsewhere, like source drops.
+    runtime.commands.saveProjection({ ...sketch, surfaces }, {}, sketch);
+  };
   const openEditor = (surface, isNew = false) => setEditor({ surface, isNew, context });
 
   return <div className="projection-panel" data-projection-id={sketch.id}>
@@ -50,7 +60,7 @@ export function ProjectionMappingPanel({ sketch, scope, locked }) {
     {!sketch.surfaces.length && <p className="param-empty">Add a mapping to choose its pattern and position it on the output.</p>}
     {sketch.surfaces.map((surface, index) => <MappingRow key={surface.id}
       surface={surface} index={index} sketch={sketch} scope={scope} locked={locked} structuralLock={structuralLock}
-      onEdit={() => openEditor(surface)} onRemove={() => {
+      onEdit={() => openEditor(surface)} onReorder={reorderSurfaces} onRemove={() => {
         if (window.confirm(`Remove mapping "${surface.name}"?`)) save(sketch.surfaces.filter((s) => s.id !== surface.id));
       }} />)}
     <button className="btn btn--danger" disabled={structuralLock} onClick={() => {
@@ -62,7 +72,7 @@ export function ProjectionMappingPanel({ sketch, scope, locked }) {
   </div>;
 }
 
-function MappingRow({ surface, index, sketch, scope, locked, structuralLock, onEdit, onRemove }) {
+function MappingRow({ surface, index, sketch, scope, locked, structuralLock, onEdit, onReorder, onRemove }) {
   const { runtime } = useRuntime();
   const [expanded, setExpanded] = useState(false);
   const child = SKETCHES.find((entry) => entry.id === surface.patternId && !entry.projection);
@@ -73,11 +83,37 @@ function MappingRow({ surface, index, sketch, scope, locked, structuralLock, onE
     const source = getDragSource();
     return source && SKETCHES.find((entry) => entry.id === source.id && !entry.projection);
   };
+  const startSurfaceDrag = (event) => {
+    event.stopPropagation();
+    setDragSource({ type: 'surface', id: surface.id });
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', surface.id);
+    }
+    event.currentTarget.classList.add('dragging');
+  };
+  const finishSurfaceDrag = (event) => {
+    setDragSource(null);
+    event.currentTarget.classList.remove('dragging');
+    clearDropTargets(event.currentTarget.closest('#config-panel'));
+  };
   return <section className="projection-surface" data-surface-id={surface.id} aria-label={`${surface.name} mapping`}
     title={!expanded && !structuralLock ? 'Drop a pattern from the library or pad to assign it to this mapping.' : undefined}
     onDragOver={(event) => {
       event.stopPropagation();
       clearDropTargets(event.currentTarget.closest('#config-panel'));
+      const source = getDragSource();
+      // Surface grab: reorder this list rather than assigning a source pattern.
+      if (source?.type === 'surface') {
+        if (structuralLock || source.id === surface.id) {
+          if (event.dataTransfer) event.dataTransfer.dropEffect = 'none';
+          return;
+        }
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+        event.preventDefault();
+        event.currentTarget.classList.add('drop-target');
+        return;
+      }
       const pattern = droppedPattern();
       if (event.dataTransfer) event.dataTransfer.dropEffect = pattern ? 'move' : 'none';
       if (!pattern) return;
@@ -91,6 +127,11 @@ function MappingRow({ surface, index, sketch, scope, locked, structuralLock, onE
       event.preventDefault();
       event.stopPropagation();
       clearDropTargets(event.currentTarget.closest('#config-panel'));
+      const source = getDragSource();
+      if (source?.type === 'surface') {
+        if (source.id !== surface.id && !structuralLock) onReorder(source.id, surface.id);
+        return;
+      }
       const pattern = droppedPattern();
       if (!pattern || pattern.id === surface.patternId) return;
       // Reuse the source-change path: retain mapping geometry/smoothing and
@@ -99,6 +140,11 @@ function MappingRow({ surface, index, sketch, scope, locked, structuralLock, onE
         entry.id === surface.id ? { ...entry, patternId: pattern.id } : entry) }, {}, sketch);
     }}>
     <div className="projection-surface-header">
+      <span className="projection-drag-handle" aria-hidden="true"
+        title={structuralLock ? 'Reorder is locked' : 'Drag to reorder this mapping'}
+        draggable={!structuralLock}
+        onDragStart={structuralLock ? undefined : startSurfaceDrag}
+        onDragEnd={structuralLock ? undefined : finishSurfaceDrag}>⠿</span>
       <button type="button" className="projection-surface-toggle" aria-expanded={expanded} aria-controls={regionId}
         onClick={() => setExpanded(!expanded)}>
         <span className="projection-chevron" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
