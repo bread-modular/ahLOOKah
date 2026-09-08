@@ -1,13 +1,14 @@
 import { ScreenMappingRenderer } from '../screen-mapping-renderer.js';
 import { IDENTITY_QUAD, quadToMatrix3d, mappingEdgeMask } from '../screen-mapping.js';
-import { surfaceQuad, surfaceEdgeBlur } from './projection-registry.js';
+import { surfaceQuad, surfaceEdgeBlur, projectionKey } from './projection-registry.js';
 
 // One presentation layer per top-level projection pattern (also in a merge).
 // Child canvases remain the CSS fallback and pointer targets; GPU failure must
 // never turn a calibrated projection into a full-frame, unwarped image.
 export class ProjectionLayer {
-  constructor({ host, pattern, getParams, getSize, onPresented }) {
+  constructor({ host, pattern, getParams, getSize, onPresented, onRenderCost }) {
     this.onPresented = onPresented;
+    this.onRenderCost = onRenderCost;
     this.renderRaf = 0;
     this.captureRevision = 0;
     this.presentedRevision = 0;
@@ -15,7 +16,7 @@ export class ProjectionLayer {
     this.getParams = getParams;
     this.getSize = getSize;
     this.children = [];
-    this.edgeBlurs = new WeakMap();
+    this.surfaceStates = new WeakMap();
     this.alphaWrappers = new WeakMap();
     this.presented = false;
     this.disposed = false;
@@ -65,8 +66,9 @@ export class ProjectionLayer {
     this.queueRender();
   }
 
-  capture(node, canvas) {
+  capture(node, canvas, changed = true) {
     if (this.disposed) return;
+    if (!changed && node.canvas === canvas && (!this.renderer || this.renderer.textures.has(canvas))) return;
     node.canvas = canvas;
     this.captureRevision += 1;
     try { this.renderer?.capture(canvas); }
@@ -76,6 +78,7 @@ export class ProjectionLayer {
 
   queueRender() {
     if (this.renderRaf || this.disposed) return;
+    this.captureRevision += 1; // Geometry-only edits also need a presented-frame gate.
     this.renderRaf = requestAnimationFrame(() => {
       this.renderRaf = 0;
       this.render();
@@ -85,29 +88,24 @@ export class ProjectionLayer {
 
   render() {
     if (this.disposed) return;
+    const started = this.onRenderCost ? performance.now() : 0;
     const [width, height] = this.getSize();
     const values = this.getParams();
     const alphaBlend = values.alphaBlend === 1;
-    this.element.dataset.alphaBlend = String(alphaBlend);
-    const surfaces = this.children.map((node) => ({
-      canvas: node.canvas,
-      quad: node.surface ? surfaceQuad(node.surface, values) : IDENTITY_QUAD,
-      edgeBlur: node.surface ? surfaceEdgeBlur(node.surface, values) : 0,
-    }));
-    for (const { canvas, quad, edgeBlur } of surfaces) {
-      if (!canvas) continue;
-      let wrapper = this.alphaWrappers.get(canvas);
-      if (alphaBlend && !wrapper) {
-        // Filtering a canvas directly can flatten SourceGraphic over black in
-        // Chromium. A transparent wrapper preserves the source's original alpha.
+    if (this.element.dataset.alphaBlend !== String(alphaBlend)) this.element.dataset.alphaBlend = String(alphaBlend);
+    const surfaces = this.children.map((node) => {
+      const canvas = node.canvas;
+      let wrapper = canvas && this.alphaWrappers.get(canvas);
+      if (canvas && alphaBlend && !wrapper) {
+        // A transparent wrapper preserves source alpha in Chromium's CSS
+        // fallback. Filtering/keying itself is enabled only on GPU failure.
         wrapper = document.createElement('div');
         wrapper.className = 'projection-alpha-surface';
-        wrapper.style.filter = `url(#${this.alphaFilterId})`;
+        wrapper.style.setProperty('--projection-alpha-filter', `url(#${this.alphaFilterId})`);
         canvas.before(wrapper);
         wrapper.appendChild(canvas);
         canvas.style.transform = 'none';
-        canvas.style.maskImage = 'none';
-        this.edgeBlurs.delete(canvas);
+        canvas.style.setProperty('--projection-edge-mask', 'none');
         this.alphaWrappers.set(canvas, wrapper);
       } else if (!alphaBlend && wrapper) {
         wrapper.before(canvas);
@@ -115,26 +113,37 @@ export class ProjectionLayer {
         this.alphaWrappers.delete(canvas);
         wrapper = null;
       }
-      const target = wrapper || canvas;
-      if (wrapper) wrapper.style.zIndex = canvas.style.zIndex;
-      // Mask only CSS presentation; texture capture remains raw.
-      if (this.edgeBlurs.get(target) !== edgeBlur) {
-        target.style.maskImage = mappingEdgeMask(edgeBlur);
-        target.style.maskMode = 'alpha';
-        target.style.maskComposite = 'intersect';
-        this.edgeBlurs.set(target, edgeBlur);
+      // Async p5 attachment can assign z-index after the first cached draw.
+      if (wrapper && wrapper.style.zIndex !== canvas.style.zIndex) wrapper.style.zIndex = canvas.style.zIndex;
+      let state = this.surfaceStates.get(node);
+      const keys = state?.keys || (node.surface ? IDENTITY_QUAD.flatMap((_, i) =>
+        ['x', 'y'].map((axis) => projectionKey(node.surface.id, `${i}${axis}`))) : []);
+      const geometry = keys.map((key) => values[key]);
+      const edgeBlur = node.surface ? surfaceEdgeBlur(node.surface, values) : 0;
+      if (!state || state.canvas !== canvas || state.width !== width || state.height !== height
+        || state.alphaBlend !== alphaBlend || state.edgeBlur !== edgeBlur || geometry.some((value, i) => value !== state.geometry[i])) {
+        const quad = node.surface ? surfaceQuad(node.surface, values) : IDENTITY_QUAD;
+        state = { canvas, quad, edgeBlur, geometry, keys, width, height, alphaBlend };
+        this.surfaceStates.set(node, state);
+        if (canvas) {
+          // Hidden sources need neither a second mask nor an alpha-key filter.
+          const target = wrapper || canvas;
+          target.style.setProperty('--projection-edge-mask', mappingEdgeMask(edgeBlur));
+          target.style.transformOrigin = '0 0';
+          target.style.transform = quadToMatrix3d(quad, width, height) || 'none';
+        }
       }
-      target.style.transformOrigin = '0 0';
-      target.style.transform = quadToMatrix3d(quad, width, height) || 'none';
-    }
+      return state;
+    });
     if (!this.renderer) { this.presentedRevision = this.captureRevision; return; }
     try {
       if (surfaces.every(({ canvas }) => canvas) && this.renderer.renderSurfaces(surfaces, { alphaBlend })) {
         this.presented = true;
         this.presentedRevision = this.captureRevision;
-        this.sources.style.opacity = '0';
+        if (this.sources.style.opacity !== '0') this.sources.style.opacity = '0';
       }
     } catch (error) { this.fail(error); }
+    finally { this.onRenderCost?.(performance.now() - started); }
   }
 
   dispose() {

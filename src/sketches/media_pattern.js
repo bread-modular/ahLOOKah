@@ -86,6 +86,26 @@ export default function createMediaPatternFactory(meta) {
     // 'loading' | 'ready' | 'permission' | 'missing'
     let loadState = 'loading';
     let cleaned = false;
+    let videoFrameCallback = null;
+    let frameVersion = 0;
+    let lastDrawKey = null;
+    let lastFrameVersion = -1;
+
+    // Let the browser's decoded frames, not display refresh, dirty the video.
+    // The p5 tick still reads control revisions for the CUE/TAKE contract.
+    function watchVideoFrames() {
+      if (cleaned || !videoElt?.requestVideoFrameCallback) return;
+      videoFrameCallback = videoElt.requestVideoFrameCallback(() => {
+        videoFrameCallback = null;
+        frameVersion += 1;
+        watchVideoFrames();
+      });
+    }
+
+    function playVideo() {
+      if (cleaned || !videoElt || runtimeContext.isPaused?.()) return;
+      videoElt.play?.()?.catch?.(() => {});
+    }
 
     p.setup = () => {
       p.createCanvas(p.windowWidth, p.windowHeight);
@@ -94,10 +114,13 @@ export default function createMediaPatternFactory(meta) {
       p.noStroke();
       loadMedia();
       if (runtimeContext?.addCleanup) runtimeContext.addCleanup(cleanup);
+      runtimeContext.addPlaybackLifecycle?.({ pause: () => videoElt?.pause(), resume: playVideo });
     };
 
     function cleanup() {
       cleaned = true;
+      if (videoFrameCallback != null) videoElt?.cancelVideoFrameCallback?.(videoFrameCallback);
+      videoFrameCallback = null;
       try { videoElt?.pause?.(); } catch {}
       if (videoElt) {
         try { videoElt.srcObject = null; } catch {}
@@ -121,7 +144,10 @@ export default function createMediaPatternFactory(meta) {
       } catch {
         result = { status: 'missing' };
       }
-      if (cleaned) return;
+      if (cleaned) {
+        if (result.url) URL.revokeObjectURL(result.url);
+        return;
+      }
       if (result.status !== 'ready' || !result.url) {
         loadState = result.status === 'permission' ? 'permission' : 'missing';
         runtimeContext?.reportMediaSettled?.();
@@ -167,14 +193,12 @@ export default function createMediaPatternFactory(meta) {
           mediaWidth = videoElt.videoWidth || 1;
           mediaHeight = videoElt.videoHeight || 1;
           runtimeContext?.reportMediaReady?.();
-          const play = videoElt.play?.();
-          if (play?.catch) play.catch(() => {
-            // Muted inline video normally autoplays; loadeddata above remains
-            // the authoritative readiness path if a gesture is required.
-          });
+          frameVersion += 1;
+          playVideo();
         };
         videoElt.addEventListener('loadeddata', onReady, { once: true });
         videoElt.addEventListener('error', () => { loadState = 'missing'; runtimeContext?.reportMediaSettled?.(); }, { once: true });
+        watchVideoFrames();
         videoElt.src = objectUrl;
         try { videoElt.load?.(); } catch {}
     }
@@ -221,20 +245,31 @@ export default function createMediaPatternFactory(meta) {
 
       p.blendMode(p.BLEND);
       p.background(0);
-      p.image(media, x, y, w, h);
+      // p5.MediaElement's image path copies the video to an intermediate canvas
+      // first. Draw the decoded element directly into this 2D presentation buffer.
+      if (videoElt && p.drawingContext?.drawImage) p.drawingContext.drawImage(videoElt, x, y, w, h);
+      else p.image(media, x, y, w, h);
     }
 
     p.draw = () => {
       // Keep the pattern-controls slot fresh for the CUE/TAKE frame gate.
       if (runtimeContext?.audioControls) runtimeContext.audioControls.read();
-      if (!media || !mediaWidth || !mediaHeight) {
-        drawPlaceholder();
-        return;
-      }
-      drawMedia();
+      const P = params || {};
+      const key = [p.width, p.height, loadState, Boolean(media), P.scaleMode, P.zoom, P.panX, P.panY, P.speed].join('|');
+      const version = videoElt && !videoElt.requestVideoFrameCallback
+        ? (videoElt.getVideoPlaybackQuality?.().totalVideoFrames ?? videoElt.currentTime)
+        : frameVersion;
+      // Animated GIFs advance inside p5.image(); they are not static images.
+      if (!media?.gifProperties && key === lastDrawKey && version === lastFrameVersion) return false;
+      if (!media || !mediaWidth || !mediaHeight) drawPlaceholder();
+      else drawMedia();
+      lastDrawKey = key;
+      lastFrameVersion = version;
+      return true;
     };
 
     p.windowResized = () => {
+      lastDrawKey = null;
       p.resizeCanvas(p.windowWidth, p.windowHeight);
       p.background(0);
     };

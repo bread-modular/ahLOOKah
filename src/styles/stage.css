@@ -97,3 +97,10 @@
   pointer-events: none;
   z-index: 0;
 }
+
+/* Only CSS fallback needs a second edge mask; the GPU already feathers its output. */
+.screen-mapped-layer[data-fallback="true"] .screen-mapped-source canvas {
+  mask-image: var(--screen-mapping-edge-mask, none);
+  mask-mode: alpha;
+  mask-composite: intersect;
+}

@@ -1,5 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
 
+// Override for isolated worktrees; never reuse an unrelated app on the default port.
+const port = Number(process.env.PLAYWRIGHT_PORT || 5173);
+const baseURL = `http://localhost:${port}`;
+
 export default defineConfig({
   testDir: './tests',
   timeout: 30_000,
@@ -11,7 +15,7 @@ export default defineConfig({
   workers: 2,
   reporter: [['list']],
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL,
     headless: true,
     trace: 'retain-on-failure',
     // Fake media streams: give camera-input (Video FX) sketches a synthetic
@@ -31,7 +35,7 @@ export default defineConfig({
       cookies: [],
       origins: [
         {
-          origin: 'http://localhost:5173',
+          origin: baseURL,
           localStorage: [
             { name: 'viz2_device_setup_done', value: '1' },
           ],
@@ -41,8 +45,8 @@ export default defineConfig({
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
-    command: 'npm run dev -- --port 5173 --strictPort',
-    port: 5173,
+    command: `npm run dev -- --port ${port} --strictPort`,
+    port,
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,
   },

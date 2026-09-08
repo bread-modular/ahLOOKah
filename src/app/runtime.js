@@ -50,6 +50,7 @@ import {
 import { registerProjectionSketches, loadProjectionMeta, saveProjectionMeta, sanitizeProjection,
   newProjectionId, cleanProjectionName, MAX_PROJECTIONS, MAX_PROJECTION_PARAMS,
   validProjectionPatch } from '../projection/projection-registry.js';
+import { RenderPerformance, validPerformanceSample } from '../render-performance.js';
 import { ScreenMappingRenderer } from '../screen-mapping-renderer.js';
 import { SharedCameraSource } from '../shared-camera-source.js';
 import { AudioManager } from '../audio-manager.js';
@@ -201,6 +202,10 @@ export function createAppRuntime({
   let currentVideoDeviceId = null;
   let currentAudioDeviceId = null;
   let screenOnline = role === 'screen';
+  let renderPerformance = null;
+  let performanceRaf = 0;
+  let performanceExpiry = 0;
+  let latestPerformance = null;
   let lastAudioStatus = audio.getStatus();
   let audioRestartTimer = 0;
   let isAudioOwner = false;
@@ -526,6 +531,7 @@ export function createAppRuntime({
     screenMappingRaf = requestAnimationFrame(() => {
       screenMappingRaf = 0;
       if (!screenMappingRenderer || !liveRuntime || liveRuntime.disposed) return;
+      const started = performance.now();
       try {
         const presented = screenMappingRenderer.render({
           canvases: liveRuntime.instances.map((instance) => instance.canvas),
@@ -540,12 +546,13 @@ export function createAppRuntime({
         }
       } catch (error) {
         failScreenMappingRenderer(error);
-      }
+      } finally { renderPerformance?.record(null, null, performance.now() - started); }
     });
   }
 
-  function captureMappedFrame(canvas) {
+  function captureMappedFrame(canvas, changed = true) {
     if (!screenMappingRenderer) return;
+    if (!changed && screenMappingRenderer.textures.has(canvas)) return;
     try {
       screenMappingRenderer.capture(canvas);
       queueScreenMappingFrame();
@@ -657,7 +664,7 @@ export function createAppRuntime({
   // Program runtime
   // ---------------------------------------------------------------------------
   function createRuntime(selection, getBankParams, layer, reason = 'cue') {
-    return new ProgramRuntime({
+    const runtime = new ProgramRuntime({
       p5Constructor: p5,
       selection,
       sketches: SKETCHES,
@@ -671,11 +678,17 @@ export function createAppRuntime({
       onTiming: (name, detail) => recordCueTiming(name, { reason, ...detail }),
       onDraw: captureMappedFrame,
       getScreenMapping: () => ({ enabled: screenMappingEnabled, quad: screenMappingQuad, edgeBlur: screenMappingEdgeBlur }),
+      onRenderCost: (id, surfaceId, ms) => {
+        if (runtime !== liveRuntime || !runtime.ready || !renderPerformance) return;
+        renderPerformance.setProgram(runtime.generation, runtime.selection.ids);
+        renderPerformance.record(id, surfaceId, ms);
+      },
       audioControlStore: patternAudioStore,
       consumerSessionId: windowId,
       audioRole: reason === 'cue' ? 'cue' : (reason === 'direct-live' ? 'incoming' : 'live'),
       onAudioSlotsChanged: () => queuePatternAudioPlanPublish(),
     });
+    return runtime;
   }
 
   function disposeRuntime(runtime) {
@@ -2192,6 +2205,17 @@ export function createAppRuntime({
     if (singletonBlocked) return;
 
     switch (msg.type) {
+      case 'render-performance': {
+        if (role !== 'control' || !screenOnline || !validPerformanceSample(msg.sample)) return;
+        latestPerformance = msg.sample;
+        store.setState({ renderPerformance: latestPerformance });
+        clearTimeout(performanceExpiry);
+        performanceExpiry = setTimeout(() => {
+          latestPerformance = null;
+          store.setState({ renderPerformance: null });
+        }, 3000);
+        return; // Do not rebuild params/preview for a telemetry-only update.
+      }
       case 'hello':
         if (typeof msg.windowId === 'string' && msg.windowId.length <= 160) {
           knownAudioConsumers.add(msg.windowId);
@@ -2587,7 +2611,11 @@ export function createAppRuntime({
         screenOnline = false;
         if (role === 'control') cueEntryPending = null;
         if (role === 'control' && cueSession) applyReceivedCueState(null, 'CUE CANCELED — OUTPUT OFFLINE');
-        if (role === 'control') store.setState({ screenOnline: false });
+        if (role === 'control') {
+          clearTimeout(performanceExpiry);
+          latestPerformance = null;
+          store.setState({ screenOnline: false, renderPerformance: null });
+        }
         break;
     }
 
@@ -2625,6 +2653,9 @@ export function createAppRuntime({
   // Teardown
   // ---------------------------------------------------------------------------
   function disposeViz() {
+    cancelAnimationFrame(performanceRaf);
+    clearTimeout(performanceExpiry);
+    renderPerformance = null;
     stopScreenMappingRenderer();
     try { if (audioBroadcastRaf) cancelAnimationFrame(audioBroadcastRaf); } catch { /* noop */ }
     try { if (cueStageRaf) cancelAnimationFrame(cueStageRaf); } catch { /* noop */ }
@@ -2699,6 +2730,18 @@ export function createAppRuntime({
   // Role-specific boot runs AFTER React has rendered the stable host elements.
   function bootScreen() {
     loadSketch(currentIndex);
+    renderPerformance = new RenderPerformance();
+    const sampleFrame = (now) => {
+      const active = liveRuntime?.ready ? liveRuntime : null;
+      renderPerformance.setProgram(active?.generation ?? null, active?.selection.ids || []);
+      const sample = renderPerformance.tick(now, document.hidden);
+      if (sample) {
+        latestPerformance = sample;
+        bus.channel.postMessage({ type: 'render-performance', sample });
+      }
+      performanceRaf = requestAnimationFrame(sampleFrame);
+    };
+    performanceRaf = requestAnimationFrame(sampleFrame);
   }
 
   function bootControl() {
@@ -2726,6 +2769,7 @@ export function createAppRuntime({
   function buildDebugGetters() {
     return {
       role: () => role,
+      renderPerformance: () => latestPerformance,
       singletonBlocked: () => singletonBlocked,
       singletonError: () => singletonBlocked,
       pattern: () => currentIndex,

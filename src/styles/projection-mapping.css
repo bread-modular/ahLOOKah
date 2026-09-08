@@ -149,3 +149,14 @@
   .projection-editor-actions { margin-left: auto; justify-content: flex-end; }
   .projection-editor .projection-coordinates { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* No duplicate CSS feather while the GPU presentation is active. */
+.projection-layer[data-fallback="true"] .projection-sources :is(canvas, .projection-alpha-surface) {
+  mask-image: var(--projection-edge-mask, none);
+  mask-mode: alpha;
+  mask-composite: intersect;
+}
+
+.projection-layer[data-fallback="true"] .projection-alpha-surface {
+  filter: var(--projection-alpha-filter, none);
+}

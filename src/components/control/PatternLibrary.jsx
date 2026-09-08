@@ -1,3 +1,4 @@
+import { PerformanceBudget } from './PerformanceBudget.jsx';
 import { useRef, useState } from 'react';
 import { getGroups, getSketchesByGroup, getOrderedSketches } from '../../sketch-registry.js';
 import { PROJECTION_GROUP } from '../../projection/projection-registry.js';
@@ -166,7 +167,7 @@ export function PatternLibrary() {
                         onDragLeave={onDragLeave}
                         onDrop={(e) => { e.preventDefault(); if (slotIdx !== undefined) commitDrop(slotIdx); }}
                       >
-                        <span className="pattern-name">{sketch.name}</span>
+                        <span className="pattern-label"><span className="pattern-name">{sketch.name}</span><PerformanceBudget patternId={sketch.id} compact /></span>
                         {sketch.projection && <span className="media-badge" title="Projection mapping">▱</span>}
                         {sketch.camera && <span className="camera-badge" title="Uses camera input">📷</span>}
                         {sketch.media && sketch.kind === 'image' && <span className="media-badge" title="Loaded image">🖼️</span>}

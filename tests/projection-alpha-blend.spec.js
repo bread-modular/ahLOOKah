@@ -83,6 +83,11 @@ for (const fallbackAtStartup of [false, true]) {
     const edge = [[175, 125]];
     await expect.poll(async () => (await pixels(page, edge))[0][0]).toBeGreaterThan(110);
     const smoothed = (await pixels(page, edge))[0];
+    if (!fallbackAtStartup) {
+      // Hidden fallback surfaces must not run duplicate key/edge filters.
+      await expect(page.locator('.projection-alpha-surface').nth(1)).toHaveCSS('filter', 'none');
+      await expect(page.locator('.projection-alpha-surface').nth(1)).toHaveCSS('mask-image', 'none');
+    }
     expect(smoothed[0]).toBeLessThan(145);
     expect(smoothed[1]).toBeGreaterThan(110);
     expect(smoothed[1]).toBeLessThan(145);
@@ -90,6 +95,9 @@ for (const fallbackAtStartup of [false, true]) {
       await expect(page.locator('.projection-layer')).not.toHaveAttribute('data-fallback', 'true');
       await page.evaluate(() => window.fixture.layer.renderer.gl.getExtension('WEBGL_lose_context').loseContext());
       await expect(page.locator('.projection-layer')).toHaveAttribute('data-fallback', 'true');
+      await expect(page.locator('.projection-alpha-surface').nth(1)).not.toHaveCSS('filter', 'none');
+      await expect(page.locator('.projection-alpha-surface').nth(1)).not.toHaveCSS('mask-image', 'none');
+      await expect(page.locator('.projection-alpha-surface > canvas').nth(1)).toHaveCSS('mask-image', 'none');
       const css = (await pixels(page, edge))[0];
       css.forEach((channel, i) => expect(Math.abs(channel - smoothed[i])).toBeLessThan(8));
     }

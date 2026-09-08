@@ -104,6 +104,7 @@ export class ProgramRuntime {
     warmTimeoutMs = DEFAULT_WARM_TIMEOUT_MS,
     onTiming = null,
     onDraw = null,
+    onRenderCost = null,
     audioControlStore = null,
     consumerSessionId = 'runtime',
     audioRole = 'live',
@@ -132,6 +133,7 @@ export class ProgramRuntime {
     this.warmTimeoutMs = warmTimeoutMs;
     this.onTiming = onTiming;
     this.onDraw = onDraw;
+    this.onRenderCost = onRenderCost;
     // Pattern-control transport is optional for standalone ProgramRuntime tests,
     // but output runtimes receive a store before any sketch factory is called.
     this.audioControlStore = audioControlStore;
@@ -156,6 +158,7 @@ export class ProgramRuntime {
     this.mediaDrawBaseline = new Map();
     this.cameraIndices = new Set();
     this.cleanup = [];
+    this.playbackLifecycle = [];
     // A fresh-frame request remains active until a compositor frame has run,
     // not merely until p5 calls draw(). Requests arriving during that compositor
     // gate are queued for a subsequent frame so an older frame can never be
@@ -211,7 +214,8 @@ export class ProgramRuntime {
         let mapping = null;
         if (mixedMapping) {
           mapping = new ScreenMappingLayer({ host: this.layer, getMapping: this.getScreenMapping,
-            getSize: this.getSize, onPresented: () => { this._checkReady(); this._checkFreshFrame(); } });
+            getSize: this.getSize, onPresented: () => { this._checkReady(); this._checkFreshFrame(); },
+            onRenderCost: this.onRenderCost && ((ms) => this.onRenderCost(sketch.id, null, ms)) });
           this.screenMappingLayers.push(mapping);
           this.presentationElements[topIndex] = mapping.element;
           mapping.element.style.zIndex = String(topIndex);
@@ -220,7 +224,8 @@ export class ProgramRuntime {
       }
       const projection = new ProjectionLayer({ host: this.layer, pattern: sketch,
         getParams: () => this.resolveProjectionParams(sketch.id), getSize: this.getSize,
-        onPresented: () => { this._checkReady(); this._checkFreshFrame(); } });
+        onPresented: () => { this._checkReady(); this._checkFreshFrame(); },
+        onRenderCost: this.onRenderCost && ((ms) => this.onRenderCost(sketch.id, null, ms)) });
       this.projectionLayers.push(projection);
       this.presentationElements[topIndex] = projection.element;
       projection.element.style.zIndex = String(topIndex);
@@ -385,6 +390,8 @@ export class ProgramRuntime {
         this.cleanup.push(() => consumer.release());
         return consumer.capture;
       },
+      isPaused: () => this.paused,
+      addPlaybackLifecycle: (hooks) => this.playbackLifecycle.push(hooks),
       reportMediaReady: () => this._noteMediaReady(index, sketch.id),
       // A broken file settles with its visible missing/permission placeholder;
       // loading files must not acknowledge a black frame as ready.
@@ -470,21 +477,26 @@ export class ProgramRuntime {
 
         const originalDraw = p.draw;
         p.draw = (...args) => {
+          const started = this.onRenderCost ? performance.now() : 0;
           try {
             const result = typeof originalDraw === 'function' ? originalDraw.apply(p, args) : undefined;
             // A migrated child becomes fresh only when it explicitly read a
             // matching controls packet during this draw. The binding records
             // that fact before ProgramRuntime evaluates fresh-frame waiters.
             // Capture before the browser can clear an unpreserved WebGL buffer.
-            if (node.projection) node.projection.capture(node, p.canvas);
-            else if (node.mapping) node.mapping.capture(p.canvas);
-            else this.onDraw?.(p.canvas);
+            // Media may return false when pixels are unchanged; control reads
+            // still count as fresh draws, but the existing texture is reusable.
+            if (node.projection) node.projection.capture(node, p.canvas, result !== false);
+            else if (node.mapping) node.mapping.capture(p.canvas, result !== false);
+            else this.onDraw?.(p.canvas, result !== false);
             audioSlot?.binding?.noteDraw();
             this._noteDraw(index);
             return result;
           } catch (error) {
             this._fail(error);
             return undefined;
+          } finally {
+            this.onRenderCost?.(this.selection.ids[node.topIndex], node.surface?.id || null, performance.now() - started);
           }
         };
       } catch (error) {
@@ -544,7 +556,7 @@ export class ProgramRuntime {
     if (this.disposed) return;
     this.drawCounts[index] = (this.drawCounts[index] || 0) + 1;
     this.drawn.add(index);
-    this._mark('first-draw-completed', {
+    if (this.drawCounts[index] === 1) this._mark('first-draw-completed', {
       sketchId: this.nodes[index]?.sketch.id,
       count: this.drawCounts[index],
     });
@@ -774,6 +786,7 @@ export class ProgramRuntime {
       // Suppress events before noLoop so a queued p5 draw cannot consume a
       // one-shot effect after this CUE runtime has become hidden.
       this._setAudioEventDeliveryEnabled(false);
+      this.playbackLifecycle.forEach((hooks) => { try { hooks.pause?.(); } catch {} });
     }
     this.instances.forEach((instance) => {
       try {
@@ -791,6 +804,7 @@ export class ProgramRuntime {
       // Clear anything retained before noLoop and admit only packets received
       // after this runtime is explicitly resumed for a fresh CUE/TAKE frame.
       this._setAudioEventDeliveryEnabled(true);
+      this.playbackLifecycle.forEach((hooks) => { try { hooks.resume?.(); } catch {} });
     }
     this.instances.forEach((instance) => {
       try {
@@ -919,6 +933,7 @@ export class ProgramRuntime {
     // contexts active long enough for rapid LIVE/CUE switches to exhaust Chrome.
     this.instances.forEach((instance) => disposeP5Instance(instance));
     this.instances = [];
+    this.playbackLifecycle = [];
     this.composedLayers.forEach((layer) => layer.dispose());
     this.screenMappingLayers = [];
     this.projectionLayers = [];

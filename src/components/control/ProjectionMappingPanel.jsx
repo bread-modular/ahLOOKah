@@ -1,3 +1,4 @@
+import { PerformanceBudget } from './PerformanceBudget.jsx';
 import { useState } from 'react';
 import { SKETCHES } from '../../sketch-registry.js';
 import { useRuntime } from '../../app/RuntimeContext.jsx';
@@ -32,6 +33,7 @@ export function ProjectionMappingPanel({ sketch, scope, locked }) {
         if (next?.trim()) runtime.commands.saveProjection({ ...sketch, name: next });
       }}>Rename pattern</button>
     </div>
+    <PerformanceBudget patternId={sketch.id} scope={scope} />
     <p className="projection-hint">This pattern uses its own mapping, not the global screen mapping. Later mappings cover earlier ones.</p>
     <label className="projection-alpha-toggle">
       <input type="checkbox" checked={alphaBlend} disabled={locked} aria-describedby={alphaHintId}
@@ -100,7 +102,7 @@ function MappingRow({ surface, index, sketch, scope, locked, structuralLock, onE
       <button type="button" className="projection-surface-toggle" aria-expanded={expanded} aria-controls={regionId}
         onClick={() => setExpanded(!expanded)}>
         <span className="projection-chevron" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
-        <span className="projection-surface-label"><strong>{index + 1}. {surface.name}</strong><small>{child?.name || 'Unavailable pattern'}</small></span>
+        <span className="projection-surface-label"><strong>{index + 1}. {surface.name}</strong><small>{child?.name || 'Unavailable pattern'}</small><PerformanceBudget patternId={sketch.id} surfaceId={surface.id} scope={scope} compact /></span>
       </button>
       <div className="projection-surface-actions">
         <button type="button" className="btn" aria-label={`Edit ${surface.name}`} disabled={locked} onClick={onEdit}>Edit</button>

@@ -25,6 +25,7 @@ export function createVizStore(role) {
     mediaRevision: 0,
     projectionRevision: 0,
     projectionFailure: null,
+    renderPerformance: null, // Output-only live telemetry, refreshed once a second.
     // Bumped whenever the accepted param bank changes so param UI re-reads the
     // mutable runtime objects without storing them in the store.
     paramRevision: 0,

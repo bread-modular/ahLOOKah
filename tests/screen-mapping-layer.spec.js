@@ -44,12 +44,15 @@ for (const identity of [false, true]) {
           const { layer } = window.layerTest;
           layer.element.style.opacity = '0.7'; layer.element.style.mixBlendMode = mode;
           document.getElementById('screen-wrap').style.filter = filter;
+          delete layer.element.dataset.fallback;
           layer.sources.style.opacity = '0'; layer.renderer.canvas.style.display = '';
           layer.render();
         }, { mode, filter });
         const gpu = await pixels(page);
         await page.evaluate(() => {
           const { layer } = window.layerTest;
+          // Simulate the real fallback state: GPU output off, CSS feather on.
+          layer.element.dataset.fallback = 'true';
           layer.sources.style.opacity = '1'; layer.renderer.canvas.style.display = 'none';
         });
         const css = await pixels(page);
@@ -60,6 +63,7 @@ for (const identity of [false, true]) {
     await page.evaluate(() => {
       const { layer, mapping } = window.layerTest;
       mapping.edgeBlur = 0;
+      delete layer.element.dataset.fallback;
       layer.renderer.canvas.style.display = '';
       layer.resize();
     });

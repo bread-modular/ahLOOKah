@@ -1406,7 +1406,10 @@ test('Alpha Blend reveals the underlying merge pattern in output and preview, in
   const alpha = control.getByRole('checkbox', { name: 'Alpha Blend', exact: true });
   await alpha.click();
   await expect(alpha).toBeChecked();
-  const expected = [[0, 0, 255], [0, 255, 0], [0, 0, 255], [0, 0, 255]];
+  // Alpha reveals the blue ordinary input only inside its global calibration.
+  // (.1, .1) is outside GLOBAL, so that corner must remain black in both GPU
+  // and CSS fallback; transparency must not bypass ordinary-input mapping.
+  const expected = [[0, 0, 255], [0, 255, 0], [0, 0, 255], [0, 0, 0]];
   await expect.poll(() => colors(page, points)).toEqual(expected);
   await expect(control.locator('.projection-runtime-preview .projection-layer')).toHaveAttribute('data-alpha-blend', 'true');
   await page.locator('.program-layer-live .projection-output').evaluate((canvas) => canvas.getContext('webgl2').getExtension('WEBGL_lose_context').loseContext());
