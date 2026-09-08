@@ -140,7 +140,7 @@ test.describe('screen mapping section', () => {
 
     // Last section in the third column
     const order = await control.evaluate(() =>
-      [...document.querySelectorAll('#controls-pane > details')].map((s) => s.id)
+      [...document.querySelectorAll('#controls-pane .global-settings > details')].map((s) => s.id)
     );
     expect(order.at(-1)).toBe('screen-mapping');
 
