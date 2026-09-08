@@ -36,18 +36,18 @@ const VALUES = {
   'sleft:hue': 0, 'sleft:saturation': 1, 'sleft:brightness': 1, 'sleft:pulse': 0,
   'sright:hue': 1 / 3, 'sright:saturation': 1, 'sright:brightness': 1, 'sright:pulse': 0,
 };
-async function seed(context, { live = ID, meta = META, values = VALUES, global = GLOBAL, edgeBlur = 0 } = {}) {
-  await context.addInitScript(({ live, meta, values, global, edgeBlur }) => {
+async function seed(context, { live = ID, meta = META, values = VALUES, global = GLOBAL, edgeBlur = 0, sourceParams = {} } = {}) {
+  await context.addInitScript(({ live, meta, values, global, edgeBlur, sourceParams }) => {
     if (!location.protocol.startsWith('http')) return;
     if (localStorage.getItem('projection-test-seeded')) return;
     localStorage.setItem('projection-test-seeded', '1');
     localStorage.setItem('viz2_projection_patterns', JSON.stringify([meta]));
-    localStorage.setItem('viz2_params', JSON.stringify({ [meta.id]: values }));
+    localStorage.setItem('viz2_params', JSON.stringify({ ...sourceParams, [meta.id]: values }));
     localStorage.setItem('viz2_slot_order', JSON.stringify([live, live === meta.id ? 'solid-color' : meta.id]));
     localStorage.setItem('viz2_screen_mapping_enabled', '1');
     localStorage.setItem('viz2_screen_mapping_edge_blur', String(edgeBlur));
     localStorage.setItem('viz2_screen_mapping', JSON.stringify({ v: 1, quad: global }));
-  }, { live, meta, values, global, edgeBlur });
+  }, { live, meta, values, global, edgeBlur, sourceParams });
 }
 async function open(context, page, size = { width: 480, height: 360 }) {
   await page.setViewportSize(size);
@@ -140,6 +140,129 @@ test('create named mapping patterns and surfaces, assign sources, rename and rem
   await expect(control.locator(`.library-btn[data-id="${id}"]`)).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => window.__viz.screenMapping.bypassed)).toBe(false);
   expect(errors).toEqual([]);
+});
+
+test('library and pad drops replace a collapsed mapping source without changing its layout or selection', async ({ context, page }) => {
+  await seed(context, {
+    values: { ...VALUES, 'sleft:mappingEdgeBlur': 7.5 },
+    sourceParams: { 'color-bars': { bars: 12, saturation: .4, brightness: .8, wobble: 0 } },
+  });
+  const control = await open(context, page);
+  const errors = []; control.on('pageerror', (error) => errors.push(error.message));
+  const left = control.getByRole('region', { name: 'Left wall mapping', exact: true });
+  const right = control.getByRole('region', { name: 'Right wall mapping', exact: true });
+  const padOrder = await control.locator('#pattern-pad .slot-btn').evaluateAll((buttons) => buttons.map((button) => button.dataset.id));
+  await control.locator('.library-btn[data-id="color-bars"]').dragTo(left.locator('.projection-surface-label'));
+  await expect(left.locator('small')).toHaveText('Color Bars');
+  await expect(left.locator('.projection-surface-toggle')).toHaveAttribute('aria-expanded', 'false');
+  await expect(left.locator('.projection-surface-params')).toBeHidden();
+  await expect(right.locator('small')).toHaveText('Solid Color');
+  await expect(control.getByRole('dialog')).toHaveCount(0);
+  await expect(control.locator('.drop-target, .dragging')).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => window.__viz.programs.live.children)).toEqual(['color-bars', 'solid-color']);
+  expect(await page.evaluate(() => window.__viz.patternId)).toBe(ID);
+  expect(await page.evaluate(() => window.__viz.params)).toMatchObject({
+    ...Object.fromEntries(Object.entries(VALUES).filter(([key]) => !key.startsWith('sleft:') || /:([0-3][xy])$/.test(key))),
+    'sleft:mappingEdgeBlur': 7.5, 'sleft:bars': 12, 'sleft:saturation': .4, 'sleft:brightness': .8, 'sleft:wobble': 0,
+  });
+  expect(await page.evaluate(() => window.__viz.params['sleft:hue'])).toBeUndefined();
+  await control.reload();
+  await expect(left.locator('small')).toHaveText('Color Bars');
+  await expect.poll(() => control.evaluate(() => window.__viz.screenOnline)).toBe(true);
+  await control.locator('#pattern-pad .slot-btn[data-id="solid-color"]').dragTo(left);
+  await expect(left.locator('small')).toHaveText('Solid Color');
+  await expect.poll(() => page.evaluate(() => window.__viz.programs.live.children)).toEqual(['solid-color', 'solid-color']);
+  expect(await page.evaluate(() => window.__viz.params)).toMatchObject({
+    ...geometry('sleft', rectangle(.05, .2, .45, .8)), 'sleft:mappingEdgeBlur': 7.5, 'sleft:hue': .6, 'sright:hue': 1 / 3,
+  });
+  expect(await control.locator('#pattern-pad .slot-btn').evaluateAll((buttons) => buttons.map((button) => button.dataset.id))).toEqual(padOrder);
+  expect(await control.evaluate(() => JSON.parse(localStorage.getItem('viz2_projection_patterns')))).toEqual([META]);
+  await expect(left.locator('.projection-surface-toggle')).toHaveAttribute('aria-expanded', 'false');
+  expect(errors).toEqual([]);
+});
+
+test('mapping drop feedback clears on leave, cancel, and pad hover; invalid and expanded drops are ignored', async ({ context, page }) => {
+  await seed(context);
+  const control = await open(context, page);
+  const left = control.locator('.projection-surface[data-surface-id="sleft"]');
+  const source = control.locator('.library-btn[data-id="color-bars"]');
+  const dataTransfer = await control.evaluateHandle(() => new DataTransfer());
+  await source.dispatchEvent('dragstart', { dataTransfer });
+  await left.locator('strong').dispatchEvent('dragover', { dataTransfer });
+  await expect(left).toHaveClass(/drop-target/);
+  await expect(left).toHaveCSS('outline-style', 'dashed');
+  // Moving between children of the same row must not flicker the target.
+  await left.evaluate((row) => row.querySelector('strong').dispatchEvent(new DragEvent('dragleave', {
+    bubbles: true, relatedTarget: row.querySelector('small'),
+  })));
+  await expect(left).toHaveClass(/drop-target/);
+  await left.dispatchEvent('dragleave', { dataTransfer });
+  await expect(left).not.toHaveClass(/drop-target/);
+  await left.dispatchEvent('dragover', { dataTransfer });
+  await control.locator('#pattern-pad .slot-btn').first().dispatchEvent('dragover', { dataTransfer });
+  await expect(left).not.toHaveClass(/drop-target/);
+  await left.dispatchEvent('dragover', { dataTransfer });
+  await expect(control.locator('.pattern-btn.drop-target')).toHaveCount(0);
+  await source.dispatchEvent('dragend', { dataTransfer });
+  await expect(control.locator('.drop-target, .dragging')).toHaveCount(0);
+
+  // Observe requests as well as persistence: invalid and same-source drops must
+  // not issue structural edits, even if a synthetic drop bypasses dragover.
+  await control.evaluate(() => {
+    window.__dropEdits = [];
+    window.__dropChannel = new BroadcastChannel('viz2_channel');
+    window.__dropChannel.onmessage = ({ data }) => { if (data.type === 'projection-edit') window.__dropEdits.push(data); };
+  });
+  for (const id of [null, 'missing-pattern', ID, 'solid-color']) {
+    const accepted = await left.evaluate(async (row, id) => {
+      const { setDragSource } = await import('/src/components/control/dragDrop.js');
+      setDragSource(id ? { type: 'library', id } : null);
+      const dataTransfer = new DataTransfer();
+      dataTransfer.setData('text/plain', 'color-bars'); // External text is not an internal pattern drag.
+      const accepted = !row.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer }));
+      row.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer }));
+      setDragSource(null);
+      return accepted;
+    }, id);
+    expect(accepted).toBe(id === 'solid-color');
+    await expect(left).not.toHaveClass(/drop-target/);
+  }
+  await expandMapping(control, 'Left wall');
+  await source.dispatchEvent('dragstart', { dataTransfer });
+  await left.dispatchEvent('dragover', { dataTransfer });
+  await expect(left).not.toHaveClass(/drop-target/);
+  await left.dispatchEvent('drop', { dataTransfer });
+  await source.dispatchEvent('dragend', { dataTransfer });
+  await expect(left.locator('small')).toHaveText('Solid Color');
+  expect(await control.evaluate(() => JSON.parse(localStorage.getItem('viz2_projection_patterns')))).toEqual([META]);
+  expect(await control.evaluate(() => window.__dropEdits)).toEqual([]);
+  expect(await page.evaluate(() => window.__viz.params['sleft:hue'])).toBe(0);
+  await dataTransfer.dispose();
+});
+
+test('collapsed mappings reject pattern drops during CUE and accept them again after cancel', async ({ context, page }) => {
+  await seed(context);
+  const control = await open(context, page);
+  await control.locator(`.library-btn[data-id="${ID}"]`).click({ modifiers: ['Shift'] });
+  await expect.poll(() => page.evaluate(() => window.__viz.cue?.phase)).toBe('same');
+  const left = control.locator('.projection-surface[data-surface-id="sleft"]');
+  const source = control.locator('.library-btn[data-id="color-bars"]');
+  const dataTransfer = await control.evaluateHandle(() => new DataTransfer());
+  await source.dispatchEvent('dragstart', { dataTransfer });
+  await left.dispatchEvent('dragover', { dataTransfer });
+  await expect(left).not.toHaveClass(/drop-target/);
+  await left.dispatchEvent('drop', { dataTransfer });
+  await source.dispatchEvent('dragend', { dataTransfer });
+  await expect(left.locator('small')).toHaveText('Solid Color');
+  await expect(left.locator('.projection-surface-toggle')).toHaveAttribute('aria-expanded', 'false');
+  expect(await control.evaluate(() => JSON.parse(localStorage.getItem('viz2_projection_patterns')))).toEqual([META]);
+  expect(await page.evaluate(() => window.__viz.cueParams['projection-test']['sleft:hue'])).toBe(0);
+  await control.keyboard.press('Escape');
+  await expect.poll(() => control.evaluate(() => window.__viz.cue)).toBe(null);
+  await source.dragTo(left);
+  await expect(left.locator('small')).toHaveText('Color Bars');
+  await expect.poll(() => page.evaluate(() => window.__viz.programs.live.children)).toEqual(['color-bars', 'solid-color']);
+  await dataTransfer.dispose();
 });
 
 test('renders independent duplicate patterns, bypasses global warp, persists >16 fields and resizes', async ({ context, page }, testInfo) => {
@@ -259,14 +382,12 @@ test('image and video mappings expose all media controls, render real files, and
   await expect.poll(() => page.evaluate(async () => (await import('/src/sketch-registry.js')).SKETCHES.some(s => s.id === 'media-test-video'))).toBe(true);
   const left = control.getByRole('region', { name: 'Left wall mapping' });
   const right = control.getByRole('region', { name: 'Right wall mapping' });
-  await editMapping(control, 'Left wall');
-  await control.getByRole('dialog').getByLabel('Source pattern').selectOption('media-test-image');
-  await closeMapping(control);
+  await control.locator('.library-btn[data-id="media-test-image"]').dragTo(left);
+  await expect(left.locator('small')).toHaveText('Red image');
   await expandMapping(control, 'Left wall');
   await expect(left.locator('select[data-key="sleft:scaleMode"]')).toBeVisible();
-  await editMapping(control, 'Right wall');
-  await control.getByRole('dialog').getByLabel('Source pattern').selectOption('media-test-video');
-  await closeMapping(control);
+  await control.locator('.library-btn[data-id="media-test-video"]').dragTo(right);
+  await expect(right.locator('small')).toHaveText('Green video');
   await expandMapping(control, 'Right wall');
   await expect(right.locator('input[data-key="sright:speed"]')).toBeVisible();
   await left.locator('select[data-key="sleft:scaleMode"]').selectOption('3');
