@@ -288,7 +288,7 @@ test('renders independent duplicate patterns, bypasses global warp, persists >16
   await page.reload();
   await expect.poll(() => page.evaluate(() => window.__viz?.params?.['sleft:0x'])).toBe(.1);
   await expectWalls(page);
-  expect(await page.evaluate(() => Object.keys(window.__viz.params).length)).toBe(26); // 9 mapping + 4 source values per surface.
+  expect(await page.evaluate(() => Object.keys(window.__viz.params).length)).toBe(27); // Alpha Blend + (9 mapping + 4 source values) per surface.
   expect(await page.evaluate(() => window.__viz.params['sleft:mappingEdgeBlur'])).toBe(0);
   await control.reload();
   await expect(control.locator('.projection-surface')).toHaveCount(2);
@@ -1311,4 +1311,108 @@ test('mapping smoothing defaults to off and validates independently of source co
   expect(patch['sleft:mappingEdgeBlur']).toBe(15);
   expect(Object.keys(patch)).toHaveLength(9);
   expect(patch).not.toHaveProperty('sleft:hue');
+});
+
+test('Alpha Blend checkbox syncs, persists across layout/source changes, and stages through CUE cancel/TAKE', async ({ context, page }, testInfo) => {
+  await seed(context, { values: { ...VALUES,
+    ...geometry('sleft', rectangle(0, 0, 1, 1)), ...geometry('sright', rectangle(.25, .25, .75, .75)),
+    'sright:brightness': 0,
+  } });
+  const control = await open(context, page);
+  const alpha = control.getByRole('checkbox', { name: 'Alpha Blend', exact: true });
+  const center = [[.5, .5]];
+  await expect(alpha).not.toBeChecked();
+  await expect.poll(() => colors(page, center)).toEqual([[0, 0, 0]]);
+  await alpha.click();
+  await expect(alpha).toBeChecked();
+  await expect.poll(() => page.evaluate(() => window.__viz.params.alphaBlend)).toBe(1);
+  await expect.poll(() => colors(page, center)).toEqual([[255, 0, 0]]);
+  await control.screenshot({ path: testInfo.outputPath('alpha-blend-controls.png') });
+  // An accepted remote parameter change refreshes the checkbox too.
+  await send(control, { type: 'params', id: ID, values: { alphaBlend: 0 } });
+  await expect(alpha).not.toBeChecked();
+  await alpha.click();
+  await expect(alpha).toBeChecked();
+  await control.reload();
+  await expect(alpha).toBeChecked();
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => window.__viz?.params?.alphaBlend)).toBe(1);
+  await expect.poll(() => colors(page, center)).toEqual([[255, 0, 0]]);
+
+  const pattern = control.locator(`.library-btn[data-id="${ID}"]`);
+  await pattern.click({ modifiers: ['Shift'] });
+  await expect.poll(() => page.evaluate(() => window.__viz.cue?.phase)).toBe('same');
+  await alpha.click();
+  await expect(alpha).not.toBeChecked();
+  await expect.poll(() => page.evaluate(() => window.__viz.cueParams['projection-test'].alphaBlend)).toBe(0);
+  await expect.poll(() => page.evaluate(() => window.__viz.cue?.phase)).toBe('ready');
+  expect(await page.evaluate(() => window.__viz.params.alphaBlend)).toBe(1);
+  await expect.poll(() => colors(page, center)).toEqual([[255, 0, 0]]);
+  await expect(control.locator('.projection-runtime-preview .projection-layer')).toHaveAttribute('data-alpha-blend', 'false');
+  await control.keyboard.press('Escape');
+  await expect.poll(() => page.evaluate(() => window.__viz.cue)).toBe(null);
+  await expect(alpha).toBeChecked();
+
+  await pattern.click({ modifiers: ['Shift'] });
+  await expect.poll(() => page.evaluate(() => window.__viz.cue?.phase)).toBe('same');
+  await alpha.click();
+  await expect(alpha).not.toBeChecked();
+  await expect.poll(() => page.evaluate(() => window.__viz.cue?.phase)).toBe('ready');
+  // Hold the TAKE transport to inspect the UI's pending lock deterministically.
+  await control.evaluate(() => {
+    const post = BroadcastChannel.prototype.postMessage;
+    let take;
+    BroadcastChannel.prototype.postMessage = function(message) {
+      if (message.type === 'cue-take') take = () => post.call(this, message);
+      else post.call(this, message);
+    };
+    window.__releaseAlphaTake = () => { BroadcastChannel.prototype.postMessage = post; take?.(); };
+  });
+  await control.keyboard.press('Enter');
+  await expect(alpha).toBeDisabled();
+  await control.evaluate(() => window.__releaseAlphaTake());
+  await expect.poll(() => page.evaluate(() => window.__viz.cue)).toBe(null);
+  await expect(alpha).toBeEnabled();
+  await expect(alpha).not.toBeChecked();
+  await expect.poll(() => colors(page, center)).toEqual([[0, 0, 0]]);
+  await alpha.click();
+  await expect(alpha).toBeChecked();
+  await expect.poll(() => page.evaluate(() => window.__viz.params.alphaBlend)).toBe(1);
+
+  // Parent-wide values must survive the parameter-bank rebuild during edits.
+  const extra = { id: 'sextra', name: 'Extra', patternId: 'solid-color' };
+  for (const meta of [
+    { ...META, name: 'Renamed walls' },
+    { ...META, surfaces: [...META.surfaces, extra] },
+    { ...META, surfaces: [{ ...META.surfaces[0], patternId: 'color-bars' }, META.surfaces[1]] },
+    META,
+  ]) {
+    await send(control, { type: 'projection-edit', action: 'save', id: ID, pattern: meta });
+    await expect.poll(() => control.evaluate(() => JSON.parse(localStorage.getItem('viz2_projection_patterns'))[0])).toEqual(meta);
+    await expect(alpha).toBeChecked();
+    expect(await control.evaluate(() => JSON.parse(localStorage.getItem('viz2_params'))['projection-test'].alphaBlend)).toBe(1);
+  }
+});
+
+test('Alpha Blend reveals the underlying merge pattern in output and preview, including context loss', async ({ context, page }) => {
+  await seed(context, { live: 'solid-color', values: { ...VALUES, 'sleft:brightness': 0 } });
+  const control = await open(context, page);
+  await send(control, { type: 'params', id: 'solid-color', values: { hue: 2 / 3, saturation: 1, brightness: 1, pulse: 0 } });
+  await send(control, { type: 'merge', a: 0, b: 1 });
+  await expect.poll(() => page.evaluate(() => window.__viz.merge)).toEqual([0, 1]);
+  await send(control, { type: 'params', id: '__merge', values: { mode: 0, mix: 1 } });
+  const points = [[.2, .5], [.7, .5], [.5, .5], [.1, .1]];
+  await expect.poll(() => colors(page, points)).toEqual([[0, 0, 0], [0, 255, 0], [0, 0, 0], [0, 0, 0]]);
+  const alpha = control.getByRole('checkbox', { name: 'Alpha Blend', exact: true });
+  await alpha.click();
+  await expect(alpha).toBeChecked();
+  const expected = [[0, 0, 255], [0, 255, 0], [0, 0, 255], [0, 0, 255]];
+  await expect.poll(() => colors(page, points)).toEqual(expected);
+  await expect(control.locator('.projection-runtime-preview .projection-layer')).toHaveAttribute('data-alpha-blend', 'true');
+  await page.locator('.program-layer-live .projection-output').evaluate((canvas) => canvas.getContext('webgl2').getExtension('WEBGL_lose_context').loseContext());
+  await expect(page.locator('.program-layer-live .projection-layer')).toHaveAttribute('data-fallback', 'true');
+  await expect.poll(() => colors(page, points)).toEqual(expected);
+  await alpha.click();
+  await expect(alpha).not.toBeChecked();
+  await expect.poll(() => colors(page, points)).toEqual([[0, 0, 0], [0, 255, 0], [0, 0, 0], [0, 0, 0]]);
 });

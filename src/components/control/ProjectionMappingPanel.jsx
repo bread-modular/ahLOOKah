@@ -14,6 +14,8 @@ export function ProjectionMappingPanel({ sketch, scope, locked }) {
   const failure = useVizStore(store, (s) => s.projectionFailure);
   const screenOnline = useVizStore(store, (s) => s.screenOnline);
   const [editor, setEditor] = useState(null);
+  const alphaBlend = runtime.getEditingParams(sketch.id).alphaBlend === 1;
+  const alphaHintId = `projection-alpha-hint-${scope}-${sketch.id}`;
   const structuralLock = Boolean(cue) || locked;
   const context = `${sketch.id}:${scope}:${cue?.sessionId || ''}`;
   const save = (surfaces) => runtime.commands.saveProjection({ ...sketch, surfaces });
@@ -31,6 +33,12 @@ export function ProjectionMappingPanel({ sketch, scope, locked }) {
       }}>Rename pattern</button>
     </div>
     <p className="projection-hint">This pattern uses its own mapping, not the global screen mapping. Later mappings cover earlier ones.</p>
+    <label className="projection-alpha-toggle">
+      <input type="checkbox" checked={alphaBlend} disabled={locked} aria-describedby={alphaHintId}
+        onChange={(event) => runtime.commands.changeParam(sketch.id, 'alphaBlend', event.target.checked ? 1 : 0)} />
+      Alpha Blend
+    </label>
+    <p id={alphaHintId} className="projection-hint">Make black areas transparent to show mappings and patterns behind them.</p>
     {cue && <p className="projection-hint">CUE: edit corners and pattern parameters. Finish or cancel CUE to change names, sources, or mappings.</p>}
     <div className="projection-add">
       <span className="projection-hint">{sketch.surfaces.length} / {MAX_SURFACES} mappings</span>

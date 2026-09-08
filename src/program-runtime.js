@@ -521,7 +521,8 @@ export class ProgramRuntime {
       }
 
       const node = this.nodes[index];
-      if (canvas.parentElement !== node.host) node.host.appendChild(canvas);
+      // An early projection draw may already have installed an alpha wrapper.
+      if (!node.host.contains(canvas)) node.host.appendChild(canvas);
       node.canvas = canvas;
       if (!node.projection && !node.mapping) this.presentationElements[node.topIndex] = canvas;
       canvas.classList.add('program-canvas');

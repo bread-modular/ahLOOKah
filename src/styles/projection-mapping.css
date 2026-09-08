@@ -1,5 +1,5 @@
 /* All child rendering is clipped at the projector frame, not at a surface's
-   untransformed box. One opaque presentation group is one merge input. */
+   untransformed box. One presentation group is one merge input. */
 .projection-layer, .projection-sources {
   position: absolute;
   inset: 0;
@@ -8,6 +8,10 @@
   isolation: isolate;
 }
 .projection-layer { background: #000; overflow: hidden; }
+.projection-layer[data-alpha-blend="true"],
+.projection-layer[data-alpha-blend="true"] canvas { background: transparent !important; }
+.projection-alpha-surface { position: absolute; inset: 0; width: 100%; height: 100%; }
+.projection-filter-defs { position: absolute; width: 0; height: 0; pointer-events: none; }
 .projection-sources { z-index: 1; }
 .projection-layer canvas, .projection-runtime-preview > canvas {
   position: absolute;
@@ -17,6 +21,8 @@
 }
 .projection-output { pointer-events: none !important; z-index: 0; }
 .projection-panel { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.projection-alpha-toggle { display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; }
+.projection-alpha-toggle input { accent-color: var(--accent); }
 .projection-title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .projection-title strong { flex: 1; overflow-wrap: anywhere; }
 .projection-title .btn { font-size: 10px; padding: 4px 6px; }

@@ -16,6 +16,7 @@ export class ProjectionLayer {
     this.getSize = getSize;
     this.children = [];
     this.edgeBlurs = new WeakMap();
+    this.alphaWrappers = new WeakMap();
     this.presented = false;
     this.disposed = false;
     this.element = document.createElement('div');
@@ -25,11 +26,21 @@ export class ProjectionLayer {
     this.sources.className = 'projection-sources';
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'projection-output';
-    this.element.append(this.sources, this.canvas);
+    // SVG keys the unwarped source before CSS resampling, matching the GPU
+    // prepass. Keep IDs unique across LIVE, CUE and control previews.
+    this.alphaFilterId = `projection-alpha-${crypto.randomUUID()}`;
+    const filters = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    filters.classList.add('projection-filter-defs');
+    filters.setAttribute('aria-hidden', 'true');
+    filters.innerHTML = `<defs><filter id="${this.alphaFilterId}" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  255 255 255 0 0" result="mask" />
+      <feComposite in="SourceGraphic" in2="mask" operator="in" />
+    </filter></defs>`;
+    this.element.append(filters, this.sources, this.canvas);
     host.appendChild(this.element);
     this.onContextLost = (event) => { event.preventDefault(); this.fail(new Error('WebGL context lost')); };
     try {
-      this.renderer = new ScreenMappingRenderer(this.canvas);
+      this.renderer = new ScreenMappingRenderer(this.canvas, { alpha: true });
       this.canvas.addEventListener('webglcontextlost', this.onContextLost);
       this.resize();
     } catch (error) { this.fail(error); }
@@ -76,6 +87,8 @@ export class ProjectionLayer {
     if (this.disposed) return;
     const [width, height] = this.getSize();
     const values = this.getParams();
+    const alphaBlend = values.alphaBlend === 1;
+    this.element.dataset.alphaBlend = String(alphaBlend);
     const surfaces = this.children.map((node) => ({
       canvas: node.canvas,
       quad: node.surface ? surfaceQuad(node.surface, values) : IDENTITY_QUAD,
@@ -83,19 +96,40 @@ export class ProjectionLayer {
     }));
     for (const { canvas, quad, edgeBlur } of surfaces) {
       if (!canvas) continue;
-      // Mask the opaque source only for CSS presentation; texture capture is raw.
-      if (this.edgeBlurs.get(canvas) !== edgeBlur) {
-        canvas.style.maskImage = mappingEdgeMask(edgeBlur);
-        canvas.style.maskMode = 'alpha';
-        canvas.style.maskComposite = 'intersect';
-        this.edgeBlurs.set(canvas, edgeBlur);
+      let wrapper = this.alphaWrappers.get(canvas);
+      if (alphaBlend && !wrapper) {
+        // Filtering a canvas directly can flatten SourceGraphic over black in
+        // Chromium. A transparent wrapper preserves the source's original alpha.
+        wrapper = document.createElement('div');
+        wrapper.className = 'projection-alpha-surface';
+        wrapper.style.filter = `url(#${this.alphaFilterId})`;
+        canvas.before(wrapper);
+        wrapper.appendChild(canvas);
+        canvas.style.transform = 'none';
+        canvas.style.maskImage = 'none';
+        this.edgeBlurs.delete(canvas);
+        this.alphaWrappers.set(canvas, wrapper);
+      } else if (!alphaBlend && wrapper) {
+        wrapper.before(canvas);
+        wrapper.remove();
+        this.alphaWrappers.delete(canvas);
+        wrapper = null;
       }
-      canvas.style.transformOrigin = '0 0';
-      canvas.style.transform = quadToMatrix3d(quad, width, height) || 'none';
+      const target = wrapper || canvas;
+      if (wrapper) wrapper.style.zIndex = canvas.style.zIndex;
+      // Mask only CSS presentation; texture capture remains raw.
+      if (this.edgeBlurs.get(target) !== edgeBlur) {
+        target.style.maskImage = mappingEdgeMask(edgeBlur);
+        target.style.maskMode = 'alpha';
+        target.style.maskComposite = 'intersect';
+        this.edgeBlurs.set(target, edgeBlur);
+      }
+      target.style.transformOrigin = '0 0';
+      target.style.transform = quadToMatrix3d(quad, width, height) || 'none';
     }
     if (!this.renderer) { this.presentedRevision = this.captureRevision; return; }
     try {
-      if (surfaces.every(({ canvas }) => canvas) && this.renderer.renderSurfaces(surfaces)) {
+      if (surfaces.every(({ canvas }) => canvas) && this.renderer.renderSurfaces(surfaces, { alphaBlend })) {
         this.presented = true;
         this.presentedRevision = this.captureRevision;
         this.sources.style.opacity = '0';

@@ -37,8 +37,8 @@ float edgeCoverage(vec2 uv) {
   return fade.x * fade.y;
 }
 
-vec3 sampleProgram(vec2 uv, vec2 dx, vec2 dy) {
-  if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return vec3(0.0);
+vec4 sampleProgram(vec2 uv, vec2 dx, vec2 dy) {
+  if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return vec4(0.0);
   // Mipmaps handle very strong minification; gradients describe a subpixel,
   // not the whole pixel (which would low-pass the image a second time).
   vec4 base = textureGrad(uBase, uv, dx, dy);
@@ -47,42 +47,50 @@ vec3 sampleProgram(vec2 uv, vec2 dx, vec2 dy) {
   vec3 color = uScreenBlend
     ? base.rgb + overlay.rgb - base.rgb * overlay.rgb
     : overlay.rgb + base.rgb * (1.0 - overlay.a);
-  if (!uApplyPostFx) return color * edgeCoverage(uv);
+  float coverage = edgeCoverage(uv) * (uSourceAlpha ? base.a : 1.0);
+  if (!uApplyPostFx) return vec4(color * edgeCoverage(uv), coverage);
   float alpha = overlay.a + base.a * (1.0 - overlay.a);
   color /= max(alpha, 0.00001);
   color = clamp(color * uPostFx.x, 0.0, 1.0);
   color = clamp((color - 0.5) * uPostFx.y + 0.5, 0.0, 1.0);
   float luma = dot(color, vec3(0.213, 0.715, 0.072));
   color = clamp(mix(vec3(luma), color, uPostFx.z), 0.0, 1.0);
-  return color * alpha * edgeCoverage(uv);
+  return vec4(color * alpha * edgeCoverage(uv), coverage);
 }
 
 void main() {
   vec2 pixel = vec2(gl_FragCoord.x, uResolution.y - gl_FragCoord.y);
   vec2 dx = (sourcePoint(pixel + vec2(0.5, 0.0)) - sourcePoint(pixel - vec2(0.5, 0.0))) / 4.0;
   vec2 dy = (sourcePoint(pixel + vec2(0.0, 0.5)) - sourcePoint(pixel - vec2(0.0, 0.5))) / 4.0;
-  vec3 color = vec3(0.0);
-  float coverage = 0.0;
+  vec4 color = vec4(0.0);
   for (int y = 0; y < 4; ++y) {
     for (int x = 0; x < 4; ++x) {
       vec2 offset = (vec2(float(x), float(y)) + 0.5) / 4.0 - 0.5;
       vec2 uv = sourcePoint(pixel + offset);
       color += sampleProgram(uv, dx, dy);
-      if (all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0)))) {
-        // Intermediate ordinary inputs retain source transparency and reveal
-        // the other merge input outside their quad and through feathered edges.
-        coverage += edgeCoverage(uv) * (uSourceAlpha ? textureGrad(uBase, uv, dx, dy).a : 1.0);
-      }
     }
   }
-  outColor = vec4(color / 16.0, (uSurface || uSourceAlpha) ? coverage / 16.0 : 1.0);
+  outColor = vec4(color.rgb / 16.0, (uSurface || uSourceAlpha) ? color.a / 16.0 : 1.0);
 }`;
 
-function createProgram(gl) {
+// Remove black *before* bilinear/mipmap filtering. Keying a filtered sample
+// would turn minified black/colored detail opaque and create dark fringes.
+const ALPHA_FRAGMENT = `#version 300 es
+precision highp float;
+uniform sampler2D uSource;
+out vec4 outColor;
+void main() {
+  vec4 color = texelFetch(uSource, ivec2(gl_FragCoord.xy), 0);
+  vec3 straight = color.rgb / max(color.a, 0.00001);
+  float mask = clamp(dot(straight, vec3(255.0)), 0.0, 1.0);
+  outColor = color * mask;
+}`;
+
+function createProgram(gl, fragment = FRAGMENT) {
   const shaders = [];
   const program = gl.createProgram();
   try {
-    for (const [type, source] of [[gl.VERTEX_SHADER, VERTEX], [gl.FRAGMENT_SHADER, FRAGMENT]]) {
+    for (const [type, source] of [[gl.VERTEX_SHADER, VERTEX], [gl.FRAGMENT_SHADER, fragment]]) {
       const shader = gl.createShader(type);
       shaders.push(shader);
       gl.shaderSource(shader, source);
@@ -172,9 +180,44 @@ export class ScreenMappingRenderer {
       gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, source);
     }
     gl.generateMipmap(gl.TEXTURE_2D);
+    entry.alphaDirty = true;
   }
 
-  render({ canvases, blend = {}, postFx = {}, edgeBlur = 0, surface = false, sourceAlpha = false }) {
+  prepareAlphaTexture(entry) {
+    if (entry.alphaTexture && !entry.alphaDirty) return;
+    const gl = this.gl;
+    if (!this.alphaProgram) {
+      this.alphaProgram = createProgram(gl, ALPHA_FRAGMENT);
+      this.alphaSource = gl.getUniformLocation(this.alphaProgram, 'uSource');
+      this.alphaFramebuffer = gl.createFramebuffer();
+    }
+    gl.activeTexture(gl.TEXTURE0);
+    entry.alphaTexture ||= this.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, entry.alphaTexture);
+    if (entry.alphaWidth !== entry.width || entry.alphaHeight !== entry.height) {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, entry.width, entry.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      entry.alphaWidth = entry.width;
+      entry.alphaHeight = entry.height;
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.alphaFramebuffer);
+    try {
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, entry.alphaTexture, 0);
+      if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+        throw new Error('Projection alpha mask framebuffer is unavailable.');
+      }
+      gl.disable(gl.BLEND);
+      gl.viewport(0, 0, entry.width, entry.height);
+      gl.useProgram(this.alphaProgram);
+      gl.bindTexture(gl.TEXTURE_2D, entry.texture);
+      gl.uniform1i(this.alphaSource, 0);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.bindTexture(gl.TEXTURE_2D, entry.alphaTexture);
+      gl.generateMipmap(gl.TEXTURE_2D);
+      entry.alphaDirty = false;
+    } finally { gl.bindFramebuffer(gl.FRAMEBUFFER, null); }
+  }
+
+  render({ canvases, blend = {}, postFx = {}, edgeBlur = 0, surface = false, sourceAlpha = false, alphaBlend = false }) {
     const gl = this.gl;
     if (gl.isContextLost()) throw new Error('Screen-mapping context was lost.');
     if (!this.inverse || !canvases?.length || canvases.some((source) => !this.textures.has(source))) return false;
@@ -182,12 +225,14 @@ export class ScreenMappingRenderer {
     gl.useProgram(this.program);
     for (let i = 0; i < 2; i += 1) {
       gl.activeTexture(gl.TEXTURE0 + i);
-      gl.bindTexture(gl.TEXTURE_2D, this.textures.get(canvases[i])?.texture || this.empty);
+      const entry = this.textures.get(canvases[i]);
+      gl.bindTexture(gl.TEXTURE_2D, (alphaBlend ? entry?.alphaTexture : entry?.texture) || this.empty);
     }
     const u = this.uniforms;
     gl.uniform1f(u.uEdgeBlur, normalizeMappingEdgeBlur(edgeBlur) / 100);
     gl.uniform1i(u.uSurface, surface);
-    gl.uniform1i(u.uSourceAlpha, sourceAlpha);
+    // Preserve source alpha independently of black-key texture selection.
+    gl.uniform1i(u.uSourceAlpha, sourceAlpha || alphaBlend);
     gl.uniform1i(u.uBase, 0);
     gl.uniform1i(u.uOverlay, 1);
     gl.uniformMatrix3fv(u.uInverse, false, this.inverse);
@@ -203,22 +248,25 @@ export class ScreenMappingRenderer {
     return true;
   }
 
-  // Ordered, opaque surfaces over black; outside each quad is transparent.
+  // Ordered surfaces over black, or a transparent clear for Alpha Blend.
   // Reuse one context/texture cache and the same subpixel integration as the
   // global mapper. Later surfaces cover earlier ones, with feathered edges
   // revealing underlying surfaces. RGB and coverage remain premultiplied.
-  renderSurfaces(surfaces) {
+  renderSurfaces(surfaces, { alphaBlend = false } = {}) {
     const gl = this.gl;
     if (gl.isContextLost()) throw new Error('Projection-mapping context was lost.');
     if (surfaces.some(({ canvas }) => !this.textures.has(canvas))) return false;
-    gl.clearColor(0, 0, 0, 1);
+    if (alphaBlend) {
+      for (const { canvas } of surfaces) this.prepareAlphaTexture(this.textures.get(canvas));
+    }
+    gl.clearColor(0, 0, 0, alphaBlend ? 0 : 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     try {
       for (const { canvas, quad, edgeBlur = 0 } of surfaces) {
         this.inverse = quadToInverseMatrix3(quad);
-        this.render({ canvases: [canvas], surface: true, edgeBlur });
+        this.render({ canvases: [canvas], surface: true, edgeBlur, alphaBlend });
       }
     } finally { gl.disable(gl.BLEND); }
     return true;
@@ -228,6 +276,7 @@ export class ScreenMappingRenderer {
     const entry = this.textures.get(source);
     if (!entry) return;
     this.gl.deleteTexture(entry.texture);
+    if (entry.alphaTexture) this.gl.deleteTexture(entry.alphaTexture);
     this.textures.delete(source);
   }
 
@@ -235,6 +284,8 @@ export class ScreenMappingRenderer {
     for (const source of this.textures.keys()) this.release(source);
     this.gl.deleteTexture(this.empty);
     this.gl.deleteProgram(this.program);
+    if (this.alphaProgram) this.gl.deleteProgram(this.alphaProgram);
+    if (this.alphaFramebuffer) this.gl.deleteFramebuffer(this.alphaFramebuffer);
     this.gl.getExtension('WEBGL_lose_context')?.loseContext();
   }
 }
