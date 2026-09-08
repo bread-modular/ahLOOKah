@@ -79,3 +79,21 @@
   mask-mode: alpha;
   mask-composite: intersect;
 }
+
+/* Ordinary inputs in mixed programs own an independent calibrated presentation.
+   Blend opacity applies to the group, never to both its source and GPU output. */
+.screen-mapped-layer, .screen-mapped-source {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  isolation: isolate;
+}
+.screen-mapped-layer { overflow: hidden; }
+.screen-mapped-source { z-index: 1; }
+#screen-wrap .screen-mapped-output {
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+}

@@ -11,6 +11,7 @@ import {
   snapshotPatternParams,
 } from './pattern-audio-protocol.js';
 
+import { ScreenMappingLayer } from './screen-mapping-layer.js';
 import { ProjectionLayer } from './projection/ProjectionLayer.js';
 import { surfaceParamView } from './projection/projection-registry.js';
 
@@ -109,9 +110,12 @@ export class ProgramRuntime {
     onAudioSlotsChanged = null,
     getSize = null,
     preview = false,
+    getScreenMapping = null,
   }) {
     this.getSize = getSize || (() => [window.innerWidth, window.innerHeight]);
     this.preview = preview;
+    this.getScreenMapping = getScreenMapping;
+    this.screenMappingLayers = [];
     this.nodes = [];
     this.projectionLayers = [];
     this.projectionParamSnapshots = new Map();
@@ -197,13 +201,22 @@ export class ProgramRuntime {
     }
 
     this.layer.replaceChildren();
+    const mixedMapping = !this.preview && this.getScreenMapping && selected.some((sketch) => sketch.projection);
     this.nodes = selected.flatMap((sketch, topIndex) => {
       if (!sketch.projection) {
         if (this.preview && sketch.camera) {
           return [{ sketch: this.sketches.find((s) => s.id === 'solid-color'), topIndex, host: this.layer,
             getParams: () => ({ hue: 0, saturation: 0, brightness: 0, pulse: 0 }) }];
         }
-        return [{ sketch, topIndex, host: this.layer, getParams: () => this.getParams(sketch.id) }];
+        let mapping = null;
+        if (mixedMapping) {
+          mapping = new ScreenMappingLayer({ host: this.layer, getMapping: this.getScreenMapping,
+            getSize: this.getSize, onPresented: () => { this._checkReady(); this._checkFreshFrame(); } });
+          this.screenMappingLayers.push(mapping);
+          this.presentationElements[topIndex] = mapping.element;
+          mapping.element.style.zIndex = String(topIndex);
+        }
+        return [{ sketch, topIndex, mapping, host: mapping?.sources || this.layer, getParams: () => this.getParams(sketch.id) }];
       }
       const projection = new ProjectionLayer({ host: this.layer, pattern: sketch,
         getParams: () => this.resolveProjectionParams(sketch.id), getSize: this.getSize,
@@ -464,6 +477,7 @@ export class ProgramRuntime {
             // that fact before ProgramRuntime evaluates fresh-frame waiters.
             // Capture before the browser can clear an unpreserved WebGL buffer.
             if (node.projection) node.projection.capture(node, p.canvas);
+            else if (node.mapping) node.mapping.capture(p.canvas);
             else this.onDraw?.(p.canvas);
             audioSlot?.binding?.noteDraw();
             this._noteDraw(index);
@@ -509,7 +523,7 @@ export class ProgramRuntime {
       const node = this.nodes[index];
       if (canvas.parentElement !== node.host) node.host.appendChild(canvas);
       node.canvas = canvas;
-      if (!node.projection) this.presentationElements[node.topIndex] = canvas;
+      if (!node.projection && !node.mapping) this.presentationElements[node.topIndex] = canvas;
       canvas.classList.add('program-canvas');
       canvas.dataset.programLayer = String(index);
       canvas.style.zIndex = String(node.projection ? index : node.topIndex);
@@ -557,7 +571,7 @@ export class ProgramRuntime {
     const count = this.instances.length;
     if (!count || this.attached.size < count || this.drawn.size < count) return;
     if (!this._hasUsableCameraFrames()) return;
-    if (this.projectionLayers.some((layer) => !layer.presented)) return;
+    if (this.composedLayers.some((layer) => !layer.presented)) return;
 
     // One compositor frame after the successful draw makes a canvas existence
     // acknowledgement useful to operators, rather than merely observable in JS.
@@ -566,7 +580,7 @@ export class ProgramRuntime {
         if (this.disposed || this.ready || this.error) return;
         if (this.attached.size < this.instances.length || this.drawn.size < this.instances.length) return;
         if (!this._hasUsableCameraFrames()) return;
-        if (this.projectionLayers.some((layer) => !layer.presented)) return;
+        if (this.composedLayers.some((layer) => !layer.presented)) return;
         this.ready = true;
         this.readyAt = performance.now();
         if (this.timeoutId) clearTimeout(this.timeoutId);
@@ -701,7 +715,7 @@ export class ProgramRuntime {
     // Latch controls at draw time, before newer audio packets advance the
     // receiver sequence. Compositing may happen in the following animation
     // frame; it must not require those already-rendered packets to stay newest.
-    waiter.projectionFrames = this.projectionLayers.map((layer) => ({ layer, revision: layer.captureRevision }));
+    waiter.projectionFrames = this.composedLayers.map((layer) => ({ layer, revision: layer.captureRevision }));
 
     // Keep `freshWaiter` installed through the compositor gate. A request that
     // arrives now must wait for a new draw rather than resolving against this
@@ -792,7 +806,7 @@ export class ProgramRuntime {
   // would clear 2D buffers and can reset WebGL programs.
   resize(width, height) {
     if (this.disposed) return;
-    this.projectionLayers.forEach((layer) => layer.resize());
+    this.composedLayers.forEach((layer) => layer.resize());
     const targetWidth = Math.max(1, Math.round(Number(width) || window.innerWidth || 1));
     const targetHeight = Math.max(1, Math.round(Number(height) || window.innerHeight || 1));
     for (const instance of this.instances) {
@@ -837,6 +851,21 @@ export class ProgramRuntime {
   }
 
   get hasProjection() { return this.projectionLayers.length > 0; }
+
+  get onlyProjection() { return this.hasProjection && this.nodes.every((node) => node.projection); }
+
+  get composedLayers() { return [...this.projectionLayers, ...(this.screenMappingLayers || [])]; }
+
+  updateScreenMapping() {
+    if (this.disposed) return;
+    for (const [index, node] of this.nodes.entries()) {
+      if (!node.mapping?.resize()) continue;
+      // A newly enabled mapper needs fresh pixels even from a parked/noLoop
+      // source. Never sample a WebGL buffer after its draw has returned.
+      const instance = this.instances[index];
+      if (instance?.isLooping?.() === false) instance.redraw?.()?.catch?.(() => {});
+    }
+  }
 
   setFilter(filter) {
     if (!this.layer || this.disposed) return;
@@ -889,7 +918,8 @@ export class ProgramRuntime {
     // contexts active long enough for rapid LIVE/CUE switches to exhaust Chrome.
     this.instances.forEach((instance) => disposeP5Instance(instance));
     this.instances = [];
-    this.projectionLayers.forEach((layer) => layer.dispose());
+    this.composedLayers.forEach((layer) => layer.dispose());
+    this.screenMappingLayers = [];
     this.projectionLayers = [];
     const retiredAudioSlots = this.audioSlots.splice(0);
     if (this.audioControlStore) {
