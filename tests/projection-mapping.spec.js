@@ -107,7 +107,7 @@ async function slider(control, key, value) {
   }, value);
 }
 
-test('create named mapping patterns and surfaces, assign sources, rename and remove', async ({ context, page }) => {
+test('create mappings with Checkerboard by default, persist, reassign, rename and remove', async ({ context, page }, testInfo) => {
   const control = await open(context, page);
   const errors = []; control.on('pageerror', (error) => errors.push(error.message));
   control.once('dialog', (dialog) => dialog.accept('  Main stage  '));
@@ -117,6 +117,10 @@ test('create named mapping patterns and surfaces, assign sources, rename and rem
   await expect.poll(() => page.evaluate(() => window.__viz.patternId), { timeout: 20000 }).toBe(id);
   for (const name of ['Left wall', 'Ceiling']) {
     await control.getByRole('button', { name: 'Add mapping', exact: true }).click();
+    const source = control.getByRole('dialog').getByLabel('Source pattern');
+    await expect(source).toHaveValue('checkerboard');
+    await expect(source.locator('optgroup').first()).toHaveAttribute('label', 'Simple');
+    await expect(source.locator('optgroup[label="Simple"] option[value="checkerboard"]')).toHaveText('Checkerboard');
     await control.getByRole('dialog').getByRole('textbox', { name: 'Mapping name', exact: true }).fill(name);
     await expect(control.getByRole('dialog').getByRole('slider', { name: 'Edge smoothing' })).toBeVisible();
     await expect(control.getByRole('dialog').locator('.param-row')).toHaveCount(1);
@@ -124,14 +128,31 @@ test('create named mapping patterns and surfaces, assign sources, rename and rem
     await expect(control.getByRole('region', { name: `${name} mapping`, exact: true })).toBeVisible();
   }
   await expect(page.locator('.program-layer-live .projection-sources canvas')).toHaveCount(2, { timeout: 15000 });
+  await expect.poll(() => page.evaluate(() => window.__viz.programs.live.children)).toEqual(['checkerboard', 'checkerboard']);
+  await expect.poll(() => colors(page, [[.05, .05], [.15, .05], [.05, .2], [.15, .2]]))
+    .toEqual([[255, 255, 255], [0, 0, 0], [0, 0, 0], [255, 255, 255]]);
+  await page.screenshot({ path: testInfo.outputPath('checkerboard-default-projection.png') });
+  expect(await control.evaluate(() => JSON.parse(localStorage.getItem('viz2_projection_patterns'))[0].surfaces.map((s) => s.patternId)))
+    .toEqual(['checkerboard', 'checkerboard']);
+  await control.reload();
+  await expect.poll(() => control.evaluate(() => window.__viz?.screenOnline)).toBe(true);
+  await expect(control.locator('.projection-surface-label small')).toHaveText(['Checkerboard', 'Checkerboard']);
   const ceiling = control.getByRole('region', { name: 'Ceiling mapping', exact: true });
   await expect(ceiling.locator('.projection-surface-params')).toBeHidden();
   const editor = await editMapping(control, 'Ceiling');
+  await expect(editor.getByLabel('Source pattern')).toHaveValue('checkerboard');
   await editor.getByLabel('Source pattern').selectOption('color-bars');
   await expect(editor.locator('option[value^="projection-"]')).toHaveCount(0);
   await editor.getByLabel('Mapping name', { exact: true }).fill('Roof');
   await closeMapping(control);
   await expect(control.getByRole('region', { name: 'Roof mapping', exact: true })).toBeVisible();
+  // The new-mapping default must not reset an existing source on edit/reload.
+  await control.reload();
+  await expect.poll(() => control.evaluate(() => window.__viz?.screenOnline)).toBe(true);
+  const roofEditor = await editMapping(control, 'Roof');
+  await expect(roofEditor.getByLabel('Source pattern')).toHaveValue('color-bars');
+  await closeMapping(control);
+  await expect(control.getByRole('region', { name: 'Left wall mapping', exact: true }).locator('small')).toHaveText('Checkerboard');
   control.once('dialog', (dialog) => dialog.accept());
   await control.getByRole('button', { name: 'Remove Roof', exact: true }).click();
   await expect(control.locator('.projection-surface')).toHaveCount(1);
@@ -1014,6 +1035,7 @@ test('unnamed geometry waits for a name, creates once, and flushes the latest ed
   await expectWalls(page);
   await control.getByRole('button', { name: 'Add mapping', exact: true }).click();
   const editor = control.getByRole('dialog');
+  await expect(editor.getByLabel('Source pattern')).toHaveValue('checkerboard');
   await smoothing(editor, 6);
   await editor.locator('summary').click();
   await editor.getByRole('spinbutton', { name: 'New mapping TL X', exact: true }).fill('12.35');
@@ -1028,6 +1050,9 @@ test('unnamed geometry waits for a name, creates once, and flushes the latest ed
   const row = control.getByRole('region', { name: 'Ceiling mapping', exact: true });
   await expect(row).toBeVisible();
   await expect(control.locator('.projection-surface')).toHaveCount(3);
+  await expect(row.locator('small')).toHaveText('Checkerboard');
+  expect(await control.evaluate(() => JSON.parse(localStorage.getItem('viz2_projection_patterns'))[0].surfaces.map((s) => s.patternId)))
+    .toEqual(['solid-color', 'solid-color', 'checkerboard']);
   const id = await row.getAttribute('data-surface-id');
   expect(await page.evaluate((id) => window.__viz.params[`${id}:0x`], id)).toBe(.1535);
   expect(await page.evaluate((id) => window.__viz.params[`${id}:mappingEdgeBlur`], id)).toBe(12.5);

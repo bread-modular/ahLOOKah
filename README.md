@@ -11,8 +11,8 @@ cues live with zero blank gaps.
 
 ## ✨ Features
 
-- **Audio-reactive sketch library** organized into themed groups:
-  *Rhythmic*, *3D*, *Cinematic / Shaders*, *Neon / Lasers*, *Video FX*,
+- **Audio-reactive sketch library** (plus a non-reactive checkerboard) organized into themed groups:
+  *Simple* (first), *Rhythmic*, *3D*, *Cinematic / Shaders*, *Neon / Lasers*, *Video FX*,
   *Glitch / Effects*, and *Basics*.
 - **Dual-window architecture** — a fullscreen output window plus a control
   panel window, synchronized over `BroadcastChannel` (no server state).
@@ -101,11 +101,53 @@ PORT=8080 ./run.sh  # custom port
   works in full-frame mode too. CSS mapping with an edge mask remains the
   hit-testing/failure fallback; disabling mapping releases the extra GPU resources.
 
+### Lightweight patterns and camera FX
+
+**Simple** is the first library category, with **Circles**, **Bars**, **Dot Grid**,
+**Pulse Stripes**, **Cross Pulse**, **Diamond Tiles**, **Radial Spokes**, and
+**Checkerboard**. **Basics** keeps Solid Color, Color Wash, Color Bars, Noise Static,
+and Film Grain. Pad assignments and other themed groups are unchanged. The five new
+shape patterns use bounded Canvas2D paths at single pixel density: no pixel
+readback, raymarching, feedback buffers, or unbounded particle spawning. Bars
+also has independent bass (height), mid (brightness), and high (peak) gains.
+
+Every new reactive pattern has **Bass / Mid / High Responsiveness** sliders
+(0 disables that band's contribution; 1 is normal; 2 doubles it). The new
+patterns share the capture-side feature engine and existing EQ crossover,
+preview, CUE/TAKE, merge, and mapping controls. Hover over a library pattern for
+its band-to-visual mapping. Motion Speed controls baseline animation separately;
+silence adds no simulated beats to the new patterns in the app.
+
+| Group | New patterns |
+| --- | --- |
+| Rhythmic | Beat Weave, Ripple Lattice |
+| 3D | Polygon Tunnel, Orbital Cages |
+| Cinematic / Shaders | Silk Flow, Prism Caustics |
+| Neon / Lasers | Laser Fan, Neon Hex |
+| Glitch / Effects | Data Rain, Signal Tear |
+| Video FX | Video Edge Glow, Video Thermal, Video Prism Split, Video Ripple Lens, Video Mirror Tiles |
+
+The new non-basic looks use single-pass shaders, not heavy raymarching. Camera
+looks share the output window's camera stream, respect the selected device, and
+provide a Mirror Camera switch. They appear as placeholders in the control
+preview; the actual camera is rendered only on the output. Thermal is artistic
+false color, **not temperature measurement**. Real projector performance still
+depends on output resolution and GPU; the in-app budget measures CPU time only.
+
+**Checkerboard is deliberately not audio reactive.** It defaults to stationary
+black-and-white squares and exposes cell size, two hues, saturation, lightness,
+and optional manual drift. It ignores old saved audio-pulse settings and audio
+loss cannot move it. Static frames reuse a cached tile without repainting the
+canvas; manual changes and resize still update live.
+
 ### Projection mapping patterns
 
 In **Pattern Library → Projection Mapping → ADD**, name your pattern. In the
-third column, click **Add mapping** to open the mapping editor. Give it a
-name (for example, “Left wall”), choose a source pattern, and position its corners. Images and videos loaded through the Media library are also
+third column, click **Add mapping** to open the mapping editor. New mappings
+default to **Checkerboard** from the **Simple** category for easy alignment. Give
+it a name (for example, “Left wall”), keep Checkerboard or choose another source,
+and position its corners. Existing mappings keep their chosen sources. Images
+and videos loaded through the Media library are also
 available. Mapping patterns cannot contain other mapping patterns.
 
 In the popup, drag the four corner handles to place each surface, or open **Corner positions
@@ -174,6 +216,7 @@ npm test                         # Fast core: 21 tests (also npm run test:core)
 npm run test:smoke               # 25 tests: critical journeys + one pattern per group
 npm run test:full                # Everything, including edge cases and performance
 npm run test:patterns            # Exhaustive individual-pattern tests, on demand
+npm run test:full -- tests/expanded-patterns.spec.js --workers=1
 npm run test:full -- tests/new-effects-smoke.spec.js --grep liquid-chrome
 npm run test:full -- 'tests/screen-mapping*.spec.js' --workers=1
 npm run test:full -- tests/projection-mapping.spec.js --workers=1

@@ -1,28 +1,7 @@
-// Checkerboard — two-color checker pattern with diagonal drift and audio-reactive
-// scale pulse. The legacy shader path remains intact; the opted-in path consumes
-// final uniforms produced by a DOM-free capture-side controller.
-import { AUDIO_SHADER_HEADER, makeAudioShader } from './shader-utils.js';
-
-const frag = `${AUDIO_SHADER_HEADER}
-  uniform float uHueA;
-  uniform float uHueB;
-  uniform float uCell;
-  uniform float uPhase;
-
-  void main() {
-    vec3 colA = hsv2rgb(vec3(uHueA, 0.85, 0.95));
-    vec3 colB = hsv2rgb(vec3(uHueB, 0.85, 0.95));
-    float cell = max(uCell, 4.0);
-    float ox = -mod(uPhase, cell * 2.0);
-    float oy = -mod(uPhase * 0.5, cell * 2.0);
-    vec2 fragCoord = vTexCoord * uResolution;
-    vec2 p = fragCoord - vec2(ox, oy);
-    vec2 idx = floor(p / cell);
-    float checker = mod(idx.x + idx.y, 2.0);
-    vec3 col = checker < 0.5 ? colA : colB;
-    gl_FragColor = vec4(col, 1.0);
-  }
-`;
+// Checkerboard is intentionally NOT audio reactive. Keep its compact parameter
+// controller for the existing CUE/TAKE protocol, but never inspect audio. The
+// Canvas2D renderer caches a tiny repeat tile and skips unchanged static frames.
+import { bounded } from './band-reactive.js';
 
 export const AUDIO_CONTROL_SCHEMA = Object.freeze({
   continuous: {
@@ -31,77 +10,73 @@ export const AUDIO_CONTROL_SCHEMA = Object.freeze({
     uCell: { min: 4, max: 400, neutral: 48 },
     uPhase: { min: -1_000_000, max: 1_000_000, neutral: 0 },
   },
-  arrays: {},
-  events: {},
-  neutral: {
-    continuous: { uHueA: 0.58, uHueB: 0.08, uCell: 48, uPhase: 0 },
-  },
+  arrays: {}, events: {},
+  neutral: { continuous: { uHueA: 0.58, uHueB: 0.08, uCell: 48, uPhase: 0 } },
 });
 
-const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
-const hue = (value, fallback) => ((Number.isFinite(value) ? value : fallback) % 1 + 1) % 1;
-
-// This controller intentionally owns phase and feature mapping. The 60 factor
-// calibrates the old frame-step phase increment to elapsed seconds, so controller
-// cadence can vary without changing visual speed.
 export function createAudioController() {
   let phase = 0;
   return {
-    update({ shared, params = {}, deltaSeconds = 1 / 30 }) {
-      const bands = shared?.getFeatures?.({}) || { energy: 0 };
-      const dt = clamp(Number.isFinite(deltaSeconds) ? deltaSeconds : 1 / 30, 1 / 240, 0.1);
-      const cellBase = Math.max(8, Number(params.cell) || 48);
-      const speed = Number.isFinite(params.speed) ? params.speed : 0.5;
-      const pulse = Number.isFinite(params.pulse) ? params.pulse : 1;
-      const energy = clamp(Number(bands.energy) || 0, 0, 1.6);
-      phase += (speed + energy * pulse * 2) * dt * 60;
-      // Keep the value finite during a long-running set while preserving the
-      // shader's seamless modulo behavior.
-      if (Math.abs(phase) > 900_000) phase %= 100_000;
+    update({ params = {}, deltaSeconds = 1 / 30 }) {
+      phase += bounded(params.speed, 0, 0, 3) * bounded(deltaSeconds, 1 / 30, 0, 0.1) * 60;
+      if (phase > 900_000) phase %= 100_000;
       return {
         continuous: {
-          uHueA: hue(params.hueA, 0.58),
-          uHueB: hue(params.hueB, 0.08),
-          uCell: clamp(cellBase * (1 + energy * pulse * 0.35), 4, 400),
+          uHueA: bounded(params.hueA, 0.58, 0, 1),
+          uHueB: bounded(params.hueB, 0.08, 0, 1),
+          uCell: bounded(params.cell, 48, 4, 400),
           uPhase: phase,
         },
-        arrays: {},
-        events: [],
+        arrays: {}, events: [],
       };
     },
     dispose() {},
   };
 }
 
-export default (audio, videoDeviceId, params, runtimeContext = {}) => {
-  const audioControls = runtimeContext?.audioControls;
-  if (audioControls) {
-    return makeAudioShader(
-      audio,
-      params,
-      frag,
-      (_P, _bands, _p, controls) => controls?.continuous || AUDIO_CONTROL_SCHEMA.neutral.continuous,
-      { audioControls },
-    );
-  }
-
-  // Existing raw-frame shader path for standalone use and any un-migrated
-  // registry entry. It continues to own local feature mapping exactly as before.
+export default (_audio, _videoDeviceId, params = {}, runtimeContext = {}) => (p) => {
   let phase = 0;
-  return makeAudioShader(audio, params, frag, (P, bands) => {
-    const cellBase = Math.max(8, P.cell ?? 48);
-    const hueA = ((P.hueA ?? 0.58) % 1 + 1) % 1;
-    const hueB = ((P.hueB ?? 0.08) % 1 + 1) % 1;
-    const speed = P.speed ?? 0.5;
-    const pulse = P.pulse ?? 1;
-    const level = bands.energy;
-    phase += speed + level * pulse * 2;
-    const cell = cellBase * (1 + level * pulse * 0.35);
-    return {
-      uHueA: hueA,
-      uHueB: hueB,
-      uCell: Number(cell),
-      uPhase: phase,
-    };
-  });
+  let tile, pattern, tileKey, drawKey;
+  p.setup = () => {
+    p.pixelDensity(1);
+    p.createCanvas(p.windowWidth, p.windowHeight);
+    tile = document.createElement('canvas');
+  };
+  p.draw = () => {
+    // Read once for the program's consumed-revision barrier, not for animation.
+    // Local parameter values deliberately survive audio loss / neutral decay.
+    runtimeContext.audioControls?.read();
+    const cell = Math.round(bounded(params.cell, 48, 12, 160));
+    const speed = bounded(params.speed, 0, 0, 3);
+    phase = (phase + speed * bounded(p.deltaTime / 1000, 1 / 60, 0, 0.1) * 60) % (cell * 4);
+    const sat = bounded(params.saturation, 0, 0, 1) * 100;
+    const colorA = `hsl(${bounded(params.hueA, 0.58, 0, 1) * 360} ${sat}% ${bounded(params.brightnessA, 1, 0, 1) * 100}%)`;
+    const colorB = `hsl(${bounded(params.hueB, 0.08, 0, 1) * 360} ${sat}% ${bounded(params.brightnessB, 0, 0, 1) * 100}%)`;
+    const nextTile = `${cell}:${colorA}:${colorB}`;
+    const ctx = p.drawingContext;
+    if (tileKey !== nextTile) {
+      tile.width = tile.height = cell * 2;
+      const t = tile.getContext('2d');
+      t.fillStyle = colorA;
+      t.fillRect(0, 0, cell * 2, cell * 2);
+      t.fillStyle = colorB;
+      t.fillRect(cell, 0, cell, cell);
+      t.fillRect(0, cell, cell, cell);
+      pattern = ctx.createPattern(tile, 'repeat');
+      tileKey = nextTile;
+    }
+    const nextDraw = `${tileKey}:${phase}:${p.width}:${p.height}`;
+    if (drawKey === nextDraw) return;
+    drawKey = nextDraw;
+    ctx.save();
+    const x = -(phase % (cell * 2)), y = -((phase * 0.5) % (cell * 2));
+    ctx.translate(x, y);
+    ctx.fillStyle = pattern;
+    ctx.fillRect(-x, -y, p.width, p.height);
+    ctx.restore();
+  };
+  p.windowResized = () => {
+    drawKey = null;
+    p.resizeCanvas(p.windowWidth, p.windowHeight);
+  };
 };

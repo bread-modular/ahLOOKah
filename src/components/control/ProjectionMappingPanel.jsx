@@ -55,7 +55,7 @@ export function ProjectionMappingPanel({ sketch, scope, locked }) {
     <div className="projection-add">
       <span className="projection-hint">{sketch.surfaces.length} / {MAX_SURFACES} mappings</span>
       <button className="btn" disabled={structuralLock || sketch.surfaces.length >= MAX_SURFACES}
-        onClick={() => openEditor({ id: newSurfaceId(), name: '', patternId: 'solid-color' }, true)}>Add mapping</button>
+        onClick={() => openEditor({ id: newSurfaceId(), name: '', patternId: 'checkerboard' }, true)}>Add mapping</button>
     </div>
     {!sketch.surfaces.length && <p className="param-empty">Add a mapping to choose its pattern and position it on the output.</p>}
     {sketch.surfaces.map((surface, index) => <MappingRow key={surface.id}
