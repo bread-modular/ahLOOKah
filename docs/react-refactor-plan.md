@@ -145,7 +145,6 @@ During the migration, retain tiny root-level re-export modules for old browser i
 - `/sketch-registry.js`
 - `/sketches/audio-features.js`
 - `/sketches/circles.js`
-- `/sketches/waveform_tunnel.js`
 
 Moving implementation under `src/` without shims would break those tests before behavior is exercised. Keep the shims for at least the migration release. A later breaking cleanup may update test imports and remove them.
 
@@ -439,18 +438,16 @@ Leave a tiny matching file at each old `/sketches/<name>.js` path that re-export
 Split registry descriptors by group, but do **not** concatenate the groups to form canonical order. Instead, each group module exports descriptors keyed by ID and `sketchOrder.js` assembles them in the exact current declaration order:
 
 ```text
-circles, circles-ch1, bars, techno3d, character3d,
-neon-spectrum, pulse-rings, particle-storm, waveform-tunnel,
-chroma-mandala, starfield-rush, echo-ripples, laser-grid,
-strobe-pulse, plasma-waves, vortex-spiral, glitch-matrix,
-orbital-rings, shockwave-beats, neon-ribbons, prism-burst,
-cosmic-web, event-horizon, liquid-chrome, laser-cathedral,
-cymatic-bloom, holo-swarm, aurora-veil, mandelbulb-drift,
-storm-surge, ink-dispersion, infinity-mirror, ion-tempest,
-crystal-reliquary, neural-cascade, aurora-reactor, warp-loom,
-fractal-nebula, aurora-storm, wormhole-transit, crystal-cavern,
-neon-metropolis, solid-color, gradient-wash, color-bars,
-noise-static, film-grain, checkerboard, video-chroma,
+circles, bars, techno3d, character3d,
+pulse-rings, particle-storm, chroma-mandala, starfield-rush,
+echo-ripples, laser-grid, strobe-pulse, plasma-waves,
+glitch-matrix, neon-ribbons, prism-burst, event-horizon,
+liquid-chrome, laser-cathedral, cymatic-bloom, holo-swarm,
+aurora-veil, mandelbulb-drift, storm-surge, ink-dispersion,
+infinity-mirror, ion-tempest, crystal-reliquary, neural-cascade,
+aurora-reactor, warp-loom, fractal-nebula, aurora-storm,
+wormhole-transit, neon-metropolis, solid-color, gradient-wash,
+color-bars, noise-static, film-grain, checkerboard, video-chroma,
 video-kaleido, video-pixelate, video-trails, glitch-rgb-split,
 glitch-scanlines, glitch-slices, glitch-crt, video-dots-gpu,
 video-high-contrast

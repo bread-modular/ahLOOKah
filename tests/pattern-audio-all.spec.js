@@ -50,8 +50,8 @@ test.describe('all-pattern controls-only audio transport', () => {
     await installSyntheticCapture(page);
 
     const patternIds = await page.locator('#pattern-library .pattern-btn').evaluateAll((buttons) => buttons.map((button) => button.dataset.id));
-    expect(patternIds).toHaveLength(58);
-    expect(new Set(patternIds).size).toBe(58);
+    expect(patternIds).toHaveLength(50);
+    expect(new Set(patternIds).size).toBe(50);
 
     // Camera (video) effects never render a preview canvas in the control window:
     // the preview stage shows the placeholder note instead (the live camera video
