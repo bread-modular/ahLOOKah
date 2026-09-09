@@ -4,7 +4,7 @@ const CONTROL_URL = '/?role=control';
 const SCREEN_URL = '/?role=screen';
 
 test.describe('singleton per-browser: one control + one screen', () => {
-  test('second control direct-tab is blocked, first stays live, reload re-owns lease', async ({ context }) => {
+  test('second control direct-tab is blocked, first stays live, reload re-owns lease', { tag: ['@core', '@smoke'] }, async ({ context }) => {
     const first = await context.newPage();
     await first.goto(CONTROL_URL);
     await expect(first.locator('#config-panel')).toBeVisible();

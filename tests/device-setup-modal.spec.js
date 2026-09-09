@@ -7,7 +7,7 @@ const CONTROL_URL = '/?role=control';
 test.use({ storageState: { cookies: [], origins: [] } });
 
 test.describe('device setup modal', () => {
-  test('shows on a fresh profile, completes with OK, and stays hidden on reload', async ({ page }) => {
+  test('shows on a fresh profile, completes with OK, and stays hidden on reload', { tag: ['@core', '@smoke'] }, async ({ page }) => {
     await page.goto(CONTROL_URL);
 
     const modal = page.locator('#device-setup-modal');

@@ -386,7 +386,7 @@ test.describe('screen mapping section', () => {
     expect(probe.atUnmapped).toBe(false);
   });
 
-  test('control drags update the screen output live and persist', async ({ context }) => {
+  test('control drags update the screen output live and persist', { tag: ['@core', '@smoke'] }, async ({ context }) => {
     const screen = await context.newPage();
     await screen.goto(SCREEN_URL);
     await screen.waitForSelector('#screen-wrap canvas');

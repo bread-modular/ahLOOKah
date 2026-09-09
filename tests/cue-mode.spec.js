@@ -409,7 +409,7 @@ test.describe('CUE mode', () => {
     expect(warnings).toEqual([]);
   });
 
-  test('stages an isolated program and only persists it after TAKE', async ({ context, page }) => {
+  test('stages an isolated program and only persists it after TAKE', { tag: ['@core', '@smoke'] }, async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
     const storageBefore = await control.evaluate(() => localStorage.getItem('viz2_params'));
 
@@ -489,7 +489,7 @@ test.describe('CUE mode', () => {
     await page.waitForFunction(() => window.__viz.cue === null && window.__viz.patternId === 'bars');
   });
 
-  test('Escape cancels a staged candidate without changing LIVE or storage', async ({ context, page }) => {
+  test('Escape cancels a staged candidate without changing LIVE or storage', { tag: ['@core', '@smoke'] }, async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
     const storageBefore = await control.evaluate(() => localStorage.getItem('viz2_params'));
 

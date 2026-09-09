@@ -26,7 +26,7 @@ async function selectAudioInput(control) {
 }
 
 test.describe('audio input lifecycle', () => {
-  test('the control starts the selected input, feeds its EQ, and sends frames to the screen', async ({ context, page }) => {
+  test('the control starts the selected input, feeds its EQ, and sends frames to the screen', { tag: ['@core', '@smoke'] }, async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
 
     await expect(control.locator('#band-eq-idle')).toHaveText('Select an audio input in Setup.');

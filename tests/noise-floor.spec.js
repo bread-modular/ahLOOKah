@@ -42,7 +42,7 @@ async function installFakeAnalysers(page) {
 }
 
 test.describe('noise floor capture & subtraction', () => {
-  test('spectral subtraction removes the captured signature and spares loud bins', async ({ page }) => {
+  test('spectral subtraction removes the captured signature and spares loud bins', { tag: '@core' }, async ({ page }) => {
     await page.goto(SCREEN_URL);
 
     const res = await page.evaluate(async () => {

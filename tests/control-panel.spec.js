@@ -7,7 +7,7 @@ const CONTROL_URL = '/?role=control';
 // BroadcastChannel + localStorage are shared per browser context (tab group).
 
 test.describe('screen window', () => {
-  test('boots with canvas and a hover-only control button', async ({ page }) => {
+  test('boots with canvas and a hover-only control button', { tag: ['@core', '@smoke'] }, async ({ page }) => {
     await page.goto(SCREEN_URL);
 
     await expect(page.locator('body')).toHaveClass(/is-screen/);
@@ -21,7 +21,7 @@ test.describe('screen window', () => {
     await expect(btn).toHaveCSS('opacity', '1');
   });
 
-  test('keyboard 1-0 in the control panel switches patterns on the screen', async ({ context, page }) => {
+  test('keyboard 1-0 in the control panel switches patterns on the screen', { tag: ['@core', '@smoke'] }, async ({ context, page }) => {
     await page.goto(SCREEN_URL); // screen window
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
@@ -233,7 +233,7 @@ test.describe('pattern pad + library interactions', () => {
     await expect(control.locator('#pattern-pad .pattern-btn.active')).toHaveCount(0);
   });
 
-  test('dragging a library pattern onto a pad slot assigns it and persists', async ({ context, page }) => {
+  test('dragging a library pattern onto a pad slot assigns it and persists', { tag: ['@core', '@smoke'] }, async ({ context, page }) => {
     await page.goto(SCREEN_URL); // screen window
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
@@ -419,7 +419,7 @@ test.describe('pattern pad + library interactions', () => {
 });
 
 test.describe('effect parameters', () => {
-  test('sliders render for the selected effect and drive the screen live', async ({ context, page }) => {
+  test('sliders render for the selected effect and drive the screen live', { tag: ['@core', '@smoke'] }, async ({ context, page }) => {
     await page.goto(SCREEN_URL); // screen window
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
@@ -659,7 +659,7 @@ test.describe('three-column control layout', () => {
     expect(narrowHasNoHorizontalOverflow).toBe(true);
   });
 
-  test('the embedded renderer follows selected 2D and WebGL patterns', async ({ context }) => {
+  test('the embedded renderer follows selected 2D and WebGL patterns', { tag: ['@core', '@smoke'] }, async ({ context }) => {
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
 
