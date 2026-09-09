@@ -40,7 +40,7 @@ test.describe('screen window', () => {
 });
 
 test.describe('control panel window', () => {
-  test('renders a 10-slot pad with 1-0 badges and a grouped library of all 58 patterns', async ({ context }) => {
+  test('renders a 10-slot pad with 1-0 badges and a grouped library of all 50 patterns', async ({ context }) => {
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
 
@@ -55,13 +55,13 @@ test.describe('control panel window', () => {
 
     // Default pad = first 10 declaration patterns
     await expect(control.locator('#pattern-pad [data-index="0"]')).toHaveAttribute('data-id', 'circles');
-    await expect(control.locator('#pattern-pad [data-index="9"]')).toHaveAttribute('data-id', 'chroma-mandala');
+    await expect(control.locator('#pattern-pad [data-index="9"]')).toHaveAttribute('data-id', 'laser-grid');
 
-    // Library: all 58 patterns grouped under 9 headers (52 registered + 6
+    // Library: all 50 patterns grouped under 9 headers (44 registered + 6
     // camera-input Video FX effects surfaced in the library; Media and Projection
     // Mapping groups are always present and start empty).
     const items = control.locator('#pattern-library .pattern-btn');
-    await expect(items).toHaveCount(58);
+    await expect(items).toHaveCount(50);
     const headers = control.locator('.library-group-header');
     await expect(headers).toHaveCount(9);
     await expect(headers.first()).toHaveText('Rhythmic');
@@ -243,7 +243,7 @@ test.describe('pattern pad + library interactions', () => {
     const target = control.locator('#pattern-pad [data-index="0"]');
     // Wait for pad+library to finish rAF-coalesced init so drag listeners exist
     await expect(control.locator('#pattern-pad .pattern-btn')).toHaveCount(10);
-    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(58);
+    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(50);
     await expect(target).toHaveAttribute('data-id', 'circles');
     await expect(source).toBeVisible();
     await source.scrollIntoViewIfNeeded();
@@ -279,14 +279,14 @@ test.describe('pattern pad + library interactions', () => {
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
 
-    // Default pad: slot 0 = circles, slot 5 = neon-spectrum
+    // Default pad: slot 0 = circles, slot 5 = particle-storm
     await control.locator('#pattern-pad [data-index="0"]').dragTo(control.locator('#pattern-pad [data-index="5"]'));
 
     await control.waitForFunction(() => {
       const order = JSON.parse(localStorage.getItem('viz2_slot_order') || '[]');
-      return order[0] === 'neon-spectrum' && order[5] === 'circles';
+      return order[0] === 'particle-storm' && order[5] === 'circles';
     });
-    await expect(control.locator('#pattern-pad [data-index="0"]')).toHaveAttribute('data-id', 'neon-spectrum');
+    await expect(control.locator('#pattern-pad [data-index="0"]')).toHaveAttribute('data-id', 'particle-storm');
     await expect(control.locator('#pattern-pad [data-index="5"]')).toHaveAttribute('data-id', 'circles');
   });
 
@@ -296,11 +296,11 @@ test.describe('pattern pad + library interactions', () => {
 
     await control.locator('#pattern-pad [data-index="0"]').dragTo(control.locator('#pattern-pad [data-index="1"]'));
     await control.waitForFunction(
-      () => JSON.parse(localStorage.getItem('viz2_slot_order') || '[]')[0] === 'circles-ch1'
+      () => JSON.parse(localStorage.getItem('viz2_slot_order') || '[]')[0] === 'bars'
     );
 
     await control.reload();
-    await expect(control.locator('#pattern-pad [data-index="0"]')).toHaveAttribute('data-id', 'circles-ch1');
+    await expect(control.locator('#pattern-pad [data-index="0"]')).toHaveAttribute('data-id', 'bars');
     await expect(control.locator('#pattern-pad [data-index="1"]')).toHaveAttribute('data-id', 'circles');
   });
 
@@ -363,7 +363,7 @@ test.describe('pattern pad + library interactions', () => {
 
     // Malformed data falls back to "everything expanded"
     await expect(control.locator('.library-group-header')).toHaveCount(9);
-    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(58);
+    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(50);
     await expect(control.locator('.library-group-toggle').first()).toHaveAttribute('aria-expanded', 'true');
   });
 
@@ -424,9 +424,9 @@ test.describe('effect parameters', () => {
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
 
-    // Bars (slot 2) exposes 3 params: gain, barWidth, flash
-    await control.locator('#pattern-pad [data-index="2"]').click();
-    await page.waitForFunction(() => window.__viz.pattern === 2);
+    // Bars (slot 1) exposes 3 params: gain, barWidth, flash
+    await control.locator('#pattern-pad [data-index="1"]').click();
+    await page.waitForFunction(() => window.__viz.pattern === 1);
 
     await expect(control.locator('#params-list .param-row')).toHaveCount(3);
     await expect(control.locator('#params-list label').first()).toContainText('Gain');
@@ -439,12 +439,12 @@ test.describe('effect parameters', () => {
     await page.waitForFunction(() => window.__viz.params.gain === 3);
 
     // Switching effects swaps the slider set (Pulse Rings has 4 params)
-    await control.locator('#pattern-pad [data-index="6"]').click();
+    await control.locator('#pattern-pad [data-index="4"]').click();
     await expect(control.locator('#params-list .param-row')).toHaveCount(4);
     await expect(control.locator('#params-list input[data-key="rings"]')).toBeVisible();
 
     // Param values persist per-effect (Bars gain is still 3 after switching back)
-    await control.locator('#pattern-pad [data-index="2"]').click();
+    await control.locator('#pattern-pad [data-index="1"]').click();
     await expect(control.locator('#params-list input[data-key="gain"]')).toHaveValue('3');
   });
 
@@ -490,13 +490,13 @@ test.describe('screen <-> control interaction', () => {
 });
 
 test.describe('param slider interactions (e2e)', () => {
-  // Open the screen + a control panel, select Bars (slot 2)
+  // Open the screen + a control panel, select Bars (slot 1)
   async function openBars(context, page) {
     await page.goto(SCREEN_URL);
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
-    await control.locator('#pattern-pad [data-index="2"]').click();
-    await page.waitForFunction(() => window.__viz.pattern === 2);
+    await control.locator('#pattern-pad [data-index="1"]').click();
+    await page.waitForFunction(() => window.__viz.pattern === 1);
     return control;
   }
 
@@ -667,7 +667,7 @@ test.describe('three-column control layout', () => {
 
     // Techno 3D is a genuine WEBGL sketch. The control preview must render the
     // same factory into the clipped panel stage rather than a static thumbnail.
-    await control.locator('#pattern-pad [data-index="3"]').click();
+    await control.locator('#pattern-pad [data-index="2"]').click();
     const preview = control.locator('#preview-stage canvas[data-preview-sketch="techno3d"]');
     await expect(preview).toBeVisible();
     expect(await preview.evaluate((canvas) => Boolean(canvas.getContext('webgl2') || canvas.getContext('webgl')))).toBe(true);

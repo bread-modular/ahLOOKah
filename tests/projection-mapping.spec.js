@@ -714,7 +714,7 @@ test('camera merge preview never opens capture; failed structural changes retain
   await expect(editor.getByRole('alert')).toHaveCount(0);
   await closeMapping(control);
   // Include a top-level camera as merge input B, in addition to the mapped one.
-  await control.evaluate(async () => { const { saveSlotOrder } = await import('/src/sketch-registry.js'); saveSlotOrder(['projection-test', 'video-pixelate', 'circles', 'bars', 'techno3d', 'character3d', 'neon-spectrum', 'pulse-rings', 'particle-storm', 'waveform-tunnel']); });
+  await control.evaluate(async () => { const { saveSlotOrder } = await import('/src/sketch-registry.js'); saveSlotOrder(['projection-test', 'video-pixelate', 'circles', 'bars', 'techno3d', 'character3d', 'neon-ribbons', 'pulse-rings', 'particle-storm', 'chroma-mandala']); });
   await send(control, { type: 'merge', a: 0, b: 1 });
   await expect.poll(() => page.evaluate(() => window.__viz.merge), { timeout: 20000 }).toEqual([0, 1]);
   await expect.poll(() => page.evaluate(() => window.__viz.programs.live.children)).toEqual(['video-pixelate', 'solid-color', 'video-pixelate']);

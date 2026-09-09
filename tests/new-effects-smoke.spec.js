@@ -5,13 +5,9 @@ const NEW_IDS = [
   'laser-grid',
   'strobe-pulse',
   'plasma-waves',
-  'vortex-spiral',
   'glitch-matrix',
-  'orbital-rings',
-  'shockwave-beats',
   'neon-ribbons',
   'prism-burst',
-  'cosmic-web',
   'event-horizon',
   'liquid-chrome',
   'laser-cathedral',
@@ -60,7 +56,7 @@ test.describe('new effects smoke test', () => {
       await page.goto('/?role=screen'); // screen window
       const control = await context.newPage();
       await control.goto('/?role=control');
-      await control.locator(`.pattern-btn[data-id="${id}"]`).click();
+      await control.locator(`#pattern-library .pattern-btn[data-id="${id}"]`).click();
       await page.waitForFunction((expected) => window.__viz.patternId === expected, id);
       // Let it render a few frames
       await page.waitForTimeout(500);

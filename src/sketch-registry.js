@@ -29,10 +29,6 @@ import circles, {
   AUDIO_CONTROL_SCHEMA as circlesAudioControlSchema,
   createAudioController as createCirclesAudioController,
 } from './sketches/circles.js';
-import circlesCh1, {
-  AUDIO_CONTROL_SCHEMA as circlesCh1AudioControlSchema,
-  createAudioController as createCirclesCh1AudioController,
-} from './sketches/circles_ch1.js';
 import bars, {
   AUDIO_CONTROL_SCHEMA as barsAudioControlSchema,
   createAudioController as createBarsAudioController,
@@ -47,10 +43,6 @@ import character3d, {
 } from './sketches/character3d.js';
 // Colorful audio-reactive visuals for live techno/noise shows
 // (camera-input sketches still live in ./sketches/ but are not registered)
-import neonSpectrum, {
-  AUDIO_CONTROL_SCHEMA as neonSpectrumAudioControlSchema,
-  createAudioController as createNeonSpectrumAudioController,
-} from './sketches/neon_spectrum.js';
 import pulseRings, {
   AUDIO_CONTROL_SCHEMA as pulseRingsAudioControlSchema,
   createAudioController as createPulseRingsAudioController,
@@ -59,10 +51,6 @@ import particleStorm, {
   AUDIO_CONTROL_SCHEMA as particleStormAudioControlSchema,
   createAudioController as createParticleStormAudioController,
 } from './sketches/particle_storm.js';
-import waveformTunnel, {
-  AUDIO_CONTROL_SCHEMA as waveformTunnelAudioControlSchema,
-  createAudioController as createWaveformTunnelAudioController,
-} from './sketches/waveform_tunnel.js';
 import chromaMandala, {
   AUDIO_CONTROL_SCHEMA as chromaMandalaAudioControlSchema,
   createAudioController as createChromaMandalaAudioController,
@@ -87,22 +75,10 @@ import plasmaWaves, {
   AUDIO_CONTROL_SCHEMA as plasmaWavesAudioControlSchema,
   createAudioController as createPlasmaWavesAudioController,
 } from './sketches/plasma_waves.js';
-import vortexSpiral, {
-  AUDIO_CONTROL_SCHEMA as vortexSpiralAudioControlSchema,
-  createAudioController as createVortexSpiralAudioController,
-} from './sketches/vortex_spiral.js';
 import glitchMatrix, {
   AUDIO_CONTROL_SCHEMA as glitchMatrixAudioControlSchema,
   createAudioController as createGlitchMatrixAudioController,
 } from './sketches/glitch_matrix.js';
-import orbitalRings, {
-  AUDIO_CONTROL_SCHEMA as orbitalRingsAudioControlSchema,
-  createAudioController as createOrbitalRingsAudioController,
-} from './sketches/orbital_rings.js';
-import shockwaveBeats, {
-  AUDIO_CONTROL_SCHEMA as shockwaveBeatsAudioControlSchema,
-  createAudioController as createShockwaveBeatsAudioController,
-} from './sketches/shockwave_beats.js';
 import neonRibbons, {
   AUDIO_CONTROL_SCHEMA as neonRibbonsAudioControlSchema,
   createAudioController as createNeonRibbonsAudioController,
@@ -111,10 +87,6 @@ import prismBurst, {
   AUDIO_CONTROL_SCHEMA as prismBurstAudioControlSchema,
   createAudioController as createPrismBurstAudioController,
 } from './sketches/prism_burst.js';
-import cosmicWeb, {
-  AUDIO_CONTROL_SCHEMA as cosmicWebAudioControlSchema,
-  createAudioController as createCosmicWebAudioController,
-} from './sketches/cosmic_web.js';
 // GPU-first cinematic looks inspired by modern real-time VJ pipelines
 import eventHorizon, {
   AUDIO_CONTROL_SCHEMA as eventHorizonAudioControlSchema,
@@ -192,10 +164,6 @@ import wormholeTransit, {
   AUDIO_CONTROL_SCHEMA as wormholeTransitAudioControlSchema,
   createAudioController as createWormholeTransitAudioController,
 } from './sketches/wormhole_transit.js';
-import crystalCavern, {
-  AUDIO_CONTROL_SCHEMA as crystalCavernAudioControlSchema,
-  createAudioController as createCrystalCavernAudioController,
-} from './sketches/crystal_cavern.js';
 import neonMetropolis, {
   AUDIO_CONTROL_SCHEMA as neonMetropolisAudioControlSchema,
   createAudioController as createNeonMetropolisAudioController,
@@ -301,16 +269,6 @@ export const SKETCHES = [
     group: 'Rhythmic',
   }, // 1
   {
-    id: 'circles-ch1',
-    name: 'Circles CH1',
-    factory: circlesCh1,
-    audioTransport: 'pattern-controls',
-    createAudioController: createCirclesCh1AudioController,
-    audioControlSchema: circlesCh1AudioControlSchema,
-    params: BAND_RESPONSIVENESS,
-    group: 'Rhythmic',
-  }, // 2
-  {
     id: 'bars',
     name: 'Bars',
     factory: bars,
@@ -351,20 +309,6 @@ export const SKETCHES = [
     group: '3D',
   }, // 5
   {
-    id: 'neon-spectrum',
-    name: 'Neon Spectrum',
-    factory: neonSpectrum,
-    audioTransport: 'pattern-controls',
-    createAudioController: createNeonSpectrumAudioController,
-    audioControlSchema: neonSpectrumAudioControlSchema,
-    params: [
-      { key: 'gain', label: 'Amplitude Gain', min: 0.2, max: 3, step: 0.05, default: 1 },
-      { key: 'barWidth', label: 'Bar Width', min: 2, max: 16, step: 1, default: 4 },
-      { key: 'flash', label: 'Peak Flash', min: 0, max: 2, step: 0.05, default: 1 },
-    ],
-    group: 'Rhythmic',
-  }, // 6
-  {
     id: 'pulse-rings',
     name: 'Pulse Rings',
     factory: pulseRings,
@@ -394,21 +338,6 @@ export const SKETCHES = [
     ],
     group: 'Rhythmic',
   }, // 8
-  {
-    id: 'waveform-tunnel',
-    name: 'Waveform Tunnel',
-    factory: waveformTunnel,
-    audioTransport: 'pattern-controls',
-    createAudioController: createWaveformTunnelAudioController,
-    audioControlSchema: waveformTunnelAudioControlSchema,
-    params: [
-      { key: 'rings', label: 'Ring Count', min: 20, max: 80, step: 1, default: 46 },
-      { key: 'twist', label: 'Twist Speed', min: 0, max: 3, step: 0.05, default: 1 },
-      { key: 'scale', label: 'Tunnel Scale', min: 0.5, max: 2, step: 0.05, default: 1 },
-      { key: 'sub', label: 'Sub Push', min: 0, max: 2, step: 0.05, default: 1 },
-    ],
-    group: 'Rhythmic',
-  }, // 9
   {
     id: 'chroma-mandala',
     name: 'Chroma Mandala',
@@ -502,22 +431,6 @@ export const SKETCHES = [
     group: 'Rhythmic',
   }, // 15
   {
-    id: 'vortex-spiral',
-    name: 'Vortex Spiral',
-    factory: vortexSpiral,
-    audioTransport: 'pattern-controls',
-    createAudioController: createVortexSpiralAudioController,
-    audioControlSchema: vortexSpiralAudioControlSchema,
-    params: [
-      ...BAND_RESPONSIVENESS,
-      { key: 'arms', label: 'Spiral Arms', min: 2, max: 12, step: 1, default: 5 },
-      { key: 'density', label: 'Dot Density', min: 30, max: 200, step: 5, default: 90 },
-      { key: 'twist', label: 'Twist Amount', min: 0, max: 2, step: 0.05, default: 1 },
-      { key: 'sparkle', label: 'Stardust', min: 0, max: 2, step: 0.05, default: 1 },
-    ],
-    group: '3D',
-  }, // 16
-  {
     id: 'glitch-matrix',
     name: 'Glitch Matrix',
     factory: glitchMatrix,
@@ -532,37 +445,6 @@ export const SKETCHES = [
     ],
     group: 'Glitch / Effects',
   }, // 17
-  {
-    id: 'orbital-rings',
-    name: 'Orbital Rings',
-    factory: orbitalRings,
-    audioTransport: 'pattern-controls',
-    createAudioController: createOrbitalRingsAudioController,
-    audioControlSchema: orbitalRingsAudioControlSchema,
-    params: [
-      ...BAND_RESPONSIVENESS,
-      { key: 'rings', label: 'Ring Count', min: 2, max: 10, step: 1, default: 5 },
-      { key: 'spin', label: 'Spin Speed', min: 0, max: 3, step: 0.05, default: 1 },
-      { key: 'tilt', label: 'Bass Tilt', min: 0, max: 2, step: 0.05, default: 1 },
-      { key: 'satellites', label: 'Satellites', min: 0, max: 2, step: 0.05, default: 1 },
-    ],
-    group: '3D',
-  }, // 18
-  {
-    id: 'shockwave-beats',
-    name: 'Shockwave Beats',
-    factory: shockwaveBeats,
-    audioTransport: 'pattern-controls',
-    createAudioController: createShockwaveBeatsAudioController,
-    audioControlSchema: shockwaveBeatsAudioControlSchema,
-    params: [
-      { key: 'threshold', label: 'Kick Threshold', min: 0.15, max: 0.6, step: 0.01, default: 0.3 },
-      { key: 'speed', label: 'Wave Speed', min: 0, max: 3, step: 0.05, default: 1 },
-      { key: 'chroma', label: 'Chroma Split', min: 0, max: 3, step: 0.05, default: 1 },
-      { key: 'max', label: 'Max Waves', min: 4, max: 48, step: 1, default: 24 },
-    ],
-    group: 'Rhythmic',
-  }, // 19
   {
     id: 'neon-ribbons',
     name: 'Neon Ribbons',
@@ -595,22 +477,6 @@ export const SKETCHES = [
     ],
     group: 'Neon / Lasers',
   }, // 21
-  {
-    id: 'cosmic-web',
-    name: 'Cosmic Web',
-    factory: cosmicWeb,
-    audioTransport: 'pattern-controls',
-    createAudioController: createCosmicWebAudioController,
-    audioControlSchema: cosmicWebAudioControlSchema,
-    params: [
-      ...BAND_RESPONSIVENESS,
-      { key: 'nodes', label: 'Node Count', min: 30, max: 200, step: 5, default: 90 },
-      { key: 'link', label: 'Link Distance', min: 60, max: 260, step: 5, default: 130 },
-      { key: 'scatter', label: 'Kick Scatter', min: 0, max: 3, step: 0.05, default: 1 },
-      { key: 'drift', label: 'Drift Speed', min: 0, max: 3, step: 0.05, default: 1 },
-    ],
-    group: 'Rhythmic',
-  }, // 22
   {
     id: 'event-horizon',
     name: 'Event Horizon',
@@ -899,22 +765,6 @@ export const SKETCHES = [
     ],
     group: '3D',
   }, // 40
-  {
-    id: 'crystal-cavern',
-    name: 'Crystal Cavern',
-    factory: crystalCavern,
-    audioTransport: 'pattern-controls',
-    createAudioController: createCrystalCavernAudioController,
-    audioControlSchema: crystalCavernAudioControlSchema,
-    params: [
-      ...PREMIUM_AUDIO_RESPONSIVENESS,
-      { key: 'crystalSize', label: 'Crystal Scale', min: 0.4, max: 2, step: 0.05, default: 1 },
-      { key: 'refraction', label: 'Prismatic Refraction', min: 0.2, max: 2, step: 0.05, default: 1 },
-      { key: 'caustics', label: 'Caustic Intensity', min: 0.2, max: 2, step: 0.05, default: 1 },
-      { key: 'speed', label: 'Growth Speed', min: 0, max: 2.5, step: 0.05, default: 1 },
-    ],
-    group: '3D',
-  }, // 41
   {
     id: 'neon-metropolis',
     name: 'Neon Metropolis',

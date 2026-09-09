@@ -8,7 +8,7 @@ test.describe('pattern-specific audio controls', () => {
     await page.goto(SCREEN_URL);
     const result = await page.evaluate(async () => {
       const { PatternAudioControlStore } = await import('/src/pattern-audio-controls.js');
-      const { AUDIO_CONTROL_SCHEMA } = await import('/src/sketches/waveform_tunnel.js');
+      const { AUDIO_CONTROL_SCHEMA } = await import('/src/sketches/prism_burst.js');
       let now = 0;
       const store = new PatternAudioControlStore({
         consumerSessionId: 'consumer-a',
@@ -17,11 +17,11 @@ test.describe('pattern-specific audio controls', () => {
       });
       const descriptor = {
         runtimeId: 'consumer-a:1:0',
-        patternId: 'waveform-tunnel',
+        patternId: 'prism-burst',
         role: 'live',
         childIndex: 0,
         paramsRevision: 1,
-        params: { rings: 46, twist: 1, scale: 1, sub: 1 },
+        params: { rays: 48, spin: 1, length: 1, core: 1 },
         audioTransport: 'pattern-controls',
         audioControlSchema: AUDIO_CONTROL_SCHEMA,
       };
@@ -38,13 +38,13 @@ test.describe('pattern-specific audio controls', () => {
         slots: [{
           runtimeId: descriptor.runtimeId,
           paramsRevision: 1,
-          continuous: { hueOffset: hue, twist: 0, tunnelScale: 1, shimmerAmount: 0 },
-          arrays: { ringRadii: new Float32Array(46).fill(300 + hue) },
+          continuous: { hueOffset: hue },
+          arrays: { spectrum: new Float32Array(200).fill(0.3 + hue / 1000) },
           events: event ? [{ id: 'spark-1', type: 'shimmer' }] : [],
         }],
       });
 
-      // The tunnel schema has no shimmer event, so a malformed event is safely
+      // The prism-burst schema has no shimmer event, so a malformed event is safely
       // dropped while the rest of the packet remains non-fatal.
       const malformedEvent = store.acceptPacket(packet(1, 'stream-a', 0, true));
       now = 33;
@@ -66,7 +66,7 @@ test.describe('pattern-specific audio controls', () => {
         acceptedFirst,
         acceptedSecond,
         interpolatedHue: interpolated.continuous.hueOffset,
-        interpolatedRadius: interpolated.arrays.ringRadii[0],
+        interpolatedRadius: interpolated.arrays.spectrum[0],
         marked,
         rendered,
         duplicate,
@@ -82,8 +82,8 @@ test.describe('pattern-specific audio controls', () => {
     expect(result.acceptedSecond).toMatchObject({ accepted: true, slots: 1 });
     expect(result.interpolatedHue).toBeGreaterThan(40);
     expect(result.interpolatedHue).toBeLessThan(60);
-    expect(result.interpolatedRadius).toBeGreaterThan(340);
-    expect(result.interpolatedRadius).toBeLessThan(360);
+    expect(result.interpolatedRadius).toBeGreaterThan(0.34);
+    expect(result.interpolatedRadius).toBeLessThan(0.36);
     expect(result.marked).toBe(true);
     expect(result.rendered).toBe(true);
     expect(result.duplicate).toMatchObject({ accepted: false, reason: 'sequence' });
@@ -368,8 +368,8 @@ test.describe('pattern-specific audio controls', () => {
       const fastChecker = slot('checkerboard', 'consumer-a:3:0', 3);
       fastChecker.params.speed = 2;
       const slots = [
-        slot('circles', 'consumer-a:1:0', 0),
-        slot('waveform-tunnel', 'consumer-a:1:1', 1),
+        slot('bars', 'consumer-a:1:0', 0),
+        slot('prism-burst', 'consumer-a:1:1', 1),
         slowChecker,
         fastChecker,
       ];
@@ -438,8 +438,8 @@ test.describe('pattern-specific audio controls', () => {
         rejectedOtherTransport,
         engineExposesRawPath: ['rawRequired', 'recordRawFrame'].some((key) => typeof engine[key] === 'function'),
         slotCount: packet.slots.length,
-        ringCount: tunnel.arrays.ringRadii.length,
-        finiteRings: [...tunnel.arrays.ringRadii].every(Number.isFinite),
+        ringCount: tunnel.arrays.spectrum.length,
+        finiteRings: [...tunnel.arrays.spectrum].every(Number.isFinite),
         checkerPhases: [checkerA.continuous.uPhase, checkerB.continuous.uPhase],
         byteFrequencyBuilds: tick.shared.diagnostics.byteFrequencyBuilds,
         byteWaveformBuilds: tick.shared.diagnostics.byteWaveformBuilds,
@@ -452,7 +452,7 @@ test.describe('pattern-specific audio controls', () => {
     expect(result.rejectedOtherTransport).toMatchObject({ accepted: false, reason: 'malformed' });
     expect(result.engineExposesRawPath).toBe(false);
     expect(result.slotCount).toBe(4);
-    expect(result.ringCount).toBe(46);
+    expect(result.ringCount).toBe(200);
     expect(result.finiteRings).toBe(true);
     expect(result.checkerPhases[0]).not.toBe(result.checkerPhases[1]);
     expect(result.byteFrequencyBuilds).toBe(1);
@@ -477,7 +477,7 @@ test.describe('pattern-specific audio controls', () => {
       window.__viz.captureAudio.getAnalysisFrame = () => frame;
     });
 
-    for (const patternId of ['checkerboard', 'circles', 'waveform-tunnel']) {
+    for (const patternId of ['checkerboard', 'circles', 'particle-storm']) {
       await page.locator(`#pattern-library [data-id="${patternId}"]`).click();
       await expect(page.locator(`#preview-stage canvas[data-preview-sketch="${patternId}"]`)).toBeVisible();
       await page.waitForFunction((id) => {

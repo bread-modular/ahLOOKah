@@ -337,8 +337,9 @@ test.describe('CUE mode', () => {
   });
 
   test('keeps one GPU preview alive across CUE edits and releases it on replacement', async ({ context, page }) => {
-    // Plasma Waves uses the same p5 shader/WebGL lifecycle as Cosmic Web without
-    // making this lifecycle regression test expensive under software GL in CI.
+    // Plasma Waves uses the same p5 shader/WebGL lifecycle as other WebGL
+    // shader sketches without making this lifecycle regression test expensive
+    // under software GL in CI.
     await page.setViewportSize({ width: 480, height: 270 });
     const warnings = [];
     const collectContextWarning = (message) => {
@@ -418,12 +419,12 @@ test.describe('CUE mode', () => {
     await expect(control.locator('#cue-preview-controls')).toBeVisible();
     await expect(control.locator('#cue-primary .transport-action')).toHaveText('GO LIVE');
 
-    // CUE Bars (slot 3); Circles remains the screen program while it warms.
-    await control.keyboard.press('3');
+    // CUE Bars (key 2 / slot index 1); Circles remains the screen program while it warms.
+    await control.keyboard.press('2');
     await page.waitForFunction(() => window.__viz.cue?.selection?.ids?.[0] === 'bars');
     expect(await page.evaluate(() => window.__viz.patternId)).toBe('circles');
     await expect(control.locator('#pattern-pad [data-index="0"]')).toHaveClass(/live-active/);
-    await expect(control.locator('#pattern-pad [data-index="2"]')).toHaveClass(/cue-active/);
+    await expect(control.locator('#pattern-pad [data-index="1"]')).toHaveClass(/cue-active/);
 
     await setRange(control, '#params-list input[data-key="gain"]', 3);
     await page.waitForFunction(() => window.__viz.cueParams?.bars?.gain === 3);
@@ -447,7 +448,7 @@ test.describe('CUE mode', () => {
     await control.keyboard.press('CapsLock');
     expect(await page.evaluate(() => window.__viz.cue)).toBeNull();
 
-    await control.locator('#pattern-pad [data-index="2"]').click({ modifiers: ['Shift'] });
+    await control.locator('#pattern-pad [data-index="1"]').click({ modifiers: ['Shift'] });
     await page.waitForFunction(() => window.__viz.cue?.selection?.ids?.[0] === 'bars');
     expect(await page.evaluate(() => window.__viz.patternId)).toBe('circles');
     await expect(control.locator('#cue-preview-controls')).toBeVisible();
@@ -482,7 +483,7 @@ test.describe('CUE mode', () => {
     await page.waitForFunction(() => window.__viz.cue === null);
     await expect(control.locator('#cue-preview-controls')).toBeHidden();
 
-    await cueWithShift(control, '3');
+    await cueWithShift(control, '2');
     await page.waitForFunction(() => window.__viz.cue?.phase === 'ready');
     await control.locator('#cue-primary').click();
     await page.waitForFunction(() => window.__viz.cue === null && window.__viz.patternId === 'bars');
@@ -493,7 +494,7 @@ test.describe('CUE mode', () => {
     const storageBefore = await control.evaluate(() => localStorage.getItem('viz2_params'));
 
     await enterCue(control);
-    await control.keyboard.press('3');
+    await control.keyboard.press('2');
     await page.waitForFunction(() => window.__viz.cue?.selection?.ids?.[0] === 'bars');
     await setRange(control, '#params-list input[data-key="gain"]', 2.5);
     await page.waitForFunction(() => window.__viz.cueParams?.bars?.gain === 2.5);
@@ -532,7 +533,7 @@ test.describe('CUE mode', () => {
     // exactly like holding two unmodified keys blends LIVE.
     await control.keyboard.down('Shift');
     await control.keyboard.down('1');
-    await control.keyboard.down('3');
+    await control.keyboard.down('2');
     await page.waitForFunction(() => JSON.stringify(window.__viz.cue?.selection?.ids) === '["circles","bars"]');
     expect(await page.evaluate(() => window.__viz.cue?.selection?.merge)).toBe(true);
 
@@ -541,7 +542,7 @@ test.describe('CUE mode', () => {
     expect(await page.evaluate(() => window.__viz.merge)).toBeNull();
 
     // Releasing the keys keeps the latched blend (parity with LIVE behavior)
-    await control.keyboard.up('3');
+    await control.keyboard.up('2');
     await control.keyboard.up('1');
     await control.keyboard.up('Shift');
     await page.waitForTimeout(150);
@@ -550,7 +551,7 @@ test.describe('CUE mode', () => {
 
     // TAKE promotes the cued blend onto LIVE
     await control.keyboard.press('Enter');
-    await page.waitForFunction(() => window.__viz.cue === null && JSON.stringify(window.__viz.merge) === '[0,2]');
+    await page.waitForFunction(() => window.__viz.cue === null && JSON.stringify(window.__viz.merge) === '[0,1]');
     expect(await page.evaluate(() => window.__viz.patternId)).toBe('circles');
   });
 
@@ -560,9 +561,9 @@ test.describe('CUE mode', () => {
 
     await enterCue(control);
     await control.keyboard.down('1');
-    await control.keyboard.down('3');
+    await control.keyboard.down('2');
     await page.waitForFunction(() => JSON.stringify(window.__viz.cue?.selection?.ids) === '["circles","bars"]');
-    await control.keyboard.up('3');
+    await control.keyboard.up('2');
     await control.keyboard.up('1');
 
     await control.keyboard.press('+');
@@ -580,7 +581,7 @@ test.describe('CUE mode', () => {
     const control = await openScreenAndControl(context, page);
 
     await enterCue(control);
-    await control.keyboard.press('3');
+    await control.keyboard.press('2');
     await page.waitForFunction(() => window.__viz.cue?.phase === 'warming' || window.__viz.cue?.phase === 'ready');
     await goLive(control);
 
@@ -595,7 +596,7 @@ test.describe('CUE mode', () => {
   test('serializes burst cue edits and batches Post-FX reset values', async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
     await enterCue(control);
-    await control.keyboard.press('3');
+    await control.keyboard.press('2');
     await page.waitForFunction(() => window.__viz.cue?.selection?.ids?.[0] === 'bars');
 
     // Native range input events can arrive much faster than cross-window
@@ -622,7 +623,7 @@ test.describe('CUE mode', () => {
   test('rejects stale cue revisions without mutating the staged bank', async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
     await enterCue(control);
-    await control.keyboard.press('3');
+    await control.keyboard.press('2');
     await page.waitForFunction(() => window.__viz.cue?.selection?.ids?.[0] === 'bars');
     await page.waitForFunction(() => Boolean(window.__viz.cueParams?.bars));
     const cue = await page.evaluate(() => window.__viz.cue);
@@ -651,7 +652,7 @@ test.describe('CUE mode', () => {
 
     // Establish a non-default LIVE program, visual parameter, and filter so a
     // leak is observable both in the renderer and persisted canonical bank.
-    await controlA.locator('#pattern-pad [data-index="2"]').click();
+    await controlA.locator('#pattern-pad [data-index="1"]').click();
     await page.waitForFunction(() => window.__viz.patternId === 'bars');
     await setRange(controlA, '#params-list input[data-key="gain"]', 1.4);
     await setRange(controlA, '#post-fx-list input[data-key="brightness"]', 12);
@@ -697,7 +698,7 @@ test.describe('CUE mode', () => {
   test('commits the cue bank into the control before returning to LIVE and reloads carry it', async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
     await enterCue(control);
-    await control.keyboard.press('3');
+    await control.keyboard.press('2');
     await page.waitForFunction(() => window.__viz.cue?.selection?.ids?.[0] === 'bars');
     await setRange(control, '#params-list input[data-key="gain"]', 2.5);
     await page.waitForFunction(() => window.__viz.cueParams?.bars?.gain === 2.5);
@@ -720,7 +721,7 @@ test.describe('CUE mode', () => {
   test('supersedes a warming selection with SAME AS LIVE before TAKE', async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
     await enterCue(control);
-    await control.keyboard.press('3');
+    await control.keyboard.press('2');
     await page.waitForFunction(() => window.__viz.cue?.selection?.ids?.[0] === 'bars');
 
     // Returning to the live ID invalidates Bars immediately. TAKE must end the
@@ -738,7 +739,7 @@ test.describe('CUE mode', () => {
   test('late reload of the same control tab retains the staged cue state', async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
     await enterCue(control);
-    await control.keyboard.press('3');
+    await control.keyboard.press('2');
     await page.waitForFunction(() => window.__viz.cue?.selection?.ids?.[0] === 'bars');
 
     // With singleton enforcement, a different tab would be blocked; verify that
@@ -754,7 +755,7 @@ test.describe('CUE mode', () => {
   test('reports WARMING after a cue edit until that revision completes a fresh output frame', async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
     await enterCue(control);
-    await control.keyboard.press('3');
+    await control.keyboard.press('2');
     await page.waitForFunction(() => window.__viz.cue?.phase === 'ready');
     const readyRevision = await page.evaluate(() => window.__viz.cue.revision);
 
@@ -782,7 +783,7 @@ test.describe('CUE mode', () => {
   test('locks edits immediately for queued TAKE and preserves the final queued change', async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
     await enterCue(control);
-    await control.keyboard.press('3');
+    await control.keyboard.press('2');
     await page.waitForFunction(() => window.__viz.cue?.phase === 'ready');
 
     // Keep the input and Enter edge in one control-window task. The range
@@ -816,7 +817,7 @@ test.describe('CUE mode', () => {
   test('CANCEL remains available while a revision-bound TAKE is pending', async ({ context, page }) => {
     const control = await openScreenAndControl(context, page);
     await enterCue(control);
-    await control.keyboard.press('3');
+    await control.keyboard.press('2');
     await page.waitForFunction(() => window.__viz.cue?.phase === 'ready');
 
     await holdScreenAnimationFrames(page);
