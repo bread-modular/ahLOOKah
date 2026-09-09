@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { SMOKE_PATTERNS } from './smoke-patterns.js';
 
 // Smoke test: every newly added effect loads and renders without page errors.
 const NEW_IDS = [
@@ -48,9 +49,9 @@ const NEW_IDS = [
   'video-high-contrast',
 ];
 
-test.describe('new effects smoke test', () => {
-  for (const id of NEW_IDS) {
-    test(`renders ${id} without errors`, async ({ context, page }) => {
+test.describe('new effects smoke test', { tag: '@patterns' }, () => {
+  for (const id of new Set([...NEW_IDS, ...Object.values(SMOKE_PATTERNS)])) {
+    test(`renders ${id} without errors`, { tag: Object.values(SMOKE_PATTERNS).includes(id) ? '@smoke' : [] }, async ({ context, page }) => {
       const errors = [];
       page.on('pageerror', (err) => errors.push(err.message));
       await page.goto('/?role=screen'); // screen window

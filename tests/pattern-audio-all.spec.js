@@ -28,7 +28,7 @@ async function waitForFreshSlot(page, patternId) {
   }, patternId, { timeout: 10_000 });
 }
 
-test.describe('all-pattern controls-only audio transport', () => {
+test.describe('all-pattern controls-only audio transport', { tag: '@patterns' }, () => {
   test('runs every embedded preview through controls and never posts a retired full-frame message', async ({ page }) => {
     test.setTimeout(180_000);
     await page.addInitScript(() => {

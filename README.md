@@ -170,12 +170,44 @@ hardware limitations.
 ## 🧪 Testing
 
 ```bash
-npm test            # Playwright E2E suite
-npm test -- tests/screen-mapping*.spec.js --workers=1  # Mapping + pixel coverage
-npm test -- tests/projection-mapping.spec.js --workers=1 # Projection patterns
-npm test -- tests/*performance.spec.js --workers=1 # Budget and media invalidation
-PLAYWRIGHT_PORT=5273 npm test # Isolate a worktree from another server on 5173
+npm test                         # Fast core: 21 tests (also npm run test:core)
+npm run test:smoke               # 25 tests: critical journeys + one pattern per group
+npm run test:full                # Everything, including edge cases and performance
+npm run test:patterns            # Exhaustive individual-pattern tests, on demand
+npm run test:full -- tests/new-effects-smoke.spec.js --grep liquid-chrome
+npm run test:full -- 'tests/screen-mapping*.spec.js' --workers=1
+npm run test:full -- tests/projection-mapping.spec.js --workers=1
+npm run test:full -- 'tests/*performance.spec.js' --workers=1
+PLAYWRIGHT_PORT=5273 npm test     # Isolate a worktree from another server on 5173
 ```
+
+`test:all` and `test:e2e` remain aliases for the full suite. No tests are deleted
+for speed: only explicitly tagged `@core` tests run by default. Untagged edge
+cases, pixel/4K rendering, GPU recovery, performance budgets, and exhaustive
+state combinations remain in the full suite. Use `test:full`, not `npm test`,
+when targeting an entire file, otherwise the core filter still applies.
+
+### Smoke coverage contract
+
+The core budget is 20 critical behavior checks plus one library-group guard.
+Smoke includes 17 of those 20 checks (85%, exceeding the 80% target), the guard,
+and seven representative pattern renders. This is **selected behavior coverage,
+not measured line/branch coverage**, nor exhaustive coverage of every edge case.
+
+The shared checks cover startup, keyboard switching, pad assignment/persistence,
+live sliders, embedded 2D/WebGL preview, device setup, live audio transport,
+EQ crossover sync, audio-control interpolation/events, CUE/TAKE isolation,
+CUE cancellation, merge activation/exit, post-processing, global screen mapping,
+projection rendering/persistence/resize, media lifecycle, and singleton ownership.
+Core additionally checks frequency/transient extraction, silence gating, and
+noise-floor subtraction. Smoke leaves those three deeper audio checks to core.
+
+`tests/smoke-patterns.js` selects one current pattern per built-in group.
+Media and Projection Mapping are covered by their real lifecycle/render tests.
+The registry guard fails if a group or representative becomes stale; the render
+loop includes every representative even when it is not in the historical list.
+Add `@core` / `@smoke` only to budgeted essential tests; new untagged regressions
+are automatically included in the full suite without slowing the default run.
 
 Screen-mapping tests scan complete horizontal and vertical bar edges, including
 intentional black gaps, at HD, 4K and high-DPI resolutions. They cover both the

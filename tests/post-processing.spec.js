@@ -46,7 +46,7 @@ test.describe('post processing section', () => {
     await expect(control.locator('#post-fx')).not.toHaveAttribute('open', '');
   });
 
-  test('sliders trim the screen output via the stage wrapper filter', async ({ context, page }) => {
+  test('sliders trim the screen output via the stage wrapper filter', { tag: ['@core', '@smoke'] }, async ({ context, page }) => {
     await page.goto(SCREEN_URL);
     await page.waitForSelector('#screen-wrap canvas');
 

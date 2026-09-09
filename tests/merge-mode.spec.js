@@ -8,7 +8,7 @@ const CONTROL_URL = '/?role=control';
 // from the individual effect sliders to the global blend sliders.
 
 test.describe('dual-effect merge mode', () => {
-  test('merging latches after release; a single key press ends the blend', async ({ context, page }) => {
+  test('merging latches after release; a single key press ends the blend', { tag: ['@core', '@smoke'] }, async ({ context, page }) => {
     await page.goto(SCREEN_URL); // screen window
     const control = await context.newPage();
     await control.goto(CONTROL_URL);

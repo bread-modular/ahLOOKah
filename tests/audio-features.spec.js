@@ -7,7 +7,7 @@ const CONTROL_URL = '/?role=control';
 // exercise the same Hz mapping, stereo mix, adaptive gain and onset envelopes
 // that receive the live AudioManager frames in production.
 test.describe('musical audio feature extraction', () => {
-  test('separates kick, mid and hat hits across sample rates and stereo channels', async ({ page }) => {
+  test('separates kick, mid and hat hits across sample rates and stereo channels', { tag: '@core' }, async ({ page }) => {
     await page.goto(SCREEN_URL);
 
     const result = await page.evaluate(async () => {
@@ -61,7 +61,7 @@ test.describe('musical audio feature extraction', () => {
     expect(result.rightHat.settled.hat).toBeLessThan(0.05);
   });
 
-  test('gates silent inputs and keeps sustained levels separate from transient punch', async ({ page }) => {
+  test('gates silent inputs and keeps sustained levels separate from transient punch', { tag: '@core' }, async ({ page }) => {
     await page.goto(SCREEN_URL);
 
     const result = await page.evaluate(async () => {

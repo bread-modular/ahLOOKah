@@ -23,7 +23,7 @@ test.describe('media patterns', () => {
     contextOptions: undefined,
   });
 
-  test('add via picker, play live, persist metadata across reload, and remove', async ({ context, page }) => {
+  test('add via picker, play live, persist metadata across reload, and remove', { tag: ['@core', '@smoke'] }, async ({ context, page }) => {
     test.setTimeout(45_000);
     const errors = [];
     page.on('pageerror', (err) => errors.push(err.message));

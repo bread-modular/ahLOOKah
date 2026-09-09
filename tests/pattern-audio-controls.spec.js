@@ -4,7 +4,7 @@ const SCREEN_URL = '/?role=screen';
 const CONTROL_URL = '/?role=control';
 
 test.describe('pattern-specific audio controls', () => {
-  test('validates, orders, interpolates, resets streams, and consumes events once', async ({ page }) => {
+  test('validates, orders, interpolates, resets streams, and consumes events once', { tag: ['@core', '@smoke'] }, async ({ page }) => {
     await page.goto(SCREEN_URL);
     const result = await page.evaluate(async () => {
       const { PatternAudioControlStore } = await import('/src/pattern-audio-controls.js');

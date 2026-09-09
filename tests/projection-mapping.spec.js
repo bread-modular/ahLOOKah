@@ -320,7 +320,7 @@ test('collapsed mappings reject pattern drops during CUE and accept them again a
   await dataTransfer.dispose();
 });
 
-test('renders independent duplicate patterns, bypasses global warp, persists >16 fields and resizes', async ({ context, page }, testInfo) => {
+test('renders independent duplicate patterns, bypasses global warp, persists >16 fields and resizes', { tag: ['@core', '@smoke'] }, async ({ context, page }, testInfo) => {
   await seed(context);
   const control = await open(context, page);
   await expectWalls(page);

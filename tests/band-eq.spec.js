@@ -79,7 +79,7 @@ test.describe('band split EQ section', () => {
     await expect(control.locator('#band-eq-idle')).toBeHidden();
   });
 
-  test('dragging a separator retunes the band split on every window', async ({ context, page }) => {
+  test('dragging a separator retunes the band split on every window', { tag: ['@core', '@smoke'] }, async ({ context, page }) => {
     await page.goto(SCREEN_URL);
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
