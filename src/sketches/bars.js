@@ -3,10 +3,13 @@
 // downsampled waveform arrays produced by a DOM-free capture-side controller;
 // the legacy raw-frame path is preserved for all other callers.
 
+import { BAND_SCHEMA, SILENT_BANDS, scaleBands } from './band-reactive.js';
+
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
 export const AUDIO_CONTROL_SCHEMA = Object.freeze({
   continuous: {
+    ...BAND_SCHEMA.continuous,
     intensity: { min: 0, max: 1, neutral: 0 },
   },
   arrays: {
@@ -15,7 +18,7 @@ export const AUDIO_CONTROL_SCHEMA = Object.freeze({
   },
   events: {},
   neutral: {
-    continuous: { intensity: 0 },
+    continuous: { ...SILENT_BANDS, intensity: 0 },
   },
 });
 
@@ -58,7 +61,7 @@ export function createAudioController() {
       const leftWave = downsampleBytes(waveforms.left, 512);
       const rightWave = downsampleBytes(waveforms.right, 512);
       return {
-        continuous: { intensity: clamp(intensity, 0, 1) },
+        continuous: { ...scaleBands(shared?.getFeatures?.(), params), intensity: clamp(intensity, 0, 1) },
         arrays: { leftWave, rightWave },
         events: [],
       };
@@ -72,11 +75,15 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
   const audioControls = runtimeContext?.audioControls || null;
 
   p.setup = () => {
+    p.pixelDensity(1);
     p.createCanvas(p.windowWidth, p.windowHeight);
     p.colorMode(p.RGB, 255);
   };
 
-  function drawBars(currentIntensity, leftWave, rightWave, gain, barWidth, flash) {
+  function drawBars(currentIntensity, leftWave, rightWave, gain, barWidth, flash, bands = SILENT_BANDS) {
+    gain *= 1 + bands.bass * 0.4;
+    flash *= 1 + bands.high * 0.5;
+    const midLight = bands.mid * 35;
     const spacing = 2;
     const totalBars = Math.floor(p.width / (barWidth + spacing));
 
@@ -95,7 +102,7 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
           p.fill(255, 0, 0, 200); // Intensity Red
         } else {
           const gray = p.map(i, 0, totalBars, 100, 200);
-          p.fill(gray, 180);
+          p.fill(Math.min(255, gray + midLight), 180);
         }
         p.rect(i * (barWidth + spacing), p.height / 2 - hL, barWidth, hL);
 
@@ -107,7 +114,7 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
           p.fill(255, 0, 0, 200);
         } else {
           const gray = p.map(i, 0, totalBars, 100, 200);
-          p.fill(gray, 180);
+          p.fill(Math.min(255, gray + midLight), 180);
         }
         p.rect(i * (barWidth + spacing), p.height / 2, barWidth, hR);
       }
@@ -137,6 +144,7 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
       P.gain ?? 1,
       P.barWidth ?? 4,
       P.flash ?? 1,
+      C,
     );
   }
 

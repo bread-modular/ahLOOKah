@@ -18,6 +18,7 @@
 // from declaration order.
 //
 // Group taxonomy (every entry carries a `group` field, used by the library):
+//   Simple              — lightweight shapes and a non-reactive checkerboard
 //   Rhythmic            — beat/band-driven 2D visuals (spectrum/pulse/waveform)
 //   3D                  — perspective / depth-driven looks
 //   Cinematic / Shaders — GPU-first cinematic looks
@@ -42,7 +43,6 @@ import character3d, {
   createAudioController as createCharacter3dAudioController,
 } from './sketches/character3d.js';
 // Colorful audio-reactive visuals for live techno/noise shows
-// (camera-input sketches still live in ./sketches/ but are not registered)
 import pulseRings, {
   AUDIO_CONTROL_SCHEMA as pulseRingsAudioControlSchema,
   createAudioController as createPulseRingsAudioController,
@@ -168,8 +168,8 @@ import neonMetropolis, {
   AUDIO_CONTROL_SCHEMA as neonMetropolisAudioControlSchema,
   createAudioController as createNeonMetropolisAudioController,
 } from './sketches/neon_metropolis.js';
-// Basics: simple building-block patterns (flat color, washes, bars, noise,
-// grain, checkerboard) for the grouped pattern library.
+// Building-block patterns (flat color, washes, bars, noise, grain) in Basics;
+// the non-reactive checkerboard belongs to Simple.
 import solidColor, {
   AUDIO_CONTROL_SCHEMA as solidColorAudioControlSchema,
   createAudioController as createSolidColorAudioController,
@@ -240,12 +240,11 @@ import webcamHighContrast, {
   createAudioController as createWebcamHighContrastAudioController,
 } from './sketches/webcam_high_contrast.js';
 
-// Shared "responsiveness" triple used by many effects (0..2, default 1)
-const BAND_RESPONSIVENESS = [
-  { key: 'bass', label: 'Bass Responsiveness', min: 0, max: 2, step: 0.05, default: 1 },
-  { key: 'mid', label: 'Mid Responsiveness', min: 0, max: 2, step: 0.05, default: 1 },
-  { key: 'high', label: 'High Responsiveness', min: 0, max: 2, step: 0.05, default: 1 },
-];
+// Shared band controls also drive the new inexpensive pattern collections.
+import { BAND_PARAMS as BAND_RESPONSIVENESS } from './sketches/band-reactive.js';
+import { BASIC_PATTERNS } from './sketches/basic-patterns.js';
+import { LIGHTWEIGHT_PATTERNS } from './sketches/lightweight-patterns.js';
+import { CAMERA_PATTERNS } from './sketches/camera-patterns.js';
 
 // The cinematic shader looks also expose transient gain. Band sliders shape
 // sustained movement; Punch controls kick/snare/hat impacts independently.
@@ -266,7 +265,7 @@ export const SKETCHES = [
       ...BAND_RESPONSIVENESS,
       { key: 'glitch', label: 'Glitch Amount', min: 0, max: 2, step: 0.05, default: 1 },
     ],
-    group: 'Rhythmic',
+    group: 'Simple',
   }, // 1
   {
     id: 'bars',
@@ -279,8 +278,9 @@ export const SKETCHES = [
       { key: 'gain', label: 'Amplitude Gain', min: 0.2, max: 3, step: 0.05, default: 1 },
       { key: 'barWidth', label: 'Bar Width', min: 2, max: 16, step: 1, default: 4 },
       { key: 'flash', label: 'Peak Flash', min: 0, max: 2, step: 0.05, default: 1 },
+      ...BAND_RESPONSIVENESS,
     ],
-    group: 'Rhythmic',
+    group: 'Simple',
   }, // 3
   {
     id: 'techno3d',
@@ -860,6 +860,8 @@ export const SKETCHES = [
   {
     id: 'checkerboard',
     name: 'Checkerboard',
+    audioReactive: false,
+    description: 'Static checkerboard — not audio reactive. Optional manual drift and two-color controls.',
     factory: checkerboard,
     audioTransport: 'pattern-controls',
     createAudioController: createCheckerboardAudioController,
@@ -868,10 +870,12 @@ export const SKETCHES = [
       { key: 'cell', label: 'Cell Size', min: 12, max: 160, step: 2, default: 48 },
       { key: 'hueA', label: 'Hue A', min: 0, max: 1, step: 0.01, default: 0.58 },
       { key: 'hueB', label: 'Hue B', min: 0, max: 1, step: 0.01, default: 0.08 },
-      { key: 'speed', label: 'Drift Speed', min: 0, max: 3, step: 0.05, default: 0.5 },
-      { key: 'pulse', label: 'Audio Scale Pulse', min: 0, max: 2, step: 0.05, default: 1 },
+      { key: 'saturation', label: 'Color Saturation', min: 0, max: 1, step: 0.01, default: 0 },
+      { key: 'brightnessA', label: 'Color A Lightness', min: 0, max: 1, step: 0.01, default: 1 },
+      { key: 'brightnessB', label: 'Color B Lightness', min: 0, max: 1, step: 0.01, default: 0 },
+      { key: 'speed', label: 'Manual Drift Speed', min: 0, max: 3, step: 0.05, default: 0 },
     ],
-    group: 'Basics',
+    group: 'Simple',
   }, // 48
   {
     id: 'video-chroma',
@@ -1039,6 +1043,10 @@ export const SKETCHES = [
     group: 'Video FX',
     camera: true,
   }, // 59
+  // Append rather than reorder: preserve existing pad defaults and legacy indices.
+  ...BASIC_PATTERNS,
+  ...LIGHTWEIGHT_PATTERNS,
+  ...CAMERA_PATTERNS,
 ];
 
 // Reserved id for the global dual-effect blend params (shown in merge mode).
@@ -1107,6 +1115,7 @@ export const EFFECT_ORDER_KEY = 'viz2_effect_order';
 // Group display order for the pattern library. Any group not listed here
 // (e.g. one added by a future sketch) is appended after these.
 export const GROUP_ORDER = [
+  'Simple',
   'Rhythmic',
   '3D',
   'Cinematic / Shaders',

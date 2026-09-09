@@ -1,3 +1,4 @@
+const MAX_HATS = 256;
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const mapRange = (value, start1, stop1, start2, stop2) => {
   const amount = (value - start1) / Math.max(1e-9, stop1 - start1);
@@ -121,6 +122,7 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
   const audioControls = runtimeContext?.audioControls || null;
 
   p.setup = () => {
+    p.pixelDensity(1);
     p.createCanvas(p.windowWidth, p.windowHeight);
     for (let i = 0; i < 20; i++) circles.push(createCircle());
   };
@@ -194,7 +196,7 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
     let slices = 0;
     for (const item of events) {
       if (item.type === 'hat-spawn') {
-        for (let i = 0; i < item.count; i++) hats.push(createHat());
+        for (let i = 0; i < item.count && hats.length < MAX_HATS; i++) hats.push(createHat());
       } else if (item.type === 'invert-flash') invert = true;
       else if (item.type === 'background-spark') spark = true;
       else if (item.type === 'screen-slice') slices += 1;
@@ -202,7 +204,9 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
 
     p.push();
     if (C.glitchAmount > 5) p.translate(p.random(-C.glitchAmount, C.glitchAmount), p.random(-C.glitchAmount, C.glitchAmount));
-    if (invert) p.filter(p.INVERT);
+    // Only the black background exists here: white is the same inversion
+    // without allocating a full-screen p5 filter pass.
+    if (invert) p.background(255);
     if (spark) p.background(p.random(50, 100));
     drawCircles(C);
     const frameScale = clamp((p.deltaTime || 16.667) / 16.667, 0.25, 4);
@@ -244,12 +248,12 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
     p.push();
     if (glitchAmount > 5) {
       p.translate(p.random(-glitchAmount, glitchAmount), p.random(-glitchAmount, glitchAmount));
-      if (p.random() < noiseIntensity * 0.15) p.filter(p.INVERT);
+      if (p.random() < noiseIntensity * 0.15) p.background(255);
       if (p.random() < noiseIntensity * 0.2) p.background(p.random(50, 100));
     }
     if (bands1.high * high > 0.15) {
       const spawnCount = Math.floor(p.map(bands1.high * high, 0.15, 0.6, 1, 8));
-      for (let i = 0; i < spawnCount; i++) hats.push(createHat());
+      for (let i = 0; i < spawnCount && hats.length < MAX_HATS; i++) hats.push(createHat());
     }
     drawCircles({
       pump: 1 + bands1.sub * 2.5 * bass,

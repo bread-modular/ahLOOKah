@@ -52,25 +52,33 @@
     <main class="content">
       <article class="article">
         <h1>Patterns &amp; Parameters</h1>
-        <p class="lede">A pattern is one audio-reactive visual. There are 58 of them, organized into themed groups. Click one and it appears on screen instantly.</p>
+        <p class="lede">A pattern is one visual look. The library is organized into themed groups, with audio-reactive effects and a deliberately non-reactive checkerboard. Click one and it appears on screen instantly.</p>
 
         <h2>Browsing the library</h2>
         <p>The <strong>pattern library</strong> sits in the middle of the control panel. Patterns are grouped by theme:</p>
 
         <ul>
-          <li><strong>Rhythmic</strong> — beat-driven shapes like <em>Circles</em>, <em>Bars</em>, and <em>Pulse Rings</em>.</li>
-          <li><strong>3D</strong> — rotating, depth-mapped structures.</li>
-          <li><strong>Cinematic / Shaders</strong> — GPU shaders and atmospheric looks.</li>
-          <li><strong>Neon / Lasers</strong> — glow lines and light effects.</li>
-          <li><strong>Video FX</strong> — camera-input effects like chroma key and kaleidoscope.</li>
-          <li><strong>Glitch / Effects</strong> — RGB split, scanlines, CRT, and distortion.</li>
-          <li><strong>Basics</strong> — solid color, gradient wash, checkerboard, and more.</li>
+          <li><strong>Simple</strong> — first in the library: <em>Circles</em>, <em>Bars</em>, <em>Dot Grid</em>, <em>Pulse Stripes</em>, <em>Cross Pulse</em>, <em>Diamond Tiles</em>, <em>Radial Spokes</em>, and <em>Checkerboard</em>.</li>
+          <li><strong>Rhythmic</strong> — beat-driven shapes like <em>Pulse Rings</em>, <em>Beat Weave</em>, and <em>Ripple Lattice</em>.</li>
+          <li><strong>3D</strong> — rotating, depth-mapped structures, including <em>Polygon Tunnel</em> and <em>Orbital Cages</em>.</li>
+          <li><strong>Cinematic / Shaders</strong> — GPU shaders and atmospheric looks, including lightweight <em>Silk Flow</em> and <em>Prism Caustics</em>.</li>
+          <li><strong>Neon / Lasers</strong> — glow lines and light effects, including <em>Laser Fan</em> and <em>Neon Hex</em>.</li>
+          <li><strong>Video FX</strong> — camera-input effects like chroma key, kaleidoscope, edge glow, thermal color, prism split, ripple lens, and mirror tiles.</li>
+          <li><strong>Glitch / Effects</strong> — RGB split, scanlines, CRT, <em>Data Rain</em>, and <em>Signal Tear</em>.</li>
+          <li><strong>Basics</strong> — solid color, color wash, color bars, noise static, and film grain.</li>
         </ul>
 
         <figure class="figure">
           <img src="/docs/shots/patterns.jpg" alt="The ahLOOKah pattern library with a selected pattern and its parameter sliders" />
           <figcaption>Click a pattern in the library to play it; its parameters appear on the right.</figcaption>
         </figure>
+
+        <h2>Fast building blocks</h2>
+        <p>The five new Simple shapes use bounded, single-density Canvas2D drawing. The new shader and camera effects use single passes instead of heavy raymarching. Each has bass, mid, and high responsiveness controls; set a band to zero to remove its contribution. Hover a library button to see what each band changes.</p>
+        <div class="callout tip">
+          <p><strong>Checkerboard is not audio reactive.</strong> It starts as stationary black-and-white squares. Change cell size, hues, saturation, lightness, or optional manual drift. Neither audio nor old saved audio-pulse settings can change its size or speed. It stays in <strong>Simple</strong> and is the default source when you add a mapping inside a Projection Mapping pattern; existing mappings keep their sources.</p>
+        </div>
+        <p>Camera effects require permission on the output window; the control preview is a placeholder. The new effects include a mirror switch and share one camera stream across LIVE and CUE. Thermal is a false-color visual effect, not a temperature sensor.</p>
 
         <h2>Tweaking parameters</h2>
         <p>Every pattern exposes its own sliders. The <strong>Parameters</strong> panel on the right updates to match the selected effect — bass/mid/high responsiveness, counts, speeds, and more. Drag a slider and the change applies to the output <em>live</em>, so you can shape a look while it's on the projector.</p>

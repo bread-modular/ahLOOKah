@@ -149,7 +149,7 @@ export function PatternLibrary() {
                         data-id={sketch.id}
                         draggable
                         disabled={takePending}
-                        title="Click to play live. Shift-click to stage this pattern as CUE."
+                        title={`${sketch.description ? `${sketch.description} ` : ''}Click to play live. Shift-click to stage this pattern as CUE.`}
                         onClick={(event) => {
                           if (takePending) return;
                           if (slotIdx !== undefined) {
