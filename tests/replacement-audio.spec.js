@@ -5,25 +5,8 @@ import { makeAudioFeatures, setBandSplit } from '../src/sketches/audio-features.
 import { PatternAudioControlEngine } from '../src/pattern-audio-engine.js';
 import { PatternAudioControlStore } from '../src/pattern-audio-controls.js';
 
-// Addition diffs, NOT recently modified files: 7ebcd47 (Sep 9) and cbee609
-// (Sep 10, 2026). Bars/Circles/Checkerboard were modified, not added. See the
-// scope and measurements in docs/recent-audio-reactivity.md.
-const ADDED_SEP_9 = `
-  dot-grid pulse-stripes cross-pulse diamond-tiles radial-spokes
-  beat-weave ripple-lattice polygon-tunnel orbital-cages silk-flow prism-caustics
-  laser-fan neon-hex data-rain signal-tear
-  video-edge-glow video-thermal video-prism-split video-ripple-lens video-mirror-tiles
-`.trim().split(/\s+/);
-const ADDED_SEP_10 = `
-  triangle-mesh ring-grid hatch-weave dash-lanes
-  pulse-grid wave-stack beat-orbit level-blocks helix-tower perspective-floor gyro-rings depth-frames
-  ember-drift velvet-fog prism-flare molten-glass laser-harp neon-frame beam-cascade circuit-pulse
-  pixel-sort vhs-tracking block-shift interference
-  video-halftone video-solarize video-wave-warp video-duotone
-  vignette split-tone sweep-band grid-lines
-  alpha-rings alpha-bars alpha-grid alpha-spot alpha-sweep alpha-diamonds alpha-fog alpha-waves
-`.trim().split(/\s+/);
-const IDS = [...ADDED_SEP_9, ...ADDED_SEP_10];
+import { REPLACEMENT_PATTERNS } from '../src/sketches/replacements/index.js';
+const IDS = REPLACEMENT_PATTERNS.map(s => s.id);
 const getSketch = (id) => SKETCHES.find((s) => s.id === id);
 
 function spectrum(range, { sampleRate = 48000, rightOnly = false, db = -48 } = {}) {
@@ -37,10 +20,9 @@ function spectrum(range, { sampleRate = 48000, rightOnly = false, db = -48 } = {
   return { left, right, sampleRate, fftSize, rms: range ? 0.1 : 0 };
 }
 
-test.describe('recent pattern response', { tag: '@core' }, () => {
-  test('only the verified 60 additions opt in; legacy Bars and shared slider defaults stay linear', () => {
-    expect(ADDED_SEP_9).toHaveLength(20);
-    expect(ADDED_SEP_10).toHaveLength(40);
+test.describe('replacement band response', { tag: '@core' }, () => {
+  test('only the 18 replacements opt in; legacy Bars and shared slider defaults stay linear', () => {
+    expect(IDS).toHaveLength(18);
     expect(SKETCHES.filter((s) => s.createAudioController === createBandController).map((s) => s.id).sort()).toEqual([...IDS].sort());
     for (const id of IDS) {
       const sketch = getSketch(id);
@@ -133,13 +115,13 @@ test.describe('recent pattern response', { tag: '@core' }, () => {
     }
   });
 
-  test('all recent controllers travel through real engine/schema/store once, with live revisions and stale/owner-loss neutral decay', () => {
+  test('all replacement controllers travel through real engine/schema/store once, with live revisions and stale/owner-loss neutral decay', () => {
     let now = 0;
     let sequence = 0;
     const engine = new PatternAudioControlEngine({ ownerId: 'source', getSketchById: getSketch, now: () => now });
     const store = new PatternAudioControlStore({ consumerSessionId: 'screen', interpolationDelayMs: 0, now: () => now });
     const slots = IDS.map((id, i) => ({
-      runtimeId: `recent-${i}`, patternId: id, role: i % 2 ? 'cue' : 'live', childIndex: 0,
+      runtimeId: `replacement-${i}`, patternId: id, role: i % 2 ? 'cue' : 'live', childIndex: 0,
       paramsRevision: 1, params: defaultParamValues(id), audioTransport: 'pattern-controls', audioControlSchema: BAND_SCHEMA,
     }));
     const plan = { type: 'pattern-audio-plan', version: 1, consumerSessionId: 'screen', planRevision: 1, sentAt: now, complete: true, slots };
@@ -185,37 +167,14 @@ test.describe('recent pattern response', { tag: '@core' }, () => {
     engine.disposeControllers();
   });
 
-  test('strong grid highlights keep finite geometry and a fixed node budget at 4K and 8K', () => {
-    const sketch = getSketch('grid-lines');
-    for (const [w, h] of [[3840, 2160], [7680, 4320]]) {
-      let nodes = 0;
-      let calls = 0;
-      const context = new Proxy({}, {
-        set: () => true,
-        get: (_target, key) => (...args) => {
-          calls++;
-          if (key === 'arc') nodes++;
-          for (const value of args) if (typeof value === 'number') expect(Number.isFinite(value)).toBe(true);
-        },
-      });
-      const p = { windowWidth: w, windowHeight: h, deltaTime: 1000 / 60, drawingContext: context, pixelDensity() {}, createCanvas(width, height) { this.width = width; this.height = height; } };
-      sketch.factory(null, null, { ...defaultParamValues('grid-lines'), cell: 16 }, {
-        audioControls: { read: () => ({ continuous: { bass: 3.2, mid: 3.2, high: 3.2 } }) },
-      })(p);
-      p.setup(); p.draw();
-      expect(nodes).toBeLessThanOrEqual(33 * 33);
-      expect(calls).toBeLessThan(3500);
-    }
-  });
-
-  test('recent shader fallback has no idle audio and matches bound controls without double applying sliders or scanning output FFT', async ({ page }) => {
+  test('replacement shader fallback has no idle audio and matches bound controls without double applying sliders or scanning output FFT', async ({ page }) => {
     await page.goto('/docs/patterns.html');
     const results = await page.evaluate(async () => {
       const { SKETCHES } = await import('/src/sketch-registry.js');
       const { makeAudioFeatures } = await import('/src/sketches/audio-features.js');
       const { responsiveBands } = await import('/src/sketches/band-reactive.js');
       const output = [];
-      for (const id of ['beat-weave', 'alpha-rings']) {
+      for (const id of ['truchet-relay', 'cellular-gate']) {
         const sketch = SKETCHES.find((s) => s.id === id);
         const params = { speed: 0, bass: 0.5, mid: 0, high: 2 };
         const left = new Float32Array(1024).fill(-50);

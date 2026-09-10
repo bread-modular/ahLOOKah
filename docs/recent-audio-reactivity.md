@@ -1,4 +1,6 @@
-# Recent-pattern audio reactivity audit — 2026-09-10
+# Historical audio reactivity audit — superseded
+
+> The 60 patterns audited below have been removed. These are historical measurements, **not the current library or acceptance evidence**. See [the replacement mission](replacement-mission.md) for the 18 replacements and new synchronized timeline validation.
 
 ## Scope selected from history
 
@@ -10,7 +12,7 @@ git show 7ebcd47 -- src/sketches src/sketch-registry.js
 git show cbee609 -- src/sketches src/sketch-registry.js
 ```
 
-Exactly **60 current patterns**, all exposing Bass/Mid/High Responsiveness, qualify. Dates below are the dates recorded in those commits.
+Exactly **60 then-current patterns**, all exposing Bass/Mid/High Responsiveness, qualify. Dates below are the dates recorded in those commits.
 
 | Added | Commit | Collection | Pattern IDs |
 | --- | --- | --- | --- |
