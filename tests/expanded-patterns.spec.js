@@ -2,13 +2,24 @@ import { test, expect } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
 
 const GROUPS = {
-  Simple: ['dot-grid', 'pulse-stripes', 'cross-pulse', 'diamond-tiles', 'radial-spokes'],
-  Rhythmic: ['beat-weave', 'ripple-lattice'],
-  '3D': ['polygon-tunnel', 'orbital-cages'],
-  'Cinematic / Shaders': ['silk-flow', 'prism-caustics'],
-  'Neon / Lasers': ['laser-fan', 'neon-hex'],
-  'Glitch / Effects': ['data-rain', 'signal-tear'],
-  'Video FX': ['video-edge-glow', 'video-thermal', 'video-prism-split', 'video-ripple-lens', 'video-mirror-tiles'],
+  Simple: [
+    'dot-grid', 'pulse-stripes', 'cross-pulse', 'diamond-tiles', 'radial-spokes',
+    'triangle-mesh', 'ring-grid', 'hatch-weave', 'dash-lanes',
+  ],
+  Rhythmic: ['beat-weave', 'ripple-lattice', 'pulse-grid', 'wave-stack', 'beat-orbit', 'level-blocks'],
+  '3D': ['polygon-tunnel', 'orbital-cages', 'helix-tower', 'perspective-floor', 'gyro-rings', 'depth-frames'],
+  'Cinematic / Shaders': ['silk-flow', 'prism-caustics', 'ember-drift', 'velvet-fog', 'prism-flare', 'molten-glass'],
+  'Neon / Lasers': ['laser-fan', 'neon-hex', 'laser-harp', 'neon-frame', 'beam-cascade', 'circuit-pulse'],
+  'Glitch / Effects': ['data-rain', 'signal-tear', 'pixel-sort', 'vhs-tracking', 'block-shift', 'interference'],
+  'Video FX': [
+    'video-edge-glow', 'video-thermal', 'video-prism-split', 'video-ripple-lens', 'video-mirror-tiles',
+    'video-halftone', 'video-solarize', 'video-wave-warp', 'video-duotone',
+  ],
+  Basics: ['vignette', 'split-tone', 'sweep-band', 'grid-lines'],
+  Alphas: [
+    'alpha-rings', 'alpha-bars', 'alpha-grid', 'alpha-spot',
+    'alpha-sweep', 'alpha-diamonds', 'alpha-fog', 'alpha-waves',
+  ],
 };
 const IDS = Object.values(GROUPS).flat();
 
@@ -112,7 +123,7 @@ test('expanded registry keeps groups, pad defaults and genuine band controls', a
       checkerReactive: SKETCHES.find((s) => s.id === 'checkerboard').audioReactive,
     };
   });
-  expect(new Set(result.ids).size).toBe(70);
+  expect(new Set(result.ids).size).toBe(110);
   expect(result.groupOrder[0]).toBe('Simple');
   expect(result.groups.circles).toBe('Simple');
   expect(result.groups.bars).toBe('Simple');

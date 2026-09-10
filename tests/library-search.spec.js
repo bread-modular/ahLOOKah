@@ -6,8 +6,8 @@ import { test, expect } from '@playwright/test';
 // Both are control-panel UI state stored in localStorage
 // (`viz2_library_favourites`, alongside `viz2_library_collapsed`), so every test
 // starts from the empty profile Playwright gives each context. The library keeps
-// rendering all 70 patterns when nothing is favourited — only the Favourites
-// mirror adds rows — which keeps the existing "10 groups / 70 items" assertions
+// rendering all 110 patterns when nothing is favourited — only the Favourites
+// mirror adds rows — which keeps the existing "11 groups / 110 items" assertions
 // in control-panel.spec.js valid.
 
 const SCREEN_URL = '/?role=screen';
@@ -18,7 +18,7 @@ async function openControl(context) {
   const control = await context.newPage();
   await control.goto(CONTROL_URL);
   await expect(control.locator('#config-panel')).toBeVisible();
-  await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(70);
+  await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(110);
   return control;
 }
 
@@ -29,12 +29,12 @@ function search(control) {
 test.describe('pattern library search', () => {
   test('filters by name, reports the match count, and clearing restores every group', async ({ context }) => {
     const control = await openControl(context);
-    await expect(control.locator('.library-group')).toHaveCount(10);
+    await expect(control.locator('.library-group')).toHaveCount(11);
 
     await search(control).fill('ripple lattice');
     await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(1);
     await expect(control.locator('#pattern-library [data-id="ripple-lattice"]')).toBeVisible();
-    await expect(control.locator('.library-search-status')).toHaveText('1 of 70 patterns');
+    await expect(control.locator('.library-search-status')).toHaveText('1 of 110 patterns');
     // Groups without a match are not rendered at all while searching.
     await expect(control.locator('.library-group')).toHaveCount(1);
     await expect(control.locator('#library-section-Simple')).toHaveCount(0);
@@ -58,8 +58,8 @@ test.describe('pattern library search', () => {
 
     await control.locator('#library-search-clear').click();
     await expect(search(control)).toHaveValue('');
-    await expect(control.locator('.library-group')).toHaveCount(10);
-    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(70);
+    await expect(control.locator('.library-group')).toHaveCount(11);
+    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(110);
     await expect(control.locator('.library-search-status')).toHaveCount(0);
     await expect(control.locator('.library-empty')).toHaveCount(0);
   });
@@ -154,8 +154,8 @@ test.describe('pattern library search', () => {
 
     await control.locator('.library-empty-clear').click();
     await expect(search(control)).toHaveValue('');
-    await expect(control.locator('.library-group')).toHaveCount(10);
-    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(70);
+    await expect(control.locator('.library-group')).toHaveCount(11);
+    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(110);
   });
 
   test('Enter and Escape inside the search field never take or drop a staged cue', async ({ context, page }) => {
@@ -247,18 +247,18 @@ test.describe('pattern library favourites', () => {
     await expect(favouritesStar).toHaveText('★');
     // The pattern stays in its own group as well.
     await expect(control.locator('#library-section-Simple [data-id="circles"]')).toBeVisible();
-    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(71);
+    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(111);
     expect(await control.evaluate((key) => localStorage.getItem(key), FAVOURITES_KEY)).toBe('["circles"]');
 
     await control.reload();
-    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(71);
+    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(111);
     await expect(control.locator('.library-group').first().locator('.library-group-toggle')).toHaveText('Favourites');
     await expect(control.locator('#library-section-Favourites [data-id="circles"]')).toBeVisible();
 
     // Un-starring from the mirror removes the group again.
     await control.locator('#library-section-Favourites [aria-label="Remove Circles from favourites"]').click();
     await expect(control.locator('#library-section-Favourites')).toHaveCount(0);
-    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(70);
+    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(110);
     expect(await control.evaluate((key) => localStorage.getItem(key), FAVOURITES_KEY)).toBe('[]');
   });
 

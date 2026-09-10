@@ -1,4 +1,4 @@
-// Camera expansion: five single-pass shaders, at most five texture samples per
+// Camera expansion: nine single-pass shaders, at most five texture samples per
 // pixel. All use ProgramRuntime's shared camera lease for LIVE/CUE/mapping;
 // no second microphone/camera, CPU pixel readback, or accumulating trail buffers.
 import { AUDIO_SHADER_HEADER, FULLSCREEN_VERT } from './shader-utils.js';
@@ -93,6 +93,70 @@ const LOOKS = [
       gl_FragColor = vec4(mix(cameraAt(vTexCoord), c, uAmount), 1.0);
     `,
   },
+  // Second camera wave: print/signal looks, still one pass and few samples.
+  {
+    id: 'video-halftone', name: 'Video Halftone', detail: 'Dot Size',
+    description: 'Newsprint dot screen: bass swells the dots, mids soften their edges, highs tint the print.',
+    body: `
+      float cellPx = max(2.0, 24.0 - uDetail * 1.8);
+      vec2 grid = vTexCoord * uResolution / cellPx;
+      vec2 cell = floor(grid);
+      vec2 q = fract(grid) - 0.5;
+      vec3 c = cameraAt((cell + 0.5) * cellPx / uResolution);
+      float l = luma(c);
+      float r = l * (0.55 + uSub * 0.25);
+      float soft = 0.30 / (1.0 + uMid * 0.8);
+      float dot2 = 1.0 - smoothstep(max(0.0, r - soft), r + soft, length(q));
+      vec3 ink = mix(c, tint(0.0, 1.0), uAmount * 0.6);
+      vec3 col = ink * dot2 * (0.4 + l) * (0.7 + uHigh * 0.5);
+      gl_FragColor = vec4(mix(c, col, uAmount), 1.0);
+    `,
+  },
+  {
+    id: 'video-solarize', name: 'Video Solarize', detail: 'Solarize Pivot',
+    description: 'Darkroom solarization: bass lifts the curves, mids pick the tone hue, highs rim the brightest bands.',
+    body: `
+      vec3 c = cameraAt(vTexCoord);
+      float l = luma(c);
+      float pivot = 0.28 + uDetail * 0.05;
+      float curve = l < pivot ? l : mix(l, 1.0 - l, uAmount);
+      float boost = 1.0 + uSub * 0.6;
+      vec3 mapped = mix(c, tint(uMid * 0.2, clamp(curve * boost, 0.0, 1.0)), 0.85);
+      vec3 col = mix(c, mapped, 0.35 + uAmount * 0.65);
+      col += tint(0.5, 1.0) * uHigh * pow(curve, 12.0) * 0.4;
+      gl_FragColor = vec4(col, 1.0);
+    `,
+  },
+  {
+    id: 'video-wave-warp', name: 'Video Wave Warp', detail: 'Wave Frequency',
+    description: 'Liquid horizontal warp: bass pushes the swell, mids detune the wave, highs split color fringes.',
+    body: `
+      float amp = uAmount * (0.010 + uSub * 0.030);
+      float wave = sin(vTexCoord.y * uDetail * 6.0 + uPhase * 3.0 + uMid * 2.0);
+      vec2 uv = vTexCoord + vec2(wave * amp, 0.0);
+      vec3 c = cameraAt(uv);
+      float fringe = 0.004 * uAmount;
+      c.r = cameraAt(uv + vec2(fringe, 0.0)).r;
+      c.b = cameraAt(uv - vec2(fringe * (1.0 + uHigh), 0.0)).b;
+      c *= 0.85 + 0.15 * wave * uAmount + uHigh * 0.10;
+      gl_FragColor = vec4(c, 1.0);
+    `,
+  },
+  {
+    id: 'video-duotone', name: 'Video Duotone', detail: 'Tone Split',
+    description: 'Two-tone poster light: bass lifts the shadows, mids move the split point, highs flare the highlights.',
+    body: `
+      vec3 c = cameraAt(vTexCoord);
+      float l = luma(c);
+      float split = clamp(0.30 + uDetail * 0.04 + uMid * 0.15, 0.0, 0.9);
+      vec3 shadow = tint(0.55, 0.15 + uSub * 0.20);
+      vec3 high = tint(0.0, 0.95);
+      vec3 duo = mix(shadow, high, smoothstep(split - 0.25, split + 0.25, l));
+      vec3 col = mix(c, duo, uAmount);
+      col += high * uHigh * pow(l, 10.0) * 0.4;
+      gl_FragColor = vec4(col, 1.0);
+    `,
+  },
 ];
 
 function cameraFactory(body) {
@@ -160,7 +224,7 @@ export const CAMERA_PATTERNS = LOOKS.map(({ id, name, description, detail, body 
   params: [
     { key: 'amount', label: 'FX Amount', min: 0, max: 1, step: 0.01, default: 0.8 },
     { key: 'detail', label: detail, min: 1, max: 12, step: 1, default: 4 },
-    ...(['video-edge-glow', 'video-thermal'].includes(id) ? [] : [
+    ...(['video-edge-glow', 'video-thermal', 'video-halftone', 'video-solarize', 'video-duotone'].includes(id) ? [] : [
       { key: 'speed', label: 'Motion Speed', min: 0, max: 3, step: 0.05, default: 0.6 },
     ]),
     { key: 'hue', label: 'Tint / Prism Hue', min: 0, max: 1, step: 0.01, default: 0.52 },

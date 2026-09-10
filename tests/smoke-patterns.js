@@ -9,4 +9,5 @@ export const SMOKE_PATTERNS = {
   'Video FX': 'video-pixelate',
   'Glitch / Effects': 'glitch-scanlines',
   Basics: 'solid-color',
+  Alphas: 'alpha-rings',
 };

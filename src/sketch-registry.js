@@ -26,6 +26,7 @@
 //   Video FX            — live camera-input effects
 //   Glitch / Effects    — glitch / digital-artifact effects
 //   Basics              — simple building-block patterns
+//   Alphas              — grayscale-on-black looks for Alpha Blend mapping
 import circles, {
   AUDIO_CONTROL_SCHEMA as circlesAudioControlSchema,
   createAudioController as createCirclesAudioController,
@@ -245,6 +246,8 @@ import { BAND_PARAMS as BAND_RESPONSIVENESS } from './sketches/band-reactive.js'
 import { BASIC_PATTERNS } from './sketches/basic-patterns.js';
 import { LIGHTWEIGHT_PATTERNS } from './sketches/lightweight-patterns.js';
 import { CAMERA_PATTERNS } from './sketches/camera-patterns.js';
+import { ALPHA_PATTERNS } from './sketches/alpha-patterns.js';
+import { BASICS_PATTERNS } from './sketches/basics-patterns.js';
 
 // The cinematic shader looks also expose transient gain. Band sliders shape
 // sustained movement; Punch controls kick/snare/hat impacts independently.
@@ -1047,6 +1050,8 @@ export const SKETCHES = [
   ...BASIC_PATTERNS,
   ...LIGHTWEIGHT_PATTERNS,
   ...CAMERA_PATTERNS,
+  ...ALPHA_PATTERNS,
+  ...BASICS_PATTERNS,
 ];
 
 // Reserved id for the global dual-effect blend params (shown in merge mode).
@@ -1123,6 +1128,7 @@ export const GROUP_ORDER = [
   'Video FX',
   'Glitch / Effects',
   'Basics',
+  'Alphas',
   'Media',
   'Projection Mapping',
 ];
