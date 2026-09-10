@@ -22,6 +22,20 @@ export function createKeyboardController(ctx) {
       return;
     }
 
+    const target = e.target;
+    const tag = target && target.tagName;
+    const type = target && target.type;
+    const isTextEntry =
+      tag === 'TEXTAREA' ||
+      tag === 'SELECT' ||
+      (tag === 'INPUT' &&
+        ['text', 'search', 'url', 'tel', 'email', 'password', 'number', 'date', 'time', 'datetime-local', 'month', 'week'].includes(type)) ||
+      !!(target && target.isContentEditable);
+    // A focused text field owns Enter and Escape (the pattern-library search box
+    // is the first of these): a keystroke meant to confirm or clear typing must
+    // never take a staged CUE live or drop it. Escape elsewhere is unchanged.
+    if (isTextEntry) return;
+
     if (e.code === 'Enter' && ctx.hasCueSession()) {
       e.preventDefault();
       if (!e.repeat) ctx.requestCuePrimary();
@@ -34,17 +48,6 @@ export function createKeyboardController(ctx) {
     }
 
     if (e.metaKey || e.ctrlKey || e.altKey || ctx.cueEditsLocked()) return;
-
-    const target = e.target;
-    const tag = target && target.tagName;
-    const type = target && target.type;
-    const isTextEntry =
-      tag === 'TEXTAREA' ||
-      tag === 'SELECT' ||
-      (tag === 'INPUT' &&
-        ['text', 'search', 'url', 'tel', 'email', 'password', 'number', 'date', 'time', 'datetime-local', 'month', 'week'].includes(type)) ||
-      !!(target && target.isContentEditable);
-    if (isTextEntry) return;
 
     const editingSelection = ctx.getEditingSelection();
     if (editingSelection.merge) {

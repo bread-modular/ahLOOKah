@@ -162,6 +162,7 @@ body.is-control #config-panel {
 
 #config-panel.cue-pending #pattern-pad,
 #config-panel.cue-pending #pattern-library,
+#config-panel.cue-pending .library-search,
 #config-panel.cue-pending #params-list,
 #config-panel.cue-pending #post-fx {
   pointer-events: none;

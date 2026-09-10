@@ -16,11 +16,16 @@ export function KeyMapModal() {
             <tr><td><kbd>1</kbd>–<kbd>9</kbd> <kbd>0</kbd></td><td>Select a pattern</td></tr>
             <tr><td>Hold one key, press another</td><td>Merge two patterns into a blend</td></tr>
 
+            <tr className="key-map-group"><td colSpan="2">Keyboard — pattern library</td></tr>
+            <tr><td><kbd>/</kbd></td><td>Search patterns</td></tr>
+            <tr><td><kbd>Esc</kbd> (in the search field)</td><td>Clear the search, then leave the field</td></tr>
+
             <tr className="key-map-group"><td colSpan="2">CUE</td></tr>
             <tr><td><kbd>Shift</kbd> + Click a pattern</td><td>Stage it as CUE</td></tr>
             <tr><td><kbd>Shift</kbd> + <kbd>1</kbd>–<kbd>9</kbd> <kbd>0</kbd></td><td>Stage CUE (hold a second to blend)</td></tr>
             <tr><td><kbd>Enter</kbd></td><td>GO LIVE</td></tr>
             <tr><td><kbd>Esc</kbd></td><td>Cancel CUE</td></tr>
+            <tr><td><kbd>Enter</kbd> / <kbd>Esc</kbd> in a text field</td><td>Stay in that field (no CUE action)</td></tr>
 
             <tr className="key-map-group"><td colSpan="2">Blend (while merging)</td></tr>
             <tr><td><kbd>+</kbd> / <kbd>−</kbd></td><td>Adjust blend amount</td></tr>

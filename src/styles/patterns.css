@@ -93,6 +93,17 @@
   outline-offset: 2px;
 }
 
+/* Searching forces every matching group open, so the toggle is inert then: it
+   must not look disabled (the header is still an informative label), just not
+   clickable. Overrides the global `#config-panel button:disabled` dimming. */
+#pattern-library .library-group-toggle:disabled {
+  opacity: 1;
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: default;
+}
+
 /* Library items: each button is always at least 200px wide; the column count
    is derived from the pane width so that never changes (auto-fill). */
 .library-group-grid {
@@ -460,3 +471,180 @@
 .status-line { flex-wrap: wrap; gap: 8px; }
 
 .pattern-btn.active .performance-badge { color: #102c45; font-weight: 600; }
+
+/* ---------------------------------------------------------------------------
+   Pattern library search + favourites
+--------------------------------------------------------------------------- */
+
+/* The search sits above the scrolling list — a sibling of #pattern-library, not
+   a child — so it stays put while the groups scroll underneath it. */
+.library-search {
+  flex-shrink: 0;
+  margin: 0 0 10px 0;
+}
+
+.library-search-field {
+  position: relative;
+}
+
+#config-panel .library-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 28px 7px 10px;
+  background: #0a0a0a;
+  border: 1px solid var(--border-gray);
+  border-radius: 4px;
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 0.75rem;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+#config-panel .library-search-input::placeholder {
+  color: var(--text-dim);
+}
+
+#config-panel .library-search-input:focus,
+#config-panel .library-search-input:focus-visible {
+  border-color: var(--accent);
+}
+
+/* Chromium draws its own clear glyph on type=search; the panel has its own. */
+#config-panel .library-search-input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+#config-panel .library-search-clear {
+  position: absolute;
+  top: 50%;
+  right: 3px;
+  width: 22px;
+  min-width: 0;
+  height: 22px;
+  padding: 0;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  font-weight: 400;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+#config-panel .library-search-clear:hover {
+  background: transparent;
+  border: none;
+  color: var(--text-main);
+}
+
+#config-panel .library-search-clear:focus-visible {
+  border: none;
+  color: var(--text-main);
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.library-search-status {
+  margin: 6px 2px 0 2px;
+  color: var(--text-dim);
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* No-match state for an active query. */
+.library-empty {
+  margin: 2px 0 10px;
+  padding: 12px 10px;
+  border: 1px dashed var(--border-gray);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 0.72rem;
+}
+
+#config-panel .library-empty-clear {
+  display: inline;
+  width: auto;
+  margin-left: 6px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: none;
+  cursor: pointer;
+}
+
+#config-panel .library-empty-clear:hover {
+  background: transparent;
+  border: none;
+  color: var(--text-main);
+  text-decoration: underline;
+}
+
+/* Each library item is a cell: the pattern button plus its favourite toggle.
+   The star is a sibling button — a button may not contain another control — and
+   the cell must be allowed to shrink (grid items default to min-width:auto). */
+.library-cell {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 0;
+}
+
+.library-cell .pattern-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+#config-panel .library-favourite-btn {
+  flex: 0 0 auto;
+  width: 28px;
+  min-width: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-dim);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+#config-panel .library-favourite-btn:hover {
+  background: transparent;
+  border-color: var(--border-gray);
+  color: #fbbf24;
+}
+
+#config-panel .library-favourite-btn.is-favourite {
+  color: #fbbf24;
+}
+
+#config-panel .library-favourite-btn.is-favourite:hover {
+  border-color: rgba(251, 191, 36, 0.55);
+}
+
+#config-panel .library-favourite-btn:focus-visible {
+  border-color: #888;
+  color: #fbbf24;
+}
+
+/* The Favourites mirror sits above the themed groups; a subtle top marker keeps
+   it visually separate from the first real group. */
+.library-group-favourites .library-group-header {
+  border-bottom-color: rgba(251, 191, 36, 0.45);
+}
+

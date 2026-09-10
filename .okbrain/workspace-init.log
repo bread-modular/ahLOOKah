@@ -1,5 +1,6 @@
 Initializing workspace from: /home/azero/data/projects/ahlookah
 Installing npm modules...
+Found local node_modules cache, copying...
 
-added 49 packages in 507ms
+up to date in 118ms
 Workspace initialization complete!
