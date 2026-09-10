@@ -16,6 +16,7 @@ export const STORAGE = Object.freeze({
   bandEqOpen: 'viz2_band_eq_open',
   postFxOpen: 'viz2_post_fx_open',
   libraryCollapsed: 'viz2_library_collapsed',
+  libraryFavourites: 'viz2_library_favourites',
   screenMapping: 'viz2_screen_mapping',
   screenMappingEnabled: 'viz2_screen_mapping_enabled',
   screenMappingEdgeBlur: 'viz2_screen_mapping_edge_blur',

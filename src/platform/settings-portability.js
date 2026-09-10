@@ -41,6 +41,7 @@ export const SETTINGS_STORAGE_KEYS = Object.freeze([
   STORAGE.bandEqOpen,
   STORAGE.postFxOpen,
   STORAGE.libraryCollapsed,
+  STORAGE.libraryFavourites,
   STORAGE.screenMapping,
   STORAGE.screenMappingEnabled,
   STORAGE.screenMappingEdgeBlur,

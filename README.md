@@ -20,7 +20,16 @@ cues live with zero blank gaps.
   responsiveness, kick thresholds, particle counts, shader uniforms…)
   broadcast to the output in real time.
 - **Pattern pad & keyboard shortcuts** — assign up to 10 sketches to keys
-  `1–9` / `0`; your layout persists in `localStorage`.
+  `1–9` / `0`; press `/` to jump to the library search box. Layout, favourites,
+  and collapsed groups persist in `localStorage`.
+- **Searchable library** — filter all groups by pattern name, id, group,
+  description, or type keyword (`camera`, `media`, `projection`). Matching groups
+  expand automatically while you type; clearing the box restores your collapsed
+  groups exactly as they were.
+- **Favourites** — star any pattern to pin it in a **Favourites** group at the
+  top of the library (in the order you added them). Stars live on the library
+  items only, so the pad, key assignments, and pattern order stay untouched.
+  Favourites travel with exported settings.
 - **CUE mode** — `Shift+click` (or `Shift+1–0`) warms the next program in a
   hidden renderer, then `Enter` takes it live instantly. `Esc` cancels.
 - **Dual-effect merge** — blend two sketches with a crossfade or additive
@@ -88,6 +97,15 @@ PORT=8080 ./run.sh  # custom port
 
 - **Select a pattern** — click it in the library, or press its pad key
   (`1–9`, `0`).
+- **Find a pattern** — press `/` (or click the search box) and type. Terms are
+  case-insensitive and all of them must match, so `video glitch` narrows the
+  list. Every matching group is revealed while searching; `Esc` in the field
+  clears the query, then leaves the field.
+- **Favourite a pattern** — click the ☆ at the right of any library item. It
+  turns ★ and the pattern is pinned in the **Favourites** group at the top of
+  the library; click it again to remove it. Favourites are per-browser UI state
+  (like collapsed groups), never a saved pattern parameter, and they are
+  included in settings export/import.
 - **Adjust parameters** — drag any slider; changes apply live on the output.
 - **Cue a pattern** — `Shift+click` (or `Shift+1–0`), then `Enter` to take it
   live, `Esc` to cancel.
@@ -105,6 +123,30 @@ PORT=8080 ./run.sh  # custom port
   setting persists with your screen calibration, including across CUE/TAKE, and
   works in full-frame mode too. CSS mapping with an edge mask remains the
   hit-testing/failure fallback; disabling mapping releases the extra GPU resources.
+
+### Pattern library search and favourites
+
+The search box sits above the scrolling list, so it stays visible while you
+scroll. Matching is case-insensitive across each pattern's name, id, group,
+description, and type keywords: `camera` finds every Video FX pattern, `media`
+the loaded image/video patterns, `mapping` the projection patterns. All
+whitespace-separated terms must match (`video tiles` narrows instead of
+widening), a count line reports how many patterns matched, and an empty result
+offers **Clear search**. Groups that match are expanded while the query is
+active; your saved collapsed groups are never overwritten.
+
+**Favourites** are starred with ☆/★ on each library item and pinned in a
+**Favourites** group above the themed groups, in the order you added them. The
+mirror is hidden while a query is active so a search result never appears twice.
+Patterns stay in their own group as well, so pad keys, drag-and-drop ordering,
+and CUE/Shift-click behave identically in both copies. Stored ids are kept as
+stable pattern ids (`localStorage` key `viz2_library_favourites`), so they
+survive reloads and travel with exported settings; an unreadable value simply
+falls back to no favourites.
+
+While the search field (or any text field) has focus, `Enter` and `Esc` belong
+to that field: `Enter` cannot take a staged CUE live and `Esc` cannot cancel it
+by accident. Move focus out of the field first for those CUE gestures.
 
 ### Lightweight patterns and camera FX
 
@@ -224,6 +266,7 @@ npm run test:patterns            # Exhaustive individual-pattern tests, on deman
 npm run test:full -- tests/expanded-patterns.spec.js --workers=1
 npm run test:full -- tests/new-effects-smoke.spec.js --grep liquid-chrome
 npm run test:full -- tests/settings-portability.spec.js --workers=1
+npm run test:full -- tests/library-search.spec.js --workers=1
 npm run test:full -- 'tests/screen-mapping*.spec.js' --workers=1
 npm run test:full -- tests/projection-mapping.spec.js --workers=1
 npm run test:full -- 'tests/*performance.spec.js' --workers=1
