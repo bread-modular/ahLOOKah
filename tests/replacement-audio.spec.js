@@ -1,217 +1,179 @@
 import { test, expect } from '@playwright/test';
-import { SKETCHES, defaultParamValues } from '../src/sketch-registry.js';
-import { BAND_PARAMS, BAND_SCHEMA, SILENT_BANDS, createBandController, makeBandReader, responsiveBands, scaleBands } from '../src/sketches/band-reactive.js';
+import { SKETCHES } from '../src/sketch-registry.js';
+import { BAND_PARAMS, BAND_SCHEMA, SILENT_BANDS, scaleBands } from '../src/sketches/band-reactive.js';
+import { createReplacementController, replacementBands, makeReplacementReader, measuredSupport, response } from '../src/sketches/replacements/runtime.js';
+import { GRAPHIC_PATTERNS } from '../src/sketches/replacements/graphic.js';
+import { FIELD_PATTERNS } from '../src/sketches/replacements/fields.js';
+import { SPATIAL_PATTERNS } from '../src/sketches/replacements/spatial.js';
+import { VIDEO_PATTERNS } from '../src/sketches/replacements/video.js';
 import { makeAudioFeatures, setBandSplit } from '../src/sketches/audio-features.js';
-import { PatternAudioControlEngine } from '../src/pattern-audio-engine.js';
+import { PatternAudioControlEngine, SharedAudioAnalysisView } from '../src/pattern-audio-engine.js';
 import { PatternAudioControlStore } from '../src/pattern-audio-controls.js';
+const OWNED = [...GRAPHIC_PATTERNS, ...FIELD_PATTERNS, ...SPATIAL_PATTERNS, ...VIDEO_PATTERNS];
+const bands = ['bass', 'mid', 'high'];
+const defaults = s => Object.fromEntries(s.params.map(p => [p.key, p.default]));
+const spectrum = (hz = 0, { sampleRate = 48000, rightOnly = false, rms = .001, db = -72 } = {}) => {
+  const left = new Float32Array(1024).fill(-120), right = left.slice();
+  if (hz) { const bin = Math.round(hz * 2048 / sampleRate); right[bin] = db; if (!rightOnly) left[bin] = db; }
+  return { left, right, sampleRate, fftSize: 2048, rms: hz ? rms : 0 };
+};
 
-import { REPLACEMENT_PATTERNS } from '../src/sketches/replacements/index.js';
-const IDS = REPLACEMENT_PATTERNS.map(s => s.id);
-const getSketch = (id) => SKETCHES.find((s) => s.id === id);
-
-function spectrum(range, { sampleRate = 48000, rightOnly = false, db = -48 } = {}) {
-  const fftSize = 2048;
-  const left = new Float32Array(fftSize / 2).fill(-120);
-  const right = new Float32Array(fftSize / 2).fill(-120);
-  if (range) for (let i = Math.ceil(range[0] * fftSize / sampleRate); i <= Math.floor(range[1] * fftSize / sampleRate); i++) {
-    if (!rightOnly) left[i] = db;
-    right[i] = db;
-  }
-  return { left, right, sampleRate, fftSize, rms: range ? 0.1 : 0 };
-}
-
-test.describe('replacement band response', { tag: '@core' }, () => {
-  test('only the 18 replacements opt in; legacy Bars and shared slider defaults stay linear', () => {
-    expect(IDS).toHaveLength(18);
-    expect(SKETCHES.filter((s) => s.createAudioController === createBandController).map((s) => s.id).sort()).toEqual([...IDS].sort());
-    for (const id of IDS) {
-      const sketch = getSketch(id);
-      expect(sketch.audioReactive, id).toBe(true);
-      expect(sketch.params.filter((p) => ['bass', 'mid', 'high'].includes(p.key)), id).toEqual(BAND_PARAMS);
-      expect(sketch.audioControlSchema).toBe(BAND_SCHEMA);
+test.describe('replacement-only signal support', { tag: '@core' }, () => {
+  test('owned entries opt in locally; schemas, shared sliders and legacy Bars stay unchanged', () => {
+    for (const s of OWNED) {
+      expect(SKETCHES.find(p => p.id === s.id)?.createAudioController).toBe(createReplacementController);
+      expect(s.audioControlSchema).toBe(BAND_SCHEMA);
+      expect(s.params.filter(p => bands.includes(p.key))).toEqual(BAND_PARAMS);
     }
-    expect(BAND_PARAMS.map(({ min, max, default: value }) => [min, max, value])).toEqual([[0, 2, 1], [0, 2, 1], [0, 2, 1]]);
-    const features = Object.freeze({ sub: 0.2, mid: 0.4, high: 0.8 });
-    expect(scaleBands(features, { bass: 0.5, mid: 0, high: 2 })).toEqual({ bass: 0.1, mid: 0, high: 1.6 });
-    const bars = getSketch('bars').createAudioController();
-    expect(bars.update({ shared: { getFeatures: () => features }, params: {} }).continuous).toMatchObject({ bass: 0.2, mid: 0.4, high: 0.8 });
+    expect(scaleBands({ sub: .2, mid: .4, high: .8 }, { bass: .5, mid: 0, high: 2 })).toEqual({ bass: .1, mid: 0, high: 1.6 });
+    const bars = SKETCHES.find(s => s.id === 'bars').createAudioController();
+    expect(bars.update({ shared: { getFeatures: () => ({ sub: .2, mid: .4, high: .8 }) }, params: {} }).continuous).toMatchObject({ bass: .2, mid: .4, high: .8 });
     bars.dispose();
   });
-
-  test('bounded soft knee is strong at modest levels, monotonic, independent, and linearly reducible to exact zero', () => {
-    for (const value of [0.05, 0.1, 0.2, 0.4]) {
-      const result = responsiveBands({ sub: value, mid: value, high: value });
-      expect(result.bass).toBeGreaterThan(value * 2.5);
-      expect(result.mid).toBe(result.bass);
-      expect(result.high).toBe(result.bass);
+  test('finite weak knee and loud shoulder; slider stays exactly linear through final geometry', () => {
+    const features = { sub: .015, mid: .03, high: .008 }, base = replacementBands(features);
+    expect(response(base.bass)).toBeGreaterThan(.12);
+    for (const band of bands) for (const gain of [0, .05, .25, .5, 1, 1.5, 2]) {
+      const next = replacementBands(features, { [band]: gain });
+      for (const key of bands) expect(response(next[key])).toBeCloseTo(response(base[key]) * (band === key ? gain : 1), 12);
     }
-    const features = Object.freeze({ sub: 0.3, mid: 0.55, high: 0.8, energy: 1.6, kick: 1.4, snare: 1.4, hat: 1.4 });
-    const full = responsiveBands(features);
-    for (const band of ['bass', 'mid', 'high']) for (const slider of [0, 0.05, 0.25, 0.5, 1, 2]) {
-      const result = responsiveBands(features, { [band]: slider });
-      for (const key of ['bass', 'mid', 'high']) expect(result[key]).toBeCloseTo(full[key] * (key === band ? slider : 1), 12);
-    }
-    expect(responsiveBands(features, { bass: 0, mid: 0, high: 0 })).toEqual(SILENT_BANDS);
-    expect(responsiveBands({ energy: 1.6, kick: 1.4, snare: 1.4, hat: 1.4 })).toEqual(SILENT_BANDS);
-    expect(responsiveBands(null)).toEqual(SILENT_BANDS);
-    expect(responsiveBands({ sub: NaN, mid: Infinity, high: -1 })).toEqual(SILENT_BANDS);
-    expect(responsiveBands({ sub: 900, mid: 900, high: 900 }, { bass: 900, mid: -3, high: NaN })).toEqual({ bass: 3.2, mid: 0, high: 1.6 });
-    let previous = -1;
-    for (let i = 0; i <= 160; i++) {
-      const value = responsiveBands({ sub: i / 100 }).bass;
-      expect(value).toBeGreaterThan(previous);
-      expect(value).toBeLessThanOrEqual(1.6);
-      previous = value;
-    }
-    expect(responsiveBands({ sub: 1e-8 }).bass).toBeLessThan(6e-8); // no sqrt/noise pedestal
+    expect(replacementBands(null)).toEqual(SILENT_BANDS);
+    expect(replacementBands({ sub: NaN, mid: Infinity, high: -1 })).toEqual(SILENT_BANDS);
+    expect(replacementBands({ energy: 1, kick: 1, snare: 1, hat: 1 })).toEqual(SILENT_BANDS);
+    expect(replacementBands({ sub: 1e-8 }).bass).toBeLessThan(5e-7);
+    expect(replacementBands({ sub: 900 }, { bass: 900 }).bass).toBeCloseTo(3.2, 12);
+    let prior = -1;
+    for (let i = 0; i <= 160; i++) { const x = replacementBands({ sub: i / 100 }).bass; expect(x).toBeGreaterThan(prior); prior = x; }
+    expect(replacementBands({ sub: 1.2 }).bass - replacementBands({ sub: .6 }).bass).toBeGreaterThan(.15);
   });
-
-  test('raw Hz bands and standalone reader agree at 30/60/120 Hz, respect crossovers, and decay without fake beats', () => {
+  test('cleaned RMS gate, right-only Hz split, once-per-shared-view scan and immediate mute of held envelopes', () => {
     try {
-      for (const sampleRate of [44100, 48000, 96000]) for (const [band, range] of [['bass', [40, 145]], ['mid', [350, 2200]], ['high', [6000, 12000]]]) {
-        const finals = [];
-        for (const fps of [30, 60, 120]) {
-          const params = { bass: 1, mid: 1, high: 1 };
-          let frame = null;
-          const audio = { isStarted: true, getAnalysisFrame: () => frame };
-          const reader = makeBandReader(audio, params);
-          const analyze = makeAudioFeatures();
-          expect(reader(1 / fps)).toEqual(SILENT_BANDS);
-          let controls;
-          for (let i = 0; i < fps; i++) {
-            frame = spectrum(range, { sampleRate, rightOnly: band === 'high' });
-            const measured = analyze(frame, {}, 1 / fps);
-            controls = reader(1 / fps);
-            expect(controls).toEqual(responsiveBands(measured, params));
-          }
-          expect(controls[band]).toBeGreaterThan(0.5);
-          for (const other of ['bass', 'mid', 'high'].filter((b) => b !== band)) expect(controls[other]).toBe(0);
-          finals.push(controls[band]);
-          params[band] = 0;
-          expect(reader(1 / fps)).toEqual(SILENT_BANDS); // mute a held envelope immediately
-          params[band] = 1;
-          audio.isStarted = false;
-          let previous = Infinity;
-          for (let i = 0; i < fps * 3; i++) {
-            controls = reader(1 / fps);
-            expect(controls[band]).toBeLessThanOrEqual(previous);
-            previous = controls[band];
-          }
-          expect(controls[band]).toBeLessThan(0.00001);
-        }
-        expect(Math.max(...finals) - Math.min(...finals)).toBeLessThan(0.00001);
+      for (const sr of [44100, 48000, 96000]) for (const [i, hz] of [90, 900, 7000].entries()) {
+        const frame = spectrum(hz, { sampleRate: sr, rightOnly: true });
+        const shared = new SharedAudioAnalysisView(frame);
+        const support = measuredSupport(shared);
+        expect(measuredSupport(shared)).toBe(support); // same cached result for all instances
+        expect(support[bands[i]]).toBeGreaterThan(.02);
+        for (const key of bands.filter(b => b !== bands[i])) expect(support[key]).toBe(0);
+        const c = createReplacementController();
+        for (let n = 0; n < 20; n++) c.update({ shared });
+        expect(c.update({ shared, params: { bass: 0, mid: 0, high: 0 } }).continuous).toEqual(SILENT_BANDS);
+        // Noise-floor owns rms; even a hot FFT cannot bypass its cleaned gate.
+        expect(measuredSupport({ frame: { ...frame, rms: 0 } })).toEqual(SILENT_BANDS);
       }
-      // A moved bass/mid crossover must move the modulation too. No fixed kick
-      // detector or total energy is allowed to reintroduce the muted band.
-      setBandSplit({ low: 700, high: 2800 });
-      const reader = makeBandReader({ isStarted: true, getAnalysisFrame: () => spectrum([400, 550]) }, {});
-      let result;
-      for (let i = 0; i < 60; i++) result = reader(1 / 60);
-      expect(result.bass).toBeGreaterThan(0.4);
-      expect(result.mid).toBe(0);
-      expect(result.high).toBe(0);
-    } finally {
-      setBandSplit({ low: 180, high: 2800 });
-    }
+      setBandSplit({ low: 1200, high: 2800 });
+      const changed = measuredSupport({ frame: spectrum(900) });
+      expect(changed.bass).toBeGreaterThan(0); expect(changed.mid).toBe(0);
+    } finally { setBandSplit({ low: 180, high: 2800 }); }
   });
-
-  test('all replacement controllers travel through real engine/schema/store once, with live revisions and stale/owner-loss neutral decay', () => {
-    let now = 0;
-    let sequence = 0;
-    const engine = new PatternAudioControlEngine({ ownerId: 'source', getSketchById: getSketch, now: () => now });
-    const store = new PatternAudioControlStore({ consumerSessionId: 'screen', interpolationDelayMs: 0, now: () => now });
-    const slots = IDS.map((id, i) => ({
-      runtimeId: `replacement-${i}`, patternId: id, role: i % 2 ? 'cue' : 'live', childIndex: 0,
-      paramsRevision: 1, params: defaultParamValues(id), audioTransport: 'pattern-controls', audioControlSchema: BAND_SCHEMA,
-    }));
-    const plan = { type: 'pattern-audio-plan', version: 1, consumerSessionId: 'screen', planRevision: 1, sentAt: now, complete: true, slots };
-    expect(engine.receivePlan(plan).accepted).toBe(true);
-    store.setPlan(plan);
-    const tick = (frame) => {
-      now += 1000 / 30;
-      const result = engine.update({ frame, now, captureTime: now, sequence: ++sequence, deltaSeconds: 1 / 30 });
-      expect(result.shared.diagnostics.featureBuilds).toBe(1);
-      expect(store.acceptPacket(result.packets[0])).toMatchObject({ accepted: true, slots: IDS.length });
-      return result;
-    };
-    const silence = tick(spectrum(null));
-    for (const slot of silence.packets[0].slots) expect(slot.continuous).toEqual(SILENT_BANDS);
-    let active;
-    for (let i = 0; i < 20; i++) active = tick(spectrum([40, 12000]));
-    const expected = responsiveBands(active.shared.getFeatures());
-    for (const slot of slots) {
-      expect(store.createBinding(slot.runtimeId).read().continuous).toEqual(expected);
-      for (const value of Object.values(expected)) expect(value).toBeGreaterThan(0.5);
+  test('standalone matches the real capture controller at 30/60/120Hz and decays without fake beats', () => {
+    const finals = [];
+    for (const fps of [30, 60, 120]) {
+      let frame = null;
+      const audio = { isStarted: true, getAnalysisFrame: () => frame }, params = { bass: .5, mid: 0, high: 2 };
+      const reader = makeReplacementReader(audio, params), analyze = makeAudioFeatures(), c = createReplacementController();
+      expect(reader(1 / fps)).toEqual(SILENT_BANDS);
+      let out;
+      for (let i = 0; i < fps; i++) {
+        frame = spectrum(7000);
+        const shared = new SharedAudioAnalysisView(frame, 1 / fps, (f, dt) => analyze(f, {}, dt));
+        out = reader(1 / fps);
+        expect(out).toEqual(c.update({ shared, params, deltaSeconds: 1 / fps }).continuous);
+      }
+      finals.push(out.high);
+      params.high = 0; expect(reader(1 / fps)).toEqual(SILENT_BANDS);
+      params.high = 2; audio.isStarted = false;
+      let previous = Infinity;
+      for (let i = 0; i < fps * 4; i++) { out = reader(1 / fps); expect(out.high).toBeLessThanOrEqual(previous); previous = out.high; }
+      expect(out.high).toBeLessThan(1e-7);
     }
-    slots[0] = { ...slots[0], paramsRevision: 2, params: { ...slots[0].params, bass: 0, mid: 0.5, high: 0 } };
-    expect(engine.receivePlan(plan).accepted).toBe(true);
-    store.setPlan(plan);
-    expect(store.read(slots[0].runtimeId).continuous).toEqual(SILENT_BANDS);
-    active = tick(spectrum([40, 12000]));
-    const normal = responsiveBands(active.shared.getFeatures());
-    expect(store.read(slots[0].runtimeId).continuous).toEqual({ bass: 0, mid: normal.mid * 0.5, high: 0 });
-    expect(store.read(slots[1].runtimeId).continuous).toEqual(normal);
-    now += 900;
-    const decaying = store.read(slots[1].runtimeId);
-    expect(decaying.isFresh).toBe(false);
-    expect(decaying.continuous.bass).toBeGreaterThan(0);
-    expect(decaying.continuous.bass).toBeLessThan(normal.bass);
-    now += 400;
-    expect(store.read(slots[1].runtimeId).continuous).toEqual(SILENT_BANDS);
-    tick(spectrum([40, 12000]));
-    store.clearForOwnerLoss();
-    now += 400;
-    for (const slot of slots) expect(store.read(slot.runtimeId).continuous).toEqual(SILENT_BANDS);
-    expect(engine.getDiagnostics().controllerErrors).toBe(0);
-    expect(store.getDiagnostics().droppedSchema).toBe(0);
+    expect(Math.max(...finals) - Math.min(...finals)).toBeLessThan(1e-5);
+  });
+  test('all owned controllers pass engine/schema/store, independent revisions and stale/owner-loss neutrality', () => {
+    let now = 0, sequence = 0;
+    const engine = new PatternAudioControlEngine({ ownerId: 'capture', getSketchById: id => OWNED.find(s => s.id === id), now: () => now });
+    const store = new PatternAudioControlStore({ consumerSessionId: 'screen', now: () => now, interpolationDelayMs: 0 });
+    const slots = OWNED.map((s, i) => ({ runtimeId: `s${i}`, patternId: s.id, role: 'live', childIndex: 0, paramsRevision: 1, params: defaults(s), audioControlSchema: s.audioControlSchema, audioTransport: s.audioTransport }));
+    const plan = { type: 'pattern-audio-plan', version: 1, consumerSessionId: 'screen', planRevision: 1, sentAt: 0, complete: true, slots };
+    expect(engine.receivePlan(plan).accepted).toBe(true); store.setPlan(plan);
+    const tick = frame => {
+      now += 1000 / 30;
+      const r = engine.update({ frame, now, captureTime: now, sequence: ++sequence, deltaSeconds: 1 / 30 });
+      expect(r.shared.diagnostics.featureBuilds).toBe(1);
+      expect(store.acceptPacket(r.packets[0])).toMatchObject({ accepted: true, slots: OWNED.length });
+      return r;
+    };
+    tick(spectrum());
+    for (const s of slots) expect(store.read(s.runtimeId).continuous).toEqual(SILENT_BANDS);
+    for (let i = 0; i < 20; i++) tick(spectrum(7000));
+    const before = store.read('s1').continuous;
+    expect(response(before.high)).toBeGreaterThan(.18);
+    for (const s of slots) expect(store.read(s.runtimeId).continuous).toEqual(before);
+    slots[0] = { ...slots[0], paramsRevision: 2, params: { ...slots[0].params, bass: 0, mid: 0, high: .5 } };
+    expect(engine.receivePlan(plan).accepted).toBe(true); store.setPlan(plan);
+    expect(store.read('s0').continuous).toEqual(SILENT_BANDS);
+    for (let i = 0; i < 20; i++) tick(spectrum(7000));
+    expect(store.read('s0').continuous.high).toBeCloseTo(store.read('s1').continuous.high * .5, 6);
+    now += 900; expect(store.read('s1').isFresh).toBe(false);
+    now += 400; expect(store.read('s1').continuous).toEqual(SILENT_BANDS);
+    tick(spectrum(7000)); store.clearForOwnerLoss(); now += 400;
+    for (const s of slots) expect(store.read(s.runtimeId).continuous).toEqual(SILENT_BANDS);
+    expect(engine.getDiagnostics().controllerErrors).toBe(0); expect(store.getDiagnostics().droppedSchema).toBe(0);
     engine.disposeControllers();
   });
+});
 
-  test('replacement shader fallback has no idle audio and matches bound controls without double applying sliders or scanning output FFT', async ({ page }) => {
-    await page.goto('/docs/patterns.html');
-    const results = await page.evaluate(async () => {
-      const { SKETCHES } = await import('/src/sketch-registry.js');
-      const { makeAudioFeatures } = await import('/src/sketches/audio-features.js');
-      const { responsiveBands } = await import('/src/sketches/band-reactive.js');
-      const output = [];
-      for (const id of ['truchet-relay', 'cellular-gate']) {
-        const sketch = SKETCHES.find((s) => s.id === id);
-        const params = { speed: 0, bass: 0.5, mid: 0, high: 2 };
-        const left = new Float32Array(1024).fill(-50);
-        let frame = { left, right: left, sampleRate: 48000, fftSize: 2048, rms: 0.1 };
-        let rawReads = 0;
-        let bindingReads = 0;
-        let sent = null;
-        const makeP = () => ({
-          width: 360, height: 240, windowWidth: 360, windowHeight: 240, deltaTime: 1000 / 60,
-          canvas: { style: {} }, uniforms: {},
-          pixelDensity() {}, createCanvas() {}, noStroke() {}, shader() {}, rect() {},
-          createShader() { return { setUniform: (key, value) => { this.uniforms[key] = value; } }; },
-        });
-        const fallback = makeP();
-        sketch.factory({ isStarted: true, getAnalysisFrame() { rawReads++; return frame; } }, null, params)(fallback);
-        fallback.setup();
-        const bound = makeP();
-        const poison = { isStarted: true, getAnalysisFrame() { throw new Error('Renderer must not scan FFT'); } };
-        sketch.factory(poison, null, params, { audioControls: { read() { bindingReads++; return sent; } } })(bound);
-        bound.setup();
-        const analyze = makeAudioFeatures();
-        let match = true;
-        for (let i = 0; i < 30; i++) {
-          frame = { ...frame };
-          sent = { continuous: responsiveBands(analyze(frame, {}, 1 / 60), params) };
-          fallback.draw(); bound.draw();
-          for (const name of ['uSub', 'uMid', 'uHigh']) match &&= fallback.uniforms[name] === bound.uniforms[name];
-        }
-        sent = null;
-        bound.draw();
-        const idle = makeP();
-        sketch.factory(null, null, params)(idle); idle.setup();
-        for (let i = 0; i < 30; i++) idle.draw();
-        output.push({ id, match, rawReads, bindingReads, bound: ['uSub', 'uMid', 'uHigh'].map((key) => bound.uniforms[key]), idle: ['uSub', 'uMid', 'uHigh'].map((key) => idle.uniforms[key]) });
+test('shader fallback equals bound controls without double gain/FFT; live speed zero freezes phase, not audio', { tag: '@core' }, async ({ page }) => {
+  await page.goto('/tests/fixtures/render.html');
+  const out = await page.evaluate(async () => {
+    const { FIELD_PATTERNS } = await import('/src/sketches/replacements/fields.js');
+    const { makeReplacementReader } = await import('/src/sketches/replacements/runtime.js');
+    const results = [];
+    for (const sketch of FIELD_PATTERNS) {
+      const params = { speed: .6, bass: .5, mid: 0, high: 2 };
+      let frame = null, rawReads = 0, boundReads = 0, sent;
+      const audio = { isStarted: true, getAnalysisFrame: () => { rawReads++; return frame; } };
+      const reference = makeReplacementReader({ isStarted: true, getAnalysisFrame: () => frame }, params);
+      const makeP = () => ({ width: 320, height: 180, windowWidth: 320, windowHeight: 180, deltaTime: 1000 / 60, canvas: { style: {} }, uniforms: {},
+        pixelDensity() {}, createCanvas() {}, noStroke() {}, shader() {}, rect() {},
+        createShader() { return { setUniform: (k, v) => { this.uniforms[k] = v; } }; } });
+      const a = makeP(), b = makeP();
+      sketch.factory(audio, null, params)(a);
+      sketch.factory({ isStarted: true, getAnalysisFrame() { throw new Error('Output FFT scan'); } }, null, params,
+        { audioControls: { read() { boundReads++; return { continuous: sent }; } } })(b);
+      a.setup(); b.setup();
+      let same = true;
+      for (let i = 0; i < 20; i++) {
+        if (i > 1) { const left = new Float32Array(1024).fill(-120); left[300] = -70; frame = { left, right: left, rms: .001, sampleRate: 48000, fftSize: 2048 }; }
+        sent = reference(1 / 60); a.draw(); b.draw();
+        same &&= JSON.stringify(a.uniforms) === JSON.stringify(b.uniforms);
       }
-      return output;
-    });
-    for (const result of results) expect(result).toMatchObject({ match: true, rawReads: 30, bindingReads: 31, bound: [0, 0, 0], idle: [0, 0, 0] });
+      const phase = a.uniforms.uTime;
+      params.speed = 0; params.high = 0; sent = reference(1 / 60); a.draw(); b.draw();
+      results.push({ id: sketch.id, same, phase, frozen: a.uniforms.uTime, muted: a.uniforms.uHigh, rawReads, boundReads });
+    }
+    return results;
   });
+  for (const r of out) { expect(r.same, r.id).toBe(true); expect(r.phase).toBeGreaterThan(0); expect(r.frozen).toBe(r.phase); expect(r.muted).toBe(0); expect(r.rawReads).toBe(21); expect(r.boundReads).toBe(21); }
+});
+
+test('replacement detector respects a genuinely captured/subtracted noise profile, not only an RMS mock', { tag: '@core' }, async ({ page }) => {
+  await page.goto('/tests/fixtures/render.html');
+  const out = await page.evaluate(async () => {
+    const nf = await import('/src/noise-floor.js');
+    const { measuredSupport, createReplacementController } = await import('/src/sketches/replacements/runtime.js');
+    const { SharedAudioAnalysisView } = await import('/src/pattern-audio-engine.js');
+    const make = () => { const left = new Float32Array(1024).fill(-100); left[300] = -70; return { left, right: left.slice(), rms: .001, sampleRate: 48000, fftSize: 2048 }; };
+    nf.clearNoiseFloor(); const before = measuredSupport({ frame: make() });
+    try {
+      nf.startNoiseCapture(.2); nf.feedNoiseCapture(make());
+      await new Promise(resolve => setTimeout(resolve, 240));
+      const capture = nf.feedNoiseCapture(make());
+      const frame = make(); nf.applyNoiseFloor(frame);
+      const shared = new SharedAudioAnalysisView(frame);
+      return { done: capture.done, before, after: measuredSupport(shared), controls: createReplacementController().update({ shared }).continuous, rms: frame.rms };
+    } finally { nf.clearNoiseFloor(); }
+  });
+  expect(out.done).toBe(true); expect(out.before.high).toBeGreaterThan(.02);
+  expect(out.rms).toBeLessThan(.0001); expect(out.after).toEqual(SILENT_BANDS); expect(out.controls).toEqual(SILENT_BANDS);
 });

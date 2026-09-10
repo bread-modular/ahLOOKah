@@ -1,14 +1,14 @@
 // Two different camera constructions: finite temporal slices and affine facets.
 // ProgramRuntime still owns the capture lease; these never request another mic.
-import { bounded, makeBandReader } from '../band-reactive.js';
-import { entry, response } from './runtime.js';
+import { bounded } from '../band-reactive.js';
+import { entry, response, makeReplacementReader } from './runtime.js';
 const HISTORY = 16, W = 320, H = 180;
 function buffer() { const c = document.createElement('canvas'); c.width = W; c.height = H; return c; }
 function cameraFactory(kind) {
   return (audio, device, params = {}, runtime = {}) => (p) => {
     let capture, ready = false, time = 0, cursor = 0, filled = 0;
     let source, history = [];
-    const read = makeBandReader(audio, params, runtime);
+    const read = makeReplacementReader(audio, params, runtime);
     p.setup = () => {
       p.pixelDensity(1); p.createCanvas(p.windowWidth, p.windowHeight);
       source = buffer();
@@ -32,15 +32,16 @@ function cameraFactory(kind) {
       if (kind === 'slit') {
         history[cursor].getContext('2d').drawImage(source, 0, 0);
         cursor = (cursor + 1) % HISTORY; filled = Math.min(HISTORY, filled + 1);
-        const slices = Math.round(12 * detail + h * 38);
+        const slices = Math.round(12 * detail + h * 54);
         for (let i = 0; i < slices; i++) {
-          const age = Math.min(filled - 1, Math.floor(i / slices * (2 + b * 18) + h * 6 * (i % 2)));
+          const age = Math.min(filled - 1, Math.floor(i / slices * (2 + b * 30)));
           const frame = history[(cursor - 1 - age + HISTORY) % HISTORY];
           const y = i * p.height / slices, height = p.height / slices + 1;
-          const shift = Math.sin(i * .65 + time) * m * p.width * .22;
+          const stripeShift = (i % 2 ? -1 : 1) * h * W * .14;
+          const shift = Math.sin(i * .65 + time) * m * p.width * .48;
           // Wrap two copies so displacement never uncovers an accidental black edge.
           for (const wrap of [-1, 0, 1]) ctx.drawImage(frame, 0, i * H / slices, W, H / slices,
-            shift + wrap * p.width, y, p.width, height);
+            shift + stripeShift / W * p.width + wrap * p.width, y, p.width, height);
         }
       } else {
         const cols = Math.round(4 * detail), rows = 4, cw = p.width / cols, ch = p.height / rows;
@@ -48,9 +49,9 @@ function cameraFactory(kind) {
         for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) for (let side = 0; side < 2; side++) {
           ctx.save(); ctx.translate(x * cw, y * ch);
           ctx.beginPath(); ctx.moveTo(0, side ? ch : 0); ctx.lineTo(cw, side ? ch : 0); ctx.lineTo(side ? 0 : cw, side ? 0 : ch); ctx.closePath(); ctx.clip();
-          const fold = (side ? -1 : 1), shear = fold * (.04 + m * .95);
-          ctx.translate(cw / 2, ch / 2); ctx.transform(1 + b * 1.6, shear, fold * h * 1.1, 1, 0, 0);
-          ctx.translate(-cw / 2 + Math.sin(time + y) * 2 + fold * b * cw * .5, -ch / 2 + fold * h * ch * .4);
+          const fold = (side ? -1 : 1), shear = fold * (.04 + m * 1.7);
+          ctx.translate(cw / 2, ch / 2); ctx.transform(1 + b * 2.4, shear, fold * h * 1.8, 1, 0, 0);
+          ctx.translate(-cw / 2 + Math.sin(time + y) * 2 + fold * b * cw * .5, -ch / 2 + fold * h * ch * .85);
           ctx.drawImage(source, x * W / cols, y * H / rows, W / cols, H / rows, -cw * .3, -ch * .3, cw * 1.6, ch * 1.6);
           ctx.restore();
         }
@@ -63,6 +64,6 @@ function cameraFactory(kind) {
   };
 }
 export const VIDEO_PATTERNS = [
-  entry('video-slit-scan', 'Video Slit Scan', 'Video FX', 'Temporal camera ribbons: bass deepens frame history, mids shear ribbons, highs subdivide the time slices.', cameraFactory('slit'), 'Slice Count', { camera: true }),
+  entry('video-slit-scan', 'Video Slit Scan', 'Video FX', 'Temporal camera ribbons: bass deepens frame history, mids shear ribbons, highs subdivide and comb alternate ribbons.', cameraFactory('slit'), 'Slice Count', { camera: true }),
   entry('video-facet-fold', 'Video Facet Fold', 'Video FX', 'Triangular camera origami: bass expands facet crops, mids hinge opposing facets, highs shear the other axis.', cameraFactory('fold'), 'Facet Count', { camera: true }),
 ];

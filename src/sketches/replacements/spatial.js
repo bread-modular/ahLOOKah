@@ -16,23 +16,24 @@ function renderFaces(ctx, faces, yaw, hue) {
 const pinRelief = canvasFactory((ctx, { t, b, m, h, detail, hue }) => {
   const n = Math.round(7 + detail * 2), faces = [], step = 2.8 / n;
   for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) {
-    const X = (x - n / 2) * step, Z = (z - n / 2) * step;
+    const X = (x - n / 2) * step + m * .48 * Math.sin(z * .8 + t), Z = (z - n / 2) * step;
     const wave = .5 + .5 * Math.sin(X * 2.2 + Z * 1.4 + t);
-    const height = .09 + b * 1.2 * wave + m * .55 * (.5 + .5 * Math.cos(Z * 4 + X));
-    const size = step * (.62 + h * .34), y = .7 - height;
+    const height = .09 + b * 2.5 * wave;
+    const size = step * (.72 - h * .55), y = .7 - height + h * .25 * Math.sin(x * 2 + z + t * 3);
     const a = [X, y, Z], c = [X + size, y, Z + size], d = [X, y, Z + size], e = [X + size, y, Z];
     faces.push({ points: [a, e, c, d], shade: .95 },
       { points: [d, c, [X + size, .85, Z + size], [X, .85, Z + size]], shade: .46 },
       { points: [e, [X + size, .85, Z], [X + size, .85, Z + size], c], shade: .15 });
   }
-  renderFaces(ctx, faces, .55 + Math.sin(t * .18) * .08 + m * .35, hue);
+  renderFaces(ctx, faces, .55 + Math.sin(t * .18) * .08 + m * .95, hue);
 });
 const foldedSpire = canvasFactory((ctx, { t, b, m, h, detail, hue }) => {
   const faces = [], n = Math.round(7 + detail * 3), sides = 8;
   const vertex = (i, j) => {
-    const a = j * Math.PI / 4 + i * (.08 + m * .34) + t * .15;
-    const r = .35 + b * .5 + (i % 2 ? .06 : .22 + h * .38);
-    return [Math.cos(a) * r, (i / n - .5) * 2.8, Math.sin(a) * r];
+    const a = j * Math.PI / 4 + i * (.08 + m * .7) + t * .15;
+    const r = .3 + b * .7 + (i % 2 ? .04 : .16 + h * .62);
+    const bend = Math.sin(i / n * Math.PI * 2 + t * .7) * m * .85;
+    return [Math.cos(a) * r + bend, (i / n - .5) * 2.8, Math.sin(a) * r];
   };
   for (let i = 0; i < n; i++) for (let j = 0; j < sides; j++) {
     const a = vertex(i, j), bb = vertex(i, j + 1), c = vertex(i + 1, j), d = vertex(i + 1, j + 1);
@@ -41,6 +42,6 @@ const foldedSpire = canvasFactory((ctx, { t, b, m, h, detail, hue }) => {
   renderFaces(ctx, faces, .2, hue);
 });
 export const SPATIAL_PATTERNS = [
-  entry('pin-relief', 'Pin Relief', '3D', 'Instanced sculptural pin bed: bass extrudes waves, mids sculpt ridges and turn the bed, highs expand pin cross-sections.', pinRelief, 'Pin Density'),
-  entry('folded-spire', 'Folded Spire', '3D', 'Faceted origami tower: bass expands its body, mids twist successive floors, highs unfold alternating pleats.', foldedSpire, 'Fold Count'),
+  entry('pin-relief', 'Pin Relief', '3D', 'Instanced sculptural pin bed: bass extrudes waves, mids slide rows and yaw the bed, highs separate and chatter pin caps.', pinRelief, 'Pin Density'),
+  entry('folded-spire', 'Folded Spire', '3D', 'Faceted origami tower: bass expands its body, mids bend and twist successive floors, highs unfold alternating pleats.', foldedSpire, 'Fold Count'),
 ];
