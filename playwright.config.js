@@ -3,16 +3,16 @@ import { defineConfig, devices } from '@playwright/test';
 // Override for isolated worktrees; never reuse an unrelated app on the default port.
 const port = Number(process.env.PLAYWRIGHT_PORT || 5173);
 const baseURL = `http://localhost:${port}`;
+const mappingSpecs = /(?:mapping-performance|projection-mapping|screen-mapping)\.spec\.js$/;
 
 export default defineConfig({
   testDir: './tests',
   timeout: 30_000,
   expect: { timeout: 5_000 },
   fullyParallel: true,
-  // The heavy WebGL smoke/preview specs (raymarch shaders under software GL) and
-  // the per-RAF pattern-controls engine work crash/time out under 3-way parallel
-  // contention on this 6-core/6GB host. Cap at 2 workers for a reliable suite.
-  workers: 2,
+  // Ordinary tests run in parallel; timing-sensitive mapping tests run in a
+  // separate single-worker phase after them to avoid rendering contention.
+  workers: 4,
   reporter: [['list']],
   use: {
     baseURL,
@@ -43,7 +43,16 @@ export default defineConfig({
       ],
     },
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    { name: 'chromium', testIgnore: mappingSpecs, use: { ...devices['Desktop Chrome'] } },
+    {
+      name: 'chromium-mapping',
+      testMatch: mappingSpecs,
+      dependencies: ['chromium'],
+      workers: 1,
+      use: { ...devices['Desktop Chrome'] },
+    },
+  ],
   webServer: {
     command: `npm run dev -- --port ${port} --strictPort`,
     port,

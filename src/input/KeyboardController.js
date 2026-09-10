@@ -50,11 +50,8 @@ export function createKeyboardController(ctx) {
     if (editingSelection.merge) {
       const bp = ctx.getEditingParams('__merge');
       if (e.key === '+' || e.key === '=' || e.key === '-') {
-        const activeKey = bp.mode === 1 ? 'add' : 'mix';
         const delta = e.key === '-' ? -0.05 : 0.05;
-        const cur = typeof bp[activeKey] === 'number' ? bp[activeKey] : 0.5;
-        const next = Math.max(0, Math.min(1, Math.round((cur + delta) * 100) / 100));
-        ctx.requestParamChange('__merge', { [activeKey]: next });
+        ctx.requestBlendStep(delta);
         e.preventDefault();
         return;
       }

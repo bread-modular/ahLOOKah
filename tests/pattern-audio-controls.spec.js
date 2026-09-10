@@ -598,22 +598,19 @@ test.describe('pattern-specific audio controls', () => {
     await page.waitForFunction(() => window.__viz.cue === null
       && window.__viz.patternId === 'checkerboard'
       && window.__viz.params.speed === 1.75);
-    await page.waitForFunction(() => {
+    // Promotion changes the audio plan and resets slot diagnostics. Capture the
+    // matching draw atomically: a second evaluate can observe a new plan reset.
+    const rendered = await page.waitForFunction(() => {
       const slots = Object.values(window.__viz.patternAudio?.store?.slots || {});
-      const slot = slots.find((entry) => entry.patternId === 'checkerboard');
-      return slot
-        && slot.fresh
-        && slot.renderMarker > 0
-        && slot.renderedParamsRevision === slot.paramsRevision;
+      const checker = slots.find((entry) => entry.patternId === 'checkerboard');
+      if (window.__viz.cue !== null || window.__viz.patternId !== 'checkerboard'
+        || window.__viz.params.speed !== 1.75 || !checker?.fresh
+        || checker.renderMarker <= 0
+        || checker.renderedParamsRevision !== checker.paramsRevision) return false;
+      return { speed: window.__viz.params.speed, checker };
     });
-
-    const state = await page.evaluate(() => {
-      const slots = Object.values(window.__viz.patternAudio?.store?.slots || {});
-      return {
-        speed: window.__viz.params.speed,
-        checker: slots.find((entry) => entry.patternId === 'checkerboard'),
-      };
-    });
+    const state = await rendered.jsonValue();
+    await rendered.dispose();
     expect(state.speed).toBe(1.75);
     expect(state.checker.renderedParamsRevision).toBe(state.checker.paramsRevision);
   });
