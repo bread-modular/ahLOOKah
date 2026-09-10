@@ -5,8 +5,8 @@
 // the band response is deliberately subtle — a shimmer on top of the picture,
 // not a replacement. ProgramRuntime owns the capture lease.
 import { AUDIO_SHADER_HEADER, FULLSCREEN_VERT } from '../shader-utils.js';
-import { BAND_PARAMS, BAND_SCHEMA, bounded, makeBandReader } from '../band-reactive.js';
-import { createExpansionController } from './runtime.js';
+import { BAND_PARAMS, BAND_SCHEMA, bounded } from '../band-reactive.js';
+import { createExpansionController, makeExpansionReader } from './runtime.js';
 
 const HEADER = `${AUDIO_SHADER_HEADER}
   uniform sampler2D uTex;
@@ -64,7 +64,7 @@ function restoredCameraFactory(body) {
     let capture, effect, texImage;
     let ready = false;
     let phase = 0;
-    const readBands = makeBandReader(audio, params, runtimeContext);
+    const readBands = makeExpansionReader(audio, params, runtimeContext);
     p.setup = () => {
       p.pixelDensity(1);
       p.createCanvas(p.windowWidth, p.windowHeight, p.WEBGL);

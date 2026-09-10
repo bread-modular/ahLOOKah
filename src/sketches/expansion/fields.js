@@ -41,10 +41,10 @@ void main() {
   // high: dust motes drifting through the shafts
   vec2 cellUv = uv * vec2(34.0, 22.0);
   vec2 cell = floor(cellUv + vec2(0.0, t * (1.0 + uHigh * 2.0)));
-  float mote = step(1.0 - uHigh * .22, hash21(cell));
+  float mote = step(1.0 - uHigh * .38, hash21(cell));
   vec2 cf = fract(cellUv + vec2(0.0, t)) - .5;
-  mote *= exp(-dot(cf, cf) * 9.0);
-  col += vec3(1.0, .95, .8) * mote * (.12 + uHigh * .85) * (ray * 2.0 + .1);
+  mote *= exp(-dot(cf, cf) * 6.5);
+  col += vec3(1.0, .95, .8) * mote * (.2 + uHigh * 1.3) * (ray * 2.0 + .15);
   float vignette = 1.0 - smoothstep(.7, 1.6, length(uv * vec2(.7, 1.0)));
   col *= .3 + .7 * vignette;
   gl_FragColor = vec4(filmicTone(col * 1.5), 1.0);
@@ -158,16 +158,19 @@ void main() {
   vec2 block = floor(uv * uResolution / bs);
   vec2 bc = (block + .5) * bs / uResolution;
   vec3 col = stillScene(bc);                          // block-averaged (DCT DC)
-  float levels = 26.0 - uMid * 21.0;                  // mid: coefficient crush
+  // mid: coefficient crush + per-block DC scramble (geometry of tones AND blocks)
+  float levels = 26.0 - uMid * 21.0;
   col = floor(col * levels + .5) / levels;
+  float scramble = (hash21(block * 1.7 + floor(uTime * uSpeed * 5.0)) - .5) * uMid * 1.1;
+  col = clamp(col + scramble * step(.04, abs(scramble)), 0.0, 1.0);
   vec2 f = fract(uv * uResolution / bs);
   vec2 dmin = min(f, 1.0 - f);
   float border = 1.0 - smoothstep(.0, .1, min(dmin.x, dmin.y));
   float dc = hash21(block + floor(uTime * uSpeed * 7.0));
-  col *= 1.0 - border * uMid * .3;                    // mid: boundary DC bleed
-  col += border * (dc - .5) * (.08 + uHigh * .55);    // high: ringing flicker
-  float mosquito = step(1.0 - uHigh * .3, hash21(block * 3.1 + floor(uTime * uSpeed * 13.0)));
-  col += (mosquito - .3) * border * uHigh * .6;       // high: mosquito swarm
+  col *= 1.0 - border * uMid * .45;                   // mid: boundary DC bleed
+  col += border * (dc - .5) * (.12 + uHigh * .8);     // high: ringing flicker
+  float mosquito = step(1.0 - uHigh * .45, hash21(block * 3.1 + floor(uTime * uSpeed * 13.0)));
+  col += (mosquito - .25) * (.35 + border) * uHigh * .8; // high: mosquito swarm (in-block too)
   gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`);
 

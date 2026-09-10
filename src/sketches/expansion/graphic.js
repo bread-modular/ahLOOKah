@@ -31,14 +31,14 @@ const lissajousScope = canvasFactory((ctx, { t, b, m, h, detail, hue, aspect }) 
   path(ctx, pts, null, color(hue, 60, 90, .22), .05);   // phosphor halo
   path(ctx, pts, null, color(hue, 78, 95), .008);       // bright trace
   if (h > .01) {                                         // high: ghost trace echo
-    path(ctx, pts.map(([x, y], i) => [x + h * .13 * Math.sin(i * .5), y + h * .13 * Math.cos(i * .5)]), null, color(hue + .5, 75, 100, h), .012);
+    path(ctx, pts.map(([x, y], i) => [x + h * .17 * Math.sin(i * .5), y + h * .17 * Math.cos(i * .5)]), null, color(hue + .5, 78, 100, h), .016);
   }
   const dots = 44;
   for (let i = 0; i < dots; i++) {                       // high: re-seeded sparkles
     const a = (i / dots + hash(i, 7) * .02) * TAU;
     const x = drift + amp * Math.min(aspect, 1.6) * .62 * Math.sin(3 * a + spin);
     const y = amp * .86 * Math.sin(fy * a);
-    circle(ctx, x, y, .01 + h * .07 * hash(i, 3), color(hue + .12, 88, 100, .3 + h * .7));
+    circle(ctx, x, y, .012 + h * .08 * hash(i, 3), color(hue + .12, 88, 100, .3 + h * .7));
   }
 });
 
@@ -49,7 +49,11 @@ const pendulumWave = canvasFactory((ctx, { t, b, m, h, detail, hue }) => {
   const n = Math.max(9, Math.min(19, Math.round(9 + detail * 5)));
   const railY = -.78;
   path(ctx, [[-1.25, railY], [1.25, railY]], null, color(hue, 40, 40), .03);
-  const amplitude = .24 + b * .9;                 // bass: major swing amplitude
+  if (h > .01) for (let i = 0; i < 12; i++) {       // high: rail glints
+    const gx = -1.2 + i * .2;
+    path(ctx, [[gx, railY], [gx + .12 + h * .06, railY]], null, color(hue + .5, 85, 95, h * .9), .012);
+  }
+  const amplitude = .28 + b;                      // bass: major swing amplitude
   const spread = .3 + m * 2.6;                    // mid: frequency spread (dephase)
   for (let i = 0; i < n; i++) {
     const f = n === 1 ? .5 : i / (n - 1);
@@ -58,18 +62,18 @@ const pendulumWave = canvasFactory((ctx, { t, b, m, h, detail, hue }) => {
     const omega = 2.1 * (1 + spread * (1 - f) * .5);
     const theta = amplitude * Math.sin(t * omega + f * spread * 2.2);
     const bob = [x + Math.sin(theta) * len, railY + Math.cos(theta) * len];
-    path(ctx, [[x, railY], bob], null, color(hue + f * .15, 58, 65, .9), .016);
+    path(ctx, [[x, railY], bob], null, color(hue + f * .15, 58, 65, .9), .018);
     if (h > .01) {                                // high: swing-arc accent ticks
       const tickA = Math.sign(Math.cos(t * omega + f * spread * 2.2)) || 1;
       const tip = [x + Math.sin(theta + tickA * (.08 + h * .5)) * len, railY + Math.cos(theta + tickA * (.08 + h * .5)) * len];
       path(ctx, [bob, tip], null, color(hue + .5, 82, 98, h), .014);
-      circle(ctx, ...bob, .09 + h * .07, color(hue + f * .15, 70, 90, h * .6)); // bob halo
+      circle(ctx, ...bob, .1 + h * .08, color(hue + f * .15, 72, 92, h * .75)); // bob halo
       for (let sdot = 1; sdot <= 3; sdot++) {     // high: string sparkle beads
         const sf = sdot / 4;
-        circle(ctx, x + (bob[0] - x) * sf, railY + (bob[1] - railY) * sf, .006 + h * .024, color(hue + .55, 85, 100, h * .9));
+        circle(ctx, x + (bob[0] - x) * sf, railY + (bob[1] - railY) * sf, .008 + h * .032, color(hue + .55, 88, 100, h));
       }
     }
-    circle(ctx, ...bob, .06 + b * .03, color(hue + f * .15, 64, 88));
+    circle(ctx, ...bob, .075 + b * .045, color(hue + f * .15, 64, 88));
     circle(ctx, bob[0] - .016, bob[1] - .02, .013 + h * .022, color(0, 100, 0, .3 + h * .7)); // glint
     circle(ctx, x, railY, .012, gray(.9));
   }
@@ -181,10 +185,10 @@ const galvoSweep = canvasFactory((ctx, { t, b, m, h, detail, hue }) => {
     path(ctx, [origin, tip], null, color(hue + f * .25, 55, 95, .2 * flicker + .08), .05);
     path(ctx, [origin, tip], null, color(hue + f * .25, 82, 100, .55 * flicker + .3), .009);
     if (h > .01) {
-      circle(ctx, ...tip, .012 + h * .08 * hash(i, 4), color(hue + .5, 88, 100, h * .95));
-      for (let d = 1; d <= 5; d++) {                                        // high: scan dots along beams
-        const df = d / 6;
-        circle(ctx, origin[0] + (tip[0] - origin[0]) * df, origin[1] + (tip[1] - origin[1]) * df, .006 + h * .028, color(hue + f * .25 + .1, 88, 100, h * .8));
+      circle(ctx, ...tip, .022 + h * .12 * hash(i, 4), color(hue + .5, 88, 100, h));
+      for (let d = 1; d <= 7; d++) {                                        // high: scan dots along beams
+        const df = d / 8;
+        circle(ctx, origin[0] + (tip[0] - origin[0]) * df, origin[1] + (tip[1] - origin[1]) * df, .012 + h * .05, color(hue + f * .25 + .1, 90, 100, h));
       }
     }
   }
@@ -216,12 +220,16 @@ const neonSign = canvasFactory((ctx, { t, b, m, h, detail, hue }) => {
   const A = sample(bolt, false), B = sample(wave, false);
   const morph = .5 - .5 * Math.cos(m * Math.PI);           // mid: outline morph
   const pts = A.map(([x, y], i) => [x + (B[i][0] - x) * morph, y + (B[i][1] - y) * morph]);
-  circle(ctx, 0, 0, .85 + b * .5, color(hue, 35, 80, .05 + b * .1)); // bass: wall wash
+  if (h > .01) for (let gx = -5; gx <= 5; gx++) for (let gy = -3; gy <= 3; gy++) { // high: wall seam sparks
+    if (hash(gx * 7 + gy * 13, Math.floor(t * 18)) > .35 + h * .5) continue;
+    circle(ctx, gx * .32 + hash(gy, gx) * .1, gy * .3, .014 + h * .05, color(hue + .5, 75, 85, h * .9));
+  }
+  circle(ctx, 0, 0, .95 + b * .55, color(hue, 38, 80, .07 + b * .13)); // bass: wall wash
   const segments = 18;
   for (let s = 0; s < segments; s++) {
     const seg = pts.slice(Math.floor(s * (k - 1) / segments), Math.floor((s + 1) * (k - 1) / segments) + 1);
     if (seg.length < 2) continue;
-    const buzz = .55 + .45 * h * hash(s, Math.floor(t * 30));        // high: buzz
+    const buzz = 1 - h * .85 * hash(s, Math.floor(t * 30));          // high: buzz (tube-wide dim-flicker)
     if (h > .01 && hash(s * 1.7, Math.floor(t * 22) + 99) < h * .1) continue; // dropout
     path(ctx, seg, null, color(hue, 60, 95, .2 * (1 + b * .9) * buzz), .12 * (1 + b * .7));
     path(ctx, seg, null, color(hue, 75, 100, .55 * buzz), .036 * (1 + b * .35));
@@ -230,11 +238,11 @@ const neonSign = canvasFactory((ctx, { t, b, m, h, detail, hue }) => {
   if (h > .01) {
     // high: bright scan spark racing along the tube + vertex sparks
     const scan = Math.floor(t * 24) % k;
-    for (let i = 0; i < Math.max(2, Math.round(h * 8)); i++) {
+    for (let i = 0; i < Math.max(2, Math.round(h * 14)); i++) {
       const j = (scan + i) % k;
-      circle(ctx, pts[j][0], pts[j][1], .012 + h * .04, color(0, 100, 0, h * .9));
+      circle(ctx, pts[j][0], pts[j][1], .024 + h * .07, color(0, 100, 0, h));
     }
-    for (let i = 0; i < k; i += 2) circle(ctx, pts[i][0], pts[i][1], .007 + h * .035, color(hue + .5, 88, 100, .25 + h * .7));
+    for (let i = 0; i < k; i += 2) circle(ctx, pts[i][0], pts[i][1], .016 + h * .06, color(hue + .5, 88, 100, .35 + h * .65));
   }
 });
 
@@ -243,11 +251,11 @@ const neonSign = canvasFactory((ctx, { t, b, m, h, detail, hue }) => {
 // peak dots and brighten graticule accents.
 const waveformMonitor = canvasFactory((ctx, { t, b, m, h, detail, hue }) => {
   const L = -1.25, R = 1.25, T = -.8, B = .8;
-  ctx.fillStyle = color(hue, 8, 25); ctx.fillRect(L, T, R - L, B - T);
+  ctx.fillStyle = color(hue, 12, 30); ctx.fillRect(L, T, R - L, B - T);
   for (let g = 0; g <= 4; g++) {                            // graticule (IRE)
     const y = B - g * .4;
-    path(ctx, [[L, y], [R, y]], null, g === 0 ? color(hue, 45, 40, .9) : color(hue, 35, 30, .5), g === 2 ? .01 : .005);
-    for (let tick = 0; tick <= 10; tick++) if (h > .01) circle(ctx, L + (R - L) * tick / 10, y, .004 + h * .012, color(hue + .5, 65, 80, h * .5));
+    path(ctx, [[L, y], [R, y]], null, g === 0 ? color(hue, 48, 45, .95) : color(hue, 38, 35, .6), g === 2 ? .012 : .006);
+    for (let tick = 0; tick <= 10; tick++) if (h > .01) circle(ctx, L + (R - L) * tick / 10, y, .006 + h * .02, color(hue + .5, 70, 85, h * .7));
   }
   const signal = (x, f) => {                                // synthesized video line
     const steps = .5 + .5 * Math.sin(x * 4.1 + f);
@@ -255,7 +263,7 @@ const waveformMonitor = canvasFactory((ctx, { t, b, m, h, detail, hue }) => {
     const ramp = (x + 1.3) / 2.6 * .8 + .1 * Math.sin(x * 9 + f * 2);
     return { a: ramp * .6 + steps * .25, b: blocks };
   };
-  const gain = .42 + b * .85;                               // bass: trace gain
+  const gain = .55 + b * 1.1;                               // bass: trace gain
   const fields = Math.max(1, Math.min(4, Math.round(detail * 2)));
   for (let field = 0; field < fields; field++) {
     const pts = [];
@@ -264,15 +272,18 @@ const waveformMonitor = canvasFactory((ctx, { t, b, m, h, detail, hue }) => {
       const x = L + (R - L) * i / n;
       const s = signal(x + field * .04, t * .6 + field);
       let v = s.a + (s.b - s.a) * m;                        // mid: signal morph
-      v += h * .05 * (hash(i, Math.floor(t * 20) + field) - .5); // high: trace jitter
-      pts.push([x, B - v * gain * 1.5]);
+      v += h * .13 * (hash(i, Math.floor(t * 20) + field) - .5); // high: trace jitter
+      pts.push([x, B - v * gain * 1.9]);
     }
-    path(ctx, pts, null, color(hue + field * .06, 65, 90, .16), .03);
-    path(ctx, pts, null, color(hue + field * .06, 75, 95, .5 + .5 / fields), .006);
-    if (h > .01) for (let i = 6; i < n; i += 11) {          // high: peak dots
+    path(ctx, pts, null, color(hue + field * .06, 65, 90, .28), .055);
+    path(ctx, pts, null, color(hue + field * .06, 78, 98, .6 + .4 / fields), .013);
+    if (h > .01) for (let i = 6; i < n; i += 8) {           // high: peak dots
       const [, y] = pts[i];
-      if (y < T + .3) circle(ctx, pts[i][0], y, .006 + h * .02, color(hue + .5, 85, 100, h * .8));
+      if (y < T + .35) circle(ctx, pts[i][0], y, .016 + h * .05, color(0, 100, 0, h));
     }
+  }
+  if (h > .01) for (let g = 0; g <= 4; g++) for (let led = 0; led < 4; led++) { // high: IRE marker LEDs
+    circle(ctx, L + .04 + led * .07, B - g * .4, .01 + h * .04, color(hue + .5, 80, 95, h * .9));
   }
 });
 
@@ -285,32 +296,40 @@ const testCard = canvasFactory((ctx, { t, b, m, h, detail, hue }) => {
   ctx.save(); ctx.scale(s, s);
   ctx.fillStyle = gray(.14); ctx.fillRect(-2.2, -1, 4.4, 2);
   ctx.lineWidth = .006; ctx.strokeStyle = gray(.4, .8);
-  for (let i = -cols; i <= cols; i++) path(ctx, [[i / cols * 1.6, -1], [i / cols * 1.6, 1]], null, gray(.38, .7), .005);
-  for (let i = -6; i <= 6; i++) path(ctx, [[-1.6, i / 6], [1.6, i / 6]], null, gray(.38, .7), .005);
+  for (let i = -cols; i <= cols; i++) {
+    const skew = (i % 2 ? 1 : -1) * m * .08;               // mid: grid misregistration
+    path(ctx, [[i / cols * 1.6 + skew, -1], [i / cols * 1.6 - skew, 1]], null, gray(.38, .75), .006);
+  }
+  for (let i = -6; i <= 6; i++) path(ctx, [[-1.6, i / 6 + (i % 2 ? m * .04 : -m * .04)], [1.6, i / 6 - (i % 2 ? m * .04 : -m * .04)]], null, gray(.38, .75), .006);
   const R = .62 * (1 + b * .3);                             // bass: circle breathing
   circle(ctx, 0, 0, R, gray(.85), gray(.15), .012);
   circle(ctx, 0, 0, R * .55, gray(.2));
   path(ctx, [[-R, 0], [R, 0]], null, gray(.1), .01); path(ctx, [[0, -R], [0, R]], null, gray(.1), .01);
   for (const [cx, cy] of [[-1.25, -.7], [1.25, -.7], [-1.25, .7], [1.25, .7], [0, 0]]) {
     for (let beam = -1; beam <= 1; beam++) {                // mid: misconvergence
-      const ox = beam * m * .09, oy = -beam * m * .06;
-      path(ctx, [[cx - .11 + ox, cy + oy], [cx + .11 + ox, cy + oy]], null, color(hue + beam * .12, 60, 85, beam ? .8 : 1), .008);
-      path(ctx, [[cx + ox, cy - .11 + oy], [cx + ox, cy + .11 + oy]], null, color(hue + beam * .12, 60, 85, beam ? .8 : 1), .008);
+      const ox = beam * m * .17, oy = -beam * m * .12;
+      path(ctx, [[cx - .13 + ox, cy + oy], [cx + .13 + ox, cy + oy]], null, color(hue + beam * .12, 62, 88, beam ? .9 : 1), .01);
+      path(ctx, [[cx + ox, cy - .13 + oy], [cx + ox, cy + .13 + oy]], null, color(hue + beam * .12, 62, 88, beam ? .9 : 1), .01);
     }
   }
   for (const side of [-1, 1]) {                             // resolution wedges
-    const n = 4 + Math.floor(h * 9);                        // high: wedge subdivision
+    const n = 6 + Math.floor(h * 22);                       // high: wedge subdivision
     for (let i = 0; i < n; i++) {
-      const y0 = side * .86, y1 = side * .98;
-      const x = -.5 + i * (.32 / Math.max(1, n - 1));
-      const shimmer = .35 + .65 * (i % 2 ? 1 : h * hash(i, Math.floor(t * 16))); // high: shimmer
-      path(ctx, [[x, y0], [x - side * .06, y1]], null, gray(shimmer), .005);
-      path(ctx, [[-x, y0], [-x + side * .06, y1]], null, gray(shimmer), .005);
+      const y0 = side * .78, y1 = side * .98;
+      const x = -.6 + i * (.5 / Math.max(1, n - 1));
+      const shimmer = .25 + .75 * (i % 2 ? 1 : h * hash(i, Math.floor(t * 16))); // high: shimmer
+      path(ctx, [[x, y0], [x - side * .08, y1]], null, gray(shimmer), .012);
+      path(ctx, [[-x, y0], [-x + side * .08, y1]], null, gray(shimmer), .012);
+      if (h > .01) circle(ctx, x, y1 - side * .04, .01 + h * .035, gray(.98, h)); // needle markers
     }
   }
-  for (const side of [-1, 1]) for (let i = 0; i < 5; i++) { // side castellations
-    ctx.fillStyle = gray(.2 + .55 * (i % 2));
+  for (const side of [-1, 1]) for (let i = 0; i < 5; i++) { // side castellations, swapped by highs
+    ctx.fillStyle = gray(.2 + .6 * ((i + Math.floor(h * 3)) % 2));
     ctx.fillRect(side * 1.75 - .06, -.6 + i * .24, .12, .12);
+  }
+  if (h > .01) for (let i = -4; i <= 4; i++) {              // high: axis tick marks
+    path(ctx, [[i * .12, -.035 - h * .03], [i * .12, .035 + h * .03]], null, gray(.95, h * .9), .008);
+    path(ctx, [[-.035 - h * .03, i * .12], [.035 + h * .03, i * .12]], null, gray(.95, h * .9), .008);
   }
   ctx.restore();
 });
@@ -340,16 +359,24 @@ const goboWheel = canvasFactory((ctx, { t, b, m, h, detail }) => {
   }
   ctx.restore();
   if (h > .01) {
-    const rim = 40;                                          // high: rim shimmer
+    // high: fine rotating shimmer web across the whole spot
+    const web = 28;
+    for (let i = 0; i < web; i++) {
+      const a = i * TAU / web - rot * 1.4;
+      const rr = (.25 + .55 * hash(i, 6)) * scale;
+      path(ctx, [[Math.cos(a) * rr * .4, Math.sin(a) * rr * .4], [Math.cos(a + .02) * (rr + h * .3 * scale), Math.sin(a + .02) * (rr + h * .3 * scale)]], null, gray(.95, h), .015);
+    }
+    const rim = 72;                                          // high: rim shimmer + shadow notches
+    const r = (.74 + h * .22) * scale;
     for (let i = 0; i < rim; i++) {
       const a = i * TAU / rim;
-      if (hash(i, Math.floor(t * 14)) > .45 + h * .4) continue;
-      const r = (.78 + h * .2) * scale;
-      path(ctx, [[Math.cos(a + rot) * r, Math.sin(a + rot) * r], [Math.cos(a + rot) * (r + .05 + h * .1), Math.sin(a + rot) * (r + .05 + h * .1)]], null, gray(.9, h * .7), .006);
+      if (hash(i, Math.floor(t * 14)) > .3 + h * .55) continue;
+      const bright = hash(i, 8) > .4;
+      path(ctx, [[Math.cos(a + rot) * r, Math.sin(a + rot) * r], [Math.cos(a + rot + .05) * (r + .09 + h * .2), Math.sin(a + rot + .05) * (r + .09 + h * .2)]], null, bright ? gray(.98, h) : gray(0, h * .95), bright ? .014 : .024);
     }
-    for (let i = 0; i < 10; i++) {                           // high: dust motes
+    for (let i = 0; i < 22; i++) {                           // high: dust motes
       const a = hash(i, 1) * TAU + t * (.2 + hash(i, 2) * .3);
-      circle(ctx, Math.cos(a) * hash(i, 3) * .9, Math.sin(a) * hash(i, 4) * .9, .005 + h * .02, gray(.95, h * .75));
+      circle(ctx, Math.cos(a) * hash(i, 3) * .95, Math.sin(a) * hash(i, 4) * .95, .014 + h * .055, gray(.97, h * .95));
     }
   }
 }, { background: '#000' });
@@ -371,8 +398,10 @@ const blinderMatrix = canvasFactory((ctx, { t, b, m, h, detail }) => {
     if (on) circle(ctx, cx, cy, r * .55, gray(.95));
     if (h > .01) {
       const tw = hash(x * 13 + y * 7, Math.floor(t * 12));   // high: twinkle
-      if (tw > .55) circle(ctx, cx, cy, r * (.2 + h * .5), gray(1, (tw - .55) * 2 * h));
-      circle(ctx, cx - r * .3, cy - r * .3, .008 + h * .025, gray(1, h * .5)); // filament glint
+      if (tw > .35) circle(ctx, cx, cy, r * (.4 + h * .9), gray(1, (tw - .35) * 1.6 * h));
+      circle(ctx, cx - r * .3, cy - r * .3, .016 + h * .05, gray(1, h)); // filament glint
+      const oa = t * 2 + x + y * 2;                          // orbiting chase sparkle
+      circle(ctx, cx + Math.cos(oa) * r * 1.35, cy + Math.sin(oa) * r * 1.35, .012 + h * .045, gray(1, h * .95));
     }
   }
 }, { background: '#000' });

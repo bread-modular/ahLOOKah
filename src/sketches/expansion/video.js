@@ -2,8 +2,8 @@
 // with drifted motion vectors) and rolling-shutter skew/wobble. ProgramRuntime
 // owns the capture lease; these never request another device. Offscreen
 // buffers are released on remove.
-import { TAU, expansionEntry, expansionParams, hash, response } from './runtime.js';
-import { bounded, makeBandReader } from '../band-reactive.js';
+import { TAU, expansionEntry, expansionParams, hash, makeExpansionReader, response } from './runtime.js';
+import { bounded } from '../band-reactive.js';
 
 const W = 320, H = 180;
 function buffer() { const c = document.createElement('canvas'); c.width = W; c.height = H; return c; }
@@ -12,7 +12,7 @@ function cameraFactory(kind) {
   return (audio, device, params = {}, runtime = {}) => (p) => {
     let capture, ready = false, time = 0, frame = 0;
     let source, ref, primed = false;
-    const read = makeBandReader(audio, params, runtime);
+    const read = makeExpansionReader(audio, params, runtime);
     p.setup = () => {
       p.pixelDensity(1); p.createCanvas(p.windowWidth, p.windowHeight);
       source = buffer();
@@ -54,16 +54,21 @@ function cameraFactory(kind) {
             const dy = m * ch * 1.8 * Math.cos(x * .9 - time * 1.4 + hash(id, 3) * TAU);
             ctx.drawImage(ref, sx, sy, W / cols, H / rowsN, x * cw + dx, y * ch + dy, cw + .5, ch + .5);
             if (h > .01) {                                                // high: block-edge speckle
-              ctx.strokeStyle = `rgba(255 255 255 / ${h * .45 * hash(id, slot + 7)})`;
-              ctx.lineWidth = 1;
+              ctx.strokeStyle = `rgba(255 255 255 / ${h * .8})`;
+              ctx.lineWidth = 1.5;
               ctx.strokeRect(x * cw + dx + .5, y * ch + dy + .5, cw - 1, ch - 1);
-              if (hash(id, slot + 11) < h * .5) {
-                ctx.fillStyle = `rgba(255 255 255 / ${h * .8})`;
-                ctx.fillRect(x * cw + dx + hash(id, 5) * cw, y * ch + dy + hash(id, 6) * ch, 2, 2);
+              for (let sp = 0; sp < 3; sp++) if (hash(id + sp, slot + 11) < h * .7) {
+                ctx.fillStyle = `rgba(255 255 255 / ${h * .9})`;
+                ctx.fillRect(x * cw + dx + hash(id + sp, 5) * (cw - 3), y * ch + dy + hash(id + sp, 6) * (ch - 3), 3, 3);
               }
             }
           } else {
             ctx.drawImage(source, sx, sy, W / cols, H / rowsN, x * cw, y * ch, cw + .5, ch + .5);
+            if (h > .01) {                                                // high: fresh-block hairline grid
+              ctx.strokeStyle = `rgba(255 255 255 / ${h * .3})`;
+              ctx.lineWidth = 1;
+              ctx.strokeRect(x * cw + .5, y * ch + .5, cw - 1, ch - 1);
+            }
           }
         }
       } else {
@@ -74,14 +79,14 @@ function cameraFactory(kind) {
         const bh = p.height / bands, sh = H / bands;
         for (let j = 0; j < bands; j++) {
           const y0 = j * bh;
-          let offset = b * p.width * .06 * Math.sin(j * .11 + time * 3)   // bass: skew amplitude
-            + m * p.width * .05 * Math.sin(j * (.04 + m * .12) - time * 2); // mid: wobble geometry
-          const torn = h > .01 && hash(j, Math.floor(time * 18)) < h * .45; // high: band tears
-          if (torn) offset += (hash(j, Math.floor(time * 18) + 5) - .5) * p.width * .16 * h;
+          let offset = b * p.width * .13 * Math.sin(j * .11 + time * 3)   // bass: skew amplitude
+            + m * p.width * .1 * Math.sin(j * (.04 + m * .12) - time * 2); // mid: wobble geometry
+          const torn = h > .01 && hash(j, Math.floor(time * 18)) < h * .7; // high: band tears
+          if (torn) offset += (hash(j, Math.floor(time * 18) + 5) - .5) * p.width * .3 * h;
           for (const wrap of [-1, 0, 1]) ctx.drawImage(source, 0, j * sh, W, sh + .5, offset + wrap * p.width, y0, p.width, bh + .5);
           if (torn) {
-            ctx.fillStyle = `rgba(255 255 255 / ${h * .5})`;
-            ctx.fillRect(0, y0, p.width, 1);
+            ctx.fillStyle = `rgba(255 255 255 / ${h * .75})`;
+            ctx.fillRect(0, y0, p.width, 2);
           }
         }
       }
