@@ -13,7 +13,8 @@ cues live with zero blank gaps.
 
 - **Audio-reactive sketch library** (plus a non-reactive checkerboard) organized into themed groups:
   *Simple* (first), *Rhythmic*, *3D*, *Cinematic / Shaders*, *Neon / Lasers*, *Video FX*,
-  *Glitch / Effects*, and *Basics*.
+  *Glitch / Effects*, *Basics*, and *Alphas* (grayscale-on-black looks built for
+  Alpha Blend projection mapping).
 - **Dual-window architecture** — a fullscreen output window plus a control
   panel window, synchronized over `BroadcastChannel` (no server state).
 - **Live parameter control** — every sketch exposes sliders (bass/mid/high
@@ -151,10 +152,12 @@ by accident. Move focus out of the field first for those CUE gestures.
 ### Lightweight patterns and camera FX
 
 **Simple** is the first library category, with **Circles**, **Bars**, **Dot Grid**,
-**Pulse Stripes**, **Cross Pulse**, **Diamond Tiles**, **Radial Spokes**, and
+**Pulse Stripes**, **Cross Pulse**, **Diamond Tiles**, **Radial Spokes**,
+**Triangle Mesh**, **Ring Grid**, **Hatch Weave**, **Dash Lanes**, and
 **Checkerboard**. **Basics** keeps Solid Color, Color Wash, Color Bars, Noise Static,
-and Film Grain. Pad assignments and other themed groups are unchanged. The five new
-shape patterns use bounded Canvas2D paths at single pixel density: no pixel
+Film Grain, Vignette, Split Tone, Sweep Band, and Grid Lines. Pad assignments and
+other themed groups are unchanged. The shape patterns use bounded Canvas2D paths
+at single pixel density: no pixel
 readback, raymarching, feedback buffers, or unbounded particle spawning. Bars
 also has independent bass (height), mid (brightness), and high (peak) gains.
 
@@ -167,12 +170,20 @@ silence adds no simulated beats to the new patterns in the app.
 
 | Group | New patterns |
 | --- | --- |
-| Rhythmic | Beat Weave, Ripple Lattice |
-| 3D | Polygon Tunnel, Orbital Cages |
-| Cinematic / Shaders | Silk Flow, Prism Caustics |
-| Neon / Lasers | Laser Fan, Neon Hex |
-| Glitch / Effects | Data Rain, Signal Tear |
-| Video FX | Video Edge Glow, Video Thermal, Video Prism Split, Video Ripple Lens, Video Mirror Tiles |
+| Rhythmic | Beat Weave, Ripple Lattice, Pulse Grid, Wave Stack, Beat Orbit, Level Blocks |
+| 3D | Polygon Tunnel, Orbital Cages, Helix Tower, Perspective Floor, Gyro Rings, Depth Frames |
+| Cinematic / Shaders | Silk Flow, Prism Caustics, Ember Drift, Velvet Fog, Prism Flare, Molten Glass |
+| Neon / Lasers | Laser Fan, Neon Hex, Laser Harp, Neon Frame, Beam Cascade, Circuit Pulse |
+| Glitch / Effects | Data Rain, Signal Tear, Pixel Sort, VHS Tracking, Block Shift, Interference |
+| Video FX | Video Edge Glow, Video Thermal, Video Prism Split, Video Ripple Lens, Video Mirror Tiles, Video Halftone, Video Solarize, Video Wave Warp, Video Duotone |
+| Simple | Triangle Mesh, Ring Grid, Hatch Weave, Dash Lanes |
+| Basics | Vignette, Split Tone, Sweep Band, Grid Lines |
+| Alphas | Alpha Rings, Alpha Bars, Alpha Grid, Alpha Spot, Alpha Sweep, Alpha Diamonds, Alpha Fog, Alpha Waves |
+
+The **Alphas** group renders white/gray content on a pure black background —
+brightness becomes opacity when a projection-mapping pattern enables
+**Alpha Blend** (the black-key prepass), so these are ideal sources for
+layering masks, spots, sweeps, and fog over earlier surfaces.
 
 The new non-basic looks use single-pass shaders, not heavy raymarching. Camera
 looks share the output window's camera stream, respect the selected device, and
@@ -211,7 +222,10 @@ transparent, revealing earlier mappings or the pattern behind it in a merge.
 Non-black colors retain their color and existing transparency; unmapped areas are
 transparent too. This mask works in the output, preview, and CSS fallback, and
 combines with edge smoothing. It defaults to off and persists with the pattern's
-parameters, including across layout/source changes and CUE/TAKE.
+parameters, including across layout/source changes and CUE/TAKE. The **Alphas**
+library group is purpose-built for this mode: eight white/gray-on-black looks
+(rings, bars, grid, spot, sweep, diamonds, fog, waves) whose brightness reads as
+opacity once the black background keys out.
 Name a new mapping to create it; an unnamed mapping is not added. **Close** or
 Escape keeps your changes—there is no separate Save or Cancel. The popup contains no
 source parameters. In the sidebar, each mapping has **Edit** and **Remove** actions;
@@ -283,7 +297,7 @@ when targeting an entire file, otherwise the core filter still applies.
 
 The core budget is 20 critical behavior checks plus one library-group guard.
 Smoke includes 17 of those 20 checks (85%, exceeding the 80% target), the guard,
-and eight representative pattern renders. This is **selected behavior coverage,
+and nine representative pattern renders. This is **selected behavior coverage,
 not measured line/branch coverage**, nor exhaustive coverage of every edge case.
 
 The shared checks cover startup, keyboard switching, pad assignment/persistence,
