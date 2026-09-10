@@ -149,48 +149,50 @@ While the search field (or any text field) has focus, `Enter` and `Esc` belong
 to that field: `Enter` cannot take a staged CUE live and `Esc` cannot cancel it
 by accident. Move focus out of the field first for those CUE gestures.
 
-### Lightweight patterns and camera FX
+### Replacement VJ patterns and camera FX
 
-**Simple** is the first library category, with **Circles**, **Bars**, **Dot Grid**,
-**Pulse Stripes**, **Cross Pulse**, **Diamond Tiles**, **Radial Spokes**,
-**Triangle Mesh**, **Ring Grid**, **Hatch Weave**, **Dash Lanes**, and
-**Checkerboard**. **Basics** keeps Solid Color, Color Wash, Color Bars, Noise Static,
-Film Grain, Vignette, Split Tone, Sweep Band, and Grid Lines. Pad assignments and
-other themed groups are unchanged. The shape patterns use bounded Canvas2D paths
-at single pixel density: no pixel
-readback, raymarching, feedback buffers, or unbounded particle spawning. Bars
-also has independent bass (height), mid (brightness), and high (peak) gains.
+The library contains **68 built-ins**: all 50 older entries (including Ion Tempest
+and Checkerboard), plus exactly two replacements per visual category. The rejected
+60-pattern expansion is removed, not hidden. Category labels/order, Media, custom
+Projection Mapping, and older controls/renderers are unchanged.
 
-Every new reactive pattern has **Bass / Mid / High Responsiveness** sliders
-(0 disables that band's contribution; 1 is normal; 2 doubles it). The new
-patterns share the capture-side feature engine and existing EQ crossover,
-preview, CUE/TAKE, merge, and mapping controls. Hover over a library pattern for
-its band-to-visual mapping. Motion Speed controls baseline animation separately;
-silence adds no simulated beats to the new patterns in the app.
-
-| Group | New patterns |
+| Group | Replacement patterns |
 | --- | --- |
-| Rhythmic | Beat Weave, Ripple Lattice, Pulse Grid, Wave Stack, Beat Orbit, Level Blocks |
-| 3D | Polygon Tunnel, Orbital Cages, Helix Tower, Perspective Floor, Gyro Rings, Depth Frames |
-| Cinematic / Shaders | Silk Flow, Prism Caustics, Ember Drift, Velvet Fog, Prism Flare, Molten Glass |
-| Neon / Lasers | Laser Fan, Neon Hex, Laser Harp, Neon Frame, Beam Cascade, Circuit Pulse |
-| Glitch / Effects | Data Rain, Signal Tear, Pixel Sort, VHS Tracking, Block Shift, Interference |
-| Video FX | Video Edge Glow, Video Thermal, Video Prism Split, Video Ripple Lens, Video Mirror Tiles, Video Halftone, Video Solarize, Video Wave Warp, Video Duotone |
-| Simple | Triangle Mesh, Ring Grid, Hatch Weave, Dash Lanes |
-| Basics | Vignette, Split Tone, Sweep Band, Grid Lines |
-| Alphas | Alpha Rings, Alpha Bars, Alpha Grid, Alpha Spot, Alpha Sweep, Alpha Diamonds, Alpha Fog, Alpha Waves |
+| Simple | Truchet Relay, Counterweight |
+| Rhythmic | Membrane Modes, Ratchet Wheel |
+| 3D | Pin Relief, Folded Spire |
+| Cinematic / Shaders | Schlieren Flow, Tidal Glass |
+| Neon / Lasers | Vector Knot, Prism Scanner |
+| Video FX | Video Slit Scan, Video Facet Fold |
+| Glitch / Effects | Bitplane Rewire, Riso Misprint |
+| Basics | Barn Doors, Stair Wipe |
+| Alphas | Iris Diaphragm, Cellular Gate |
 
-The **Alphas** group renders white/gray content on a pure black background —
-brightness becomes opacity when a projection-mapping pattern enables
-**Alpha Blend** (the black-key prepass), so these are ideal sources for
-layering masks, spots, sweeps, and fog over earlier surfaces.
+Every replacement has independent **Bass / Mid / High Responsiveness** controls.
+Zero disables exactly that band, including with other bands active. The sliders
+scale capture-side bands before bounded geometric mapping; they are not brightness
+knobs. Hover a pattern for its three structural mappings. Baseline animation has
+its own Motion Speed and never fabricates audio during silence.
 
-The new non-basic looks use single-pass shaders, not heavy raymarching. Camera
-looks share the output window's camera stream, respect the selected device, and
-provide a Mirror Camera switch. They appear as placeholders in the control
-preview; the actual camera is rendered only on the output. Thermal is artistic
-false color, **not temperature measurement**. Real projector performance still
-depends on output resolution and GPU; the in-app budget measures CPU time only.
+The implementations combine Canvas2D mechanisms, projected 3D faces, independent
+shader fields, a bounded glass raymarch, and camera time slicing / triangular
+folding. Video Slit Scan retains only 16 frames at 320×180; both camera effects
+share the existing output-window capture lease and use a mirrored cover crop.
+They remain placeholders in the control preview, not additional camera captures.
+Alphas output opaque white/gray-on-black; the existing projection **Alpha Blend**
+keys black out (it is not a proportional luminance-to-opacity conversion).
+
+See [design, research and validation](docs/replacement-mission.md). Reproduce the
+synchronized animated A/B evidence without running the whole suite:
+
+```sh
+PLAYWRIGHT_PORT=5273 npx playwright test tests/replacement-*.spec.js --workers=2 --output=test-results/replacement-run
+python3 scripts/replacement-contact-sheets.py # optional, requires Pillow
+```
+
+Artifacts live in `test-results/replacement-evidence/` (ignored by Git): three
+contact sheets, three short silent A/B/difference GIFs, per-pattern PNGs, metrics,
+and an HTML gallery. `REPLACEMENT_ARTIFACTS` overrides the test evidence directory.
 
 **Checkerboard is deliberately not audio reactive.** It defaults to stationary
 black-and-white squares and exposes cell size, two hues, saturation, lightness,

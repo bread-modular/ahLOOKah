@@ -1,0 +1,374 @@
+{
+  "base": "01e798a",
+  "older": [
+    {
+      "id": "circles",
+      "group": "Simple",
+      "signature": "13878867ae0af230e6add7e8bee79569df953b6caadc501b490f91c292d2b60b"
+    },
+    {
+      "id": "bars",
+      "group": "Simple",
+      "signature": "23c43f39fe78588ba3894111e7cf263d294f1eb1dd370d1095644fe6c2a7ceef"
+    },
+    {
+      "id": "techno3d",
+      "group": "3D",
+      "signature": "2c5ce28929e2bd7cdd39623e6fedf825c4c925b9ea79ee56594ee643c4a217d2"
+    },
+    {
+      "id": "character3d",
+      "group": "3D",
+      "signature": "d7868db805037201e8fca0b522462167cc3c9df491b1ecd3bb24304949db00bb"
+    },
+    {
+      "id": "pulse-rings",
+      "group": "Rhythmic",
+      "signature": "c26368b187852d5e64416a9ccfbafc1dfdfba3d9e2bbbb127cfa6798f1c4d12a"
+    },
+    {
+      "id": "particle-storm",
+      "group": "Rhythmic",
+      "signature": "f16cacc03e2c8f12f71fbf3fec833c3afe5733ee764924614bda6770fb0fc6f7"
+    },
+    {
+      "id": "chroma-mandala",
+      "group": "Rhythmic",
+      "signature": "4aab58116eb94738893e2f357d0a9a89d27e04ec76c28ad4f1f075589d6626d0"
+    },
+    {
+      "id": "starfield-rush",
+      "group": "3D",
+      "signature": "fcb8807a947aeb9c6a3a00ccfae68046f18934830c8ef5bafa73839fa79c0489"
+    },
+    {
+      "id": "echo-ripples",
+      "group": "Rhythmic",
+      "signature": "3c678a9607b901f4640c9da06b94de5933922e3d34227dbc28d585a7b1f105fb"
+    },
+    {
+      "id": "laser-grid",
+      "group": "Neon / Lasers",
+      "signature": "6b69dec5d76deb5fa08b61bbd1af519467af0b39d0400fac9c6a3ce22e2cd34f"
+    },
+    {
+      "id": "strobe-pulse",
+      "group": "Rhythmic",
+      "signature": "4b01d07adc9fe6bf620ea55b722ab2d42b42f6310c130c633a91b9064fa0f81d"
+    },
+    {
+      "id": "plasma-waves",
+      "group": "Rhythmic",
+      "signature": "c8ce891ff6f6d31303488931b0d0274a7cef43e23f6bc36673e8a6385e0118ef"
+    },
+    {
+      "id": "glitch-matrix",
+      "group": "Glitch / Effects",
+      "signature": "ae104e5837d8f121e2903d82dd81f2f99559a2e89cc5c115e78743c3cd8df035"
+    },
+    {
+      "id": "neon-ribbons",
+      "group": "Neon / Lasers",
+      "signature": "5a5a63406d44372acb615e68c5f47ce2f1a894a4686bf24f6250e6885cdb5973"
+    },
+    {
+      "id": "prism-burst",
+      "group": "Neon / Lasers",
+      "signature": "70c5c364e46106b1a87cbd262d2966d9dd8d769611918bb66357f3485fef8144"
+    },
+    {
+      "id": "event-horizon",
+      "group": "Cinematic / Shaders",
+      "signature": "57769becd523b0307e666839cbd43f912bb31320c4c60ef3d1bb8d4d7fd9a5fc"
+    },
+    {
+      "id": "liquid-chrome",
+      "group": "Cinematic / Shaders",
+      "signature": "0f441e191ac192def67d4b5e2e5d8c14669eb7803744e420bfc820d69e9fbd19"
+    },
+    {
+      "id": "laser-cathedral",
+      "group": "Neon / Lasers",
+      "signature": "e3fe0947193e976153a49c18dc1f328de43be53c05d1f86772a6de582d685b18"
+    },
+    {
+      "id": "cymatic-bloom",
+      "group": "Cinematic / Shaders",
+      "signature": "5e3827789d44f596e01445c6d1c470bb26fdd1baa1df225c88977d0d9fab4a14"
+    },
+    {
+      "id": "holo-swarm",
+      "group": "Cinematic / Shaders",
+      "signature": "e9eb93f0b0ce34155987727fa158ac49fa519dd7197e37ec7537adba963c9f06"
+    },
+    {
+      "id": "aurora-veil",
+      "group": "Cinematic / Shaders",
+      "signature": "20c6655ef166c707d1b5694d9a9a8b7330c034725284b48779ab922d330eb7f6"
+    },
+    {
+      "id": "mandelbulb-drift",
+      "group": "3D",
+      "signature": "d95f54bd223a59208bdf1f1f518bac21b4b67b6a53f06f3f98eb7ffc030d0e3a"
+    },
+    {
+      "id": "storm-surge",
+      "group": "Cinematic / Shaders",
+      "signature": "b1eb4b164ddce602d7c795b171549dd031f7cda57878228436242b49027e25d9"
+    },
+    {
+      "id": "ink-dispersion",
+      "group": "Cinematic / Shaders",
+      "signature": "0f3c8954eaa41b3fac900c93cc1ce617d72987e55c38ddf0349e4be4e64b01dc"
+    },
+    {
+      "id": "infinity-mirror",
+      "group": "3D",
+      "signature": "77e66347780adb1bf936ca2990a70277ad13f4a48f9c86242d346398ba1e08c2"
+    },
+    {
+      "id": "ion-tempest",
+      "group": "Cinematic / Shaders",
+      "signature": "dba122d75ad6a7e7ba0c585914e1d6cbc5878d9833486780d9e9b16d3c132020"
+    },
+    {
+      "id": "crystal-reliquary",
+      "group": "3D",
+      "signature": "6916354ab3fb111e8e94f5ebdf4c9fd5a428f61e50719ac2b15b781d45c357f8"
+    },
+    {
+      "id": "neural-cascade",
+      "group": "Cinematic / Shaders",
+      "signature": "a77b6557eabf61d83ec91cc92fb2192f1bafde4608f3ce5a96fea92e3b899e32"
+    },
+    {
+      "id": "aurora-reactor",
+      "group": "Cinematic / Shaders",
+      "signature": "efc27a079b3499cc996bd5de9dfe9998000c2342bfa7042ca4cf3c3d4055ce60"
+    },
+    {
+      "id": "warp-loom",
+      "group": "Cinematic / Shaders",
+      "signature": "a8806e5dc73648a82a07f3ec41892f70ed1ef79264dc9cef1d3b512cdd026431"
+    },
+    {
+      "id": "fractal-nebula",
+      "group": "Cinematic / Shaders",
+      "signature": "3578e811c791bcc2a5597c6b704325427f6f773d94c3a3493750356d5a17c559"
+    },
+    {
+      "id": "aurora-storm",
+      "group": "Cinematic / Shaders",
+      "signature": "e16690d0deb49a016dcc0b6f1495bcdcbee9dcdda4a617b9b5a1521277dad488"
+    },
+    {
+      "id": "wormhole-transit",
+      "group": "3D",
+      "signature": "3b70b6ddb5adf48173e1826d455f303b4f19f1c9dfbffca2e151f2ebf5ce71e3"
+    },
+    {
+      "id": "neon-metropolis",
+      "group": "Neon / Lasers",
+      "signature": "e9d6b4ef8e8d0cb4e3c288229fafef444cd0c2fce282216e7e74816d1b7b47d7"
+    },
+    {
+      "id": "solid-color",
+      "group": "Basics",
+      "signature": "777a01977b3acc82a2baac7d9b03b7ad9aaaf2d68b90178e283b4db90ed786c2"
+    },
+    {
+      "id": "gradient-wash",
+      "group": "Basics",
+      "signature": "836ed691beb139b127e87fbac7e4c7170c2ae79f80878373ea02a8f913c08268"
+    },
+    {
+      "id": "color-bars",
+      "group": "Basics",
+      "signature": "e2ec193c6d1ccc595490ee9ec8e509486b4ab608a5d624eda2cbbf914e40aafd"
+    },
+    {
+      "id": "noise-static",
+      "group": "Basics",
+      "signature": "017fc72d8b7ac6126ef41ca4a063e323959192d4134836a7cced66df7282ce83"
+    },
+    {
+      "id": "film-grain",
+      "group": "Basics",
+      "signature": "52d5400bcecbde3329bcb8aa2a083a66fd40294c2f0d7d4e5b32e649354aa80a"
+    },
+    {
+      "id": "checkerboard",
+      "group": "Simple",
+      "signature": "5c1e7aecc5efe7eaccf2ea899388169af4347aeba27e702bd9bf2f3f3e7b70a3"
+    },
+    {
+      "id": "video-chroma",
+      "group": "Video FX",
+      "signature": "2fccd246e6d92cc33d5f46225911a5afa011033fe3e896fb2973652e9e31facd"
+    },
+    {
+      "id": "video-kaleido",
+      "group": "Video FX",
+      "signature": "7ad94f49d5bc2063ce054ebff2e0add11767d784290f4f20b1a54133af830305"
+    },
+    {
+      "id": "video-pixelate",
+      "group": "Video FX",
+      "signature": "815527ff4fc11b5b8c144df5bb49f16338abb461fa959c082be5dcbfb1b917f5"
+    },
+    {
+      "id": "video-trails",
+      "group": "Video FX",
+      "signature": "5bf2304123026746bcd02aace78bd9b45f5bbf884a50180efba15ce7922fe114"
+    },
+    {
+      "id": "glitch-rgb-split",
+      "group": "Glitch / Effects",
+      "signature": "6386664368e85792e87fcfc92a4c8e817272e40a7fb94efbb8b73e64a77330c2"
+    },
+    {
+      "id": "glitch-scanlines",
+      "group": "Glitch / Effects",
+      "signature": "8623cafaaca609f692c0b05ac21da922adb1aed2d87fab8bc2af1f366e4f4582"
+    },
+    {
+      "id": "glitch-slices",
+      "group": "Glitch / Effects",
+      "signature": "d1ebc10bed9006c6ef953a7b566786f5071956755a1248a2ecc3fd6a9f67c93a"
+    },
+    {
+      "id": "glitch-crt",
+      "group": "Glitch / Effects",
+      "signature": "e04c5cd4b8ba37fc3b1f48da1b60bdda23408399f3b33ef4bc600dbabee74ab6"
+    },
+    {
+      "id": "video-dots-gpu",
+      "group": "Video FX",
+      "signature": "9179378e4d1c5423040bb7769e3e887e7f303474f4a759ce7312e6a64d7a915a"
+    },
+    {
+      "id": "video-high-contrast",
+      "group": "Video FX",
+      "signature": "e4a46c3dda1f4f6eb74a0694316259f4f1a5f0bad6b87295a4d562c53853335c"
+    }
+  ],
+  "removed": [
+    "dot-grid",
+    "pulse-stripes",
+    "cross-pulse",
+    "diamond-tiles",
+    "radial-spokes",
+    "triangle-mesh",
+    "ring-grid",
+    "hatch-weave",
+    "dash-lanes",
+    "beat-weave",
+    "ripple-lattice",
+    "polygon-tunnel",
+    "orbital-cages",
+    "silk-flow",
+    "prism-caustics",
+    "laser-fan",
+    "neon-hex",
+    "data-rain",
+    "signal-tear",
+    "pulse-grid",
+    "wave-stack",
+    "beat-orbit",
+    "level-blocks",
+    "helix-tower",
+    "perspective-floor",
+    "gyro-rings",
+    "depth-frames",
+    "ember-drift",
+    "velvet-fog",
+    "prism-flare",
+    "molten-glass",
+    "laser-harp",
+    "neon-frame",
+    "beam-cascade",
+    "circuit-pulse",
+    "pixel-sort",
+    "vhs-tracking",
+    "block-shift",
+    "interference",
+    "video-edge-glow",
+    "video-thermal",
+    "video-prism-split",
+    "video-ripple-lens",
+    "video-mirror-tiles",
+    "video-halftone",
+    "video-solarize",
+    "video-wave-warp",
+    "video-duotone",
+    "alpha-rings",
+    "alpha-bars",
+    "alpha-grid",
+    "alpha-spot",
+    "alpha-sweep",
+    "alpha-diamonds",
+    "alpha-fog",
+    "alpha-waves",
+    "vignette",
+    "split-tone",
+    "sweep-band",
+    "grid-lines"
+  ],
+  "files": {
+    "src/sketches/audio-features.js": "9bbb3d661fe601d95e67b85d4cc923310f7f8103e0c0aaed7f8bb3473720becb",
+    "src/sketches/aurora_reactor.js": "e8d074618bbed0a23ca0d5d0bfec6cbe1fd724302b1c51e098b751d0ed8a7dfa",
+    "src/sketches/aurora_storm.js": "3d6cc3258ef421afae0d303f5d15dac28ca81321879f5a69ac7054dc93755c07",
+    "src/sketches/aurora_veil.js": "e72c774c50cf66965f0122f0766320651e98560b6b25fd836a06c9eb00a19590",
+    "src/sketches/bars.js": "e8f62f8cb76d482cabcf817d412019802e0bdebf38d8b2aa0129948fa00f754a",
+    "src/sketches/character3d.js": "380161c645b3970f89b616d1fab84e081dd6515ca5cc6a4511275f6154e1781e",
+    "src/sketches/checkerboard.js": "3d8eb7d6e2cfb1107be2af20bc871618658539d518593901d94cff0fe08a4be5",
+    "src/sketches/chroma_mandala.js": "994cbe858ea15f29a15aedaa2c4bb3c65361c171bbca73cde91f169fab1d4864",
+    "src/sketches/circles.js": "21db55a0469389fcaa75ebba4e5e0e20d6cd3dcf43de86a62fa71e07fe135f46",
+    "src/sketches/color_bars.js": "e906f585d5f5c3fb73ae1fdab4e900f0fa5e4bfa213e5d6f88292864a19b0c4d",
+    "src/sketches/crystal_reliquary.js": "0196b068378d28b9aa3f98e1eb1f2685a921476f35d3b0f8808a283dee03fb99",
+    "src/sketches/cymatic_bloom.js": "67e5c451cdd3a3fd5244203d189140bee8cea1f4b26963a76a89f6c1462532c7",
+    "src/sketches/echo_ripples.js": "442cb40d817667934889b4f1844e44f4e0f5ee36af5a6028883d7060000cb5cf",
+    "src/sketches/event_horizon.js": "50c1c4b245830b8add1784c1677b00c2e516ac358378bdb213df48c62cc08201",
+    "src/sketches/film_grain.js": "3cc2f52720266637d6549b2f6af294988fcde5bba384e169bc885b404fc8b67a",
+    "src/sketches/fractal_nebula.js": "6ead05a6a55ebb76ebeb7830e8ebfad86df74e36c15c3288258a08bed14e5fe0",
+    "src/sketches/glitch_crt.js": "74f8d4293857547b70c06afd87b9a58b4170c829fdae6000b1ba6dd9cd506990",
+    "src/sketches/glitch_matrix.js": "828da7757a4bac0e4bfff36f15675ecf140f0e3ede3455f42d94ec21802fdcc5",
+    "src/sketches/glitch_rgb_split.js": "28da9b837591fbeebe972defc970ca30c84677980656061db3c9432627c61439",
+    "src/sketches/glitch_scanlines.js": "ffdd8ba0d9ed7d45cee70a40e9368cb7c36464454353b413b2bab5e558d3e34a",
+    "src/sketches/glitch_slices.js": "040c834189b10d8091cb8c563c61c928cd4c05300d988e9ea0abd4d269d6ac00",
+    "src/sketches/gradient_wash.js": "c0328e7effe0ad0434bf6bbf2ed70a5ef29459d85158b2d29e5488b98bfd20a2",
+    "src/sketches/holo_swarm.js": "2ab4c1f3bb5f96848c4f4d1bef572fe0fa24a93305f296957eb75c9e3176b4de",
+    "src/sketches/infinity_mirror.js": "69d142f655e7d84ec820ec811a6a1870b4f49bea77e5b13859c9771f5313e826",
+    "src/sketches/ink_dispersion.js": "ed374a4c286e9af0f978db15a1b276a11c51f5d189421148e414f3c30b5cede7",
+    "src/sketches/ion_tempest.js": "0e835cc4cf5683c499c654427f9399bbcd67f4c53b6437484defdd49acd0669a",
+    "src/sketches/laser_cathedral.js": "6315adef5e3be616c96f8af2ad87f4d68a354811d3fc846cbe64d36689b236a9",
+    "src/sketches/laser_grid.js": "434f6a20f17e139423dc7148cc9e76cef1199a830dc756737c4dacc3e97be7cb",
+    "src/sketches/liquid_chrome.js": "6c553a4aabf2cde82c30075760287672da55c071cdbf0f32b800bfe60cf8a034",
+    "src/sketches/mandelbulb_drift.js": "775c8d0b18a24f6b6a3136fb1b5b2937aca3eddb921d489d9e913b2824e994de",
+    "src/sketches/media_pattern.js": "57db632a5b43db67dd5a63d536b6b5397ae73e34bee4ae4cd9410ebd5d28c36b",
+    "src/sketches/neon_metropolis.js": "ebdd06d59c90874f86a81b85f040ae726d979f5a8e28e83b04fe83136c3a3d75",
+    "src/sketches/neon_ribbons.js": "82c462bd1b4f36db84f3c04554b00cf71a089e7483a642c1e7bfba2cc26043a6",
+    "src/sketches/neural_cascade.js": "552e4ad37684de1e3c29ef47bccee74eaa708633f4ff2c5083f94ab393d8bca8",
+    "src/sketches/noise_static.js": "6c3a346b2e1116685a8c43e8268f5294eb8e5c23e79a48f5ec25db069b483223",
+    "src/sketches/particle_storm.js": "115267376298fdb3dfb428c3a777f3d6e5d3d12cb555752e12f185612175c8e8",
+    "src/sketches/plasma_waves.js": "d763c395f5a128923c30466a5f154d57bbee1a4ffc4ec9b431be33ef60785b81",
+    "src/sketches/prism_burst.js": "18d15ce84e5ffc32bca7f710a0d4246bbcc243ea105c1554c7d4f32be1a6d8a6",
+    "src/sketches/pulse_rings.js": "8188f7f1ecaddab1cdbe7ba89c8295f721e09fe6d0aafac691c66e9ffa9e750b",
+    "src/sketches/shader-utils.js": "0b4b0f03365d9029e74d28c887fbf6f4f5584af0fabd03356d54fa696753614c",
+    "src/sketches/solid_color.js": "9646802ea748addd0c21fa385ca7b6a82f040276976ca7d1ae28e56dfeb949be",
+    "src/sketches/starfield_rush.js": "2c373c86350011445cceff60a65dd099251aa63f122ad1a3bf2bf71ae2949f16",
+    "src/sketches/storm_surge.js": "8dc8d9cba8b1c42ca9e9075b8823df1f5769d3e2e259b958910699e6c3404c82",
+    "src/sketches/strobe_pulse.js": "8f6020156f900772ee59ca62d9dd505591620f416dca3171b628e7f53647ce35",
+    "src/sketches/techno3d.js": "fda382759ad4ac8faec33045a9dc1a6b3374c1c2c156cd0e3f7bf34ed45929bf",
+    "src/sketches/video_chroma.js": "a36cfac7b61fc79659f0179158c23e2e7ad403b310a4cb908361a70940347828",
+    "src/sketches/video_kaleido.js": "d4a230afd08f5b7a435774032aa41c9f380131ea3b37994e5ce3e0e10302a461",
+    "src/sketches/video_pixelate.js": "150e36e194c2e9493740880bc26338c1d63305ac1104fcd256984e42c402a42c",
+    "src/sketches/video_trails.js": "2f9df9d1b1d6c24c63840e0a50c1e4283aef807a168db37c46c4fe09e6444aea",
+    "src/sketches/viz-utils.js": "98366358a3e649a30be80cd64d603ac99999bea5fd084c588aee5ca79ba30542",
+    "src/sketches/warp_loom.js": "1148dab97101578bbf23ee42a033bce5b31a493870182a39ad90c9ed5d20c9c3",
+    "src/sketches/webcam_dots_gpu.js": "331b955f4f0deb67e48b4e5be06fb4e29bc0d9947ce429a15b74f0cb6d926493",
+    "src/sketches/webcam_high_contrast.js": "75cc1f3efd6edf4b77944219248c5967fdfe28daf9f85beaa704bcb42a3bafd6",
+    "src/sketches/wormhole_transit.js": "de93492ea3e0a5c8b86c7aeca8e93ec15814ca08db932ee8aa785f19315960f0"
+  },
+  "retainedDeclarationSha256": "0b27378a797b3cf85dc95eeaf2a6da68f20c811358ab4cf150a6d20b32f00e09"
+}

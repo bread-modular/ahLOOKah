@@ -241,13 +241,9 @@ import webcamHighContrast, {
   createAudioController as createWebcamHighContrastAudioController,
 } from './sketches/webcam_high_contrast.js';
 
-// Shared band controls also drive the new inexpensive pattern collections.
+// Shared slider definitions preserve older pattern defaults.
 import { BAND_PARAMS as BAND_RESPONSIVENESS } from './sketches/band-reactive.js';
-import { BASIC_PATTERNS } from './sketches/basic-patterns.js';
-import { LIGHTWEIGHT_PATTERNS } from './sketches/lightweight-patterns.js';
-import { CAMERA_PATTERNS } from './sketches/camera-patterns.js';
-import { ALPHA_PATTERNS } from './sketches/alpha-patterns.js';
-import { BASICS_PATTERNS } from './sketches/basics-patterns.js';
+import { REPLACEMENT_PATTERNS } from './sketches/replacements/index.js';
 
 // The cinematic shader looks also expose transient gain. Band sliders shape
 // sustained movement; Punch controls kick/snare/hat impacts independently.
@@ -1046,12 +1042,8 @@ export const SKETCHES = [
     group: 'Video FX',
     camera: true,
   }, // 59
-  // Append rather than reorder: preserve existing pad defaults and legacy indices.
-  ...BASIC_PATTERNS,
-  ...LIGHTWEIGHT_PATTERNS,
-  ...CAMERA_PATTERNS,
-  ...ALPHA_PATTERNS,
-  ...BASICS_PATTERNS,
+  // Preserve all 50 older entries above (including Checkerboard and Ion Tempest).
+  ...REPLACEMENT_PATTERNS,
 ];
 
 // Reserved id for the global dual-effect blend params (shown in merge mode).

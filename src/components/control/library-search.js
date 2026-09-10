@@ -75,8 +75,8 @@ export function parseQuery(query) {
 }
 
 export function searchableText(sketch) {
-  // The id counts in both spellings: the raw form matches "ripple-lattice" typed
-  // verbatim, the spaced form matches "ripple lattice" as two separate terms.
+  // The id counts in both spellings: the raw form matches "membrane-modes" typed
+  // verbatim, the spaced form matches "membrane modes" as two separate terms.
   const id = String(sketch.id || '');
   const parts = [sketch.name, sketch.group, sketch.description, id, id.replace(/-/g, ' ')];
   if (sketch.camera) parts.push('camera', 'webcam');

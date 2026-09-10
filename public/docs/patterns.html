@@ -58,16 +58,17 @@
         <p>The <strong>pattern library</strong> sits in the middle of the control panel. Patterns are grouped by theme:</p>
 
         <ul>
-          <li><strong>Simple</strong> — first in the library: <em>Circles</em>, <em>Bars</em>, <em>Dot Grid</em>, <em>Pulse Stripes</em>, <em>Cross Pulse</em>, <em>Diamond Tiles</em>, <em>Radial Spokes</em>, <em>Triangle Mesh</em>, <em>Ring Grid</em>, <em>Hatch Weave</em>, <em>Dash Lanes</em>, and <em>Checkerboard</em>.</li>
-          <li><strong>Rhythmic</strong> — beat-driven shapes like <em>Pulse Rings</em>, <em>Beat Weave</em>, <em>Ripple Lattice</em>, <em>Pulse Grid</em>, <em>Wave Stack</em>, <em>Beat Orbit</em>, and <em>Level Blocks</em>.</li>
-          <li><strong>3D</strong> — rotating, depth-mapped structures, including <em>Polygon Tunnel</em>, <em>Orbital Cages</em>, <em>Helix Tower</em>, <em>Perspective Floor</em>, <em>Gyro Rings</em>, and <em>Depth Frames</em>.</li>
-          <li><strong>Cinematic / Shaders</strong> — GPU shaders and atmospheric looks, including lightweight <em>Silk Flow</em>, <em>Prism Caustics</em>, <em>Ember Drift</em>, <em>Velvet Fog</em>, <em>Prism Flare</em>, and <em>Molten Glass</em>.</li>
-          <li><strong>Neon / Lasers</strong> — glow lines and light effects, including <em>Laser Fan</em>, <em>Neon Hex</em>, <em>Laser Harp</em>, <em>Neon Frame</em>, <em>Beam Cascade</em>, and <em>Circuit Pulse</em>.</li>
-          <li><strong>Video FX</strong> — camera-input effects like chroma key, kaleidoscope, edge glow, thermal color, prism split, ripple lens, mirror tiles, halftone, solarize, wave warp, and duotone.</li>
-          <li><strong>Glitch / Effects</strong> — RGB split, scanlines, CRT, <em>Data Rain</em>, <em>Signal Tear</em>, <em>Pixel Sort</em>, <em>VHS Tracking</em>, <em>Block Shift</em>, and <em>Interference</em>.</li>
-          <li><strong>Basics</strong> — solid color, color wash, color bars, noise static, film grain, <em>Vignette</em>, <em>Split Tone</em>, <em>Sweep Band</em>, and <em>Grid Lines</em>.</li>
-          <li><strong>Alphas</strong> — white/gray looks on a pure black background (<em>Alpha Rings</em>, <em>Alpha Bars</em>, <em>Alpha Grid</em>, <em>Alpha Spot</em>, <em>Alpha Sweep</em>, <em>Alpha Diamonds</em>, <em>Alpha Fog</em>, <em>Alpha Waves</em>), built for Alpha Blend in projection mapping: brightness becomes opacity once the black keys out.</li>
+          <li><strong>Simple</strong> — Circles, Bars, Checkerboard, Truchet Relay, and Counterweight.</li>
+          <li><strong>Rhythmic</strong> — beat-driven shapes, plus Membrane Modes and Ratchet Wheel.</li>
+          <li><strong>3D</strong> — depth-driven structures, plus Pin Relief and Folded Spire.</li>
+          <li><strong>Cinematic / Shaders</strong> — atmospheric shaders including Ion Tempest, plus Schlieren Flow and Tidal Glass.</li>
+          <li><strong>Neon / Lasers</strong> — glowing light effects, plus Vector Knot and Prism Scanner.</li>
+          <li><strong>Video FX</strong> — live camera effects, plus Video Slit Scan and Video Facet Fold.</li>
+          <li><strong>Glitch / Effects</strong> — digital effects, plus Bitplane Rewire and Riso Misprint.</li>
+          <li><strong>Basics</strong> — Solid Color, Color Wash, Color Bars, Noise Static, Film Grain, Barn Doors, and Stair Wipe.</li>
+          <li><strong>Alphas</strong> — Iris Diaphragm and Cellular Gate: grayscale-on-black mattes for the existing Alpha Blend black key (not proportional luma-to-opacity).</li>
         </ul>
+        <p>68 built-in patterns. All 50 older entries are preserved; the rejected 60-pattern expansion is replaced by the 18 named additions above. Media and custom Projection Mapping categories are unchanged.</p>
 
         <figure class="figure">
           <img src="/docs/shots/patterns.jpg" alt="The ahLOOKah pattern library with a selected pattern and its parameter sliders" />
@@ -75,14 +76,14 @@
         </figure>
 
         <h2>Fast building blocks</h2>
-        <p>The Simple shapes use bounded, single-density Canvas2D drawing. The shader and camera effects use single passes instead of heavy raymarching. Each has bass, mid, and high responsiveness controls; set a band to zero to remove its contribution. Hover a library button to see what each band changes.</p>
+        <p>The replacements use distinct vector mechanisms, 3D faces, shader fields, and camera constructions. Each has independent bass, mid, and high structural controls; zero disables a band. Motion Speed controls autonomous animation separately, with no simulated audio in silence. Tidal Glass uses a bounded raymarch; Video Slit Scan holds a fixed 16-frame history. Hover a library button for its band mappings.</p>
         <div class="callout tip">
           <p><strong>Checkerboard is not audio reactive.</strong> It starts as stationary black-and-white squares. Change cell size, hues, saturation, lightness, or optional manual drift. Neither audio nor old saved audio-pulse settings can change its size or speed. It stays in <strong>Simple</strong> and is the default source when you add a mapping inside a Projection Mapping pattern; existing mappings keep their sources.</p>
         </div>
-        <p>Camera effects require permission on the output window; the control preview is a placeholder. The new effects include a mirror switch and share one camera stream across LIVE and CUE. Thermal is a false-color visual effect, not a temperature sensor.</p>
+        <p>Camera effects require permission on the output window; the control preview is a placeholder. The two replacement camera effects use a mirrored cover crop and share one camera stream across LIVE and CUE.</p>
 
         <h2>Searching the library</h2>
-        <p>Press <kbd>/</kbd> to jump to the <strong>search box</strong> above the list, then type. Matching ignores case and covers each pattern's name, id, group, description, and type keywords — so <em>camera</em> finds the Video FX patterns, <em>media</em> the loaded images and videos, and <em>mapping</em> the projection patterns. Separate terms all have to match, so <em>video tiles</em> narrows the list instead of widening it.</p>
+        <p>Press <kbd>/</kbd> to jump to the <strong>search box</strong> above the list, then type. Matching ignores case and covers each pattern's name, id, group, description, and type keywords — so <em>camera</em> finds the Video FX patterns, <em>media</em> the loaded images and videos, and <em>mapping</em> the projection patterns. Separate terms all have to match, so <em>video slit</em> narrows the list instead of widening it.</p>
         <p>A count line shows how many patterns matched, and a query that matches nothing offers <strong>Clear search</strong>. Groups with results expand automatically while you type; your saved collapsed groups are never changed. <kbd>Esc</kbd> in the field clears the query, then leaves the field.</p>
 
         <h2>Favourites</h2>

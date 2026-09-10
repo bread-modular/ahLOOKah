@@ -32,7 +32,7 @@ export function scaleBands(features = {}, params = {}) {
   };
 }
 
-// Only the September 9–10 collections opt into this response. Keep scaleBands,
+// Replacement patterns opt into this response. Keep scaleBands,
 // BAND_PARAMS and BAND_SCHEMA unchanged: older Bars also uses the linear mapper,
 // and the legacy registry shares the parameter definitions.
 // A finite-slope soft knee lifts modest levels (0.2 -> ~0.71), without a noise
