@@ -31,13 +31,13 @@ function basicsFactory(kind) {
         ctx.fillRect(0, 0, w, h);
         const driftX = Math.sin(phase * 0.7) * w * 0.03;
         const driftY = Math.cos(phase * 0.5) * h * 0.03;
-        const open = Math.min(w, h) * 0.8 * size * (1 + C.bass * 0.25);
+        const open = Math.min(w, h) * 0.8 * size * (1 + C.bass * 0.8);
         const glow = ctx.createRadialGradient(cx + driftX, cy + driftY, 0, cx + driftX, cy + driftY, Math.max(1, open * 0.7));
         glow.addColorStop(0, `hsla(${hue} 60% 26% / 0.5)`);
         glow.addColorStop(1, 'hsla(0 0% 0% / 0)');
         ctx.fillStyle = glow;
         ctx.fillRect(0, 0, w, h);
-        const squeeze = 1 + C.mid * 0.3;
+        const squeeze = 1 + C.mid;
         const gradient = ctx.createRadialGradient(0, 0, open * 0.55, 0, 0, Math.max(1, open));
         gradient.addColorStop(0, 'rgba(0,0,0,0)');
         gradient.addColorStop(0.75, `hsla(${hue} 60% 4% / ${strength * 0.55})`);
@@ -49,8 +49,8 @@ function basicsFactory(kind) {
         ctx.fillRect(-w, -h, w * 2, h * 2);
         ctx.restore();
         if (C.high > 0) {
-          ctx.strokeStyle = `hsla(${(hue + 180) % 360} 90% 60% / ${Math.min(1, C.high * 0.35)})`;
-          ctx.lineWidth = Math.max(1, open * 0.02);
+          ctx.strokeStyle = `hsla(${(hue + 180) % 360} 90% 60% / ${Math.min(1, C.high * 0.85)})`;
+          ctx.lineWidth = Math.max(1, open * (0.02 + Math.min(0.14, C.high * 0.09)));
           ctx.beginPath();
           ctx.ellipse(cx + driftX, cy + driftY, open * 0.72 * squeeze, open * 0.72 / squeeze, 0, 0, TAU);
           ctx.stroke();
@@ -124,11 +124,13 @@ function basicsFactory(kind) {
       ctx.strokeStyle = `hsla(${hue} 70% 60% / 0.35)`;
       ctx.stroke();
       if (C.high > 0) {
-        ctx.fillStyle = `hsla(${(hue + C.high * 30) % 360} 90% 70% / ${Math.min(1, C.high * 0.55)})`;
-        const radius = 1.5 + C.high * 3;
+        ctx.fillStyle = `hsla(${(hue + C.high * 30) % 360} 90% 70% / ${Math.min(1, C.high * 0.85)})`;
+        const radius = Math.min(cell * 0.3, 1.5 + C.high * cell * 0.20);
+        // At most 33 x 33 nodes, aligned to real intersections even at 4K.
+        const nodeStep = cell * Math.max(1, Math.ceil(Math.max(w, h) / (cell * 32)));
         ctx.beginPath();
-        for (let x = 0; x <= w; x += cell * 4) {
-          for (let y = 0; y <= h; y += cell * 4) {
+        for (let x = 0; x <= w; x += nodeStep) {
+          for (let y = 0; y <= h; y += nodeStep) {
             ctx.moveTo(x + radius, y);
             ctx.arc(x, y, radius, 0, TAU);
           }

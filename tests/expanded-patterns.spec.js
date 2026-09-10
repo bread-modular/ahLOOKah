@@ -152,12 +152,28 @@ test.describe('expanded pattern rendering', { tag: '@patterns' }, () => {
       const image = h.p.canvas.toDataURL();
       const difference = (a, b) => a.reduce((sum, v, i) => sum + Math.abs(v - b[i]), 0) / a.length;
       const changed = {};
+      const modest = {};
       const muted = {};
+      const independent = {};
+      const mixed = { sub: 0.2, mid: 0.2, high: 0.2 };
       for (const [key, feature] of [['bass', 'sub'], ['mid', 'mid'], ['high', 'high']]) {
         changed[key] = difference(baseline, await h.sample({ [feature]: 0.85 }));
+        modest[key] = difference(baseline, await h.sample({ [feature]: 0.2 }));
         muted[key] = difference(baseline, await h.sample({ [feature]: 0.85 }, { [key]: 0 }));
+        independent[key] = difference(await h.sample(mixed), await h.sample({ ...mixed, [feature]: 0 }));
         h.params[key] = 1;
       }
+      const combined = difference(baseline, await h.sample(mixed));
+      const audioImage = h.p.canvas.toDataURL();
+      const allMuted = difference(baseline, await h.sample(mixed, { bass: 0, mid: 0, high: 0 }));
+      Object.assign(h.params, { bass: 1, mid: 1, high: 1 });
+      const silenceAgain = difference(baseline, await h.sample());
+      const loud = await h.sample({ sub: 1.6, mid: 1.6, high: 1.6 }, { bass: 2, mid: 2, high: 2 });
+      const extremes = {
+        lit: loud.filter((v, i) => i % 4 < 3 && v > 15).length,
+        dark: loud.filter((v, i) => i % 4 < 3 && v < 240).length,
+        grayscale: h.sketch.group !== 'Alphas' || loud.every((v, i) => i % 4 >= 2 || v === loud[i - i % 4 + 2]),
+      };
       const limits = {};
       for (const edge of ['min', 'max']) {
         const patch = Object.fromEntries(h.sketch.params.filter((d) => d.key !== 'speed').map((d) => [d.key, d[edge]]));
@@ -167,7 +183,7 @@ test.describe('expanded pattern rendering', { tag: '@patterns' }, () => {
       h.p.resizeCanvas(420, 260);
       const resized = await h.sample();
       return {
-        image, changed, muted, limits, reads: h.reads,
+        image, audioImage, changed, modest, combined, muted, independent, allMuted, silenceAgain, extremes, limits, reads: h.reads,
         nonblack: baseline.filter((v, i) => i % 4 < 3 && v > 15).length,
         resize: [h.p.canvas.width, h.p.canvas.height, resized.length],
       };
@@ -175,10 +191,25 @@ test.describe('expanded pattern rendering', { tag: '@patterns' }, () => {
     const imagePath = testInfo.outputPath(`${id}.png`);
     await writeFile(imagePath, Buffer.from(result.image.split(',')[1], 'base64'));
     await testInfo.attach('Default look', { path: imagePath, contentType: 'image/png' });
+    const audioPath = testInfo.outputPath(`${id}-audio.png`);
+    await writeFile(audioPath, Buffer.from(result.audioImage.split(',')[1], 'base64'));
+    await testInfo.attach('Modest audio, default sliders', { path: audioPath, contentType: 'image/png' });
+    const metrics = { id, modest: result.modest, combined: result.combined };
+    await writeFile(testInfo.outputPath('reactivity.json'), JSON.stringify(metrics, null, 2));
     expect(result.nonblack).toBeGreaterThan(300);
+    expect(result.allMuted).toBe(0);
+    expect(result.silenceAgain).toBe(0);
+    expect(result.combined, `${id} modest full-spectrum input must visibly change the look`).toBeGreaterThan(3);
+    expect(result.extremes.lit, `${id} max audio must not black out`).toBeGreaterThan(300);
+    expect(result.extremes.dark, `${id} max audio must not become a solid white frame`).toBeGreaterThan(300);
+    expect(result.extremes.grayscale).toBe(true);
     for (const band of ['bass', 'mid', 'high']) {
       expect(result.changed[band], `${id} ${band} must affect pixels`).toBeGreaterThan(0.02);
+      // 0.2 is modest sustained energy, not the near-full 0.85 used by the old
+      // smoke test. A sub-pixel average change alone isn't useful reactivity.
+      expect(result.modest[band], `${id} ${band} must respond at ordinary levels`).toBeGreaterThan(1);
       expect(result.muted[band], `${id} ${band}=0 must remove its contribution`).toBe(0);
+      expect(result.independent[band], `${id} muting ${band} must preserve the other bands`).toBe(0);
     }
     expect(result.limits).toEqual({ min: 360 * 240 * 4, max: 360 * 240 * 4 });
     expect(result.resize).toEqual([420, 260, 420 * 260 * 4]);

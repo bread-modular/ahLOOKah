@@ -37,7 +37,7 @@ function basicFactory(kind) {
       phase = (phase + dt * bounded(params.speed, 0.6, 0, 3)) % (TAU * 100);
       const count = Math.round(bounded(params.density, 12, 4, 32));
       const size = bounded(params.size, 0.45, 0.1, 1);
-      const hue = (bounded(params.hue, 0.53, 0, 1) * 360 + C.high * 35) % 360;
+      const hue = (bounded(params.hue, 0.53, 0, 1) * 360 + C.high * 60) % 360;
       const ctx = p.drawingContext;
       const w = p.width, h = p.height;
       ctx.fillStyle = '#05070c';
@@ -57,7 +57,7 @@ function basicFactory(kind) {
       if (kind === 'radial-spokes') {
         const radius = Math.min(w, h) * 0.46;
         const inner = radius * 0.08;
-        const outer = radius * Math.min(1, size + C.bass * 0.22);
+        const outer = radius * Math.min(1, size * (1 + C.bass * 1.5));
         ctx.lineWidth = Math.max(1, radius * 0.012 * (1 + C.high));
         ctx.beginPath();
         for (let i = 0; i < count * 2; i++) {
@@ -97,8 +97,10 @@ function basicFactory(kind) {
       for (let y = 0; y < rows; y++) {
         for (let x = 0; x < cols; x++) {
           const wave = Math.sin(x * 0.65 + y * 0.8 + phase * 2);
-          const r = unit * 0.42 * Math.max(0.03, Math.min(1, size * (1 + C.bass * 0.65) + wave * C.mid * 0.07));
-          const cx = (x + 0.5) * dx, cy = (y + 0.5) * dy;
+          const r = unit * 0.42 * Math.max(0.03, Math.min(1, size * (1 + C.bass * 0.65) + wave * C.mid * 0.16));
+          const wobble = (kind === 'dot-grid' || kind === 'ring-grid') ? C.mid * unit * 0.22 : 0;
+          const cx = (x + 0.5) * dx + wave * wobble;
+          const cy = (y + 0.5) * dy + Math.cos(x * 0.8 - y * 0.65 + phase) * wobble;
           if (kind === 'dot-grid' || kind === 'ring-grid') {
             const radius = Math.max(0.5, kind === 'ring-grid' ? r * 0.85 : r);
             ctx.moveTo(cx + radius, cy);

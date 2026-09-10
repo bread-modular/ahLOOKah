@@ -1,7 +1,7 @@
 // Ten single-pass looks. Analytic shapes / short fixed loops only: no raymarch,
 // feedback buffers, per-pixel JS, or resolution-dependent object counts.
-import { AUDIO_SHADER_HEADER, makeAudioShader } from './shader-utils.js';
-import { BAND_PARAMS, bounded, reactiveEntry } from './band-reactive.js';
+import { AUDIO_SHADER_HEADER } from './shader-utils.js';
+import { BAND_PARAMS, bounded, makeBandShader, reactiveEntry } from './band-reactive.js';
 
 const HEADER = `${AUDIO_SHADER_HEADER}
   uniform float uPhase;
@@ -78,7 +78,7 @@ const LOOKS = [
         vec2 q = rotate2d(fi * 0.36 + uPhase * 0.3) * p;
         float tilt = 0.3 + abs(sin(fi * 0.6 + uPhase * 0.2 + uMid * 0.4)) * 0.7;
         float ring = length(q * vec2(1.0, 1.0 / tilt)) - (0.38 + fi * 0.045);
-        col += palette(fi * 0.06) * lineGlow(ring, 0.003 + uWarp * 0.005);
+        col += palette(fi * 0.06) * lineGlow(ring, 0.003 + uWarp * 0.005 + uHigh * 0.006);
       }
       finishColor(col);
     `,
@@ -207,16 +207,16 @@ const LOOKS = [
     body: `
       vec2 p = screenPoint();
       vec3 col = vec3(0.0);
-      float radius = 0.55 + uSub * 0.25;
+      float radius = 0.55 + uSub * 0.30 / (1.0 + uSub * 0.5);
       for (int i = 0; i < 16; i++) {
         float fi = float(i);
         if (fi >= uDetail) break;
         float a = fi * 6.2831 / max(1.0, uDetail) + uPhase * 1.5 + uMid * 0.8;
         vec2 c = vec2(cos(a), sin(a)) * radius;
-        float glow = lineGlow(length(p - c) - 0.02, 0.012 + uWarp * 0.012);
+        float glow = lineGlow(length(p - c) - 0.02, 0.012 + uWarp * 0.012 + uSub * 0.010);
         col += palette(fi * 0.05) * glow * (0.5 + 0.5 * sin(fi + uPhase * 6.0));
       }
-      col += palette(0.5) * lineGlow(length(p) - radius, 0.004 + uHigh * 0.008) * 0.6;
+      col += palette(0.5) * lineGlow(length(p) - radius + sin(atan(p.y, p.x) * 3.0 + uPhase) * uMid * 0.10, 0.004 + uHigh * 0.025) * 0.6;
       finishColor(col);
     `,
   },
@@ -251,7 +251,7 @@ const LOOKS = [
         vec2 c2 = vec2(-sway, y);
         col += palette(fi * 0.06) * lineGlow(length(p - c1) - 0.015, 0.010 + uWarp * 0.008);
         col += palette(fi * 0.06 + 0.5) * lineGlow(length(p - c2) - 0.015, 0.010 + uWarp * 0.008);
-        float rung = lineGlow(p.y - y, 0.004 + uHigh * 0.006)
+        float rung = lineGlow(p.y - y, 0.004 + uHigh * 0.018)
           * (1.0 - smoothstep(0.0, abs(sway) + 0.02, abs(p.x)));
         col += palette(0.3) * rung * 0.5;
       }
@@ -323,7 +323,7 @@ const LOOKS = [
       vec2 cell = floor(p);
       vec2 q = fract(p) - 0.5;
       float seed = hash21(cell);
-      vec2 drift = vec2(sin(uPhase + seed * 6.2831), cos(uPhase * 0.8 + seed * 12.0)) * 0.3;
+      vec2 drift = vec2(sin(uPhase + seed * 6.2831 + uMid * 1.4), cos(uPhase * 0.8 + seed * 12.0 + uMid)) * 0.3;
       float ember = lineGlow(length(q - drift) - 0.05 * (0.5 + seed), 0.02 + uWarp * 0.02);
       float flicker = 0.4 + 0.6 * pow(0.5 + 0.5 * sin(uPhase * 5.0 + seed * 40.0 + uMid * 3.0), 3.0);
       vec3 col = palette(seed * 0.06) * ember * (0.35 + flicker) * (0.5 + uSub * 0.8);
@@ -397,7 +397,7 @@ const LOOKS = [
         float d = (p.x - x + pluck) * aspect;
         float beam = lineGlow(d, 0.0015 + uWarp * 0.002 + uHigh * 0.002);
         float fade = smoothstep(0.0, 0.12, p.y) * (1.0 - smoothstep(0.85, 1.0, p.y));
-        col += palette(fi * 0.05 + uMid * 0.08) * beam * (0.35 + fade);
+        col += palette(fi * 0.05 + uMid * 0.30) * beam * (0.35 + fade);
       }
       finishColor(col);
     `,
@@ -436,7 +436,7 @@ const LOOKS = [
         vec2 origin = vec2(side * 1.2, 0.95);
         float a = atan(p.x - origin.x, origin.y - p.y);
         float spread = (fi / n - 0.5) * 1.1 + sin(uPhase * 0.9 + fi + uMid * 1.5) * (0.15 + uSub * 0.25);
-        float beam = lineGlow(a - spread, 0.006 + uWarp * 0.010);
+        float beam = lineGlow(a - spread, 0.006 + uWarp * 0.010 + uHigh * 0.012);
         float fade = 1.0 - smoothstep(0.0, 1.9, length(p - origin));
         col += palette(fi * 0.09) * beam * fade * (0.9 + uHigh * 0.7);
       }
@@ -454,9 +454,9 @@ const LOOKS = [
       float trace = dir < 0.5
         ? lineGlow(q.y - 0.5, 0.04 + uWarp * 0.03)
         : lineGlow(q.x - 0.5, 0.04 + uWarp * 0.03);
-      float node = lineGlow(length(q - 0.5) - 0.08, 0.03);
+      float node = lineGlow(length(q - 0.5) - (0.08 + uSub * 0.10), 0.03 + uSub * 0.03);
       float pulse = pow(0.5 + 0.5 * sin(uPhase * (3.0 + uHigh * 4.0) - (cell.x + cell.y) * 0.9), 6.0);
-      vec3 col = palette((cell.x + cell.y) * 0.02) * (trace * 0.4 + node * (0.2 + pulse * (0.5 + uSub)));
+      vec3 col = palette((cell.x + cell.y) * 0.02 + uMid * 0.14) * (trace * 0.4 + node * (0.2 + pulse * (0.5 + uSub)));
       col += palette(0.45 + uMid * 0.1) * trace * pulse * 0.8;
       finishColor(col);
     `,
@@ -483,7 +483,7 @@ const LOOKS = [
     body: `
       vec2 p = vTexCoord;
       float band = floor(p.y * uDetail);
-      float wobble = sin(p.y * 60.0 + uPhase * 8.0) * 0.002 * (1.0 + uMid);
+      float wobble = sin(p.y * 60.0 + uPhase * 8.0) * 0.002 * (1.0 + uMid * 8.0);
       float jump = (hash11(band + floor(uPhase * 6.0)) - 0.5) * 0.05 * uWarp * (0.4 + uSub);
       float x = fract(p.x + wobble + jump);
       vec3 col = palette(band * 0.03) * (0.3 + 0.7 * hash21(vec2(band, floor(x * 30.0))));
@@ -531,15 +531,14 @@ function factoryFor(body) {
   const fragment = `${HEADER}\nvoid main() {\n${body}\n}`;
   return (audio, _videoDeviceId, params = {}, runtimeContext = {}) => {
     let phase = 0;
-    return makeAudioShader(audio, params, fragment, (P, bands, p, controls) => {
-      const C = controls?.continuous || { bass: bands.sub, mid: bands.mid, high: bands.high };
+    return makeBandShader(audio, params, fragment, (P, C, p) => {
       phase = (phase + bounded(p.deltaTime / 1000, 1 / 60, 0, 0.1) * bounded(P.speed, 0.7, 0, 3)) % 10000;
       return {
         uSub: C.bass, uMid: C.mid, uHigh: C.high,
         uPhase: phase, uHue: bounded(P.hue, 0.55, 0, 1),
         uDetail: bounded(P.detail, 8, 3, 20), uWarp: bounded(P.warp, 0.7, 0, 2),
       };
-    }, { audioControls: runtimeContext.audioControls, renderScale: 1 });
+    }, runtimeContext);
   };
 }
 

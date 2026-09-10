@@ -4,8 +4,8 @@
 // and mid grays shade the edges. Brightness is therefore opacity once keyed.
 // Single-pass shaders, no raymarch/feedback/per-pixel JS, band wiring matches
 // the other lightweight collections (bass/mid/high, 0 mutes the band fully).
-import { AUDIO_SHADER_HEADER, makeAudioShader } from './shader-utils.js';
-import { BAND_PARAMS, bounded, reactiveEntry } from './band-reactive.js';
+import { AUDIO_SHADER_HEADER } from './shader-utils.js';
+import { BAND_PARAMS, bounded, makeBandShader, reactiveEntry } from './band-reactive.js';
 
 const HEADER = `${AUDIO_SHADER_HEADER}
   uniform float uPhase;
@@ -68,8 +68,10 @@ const LOOKS = [
     description: 'A soft spotlight pool on black: bass grows the pool, mids swirl the falloff rings, highs add a hot core.',
     body: `
       vec2 p = screenPoint();
-      float r = length(p) * (1.6 - uSub * 0.5) / (0.5 + uWarp * 0.8);
-      float fall = exp(-r * r * (2.2 - uSub));
+      // Positive falloff across the full 0..3.2 band range: never invert
+      // the exponent or collapse the radius into a full-screen white flash.
+      float r = length(p) * 1.6 / ((1.0 + uSub * 0.45) * (0.5 + uWarp * 0.8));
+      float fall = exp(-r * r * 2.2 / (1.0 + uSub * 0.35));
       float rings = 0.85 + 0.15 * sin(r * 14.0 * (0.5 + uDetail * 0.08) - uPhase * 3.0 + uMid * 4.0);
       float core = exp(-r * r * 14.0) * (0.35 + uHigh * 0.65);
       finishAlpha(clamp(fall * rings * 0.8 + core, 0.0, 1.0));
@@ -82,7 +84,7 @@ const LOOKS = [
       vec2 p = screenPoint();
       float a = atan(p.y, p.x) + uPhase + uMid * 0.6;
       float spokes = sin(a * max(1.0, floor(uDetail * 0.5)));
-      float beam = lineGlow(spokes, (0.06 + uSub * 0.20) * (0.5 + uWarp));
+      float beam = lineGlow(spokes, (0.06 + uSub * 0.20) * (0.5 + uWarp) * (1.0 + uHigh));
       float fade = 1.0 - smoothstep(0.0, 1.4, length(p));
       finishAlpha(beam * fade * (0.6 + 0.4 * sin(a * 2.0 - uPhase)));
     `,
@@ -129,15 +131,14 @@ function alphaFactory(body) {
   const fragment = `${HEADER}\nvoid main() {\n${body}\n}`;
   return (audio, _videoDeviceId, params = {}, runtimeContext = {}) => {
     let phase = 0;
-    return makeAudioShader(audio, params, fragment, (P, bands, p, controls) => {
-      const C = controls?.continuous || { bass: bands.sub, mid: bands.mid, high: bands.high };
+    return makeBandShader(audio, params, fragment, (P, C, p) => {
       phase = (phase + bounded(p.deltaTime / 1000, 1 / 60, 0, 0.1) * bounded(P.speed, 0.7, 0, 3)) % 10000;
       return {
         uSub: C.bass, uMid: C.mid, uHigh: C.high,
         uPhase: phase, uBright: bounded(P.bright, 1, 0.2, 1.6),
         uDetail: bounded(P.detail, 8, 2, 20), uWarp: bounded(P.warp, 0.5, 0, 2),
       };
-    }, { audioControls: runtimeContext.audioControls, renderScale: 1 });
+    }, runtimeContext);
   };
 }
 
