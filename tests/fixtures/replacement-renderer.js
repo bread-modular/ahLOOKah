@@ -19,32 +19,38 @@ function paintCamera(canvas, frame) {
   ctx.fillStyle = '#f86840'; ctx.beginPath(); ctx.arc(170 + Math.sin(frame * .18) * 80, 94, 27, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#fff'; ctx.font = 'bold 18px monospace'; ctx.fillText('LIVE / 123', 8, 170);
 }
-export async function renderTimeline(id, featuresAt = () => ({}), patch = {}, controlsTimeline = null, checkResize = false) {
+export async function renderTimeline(id, featuresAt = () => ({}), patch = {}, controlsTimeline = null, checkResize = false, options = {}) {
   // Pin Canvas2D to CPU from its first draw: Chromium's adaptive readback
   // promotion otherwise changes camera resampling partway through an audit.
   const getContext = HTMLCanvasElement.prototype.getContext;
   HTMLCanvasElement.prototype.getContext = function(type, options) {
     return getContext.call(this, type, type === '2d' ? { ...options, willReadFrequently: true } : options);
   };
-  const sketch = SKETCHES.find(s => s.id === id), params = { ...defaultParamValues(id), ...patch };
+  const count = options.count ?? FRAMES, dt = options.dt ?? DT;
+  const sketch = options.sketch || SKETCHES.find(s => s.id === id), params = { ...defaultParamValues(id), ...patch };
   const camera = document.createElement('canvas'); camera.width = W; camera.height = H;
   Object.assign(camera, { videoWidth: W, videoHeight: H, readyState: 4 });
   const controller = sketch.createAudioController(); let features = {}, armed = false, reads = 0, frameIndex = 0;
   const runtime = {
-    audioControls: { read() { reads++; if (controlsTimeline) return controlsTimeline[frameIndex]; return controller.update({ frame: {}, shared: { getFeatures: () => features }, params, deltaSeconds: DT }); } },
+    audioControls: { read() { reads++; if (controlsTimeline) return controlsTimeline[frameIndex]; return controller.update({ frame: {}, shared: { getFeatures: () => features }, params, deltaSeconds: dt }); } },
     createCapture(_p, _constraints, ready) { ready(); return { elt: camera, hide() {} }; },
   };
   const poison = { isStarted: true, getAnalysisFrame() { throw new Error('Render-side FFT scan'); } };
   const p = await new Promise(resolve => new p5(p => {
     sketch.factory(poison, null, params, runtime)(p);
-    const setup = p.setup, draw = p.draw;
-    p.setup = () => { setup(); p.noLoop(); resolve(p); };
-    p.draw = () => { if (armed) { p.deltaTime = DT * 1000; draw(); } };
+    const setup = p.setup, draw = p.draw, redraw = p.redraw.bind(p);
+    p.setup = () => { setup(); p.noLoop(); };
+    p.draw = () => { if (armed) { p.deltaTime = dt * 1000; draw(); } };
+    // setup() returning is NOT p5 readiness: it still awaits lifecycle hooks.
+    // Wait for its initial unarmed redraw/finishDraw instead. The previous
+    // fixture captured a transparent frame zero and raced its first band read.
+    let initial = true;
+    p.redraw = async (...args) => { await redraw(...args); if (initial) { initial = false; resolve(p); } };
   }));
   const frames = [];
   try {
-    for (let frame = 0; frame < FRAMES; frame++) {
-      frameIndex = frame; paintCamera(camera, frame); features = featuresAt(frame); armed = true;
+    for (let frame = 0; frame < count; frame++) {
+      frameIndex = frame; paintCamera(camera, options.staticCamera ? 0 : frame); features = featuresAt(frame); armed = true;
       await p.redraw(); armed = false;
       const gl = p._renderer.GL; let rgba;
       if (gl) {
@@ -53,9 +59,10 @@ export async function renderTimeline(id, featuresAt = () => ({}), patch = {}, co
         if (gl.getError() !== gl.NO_ERROR) throw new Error('GL render/readback error');
         for (let y = 0; y < H; y++) rgba.set(raw.subarray(y * W * 4, (y + 1) * W * 4), (H - y - 1) * W * 4);
       } else rgba = new Uint8ClampedArray(p.drawingContext.getImageData(0, 0, W, H).data);
+      if (rgba[3] !== 255) throw new Error(`Unpainted/transparent frame ${frame}; renderer lifecycle not ready`);
       frames.push(rgba);
     }
-    if (reads !== FRAMES) throw new Error(`Expected exactly ${FRAMES} binding reads; got ${reads}`);
+    if (reads !== count) throw new Error(`Expected exactly ${count} binding reads; got ${reads}`);
     if (checkResize) {
       p.windowWidth = 480; p.windowHeight = 270; p.windowResized();
       armed = true; await p.redraw(); armed = false;
