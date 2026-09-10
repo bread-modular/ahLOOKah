@@ -1585,6 +1585,18 @@ export function createAppRuntime({
     else bus.broadcast({ type: 'pattern-id', id: selection.ids[0] });
   }
 
+  function requestBlendStep(delta) {
+    if (cueSession) {
+      const blend = getCueParams(BLEND_ID);
+      const key = blend.mode === 1 ? 'add' : 'mix';
+      const next = Math.max(0, Math.min(1, Math.round(((blend[key] ?? 0.5) + delta) * 100) / 100));
+      requestParamChange(BLEND_ID, { [key]: next });
+    } else if (!cueEntryPending) {
+      // Send relative intent, not a value computed from a delayed screen echo.
+      bus.broadcast({ type: 'blend-step', delta });
+    }
+  }
+
   function requestParamChange(id, values) {
     if (!validProjectionPatch(SKETCHES.find((s) => s.id === id), getEditingParams(id), values)) return;
     if (id === BANDS_ID) {
@@ -2187,6 +2199,7 @@ export function createAppRuntime({
     getEditingSelection: () => cueSession?.selection || currentLiveSelection(),
     getEditingParams,
     requestParamChange,
+    requestBlendStep,
     requestSelection,
     requestCueSelection,
     requestCuePrimary,
@@ -2467,6 +2480,17 @@ export function createAppRuntime({
         }
         if (role === 'control') store.setState({ audioStatus: { ...lastAudioStatus } });
         return;
+
+      case 'blend-step': {
+        if (role !== 'screen' || cueSession || !currentLiveSelection().merge
+          || (msg.delta !== 0.05 && msg.delta !== -0.05)) return;
+        const blend = getParams(BLEND_ID);
+        const key = blend.mode === 1 ? 'add' : 'mix';
+        const next = Math.max(0, Math.min(1, Math.round(((blend[key] ?? 0.5) + msg.delta) * 100) / 100));
+        applyAcceptedLiveParamValues(BLEND_ID, { [key]: next });
+        bus.broadcast({ type: 'live-params', id: BLEND_ID, values: { [key]: next } });
+        return;
+      }
 
       case 'params': {
         if ((role !== 'screen' && (screenOnline || !SKETCHES.find((s) => s.id === msg.id)?.projection)) || typeof msg.id !== 'string' || msg.id.length > 64 || !msg.values || typeof msg.values !== 'object' || Array.isArray(msg.values) || Object.keys(msg.values).length > MAX_PROJECTION_PARAMS) return;

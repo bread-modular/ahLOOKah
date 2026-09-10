@@ -48,12 +48,13 @@ test.describe('dual-effect merge mode', () => {
     expect(await page.evaluate(() => JSON.stringify(window.__viz.merge))).toBe('[4,6]');
   });
 
-  test('merge mode shows blend params plus both patterns params', async ({ context }) => {
+  test('merge mode shows blend params plus both patterns params', async ({ context, page }) => {
+    await page.goto(SCREEN_URL);
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
 
     await control.keyboard.down('1');
-    await control.keyboard.down('3');
+    await control.keyboard.down('2');
 
     // Blend header + mode toggle + ONE level slider (default Blend @ 0.5)
     await expect(control.locator('#params-list .blend-header')).toBeVisible();
@@ -79,7 +80,7 @@ test.describe('dual-effect merge mode', () => {
     await expect(circlesGroup.locator('input[data-key="bass"]')).toBeVisible();
     await expect(barsGroup.locator('input[data-key="gain"]')).toBeVisible();
 
-    // Editing each pattern's slider reaches the screen live and independently
+    // Editing each pattern's slider is acknowledged independently by the screen
     await circlesGroup.locator('input[data-key="bass"]').evaluate((el) => {
       el.value = '1.5';
       el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -92,13 +93,13 @@ test.describe('dual-effect merge mode', () => {
     await expect(barsGroup.locator('input[data-key="gain"]')).toHaveValue('2');
 
     // Both buttons highlight as the merge pair
-    await expect(control.locator('.pattern-btn[data-index="0"]')).toHaveClass(/merge-active/);
-    await expect(control.locator('.pattern-btn[data-index="2"]')).toHaveClass(/merge-active/);
+    await expect(control.locator('.slot-btn[data-id="circles"]')).toHaveClass(/merge-active/);
+    await expect(control.locator('.slot-btn[data-id="bars"]')).toHaveClass(/merge-active/);
     await expect(control.locator('.pattern-btn.active')).toHaveCount(0);
 
     // Back to single -> individual sliders return
     await control.keyboard.up('1');
-    await control.keyboard.up('3');
+    await control.keyboard.up('2');
     await control.keyboard.down('1');
     await expect(control.locator('#params-list input[data-key="bass"]')).toBeVisible();
     await control.keyboard.up('1');
@@ -142,8 +143,14 @@ test.describe('dual-effect merge mode', () => {
     await page.waitForFunction(() => window.__viz.blend.mix === 0.55);
     await control.keyboard.press('='); // unshifted '+' on many layouts
     await page.waitForFunction(() => window.__viz.blend.mix === 0.6);
-    await control.keyboard.press('-');
-    await control.keyboard.press('-');
+    // Both events arrive before a screen acknowledgement can update control
+    // state. Relative changes must accumulate instead of both sending 0.55.
+    await control.evaluate(() => {
+      for (let i = 0; i < 2; i++) {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: '-', code: 'Minus', bubbles: true }));
+        window.dispatchEvent(new KeyboardEvent('keyup', { key: '-', code: 'Minus', bubbles: true }));
+      }
+    });
     await page.waitForFunction(() => window.__viz.blend.mix === 0.5);
 
     // Clamps at the edges
