@@ -3,10 +3,11 @@ import { useRuntime } from '../../app/RuntimeContext.jsx';
 import { ICON_MENU } from '../common/icons.jsx';
 
 export function AppMenu() {
-  const { store } = useRuntime();
+  const { runtime, store } = useRuntime();
   const [open, setOpen] = useState(false);
   const btnRef = useRef(null);
   const listRef = useRef(null);
+  const importInputRef = useRef(null);
 
   const close = () => setOpen(false);
 
@@ -45,6 +46,37 @@ export function AppMenu() {
         <a id="app-menu-docs" className="app-menu-item" role="menuitem" href="/docs" target="_blank" rel="noopener" onClick={close}>Docs</a>
         <button id="app-menu-keymap" className="app-menu-item" type="button" role="menuitem" onClick={() => { close(); store.setState({ keyMapOpen: true }); }}>Key Map</button>
         <button id="app-menu-setup" className="app-menu-item" type="button" role="menuitem" onClick={() => { close(); store.setState({ setupModalOpen: true }); }}>Setup</button>
+        <button
+          id="app-menu-export-settings"
+          className="app-menu-item"
+          type="button"
+          role="menuitem"
+          title="Download all saved settings (and media file references) as a JSON file"
+          onClick={() => { close(); runtime.commands.exportSettings(); }}
+        >Export Settings</button>
+        <button
+          id="app-menu-import-settings"
+          className="app-menu-item"
+          type="button"
+          role="menuitem"
+          title="Restore settings from an ahLOOKah settings file"
+          onClick={() => { close(); importInputRef.current?.click(); }}
+        >Import Settings</button>
+        {/* Hidden file input: the import picker is a plain <input type="file">
+            so it works in every browser (the FS Access picker is only used for
+            media files). */}
+        <input
+          id="settings-import-input"
+          ref={importInputRef}
+          className="settings-import-input"
+          type="file"
+          accept=".json,application/json"
+          onChange={async (event) => {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            if (file) await runtime.commands.importSettings(file);
+          }}
+        />
       </div>
     </div>
   );

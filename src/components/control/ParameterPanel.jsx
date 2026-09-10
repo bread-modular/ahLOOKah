@@ -1,8 +1,10 @@
+import { useEffect, useRef, useState } from 'react';
 import { PerformanceBudget } from './PerformanceBudget.jsx';
 import { getOrderedSketches, SKETCHES, BLEND_ID, BLEND_PARAMS } from '../../sketch-registry.js';
 import { selectionName } from '../../program/selection.js';
 import { useRuntime } from '../../app/RuntimeContext.jsx';
 import { useVizStore } from '../../state/useVizStore.js';
+import { canUseFileSystemPicker, isMediaLinked } from '../../media/media-store.js';
 import { formatParamValue, formatPostFxValue } from './panelHelpers.js';
 import { ProjectionMappingPanel } from './ProjectionMappingPanel.jsx';
 import { ParamSlider } from './ParamSlider.jsx';
@@ -21,7 +23,7 @@ export function ParameterPanel() {
   useVizStore(store, (s) => s.paramRevision);
   // Refreshes names shown here (blend pair, cue heading, media rename row)
   // after a media rename in either window.
-  useVizStore(store, (s) => s.mediaRevision);
+  const mediaRevision = useVizStore(store, (s) => s.mediaRevision);
   useVizStore(store, (s) => s.projectionRevision);
 
   const ordered = getOrderedSketches();
@@ -66,6 +68,8 @@ export function ParameterPanel() {
             locked={locked}
             onRenameMedia={(id, name) => runtime.commands.renameMedia(id, name)}
             onRemoveMedia={(id) => runtime.commands.removeMedia(id)}
+            onRelinkMedia={(id, files) => runtime.commands.relinkMedia(id, files)}
+            mediaRevision={mediaRevision}
           />
         )}
       </div>
@@ -73,11 +77,26 @@ export function ParameterPanel() {
   );
 }
 
-function EffectParams({ currentPattern, currentPatternId, getValue, changeParam, scope, locked, onRenameMedia, onRemoveMedia }) {
+function EffectParams({ currentPattern, currentPatternId, getValue, changeParam, scope, locked, onRenameMedia, onRemoveMedia, onRelinkMedia, mediaRevision }) {
   const ordered = getOrderedSketches();
+  const relinkInputRef = useRef(null);
+  const pickerAvailable = canUseFileSystemPicker();
   const sketch = currentPattern >= 0
     ? ordered[currentPattern]
     : SKETCHES.find((s) => s.id === currentPatternId);
+  const mediaId = sketch?.media ? sketch.mediaId : null;
+  // Relink is only offered when the pattern can no longer reach its file in
+  // this browser (imported settings, file removed). Start hidden so a healthy
+  // pattern never flashes the button while the check runs.
+  const [mediaLinked, setMediaLinked] = useState(true);
+  useEffect(() => {
+    if (!mediaId) return undefined;
+    let cancelled = false;
+    isMediaLinked(mediaId)
+      .then((linked) => { if (!cancelled) setMediaLinked(linked); })
+      .catch(() => { if (!cancelled) setMediaLinked(false); });
+    return () => { cancelled = true; };
+  }, [mediaId, mediaRevision]);
   if (sketch?.projection) return <ProjectionMappingPanel key={`${scope}:${sketch.id}`} sketch={sketch} scope={scope} locked={locked} />;
   const defs = (sketch && sketch.params) || [];
 
@@ -133,6 +152,34 @@ function EffectParams({ currentPattern, currentPatternId, getValue, changeParam,
               onRemoveMedia(sketch.id);
             }}
           >Remove</button>
+        </div>
+      )}
+      {sketch?.media && !mediaLinked && (
+        <div className="media-relink-row">
+          <button
+            id="media-relink-btn"
+            type="button"
+            className="btn btn--md"
+            disabled={locked}
+            title={`Point "${sketch.name}" at a file on this computer`}
+            onClick={() => {
+              if (pickerAvailable) onRelinkMedia(sketch.id);
+              else relinkInputRef.current?.click();
+            }}
+          >Relink File</button>
+          {!pickerAvailable && (
+            <input
+              ref={relinkInputRef}
+              type="file"
+              accept="image/*,video/*"
+              className="media-file-input"
+              onChange={(event) => {
+                const files = event.target.files;
+                if (files?.length) onRelinkMedia(sketch.id, files);
+                event.target.value = '';
+              }}
+            />
+          )}
         </div>
       )}
     </>

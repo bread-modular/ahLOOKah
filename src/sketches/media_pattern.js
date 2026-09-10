@@ -212,7 +212,7 @@ export default function createMediaPatternFactory(meta) {
       p.textSize(Math.max(14, p.width * 0.02));
       const message = loadState === 'permission'
         ? `Click to grant file access — "${meta.name}"`
-        : `Media unavailable — re-add "${meta.name}" from the library.`;
+        : `Media file not linked — use Relink File ("${meta.name}").`;
       p.text(message, p.width / 2, p.height / 2);
     }
 

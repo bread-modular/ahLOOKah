@@ -50,6 +50,21 @@ let dbPromise = null;
 // id -> { handle } | { file } for sources picked in this session.
 const liveSources = new Map();
 
+// Chrome requires accept extensions to be dotted (".png"), while the
+// classification helpers above use bare extensions.
+function pickerTypes() {
+  const withDot = (extensions) => extensions.map((ext) => `.${ext}`);
+  return [
+    {
+      description: 'Images & videos',
+      accept: {
+        'image/*': withDot(IMAGE_EXTENSIONS),
+        'video/*': withDot(VIDEO_EXTENSIONS),
+      },
+    },
+  ];
+}
+
 function openDb() {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
@@ -138,31 +153,33 @@ export function mediaKindForFile(file) {
 // Open the File System Access picker and describe each picked file.
 // Returns [{ handle, name, kind, mime, size }].
 export async function pickMediaFiles() {
-  // Chrome requires accept extensions to be dotted (".png"), while the
-  // classification helpers above use bare extensions.
-  const withDot = (extensions) => extensions.map((ext) => `.${ext}`);
   const handles = await window.showOpenFilePicker({
     multiple: true,
-    types: [
-      {
-        description: 'Images & videos',
-        accept: {
-          'image/*': withDot(IMAGE_EXTENSIONS),
-          'video/*': withDot(VIDEO_EXTENSIONS),
-        },
-      },
-    ],
+    types: pickerTypes(),
   });
-  return handles.map((handle) => {
-    const name = handle.name || 'Untitled media';
-    return {
-      handle,
-      name,
-      kind: mediaKindForName(name),
-      mime: mimeForName(name),
-      size: null,
-    };
+  return handles.map(describeHandle);
+}
+
+// Single-file variant used when re-linking an imported media pattern.
+// Returns { handle, name, kind, mime, size } or null when nothing was picked.
+export async function pickMediaFile() {
+  const handles = await window.showOpenFilePicker({
+    multiple: false,
+    types: pickerTypes(),
   });
+  const handle = handles?.[0];
+  return handle ? describeHandle(handle) : null;
+}
+
+function describeHandle(handle) {
+  const name = handle.name || 'Untitled media';
+  return {
+    handle,
+    name,
+    kind: mediaKindForName(name),
+    mime: mimeForName(name),
+    size: null,
+  };
 }
 
 // Persist a media record. `handle` (FileSystemFileHandle) or `file`
@@ -178,6 +195,9 @@ export async function putMediaRecord(record) {
     mime: record.mime || '',
     size: record.size ?? null,
     addedAt: record.addedAt || Date.now(),
+    // Path-equivalent hint for settings export/relink: the file's name (the
+    // File System Access API never exposes the full path).
+    fileName: record.fileName || record.handle?.name || record.file?.name || null,
     handle: record.handle || null,
     blob: record.file || null,
   };
@@ -197,6 +217,26 @@ export async function putMediaRecord(record) {
 
 export async function getMediaRecord(id) {
   return withStore('readonly', (store) => requestToPromise(store.get(id)));
+}
+
+// Every persisted media record (metadata + handles). Used by settings export,
+// which keeps only the path-equivalent metadata.
+export async function listMediaRecords() {
+  const records = await withStore('readonly', (store) => requestToPromise(store.getAll()));
+  return Array.isArray(records) ? records : [];
+}
+
+// Replace every persisted record with metadata-only entries (settings import).
+// File handles/blobs never cross a settings file, so imported media patterns
+// stay listed but need a relink before they can render.
+export async function replaceMediaRecords(records) {
+  liveSources.clear();
+  await withStore('readwrite', (store) => {
+    store.clear();
+    for (const record of records) {
+      store.put({ ...record, handle: null, blob: null });
+    }
+  });
 }
 
 export async function deleteMediaRecord(id) {
@@ -224,6 +264,49 @@ export async function renameMediaRecord(id, name) {
 
 export function isLiveSource(id) {
   return liveSources.has(id);
+}
+
+// True when a media pattern can still reach its file in THIS browser: an
+// in-session source, a persisted FileSystemFileHandle (even one that needs a
+// click to re-grant read access), or a legacy fallback blob.
+//
+// False means the pattern only has metadata left — it was imported from a
+// settings file, or its file disappeared from disk — so the UI offers
+// Relink File to point it at a local file again.
+export async function isMediaLinked(id) {
+  if (typeof id !== 'string' || !id) return false;
+  const cached = liveSources.get(id);
+  if (cached?.handle || cached?.file) return true;
+
+  let record = null;
+  try {
+    record = await getMediaRecord(id);
+  } catch {
+    return false;
+  }
+  if (!record) return false;
+  if (record.blob) return true;
+
+  const handle = record.handle;
+  if (!handle || typeof handle.getFile !== 'function') return false;
+
+  let permission = 'granted';
+  try {
+    permission = await handle.queryPermission({ mode: 'read' });
+  } catch {
+    permission = 'granted';
+  }
+  if (permission === 'denied') return false;
+  // 'prompt' still resolves through the click-to-grant path in the pattern.
+  if (permission !== 'granted') return true;
+
+  try {
+    await handle.getFile();
+    return true;
+  } catch (error) {
+    // A granted handle only fails here when the file is gone from disk.
+    return error?.name !== 'NotFoundError';
+  }
 }
 
 // Load a media pattern's file from disk and return an object URL.

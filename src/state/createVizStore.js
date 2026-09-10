@@ -57,5 +57,9 @@ export function createVizStore(role) {
     postFxOpen: true,
     bandEqOpen: true,
     transportNotice: '',
+    // One-shot result dialog for settings import (see NoticeModal). Shape:
+    // { tone: 'success' | 'error', title, message, details?: string[],
+    //   items?: string[], reload?: boolean }.
+    notice: null,
   }));
 }
