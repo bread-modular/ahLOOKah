@@ -55,12 +55,12 @@ const LOOKS = [
     id: 'video-prism-split', name: 'Video Prism Split', detail: 'Prism Distance',
     description: 'Chromatic camera ghosts: bass separates channels, mids rotate their axis, highs widen blue fringes.',
     body: `
-      float angle = uPhase * 0.4 + uMid * 0.8 + uHue * VIZ_TAU;
+      float angle = uPhase * 0.4 + uMid * 2.0 + uHue * VIZ_TAU;
       vec2 axis = vec2(cos(angle), sin(angle));
-      vec2 offset = axis * uDetail * 0.003 * uAmount * (1.0 + uSub * 1.2);
+      vec2 offset = axis * uDetail * 0.003 * uAmount * (1.0 + uSub * 3.0);
       vec3 c = cameraAt(vTexCoord);
       c.r = cameraAt(vTexCoord + offset).r;
-      c.b = cameraAt(vTexCoord - offset * (1.0 + uHigh * 0.6)).b;
+      c.b = cameraAt(vTexCoord - offset * (1.0 + uHigh * 2.5)).b;
       gl_FragColor = vec4(c, 1.0);
     `,
   },
