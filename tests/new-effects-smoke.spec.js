@@ -1,4 +1,5 @@
 import { REPLACEMENT_PATTERNS } from '../src/sketches/replacements/index.js';
+import { EXPANSION_PATTERNS, RESTORED_CAMERA_PATTERNS } from '../src/sketches/expansion/index.js';
 import { test, expect } from '@playwright/test';
 import { SMOKE_PATTERNS } from './smoke-patterns.js';
 
@@ -49,6 +50,9 @@ const NEW_IDS = [
   'video-dots-gpu',
   'video-high-contrast',
   ...REPLACEMENT_PATTERNS.map(s => s.id),
+  // Expansion wave: 21 researched VJ/VFX patterns + 2 restored legacy camera looks.
+  ...EXPANSION_PATTERNS.map(s => s.id),
+  ...RESTORED_CAMERA_PATTERNS.map(s => s.id),
 ];
 
 test.describe('new effects smoke test', { tag: '@patterns' }, () => {

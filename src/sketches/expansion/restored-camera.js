@@ -49,7 +49,7 @@ const LOOKS = [
     description: 'Restored legacy false-color heat vision (not a heat sensor), kept subtle: bass shifts levels gently, mids posterize the bands, highs rotate the palette. The camera image stays readable.',
     body: `
       vec3 raw = cameraAt(vTexCoord);
-      float value = clamp((luma(raw) - 0.5) * (1.15 + uMid * 0.45) + 0.5 + uSub * 0.09, 0.0, 1.0);
+      float value = clamp((luma(raw) - 0.5) * (1.15 + uMid * 0.75) + 0.5 + uSub * 0.12, 0.0, 1.0);
       float levels = max(3.0, uDetail * 2.0);
       value = floor(value * levels + 0.5) / levels;
       vec3 heat = tint((1.0 - value) * 0.7, 0.25 + value * 0.85);

@@ -11,7 +11,7 @@ const order = [
   'lissajous-scope', 'pendulum-wave', 'step-sequencer', 'stutter-buffer',
   'voxel-cascade', 'gyro-lattice', 'techno-torus', 'techno-helix', 'techno-array',
   'godray-forge', 'feedback-bloom', 'galvo-sweep', 'neon-sign',
-  'video-datamosh', 'video-rolling-shutter', 'vhs-tracking', 'dct-blocks',
+  'video-datamosh', 'video-rolling-shutter', 'vhs-head-switch', 'dct-blocks',
   'waveform-monitor', 'test-card', 'gobo-wheel', 'blinder-matrix',
 ];
 const entries = [...GRAPHIC_PATTERNS, ...SPATIAL_PATTERNS, ...FIELD_PATTERNS, ...VIDEO_PATTERNS];

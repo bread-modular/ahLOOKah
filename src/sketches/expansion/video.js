@@ -53,6 +53,10 @@ function cameraFactory(kind) {
             const dx = m * cw * 2.4 * Math.sin(y * .7 + time * 2 + hash(id, 2) * TAU); // mid: vector drift
             const dy = m * ch * 1.8 * Math.cos(x * .9 - time * 1.4 + hash(id, 3) * TAU);
             ctx.drawImage(ref, sx, sy, W / cols, H / rowsN, x * cw + dx, y * ch + dy, cw + .5, ch + .5);
+            if (b > .01) {                                                // bass: P-frame color drift
+              ctx.fillStyle = hash(id, 13) > .5 ? `rgba(255 255 255 / ${b * .14})` : `rgba(0 0 0 / ${b * .2})`;
+              ctx.fillRect(x * cw + dx, y * ch + dy, cw + .5, ch + .5);
+            }
             if (h > .01) {                                                // high: block-edge speckle
               ctx.strokeStyle = `rgba(255 255 255 / ${h * .8})`;
               ctx.lineWidth = 1.5;

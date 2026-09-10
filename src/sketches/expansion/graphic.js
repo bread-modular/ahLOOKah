@@ -345,12 +345,15 @@ const goboWheel = canvasFactory((ctx, { t, b, m, h, detail }) => {
   ctx.save(); ctx.rotate(rot); ctx.scale(scale, scale);
   const grad = ctx.createRadialGradient(0, 0, .1, 0, 0, 1.05);
   const boost = .55 + b * .4;                               // bass: beam swell
-  grad.addColorStop(0, gray(.95 * boost)); grad.addColorStop(.75, gray(.5 * boost)); grad.addColorStop(1, gray(0));
+  grad.addColorStop(0, gray(1));                            // white-hot core (full alpha for the matte)
+  grad.addColorStop(.42, gray(.9 * boost + .1));
+  grad.addColorStop(.75, gray(.5 * boost)); grad.addColorStop(1, gray(0));
   ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(0, 0, 1.05, 0, TAU); ctx.fill();
+  circle(ctx, 0, 0, .34, gray(1));                           // solid white hub
   ctx.fillStyle = gray(0, .92);
   for (let i = 0; i < spokes; i++) {                        // spoke mask (mids thin it)
     ctx.save(); ctx.rotate(i * TAU / spokes);
-    ctx.fillRect(-.028 * (1 - m * .7), 0, .056 * (1 - m * .7), 1.05);
+    ctx.fillRect(-.028 * (1 - m * .7), .22, .056 * (1 - m * .7), .83); // hub stays white
     ctx.restore();
   }
   for (const ring of [.38, .68]) for (let i = 0; i < spokes * 2; i++) { // dot mask grows with mids
@@ -360,11 +363,11 @@ const goboWheel = canvasFactory((ctx, { t, b, m, h, detail }) => {
   ctx.restore();
   if (h > .01) {
     // high: fine rotating shimmer web across the whole spot
-    const web = 28;
+    const web = 34;
     for (let i = 0; i < web; i++) {
       const a = i * TAU / web - rot * 1.4;
-      const rr = (.25 + .55 * hash(i, 6)) * scale;
-      path(ctx, [[Math.cos(a) * rr * .4, Math.sin(a) * rr * .4], [Math.cos(a + .02) * (rr + h * .3 * scale), Math.sin(a + .02) * (rr + h * .3 * scale)]], null, gray(.95, h), .015);
+      const rr = (.3 + .55 * hash(i, 6)) * scale;
+      path(ctx, [[Math.cos(a) * rr * .4, Math.sin(a) * rr * .4], [Math.cos(a + .02) * (rr + h * .32 * scale), Math.sin(a + .02) * (rr + h * .32 * scale)]], null, gray(1, h), .019);
     }
     const rim = 72;                                          // high: rim shimmer + shadow notches
     const r = (.74 + h * .22) * scale;
@@ -395,7 +398,7 @@ const blinderMatrix = canvasFactory((ctx, { t, b, m, h, detail }) => {
     const r = Math.min(cw, ch) * .3 * (1 + b * .5);          // bass: lamp swell
     circle(ctx, cx, cy, r * 1.5, gray(.16));
     circle(ctx, cx, cy, r, on ? gray(.55 + b * .3) : gray(.22));
-    if (on) circle(ctx, cx, cy, r * .55, gray(.95));
+    if (on) circle(ctx, cx, cy, r * .65, gray(1));
     if (h > .01) {
       const tw = hash(x * 13 + y * 7, Math.floor(t * 12));   // high: twinkle
       if (tw > .35) circle(ctx, cx, cy, r * (.4 + h * .9), gray(1, (tw - .35) * 1.6 * h));

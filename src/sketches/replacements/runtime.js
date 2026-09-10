@@ -24,15 +24,14 @@ export function replacementBands(features = {}, params = {}) {
 // This is capture-side only and cached ONCE per SharedAudioAnalysisView, shared
 // by LIVE/CUE/merge instances. Never read an analyser in a bound output renderer.
 const supportCache = new WeakMap();
-export function measuredSupport(shared, frame = shared?.frame) {
-  if (!frame?.left?.length && !frame?.right?.length) return SILENT_BANDS;
-  if (shared && supportCache.has(shared)) return supportCache.get(shared);
-  const channels = [frame.left, frame.right].filter(a => a?.length);
-  const count = Math.max(...channels.map(a => a.length));
+const SILENT_DB = Object.freeze({ bass: -120, mid: -120, high: -120 });
+function computeSupport(frame) {
+  const channels = [frame.left, frame.right].filter((a) => a?.length);
+  const count = Math.max(...channels.map((a) => a.length));
   const sampleRate = bounded(frame.sampleRate, 48000, 8000, 384000);
   const fftSize = bounded(frame.fftSize, count * 2, count * 2, 32768);
   const split = getBandSplit(), sums = [0, 0, 0];
-  const power = db => 10 ** (bounded(db, -120, -120, 0) / 10);
+  const power = (db) => 10 ** (bounded(db, -120, -120, 0) / 10);
   for (let i = 1; i < count; i++) {
     const hz = i * sampleRate / fftSize;
     if (hz < 30 || hz > 16000) continue;
@@ -49,29 +48,99 @@ export function measuredSupport(shared, frame = shared?.frame) {
     rms = Math.sqrt(samples ? sum / samples : sums.reduce((a, b) => a + b, 0));
   }
   const gate = smooth(-72, -48, 20 * Math.log10(Math.max(1e-12, rms)));
-  const result = Object.fromEntries(['bass', 'mid', 'high'].map((key, i) => [key,
-    smooth(-82, -30, 10 * Math.log10(Math.max(1e-12, sums[i]))) * gate]));
+  // Integrated band sums span decades between a single weak bin and full-range
+  // program material. The (-85,-12) window keeps weak bins audible while loud
+  // continuous music lands mid-scale (~0.5-0.7) instead of pinning at 1.0.
+  const windowed = {}, db = {};
+  for (const [i, key] of ['bass', 'mid', 'high'].entries()) {
+    const sumDb = 10 * Math.log10(Math.max(1e-12, sums[i]));
+    windowed[key] = smooth(-85, -12, sumDb) * gate;
+    // Gated dB levels: deviation is measured in dB so a ±3-6dB within-band
+    // change reads the same at ANY loudness (a hot windowed level cannot hide
+    // it). Quantized bin floors (-120dB) integrate to phantom levels around
+    // -100dB; only bands with a real windowed level may feed the reference.
+    db[key] = windowed[key] > 1e-3 ? -120 + (sumDb + 120) * gate : -120;
+  }
+  return { windowed, db };
+}
+function supportOf(shared, frame) {
+  if (!frame?.left?.length && !frame?.right?.length) return null;
+  if (shared && supportCache.has(shared)) return supportCache.get(shared);
+  const result = computeSupport(frame);
   if (shared) supportCache.set(shared, result);
   return result;
 }
+export function measuredSupport(shared, frame = shared?.frame) {
+  return supportOf(shared, frame)?.windowed || SILENT_BANDS;
+}
+export function measuredSupportDb(shared, frame = shared?.frame) {
+  return supportOf(shared, frame)?.db || SILENT_DB;
+}
 export function createReplacementController() {
-  const envelope = { ...SILENT_BANDS };
+  const baseline = { ...SILENT_BANDS };
+  const baselineDb = { bass: -120, mid: -120, high: -120 };
+  const previous = { bass: -120, mid: -120, high: -120 };
+  const flux = { ...SILENT_BANDS };
+  const primed = { bass: false, mid: false, high: false };
   return {
     update({ shared, frame = shared?.frame, params = {}, deltaSeconds = 1 / 30 }) {
-      const canonical = replacementBands(shared?.getFeatures?.());
+      const features = shared?.getFeatures?.() || {};
       const support = measuredSupport(shared, frame);
+      const supportDb = measuredSupportDb(shared, frame);
       const dt = bounded(deltaSeconds, 1 / 30, 1 / 240, .1);
       const continuous = {};
       for (const [i, key] of ['bass', 'mid', 'high'].entries()) {
-        const target = lift(support[key]);
-        const seconds = target > envelope[key] ? [.012, .018, .008][i] : [.11, .14, .065][i];
-        envelope[key] += (target - envelope[key]) * (1 - Math.exp(-dt / seconds));
-        if (envelope[key] < 1e-6) envelope[key] = 0;
-        continuous[key] = Math.max(canonical[key], envelope[key]) * bounded(params[key], 1, 0, 2);
+        // One unified per-band level: AGC-normalized features or integrated
+        // support, whichever is hotter. NO steady max() floor — the output is
+        // driven by per-band TEMPORAL DEVIATION on top of a bounded,
+        // self-relaxing sustained term, so 3-6dB within-band changes stay
+        // visible over continuous music instead of saturating into a plateau.
+        const raw = Math.max(bounded(features?.[['sub', 'mid', 'high'][i]], 0, 0, 1.6), support[key]);
+        // Adaptive per-band reference on the (AGC-free) support level: rises
+        // slowly, falls slower. A loud unchanging passage converges toward it
+        // and RELAXES the output instead of pinning at maximum deformation.
+        const level = support[key];
+        const db = supportDb[key];
+        // Adaptive per-band reference on the (AGC-free) support level: rises
+        // slowly, falls slower. A loud unchanging passage converges toward it
+        // and RELAXES the output instead of pinning at maximum deformation.
+        // Prime the dB reference near the first observed level: without this a
+        // -120 start keeps the deviation accent capped for ~5s after every
+        // silence-to-music transition instead of relaxing within ~2s.
+        if (db <= -119.5) primed[key] = false;
+        else if (!primed[key]) {
+          primed[key] = true;
+          baselineDb[key] = db - 8;
+          flux[key] = Math.max(flux[key], 8);
+        }
+        const settleTau = db > baselineDb[key] ? 2.5 : 3.5;
+        baselineDb[key] += (db - baselineDb[key]) * (1 - Math.exp(-dt / settleTau));
+        baseline[key] += (level - baseline[key]) * (1 - Math.exp(-dt / (level > baseline[key] ? 2.5 : 3.5)));
+        const settled = Math.min(1, baseline[key] / Math.max(1e-6, level));
+        // Positive flux in dB: onsets get a fast accent that decays on its own.
+        const rise = Math.max(0, db - previous[key]);
+        previous[key] = db;
+        flux[key] = Math.max(rise, flux[key] * Math.exp(-dt / .12));
+        if (flux[key] < 1e-2) flux[key] = 0;
+        // Bounded sustained (shrinks as the signal settles) + dB deviation,
+        // which dominates: elevation above the adaptive baseline plus flux.
+        // No output-side smoothing: features arrive pre-smoothed, deviation
+        // has its own flux decay, and onsets must land exactly on the beat.
+        const sustained = lift(Math.min(raw, 1.2)) * (1 - .35 * settled);
+        const above = Math.max(0, db - baselineDb[key]);
+        const dyn = Math.min(2.6, sustained + Math.min(1.1, above * .12) + Math.min(.8, flux[key] * .08));
+        // Slider AFTER shaping (linear; zero is exactly silent), schema-capped.
+        continuous[key] = Math.min(3.2, dyn * bounded(params[key], 1, 0, 2));
       }
       return { continuous, arrays: {}, events: [] };
     },
-    dispose() { Object.assign(envelope, SILENT_BANDS); },
+    dispose() {
+      Object.assign(baseline, SILENT_BANDS);
+      Object.assign(baselineDb, { bass: -120, mid: -120, high: -120 });
+      Object.assign(previous, { bass: -120, mid: -120, high: -120 });
+      Object.assign(flux, SILENT_BANDS);
+      Object.assign(primed, { bass: false, mid: false, high: false });
+    },
   };
 }
 export function makeReplacementReader(audio, params, runtime = {}) {
