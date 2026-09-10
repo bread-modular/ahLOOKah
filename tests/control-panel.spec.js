@@ -70,26 +70,27 @@ test.describe('control panel window', () => {
     ]);
     await expect(control.locator('#library-section-Simple .pattern-name')).toHaveText([
       'Circles', 'Bars', 'Checkerboard', 'Truchet Relay', 'Counterweight',
+      'Lissajous Scope', 'Pendulum Wave',
     ]);
     await expect(control.locator('#library-section-Basics .pattern-name')).toHaveText([
       'Solid Color', 'Color Wash', 'Color Bars', 'Noise Static', 'Film Grain',
-      'Barn Doors', 'Stair Wipe',
+      'Barn Doors', 'Stair Wipe', 'Waveform Monitor', 'Test Card',
     ]);
     await expect(control.locator('#library-section-Alphas .pattern-name')).toHaveText([
-      'Iris Diaphragm', 'Cellular Gate',
+      'Iris Diaphragm', 'Cellular Gate', 'Gobo Wheel', 'Blinder Matrix',
     ]);
     // The Media group always renders its add-media control, even when empty.
     await expect(control.locator('.media-add-btn')).toHaveCount(1);
     await expect(headers.last().locator('span')).toHaveText('Projection Mapping');
     await expect(control.getByRole('button', { name: 'Add projection mapping pattern' })).toHaveCount(1);
 
-    // The Video FX group lists all 8 camera effects, each marked with a
-    // camera glyph; Glitch / Effects holds 7
+    // The Video FX group lists all 12 camera effects (8 + 2 new + 2 restored),
+    // each marked with a camera glyph; Glitch / Effects holds 9
     const vfx = control.locator('.library-group', { hasText: 'Video FX' });
-    await expect(vfx.locator('.pattern-btn')).toHaveCount(8);
-    await expect(vfx.locator('.camera-badge')).toHaveCount(8);
+    await expect(vfx.locator('.pattern-btn')).toHaveCount(12);
+    await expect(vfx.locator('.camera-badge')).toHaveCount(12);
     const glitch = control.locator('.library-group', { hasText: 'Glitch / Effects' });
-    await expect(glitch.locator('.pattern-btn')).toHaveCount(7);
+    await expect(glitch.locator('.pattern-btn')).toHaveCount(9);
 
     // Assigned patterns show a slot-number badge; unassigned ones don't
     await expect(control.locator('#pattern-library [data-id="circles"] .slot-badge')).toHaveText('1');

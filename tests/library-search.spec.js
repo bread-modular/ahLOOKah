@@ -247,11 +247,11 @@ test.describe('pattern library favourites', () => {
     await expect(favouritesStar).toHaveText('★');
     // The pattern stays in its own group as well.
     await expect(control.locator('#library-section-Simple [data-id="circles"]')).toBeVisible();
-    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(69);
+    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(92);
     expect(await control.evaluate((key) => localStorage.getItem(key), FAVOURITES_KEY)).toBe('["circles"]');
 
     await control.reload();
-    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(69);
+    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(92);
     await expect(control.locator('.library-group').first().locator('.library-group-toggle')).toHaveText('Favourites');
     await expect(control.locator('#library-section-Favourites [data-id="circles"]')).toBeVisible();
 
