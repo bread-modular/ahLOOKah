@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useRuntime } from '../../app/RuntimeContext.jsx';
 import { useVizStore } from '../../state/useVizStore.js';
+import { STORAGE } from '../../platform/constants.js';
 import { PreviewPane } from './PreviewPane.jsx';
 import { PatternPad } from './PatternPad.jsx';
 import { PatternLibrary } from './PatternLibrary.jsx';
@@ -12,6 +13,7 @@ import { StatusLine } from './StatusLine.jsx';
 import { AppMenu } from './AppMenu.jsx';
 import { DeviceSetupModal } from './DeviceSetupModal.jsx';
 import { KeyMapModal } from './KeyMapModal.jsx';
+import { NoticeModal } from './NoticeModal.jsx';
 
 // Uncontrolled <details> section with native toggle persistence (mirrors the
 // legacy persistSectionOpen behaviour and avoids React's controlled-<details>
@@ -82,15 +84,15 @@ export function ControlPanel() {
           <section id="global-settings" className="global-settings" aria-label="Global settings">
             <h3 className="global-settings-title">Global Settings</h3>
             <p className="global-settings-description">Applies to all patterns and the final output.</p>
-            <CollapsibleSection id="post-fx" storageKey="viz2_post_fx_open" title="Post Processing">
+            <CollapsibleSection id="post-fx" storageKey={STORAGE.postFxOpen} title="Post Processing">
               <PostFxPanel />
             </CollapsibleSection>
 
-            <CollapsibleSection id="band-eq" storageKey="viz2_band_eq_open" title="Band Split EQ">
+            <CollapsibleSection id="band-eq" storageKey={STORAGE.bandEqOpen} title="Band Split EQ">
               <BandEqPanel />
             </CollapsibleSection>
 
-            <CollapsibleSection id="screen-mapping" storageKey="viz2_screen_mapping_open" title="Screen Mapping">
+            <CollapsibleSection id="screen-mapping" storageKey={STORAGE.screenMappingOpen} title="Screen Mapping">
               <ScreenMappingPanel />
             </CollapsibleSection>
           </section>
@@ -99,6 +101,7 @@ export function ControlPanel() {
 
       {setupModalOpen && <DeviceSetupModal />}
       {keyMapOpen && <KeyMapModal />}
+      <NoticeModal />
     </div>
   );
 }

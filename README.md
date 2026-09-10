@@ -38,6 +38,11 @@ cues live with zero blank gaps.
   bypass the global screen calibration without deleting it.
 - **Camera-input FX** — chroma key, kaleidoscope, pixelate, trails, and more
   (opt-in via browser permissions).
+- **Portable settings** — export every saved setting (parameters, pad order,
+  EQ/noise floor, screen + projection calibration, media references) to a JSON
+  file from the app menu and import it in another browser or machine. Media
+  files are never copied: the import summary lists the patterns whose files are
+  missing, and Relink File appears only for those.
 - **Pattern audio engine** — beat/band-driven control with kick/snare/hat
   transient detection.
 
@@ -213,11 +218,12 @@ hardware limitations.
 
 ```bash
 npm test                         # Fast core: 21 tests (also npm run test:core)
-npm run test:smoke               # 25 tests: critical journeys + one pattern per group
+npm run test:smoke               # 26 tests: critical journeys + one pattern per group
 npm run test:full                # Everything, including edge cases and performance
 npm run test:patterns            # Exhaustive individual-pattern tests, on demand
 npm run test:full -- tests/expanded-patterns.spec.js --workers=1
 npm run test:full -- tests/new-effects-smoke.spec.js --grep liquid-chrome
+npm run test:full -- tests/settings-portability.spec.js --workers=1
 npm run test:full -- 'tests/screen-mapping*.spec.js' --workers=1
 npm run test:full -- tests/projection-mapping.spec.js --workers=1
 npm run test:full -- 'tests/*performance.spec.js' --workers=1
@@ -234,7 +240,7 @@ when targeting an entire file, otherwise the core filter still applies.
 
 The core budget is 20 critical behavior checks plus one library-group guard.
 Smoke includes 17 of those 20 checks (85%, exceeding the 80% target), the guard,
-and seven representative pattern renders. This is **selected behavior coverage,
+and eight representative pattern renders. This is **selected behavior coverage,
 not measured line/branch coverage**, nor exhaustive coverage of every edge case.
 
 The shared checks cover startup, keyboard switching, pad assignment/persistence,

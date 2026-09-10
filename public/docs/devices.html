@@ -5,7 +5,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ahLOOKah — Docs: Devices &amp; Setup</title>
-  <meta name="description" content="Change the microphone and camera ahLOOKah uses, any time, from the setup menu." />
+  <meta name="description" content="Change the microphone and camera ahLOOKah uses, and move all saved settings to another browser with Export and Import Settings." />
   <meta name="theme-color" content="#0b0b0f" />
   <link rel="canonical" href="https://ahlookah.com/docs/devices.html" />
   <meta property="og:type" content="website" />
@@ -70,6 +70,20 @@
 
         <div class="callout tip">
           <p><strong>Tip</strong> Don't see a device? Click <strong>Refresh Devices</strong> to rescan, and make sure the browser has permission for camera and microphone access.</p>
+        </div>
+
+        <h2>Moving settings to another browser</h2>
+        <p>Everything you save — pattern parameters, pad order, EQ and noise floor, screen calibration, projection layouts, device choices and panel state — is stored in the browser you're using. To carry it to another browser or computer, open the <strong>app menu</strong>:</p>
+
+        <ul>
+          <li><strong>Export Settings</strong> downloads one file, <code>ahlookah-settings-YYYY-MM-DD.json</code>, containing all of it.</li>
+          <li><strong>Import Settings</strong> restores that file. It <em>replaces</em> the current browser's saved settings, then shows a summary — reload to apply it. So export first if you want to keep what's already there, and finish or cancel any CUE before importing.</li>
+        </ul>
+
+        <p>Media patterns travel as references only: their names and metadata are restored, but the image or video files stay on the original computer. The import summary lists the patterns that need a file, and <strong>Relink File</strong> appears in the parameters panel only for those patterns — point each one at a file on the new machine and it renders again.</p>
+
+        <div class="callout">
+          <p><strong>Note</strong> Device selections are settings too, but device IDs rarely match across machines. If audio or camera stops working after an import, reopen <strong>Setup</strong> and pick the inputs for this computer.</p>
         </div>
 
         <div class="pager">

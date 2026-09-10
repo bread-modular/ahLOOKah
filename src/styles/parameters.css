@@ -79,6 +79,28 @@
   background: rgba(231, 76, 60, 0.14);
 }
 
+/* Relink row (media patterns): same chrome as the manage row, without the
+   separator — it sits directly below it. */
+.media-relink-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+#config-panel .media-relink-row .btn {
+  flex: 1;
+  display: flex;
+  width: auto;
+  background: transparent;
+  color: var(--text-dim);
+}
+
+#config-panel .media-relink-row .btn:hover:not(:disabled) {
+  color: var(--text-main);
+  border-color: var(--accent);
+  background: rgba(77, 163, 255, 0.12);
+}
+
 /* Dropdown params (def.options) share the slider row layout; the control
    chrome (chevron etc.) comes from the shared #config-panel select rules. */
 #params-list select.param-select {

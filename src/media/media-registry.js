@@ -19,7 +19,7 @@ export const MEDIA_GROUP = 'Media';
 
 // Validate a stored metadata record. Returns null for anything malformed so a
 // corrupted localStorage entry can never break boot.
-function sanitizeMeta(raw) {
+export function sanitizeMediaMeta(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const { id, name, kind } = raw;
   if (typeof id !== 'string' || !id.length || id.length > 64) return null;
@@ -42,7 +42,7 @@ export function loadMediaMeta() {
     saved = [];
   }
   if (!Array.isArray(saved)) saved = [];
-  return saved.map(sanitizeMeta).filter(Boolean);
+  return saved.map(sanitizeMediaMeta).filter(Boolean);
 }
 
 function saveMediaMeta(list) {
@@ -62,6 +62,8 @@ export function buildMediaSketchEntry(meta) {
     params: mediaParamsFor(meta.kind),
     group: MEDIA_GROUP,
     media: true,
+    // Raw record id, so UI can ask the store whether the file is still linked.
+    mediaId: meta.id,
     kind: meta.kind,
   };
 }
@@ -69,7 +71,7 @@ export function buildMediaSketchEntry(meta) {
 // Sync the SKETCHES array with the persisted metadata list. Idempotent; safe to
 // call on every boot and after every cross-window 'media-patterns' message.
 export function registerMediaSketches(sketches, snapshot = undefined) {
-  const metas = Array.isArray(snapshot) ? snapshot.slice(0, 256).map(sanitizeMeta).filter(Boolean) : loadMediaMeta();
+  const metas = Array.isArray(snapshot) ? snapshot.slice(0, 256).map(sanitizeMediaMeta).filter(Boolean) : loadMediaMeta();
   const wanted = new Map(metas.map((meta) => [mediaSketchId(meta.id), meta]));
 
   // Drop entries whose metadata disappeared (removed in the other window).
@@ -93,13 +95,31 @@ export function registerMediaSketches(sketches, snapshot = undefined) {
 // Persist + register a freshly stored media record (called by the runtime
 // command after the blob landed in IndexedDB).
 export function addMediaPattern(sketches, meta) {
-  const clean = sanitizeMeta(meta);
+  const clean = sanitizeMediaMeta(meta);
   if (!clean) throw new Error('Invalid media pattern metadata.');
   const list = loadMediaMeta().filter((entry) => entry.id !== clean.id);
   list.push(clean);
   saveMediaMeta(list);
   registerMediaSketches(sketches);
   return clean;
+}
+
+// Patch the persisted metadata for one media pattern in place (name and/or
+// kind), preserving its position in the Media group. Used by relink, which can
+// point a pattern at a file of the other kind. Returns the updated metadata or
+// null when the id is unknown.
+export function patchMediaPattern(sketches, mediaId, patch) {
+  const list = loadMediaMeta();
+  const index = list.findIndex((entry) => entry.id === mediaId);
+  if (index < 0) return null;
+  const merged = sanitizeMediaMeta({ ...list[index], ...patch });
+  if (!merged) return null;
+  const changed = merged.name !== list[index].name || merged.kind !== list[index].kind;
+  if (!changed) return merged;
+  list[index] = merged;
+  saveMediaMeta(list);
+  registerMediaSketches(sketches);
+  return merged;
 }
 
 // Persist the removal and drop the sketch entry. Returns true when removed.

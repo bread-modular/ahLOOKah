@@ -28,6 +28,7 @@ import {
   registerMediaSketches,
   loadMediaMeta,
   addMediaPattern,
+  patchMediaPattern,
   removeMediaPattern,
   renameMediaPattern,
   mediaDisplayName,
@@ -35,12 +36,22 @@ import {
 } from '../media/media-registry.js';
 import {
   putMediaRecord,
+  getMediaRecord,
   deleteMediaRecord,
   renameMediaRecord,
   mediaKindForFile,
   pickMediaFiles,
+  pickMediaFile,
   canUseFileSystemPicker,
 } from '../media/media-store.js';
+import {
+  collectSettings,
+  serializeSettings,
+  downloadSettingsFile,
+  settingsFileName,
+  parseSettingsFile,
+  applySettings,
+} from '../platform/settings-portability.js';
 import {
   ProgramRuntime,
   copyProgramSelection,
@@ -2607,6 +2618,22 @@ export function createAppRuntime({
         break;
       }
 
+      case 'media-relinked': {
+        // The file behind a media pattern was re-pointed (usually after an
+        // import). The running program still holds the old sketch entry and a
+        // 'missing' load state, so force a fresh instantiation when it matters.
+        if (typeof msg.id !== 'string' || !msg.id.startsWith('media-')) break;
+        applyMediaRelink(msg.id);
+        break;
+      }
+
+      case 'settings-imported':
+        // Another window replaced the persisted settings; a reload is the only
+        // way to re-read every subsystem (params, media registry, calibration).
+        window.location.reload();
+        return;
+
+
       case 'screen-closed':
         screenOnline = false;
         if (role === 'control') cueEntryPending = null;
@@ -2853,6 +2880,21 @@ export function createAppRuntime({
   function bumpMediaRevision() {
     refreshMediaPadOrder();
     store.setState((s) => ({ mediaRevision: s.mediaRevision + 1 }));
+  }
+
+  // Re-instantiate a media pattern after its file was re-pointed. Reached
+  // through the bus 'media-relinked' message, which the broadcast helper
+  // dispatches to this window as well as its peers.
+  function applyMediaRelink(sketchId) {
+    if (role === 'screen') {
+      if (liveRuntime && currentLiveSelection().ids.includes(sketchId)) {
+        prepareThenPromoteLive(copyProgramSelection(currentLiveSelection()), { force: true });
+      }
+      refreshProjectionDependencies(new Set([sketchId]));
+    } else {
+      previewNeedsRebuild = true;
+      queuePreviewRender();
+    }
   }
 
   function refreshProjectionDependencies(changedIds) {
@@ -3111,6 +3153,130 @@ export function createAppRuntime({
       bumpMediaRevision();
       bus.broadcast({ type: 'media-patterns', metas: loadMediaMeta() });
       return renamed;
+    },
+    // Re-point an existing media pattern at a local file without changing its
+    // id, display name, pad slot or parameters. Used after importing settings
+    // (file handles never leave the origin they were granted in) and whenever
+    // the operator wants to swap the underlying file.
+    async relinkMedia(sketchId, fileList) {
+      if (typeof sketchId !== 'string' || !sketchId.startsWith('media-')) return null;
+      if (cueSession || cueEntryPending) return null;
+      const mediaId = sketchId.slice('media-'.length);
+      let source = null;
+      const files = fileList ? Array.from(fileList) : [];
+      if (files.length) {
+        const file = files[0];
+        source = { file, name: file.name, kind: mediaKindForFile(file), mime: file.type || '', size: file.size };
+      } else if (canUseFileSystemPicker()) {
+        try {
+          source = await pickMediaFile();
+        } catch (error) {
+          if (error?.name === 'AbortError') return null;
+          console.error('[media] relink picker failed', error);
+          return null;
+        }
+      }
+      if (!source?.kind) return null;
+      let existing = null;
+      try { existing = await getMediaRecord(mediaId); } catch { existing = null; }
+      try {
+        await putMediaRecord({
+          id: mediaId,
+          name: existing?.name || mediaDisplayName(source.name),
+          kind: source.kind,
+          mime: source.mime || '',
+          size: source.size ?? null,
+          addedAt: existing?.addedAt || Date.now(),
+          fileName: source.name,
+          handle: source.handle,
+          file: source.file,
+        });
+      } catch (error) {
+        console.error('[media] failed to relink media record', error);
+        return null;
+      }
+      // The picked file can be the other kind (image <-> video), which changes
+      // the pattern's parameter schema; keep the library metadata in sync.
+      patchMediaPattern(SKETCHES, mediaId, { kind: source.kind });
+      bumpMediaRevision();
+      bus.broadcast({ type: 'media-patterns', metas: loadMediaMeta() });
+      // Echoes locally too, so the running preview/screen re-instantiates now.
+      bus.broadcast({ type: 'media-relinked', id: sketchId });
+      return { id: sketchId, kind: source.kind, fileName: source.name };
+    },
+    // Download every persisted setting (plus media metadata) as one JSON file.
+    async exportSettings() {
+      const payload = await collectSettings();
+      downloadSettingsFile(serializeSettings(payload), settingsFileName());
+      return payload;
+    },
+    // Restore a settings file. Replace semantics: the destination mirrors the
+    // source. The operator acknowledges a summary dialog first (NoticeModal),
+    // which is what triggers the reload of every window — so the imported
+    // settings are never applied behind a dismissable native alert.
+    async importSettings(file) {
+      if (!file || typeof file.text !== 'function') return { ok: false, error: 'No file selected.' };
+      const fileName = file.name || 'the settings file';
+      let text = '';
+      try { text = await file.text(); } catch { text = ''; }
+      const parsed = parseSettingsFile(text);
+      if (!parsed.ok) {
+        store.setState({
+          notice: {
+            tone: 'error',
+            title: 'Import failed',
+            message: parsed.error,
+            details: ['Your current settings were left untouched.'],
+          },
+        });
+        return parsed;
+      }
+      let summary;
+      try {
+        summary = await applySettings(parsed.payload);
+      } catch (error) {
+        console.error('[settings] import failed', error);
+        store.setState({
+          notice: {
+            tone: 'error',
+            title: 'Import failed',
+            message: 'This browser refused to save the settings from that file.',
+          },
+        });
+        return { ok: false, error: 'write-failed' };
+      }
+
+      const plural = (count) => (count === 1 ? '' : 's');
+      const details = [
+        `${summary.storageWritten} setting${plural(summary.storageWritten)} restored.`,
+      ];
+      if (summary.storageRemoved > 0) {
+        details.push(`${summary.storageRemoved} local setting${plural(summary.storageRemoved)} cleared to match the file.`);
+      }
+      if (summary.mediaRestored > 0) {
+        details.push(`${summary.mediaRestored} media pattern${plural(summary.mediaRestored)} restored (files are not copied).`);
+      }
+      const unlinked = Array.isArray(summary.unlinkedMedia) ? summary.unlinkedMedia : [];
+      // Cap the list so a large library cannot push the button off-screen.
+      const shown = unlinked.slice(0, 8);
+      if (shown.length < unlinked.length) {
+        const rest = unlinked.length - shown.length;
+        details.push(`+${rest} more media pattern${plural(rest)} need re-linking.`);
+      }
+      store.setState({
+        notice: {
+          tone: 'success',
+          title: 'Settings imported',
+          message: `${fileName} was written to this browser. Reload to apply it.`,
+          details,
+          items: shown,
+          reload: true,
+        },
+      });
+      // The other windows re-read persisted state immediately (bus.post = no
+      // local echo); this window shows the dialog and reloads on acknowledge.
+      bus.post({ type: 'settings-imported' });
+      return { ok: true, ...summary };
     },
   };
 

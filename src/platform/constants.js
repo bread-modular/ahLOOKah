@@ -19,6 +19,7 @@ export const STORAGE = Object.freeze({
   screenMapping: 'viz2_screen_mapping',
   screenMappingEnabled: 'viz2_screen_mapping_enabled',
   screenMappingEdgeBlur: 'viz2_screen_mapping_edge_blur',
+  screenMappingOpen: 'viz2_screen_mapping_open',
 });
 
 export const SINGLETON_KEY = Object.freeze({

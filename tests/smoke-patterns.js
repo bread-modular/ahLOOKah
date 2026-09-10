@@ -1,6 +1,7 @@
 // One inexpensive representative per built-in library group.
 // Media and Projection Mapping use their real lifecycle tests in the smoke suite.
 export const SMOKE_PATTERNS = {
+  Simple: 'dot-grid',
   Rhythmic: 'strobe-pulse',
   '3D': 'techno3d',
   'Cinematic / Shaders': 'liquid-chrome',
