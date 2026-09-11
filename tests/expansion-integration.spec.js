@@ -100,8 +100,13 @@ test('actual Web Audio capture → analyser → noise floor → engine → packe
   expect(result.rms).toBeGreaterThan(.03);
   expect(result.scans).toBe(48);
   expect(result.accepted).toBe(48 * 23);
-  expect(result.silenceControls).toEqual({ bass: 0, mid: 0, high: 0 });
-  for (const value of Object.values(result.finalControls)) expect(value).toBeGreaterThan(.1);
+  expect(result.silenceControls).toEqual({ bass: 0, mid: 0, high: 0, kick: 0, snare: 0, hat: 0, beat: 0, energy: 0 });
+  for (const key of ['bass', 'mid', 'high', 'energy']) expect(result.finalControls[key], key).toBeGreaterThan(.1);
+  // Steady oscillator drone: percussion envelopes relax toward zero but stay valid.
+  for (const key of ['kick', 'snare', 'hat', 'beat']) {
+    expect(result.finalControls[key], key).toBeGreaterThanOrEqual(0);
+    expect(result.finalControls[key], key).toBeLessThanOrEqual(1.4);
+  }
   for (const row of result.rendered) {
     // The two restored legacy looks are deliberately subtle (documented in
     // expansion-restored-camera.spec.js); the 21 new patterns meet the full

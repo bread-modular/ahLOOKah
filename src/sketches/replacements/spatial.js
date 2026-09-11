@@ -1,4 +1,6 @@
 // Real projected 3D vertices and painter-sorted faces; bounded geometry budgets.
+// Reference-style accents: kicks spike the bass-driven extrusion/expansion,
+// snares jolt the mid-driven shear/twist, hats burst the fine cap/pleat glints.
 import { canvasFactory, color, entry, path } from './runtime.js';
 
 function project([x, y, z], yaw) {
@@ -11,28 +13,29 @@ function renderFaces(ctx, faces, yaw, hue) {
     const ps = points.map(p => project(p, yaw));
     return { ps, z: ps.reduce((n, p) => n + p[2], 0) / ps.length, shade };
   }).sort((a, b) => b.z - a.z);
-  for (const { ps, shade } of projected) path(ctx, ps, color(hue + shade * .1, 25 + shade * 46), '#122030', .007);
+  for (const { ps, shade } of projected) path(ctx, ps, color(hue + shade * .1, 25 + Math.min(1, shade) * 46), '#122030', .007);
 }
-const pinRelief = canvasFactory((ctx, { t, b, m, h, detail, hue }) => {
+const pinRelief = canvasFactory((ctx, { t, b, m, h, kick, snare, hat, detail, hue }) => {
   const n = Math.round(7 + detail * 2), faces = [], step = 2.8 / n;
   for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) {
-    const X = (x - n / 2) * step + m * .48 * Math.sin(z * .8 + t), Z = (z - n / 2) * step;
+    const X = (x - n / 2) * step + (m * .48 + snare * .18) * Math.sin(z * .8 + t), Z = (z - n / 2) * step;
     const wave = .5 + .5 * Math.sin(X * 2.2 + Z * 1.4 + t);
-    const height = .09 + b * 2.5 * wave;
-    const size = step * (.72 - h * .55), y = .7 - height + h * .25 * Math.sin(x * 2 + z + t * 3);
+    const height = .09 + (b * 2.5 + kick * .7) * wave;
+    const size = step * (.72 - h * .55), y = .7 - height + (h * .25 + hat * .1) * Math.sin(x * 2 + z + t * 3);
+    const glint = hat > .01 && ((x * 7 + z * 13) % 5 === 0);
     const a = [X, y, Z], c = [X + size, y, Z + size], d = [X, y, Z + size], e = [X + size, y, Z];
-    faces.push({ points: [a, e, c, d], shade: .95 },
+    faces.push({ points: [a, e, c, d], shade: glint ? .95 + hat * .35 : .95 },
       { points: [d, c, [X + size, .85, Z + size], [X, .85, Z + size]], shade: .46 },
       { points: [e, [X + size, .85, Z], [X + size, .85, Z + size], c], shade: .15 });
   }
   renderFaces(ctx, faces, .55 + Math.sin(t * .18) * .08 + m * .95, hue);
 });
-const foldedSpire = canvasFactory((ctx, { t, b, m, h, detail, hue }) => {
+const foldedSpire = canvasFactory((ctx, { t, b, m, h, kick, snare, hat, detail, hue }) => {
   const faces = [], n = Math.round(7 + detail * 3), sides = 8;
   const vertex = (i, j) => {
-    const a = j * Math.PI / 4 + i * (.08 + m * .7) + t * .15;
-    const r = .3 + b * .7 + (i % 2 ? .04 : .16 + h * .62);
-    const bend = Math.sin(i / n * Math.PI * 2 + t * .7) * m * .85;
+    const a = j * Math.PI / 4 + i * (.08 + m * .7 + snare * .22) + t * .15;
+    const r = .3 + b * .7 + kick * .16 + (i % 2 ? .04 : .16 + h * .62 + hat * .16);
+    const bend = Math.sin(i / n * Math.PI * 2 + t * .7) * (m * .85 + snare * .2);
     return [Math.cos(a) * r + bend, (i / n - .5) * 2.8, Math.sin(a) * r];
   };
   for (let i = 0; i < n; i++) for (let j = 0; j < sides; j++) {
@@ -42,6 +45,6 @@ const foldedSpire = canvasFactory((ctx, { t, b, m, h, detail, hue }) => {
   renderFaces(ctx, faces, .2, hue);
 });
 export const SPATIAL_PATTERNS = [
-  entry('pin-relief', 'Pin Relief', '3D', 'Instanced sculptural pin bed: bass extrudes waves, mids slide rows and yaw the bed, highs separate and chatter pin caps.', pinRelief, 'Pin Density'),
-  entry('folded-spire', 'Folded Spire', '3D', 'Faceted origami tower: bass expands its body, mids bend and twist successive floors, highs unfold alternating pleats.', foldedSpire, 'Fold Count'),
+  entry('pin-relief', 'Pin Relief', '3D', 'Instanced sculptural pin bed: bass extrudes waves, mids slide rows and yaw the bed, highs separate and chatter pin caps; kicks spike the waves, snares jolt the rows, hats glint the caps.', pinRelief, 'Pin Density'),
+  entry('folded-spire', 'Folded Spire', '3D', 'Faceted origami tower: bass expands its body, mids bend and twist successive floors, highs unfold alternating pleats; kicks pulse the body, snares snap the twist, hats shimmer the pleats.', foldedSpire, 'Fold Count'),
 ];

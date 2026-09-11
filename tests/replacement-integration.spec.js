@@ -99,8 +99,13 @@ test('actual Web Audio capture → analyser → noise floor → engine → packe
   expect(result.rms).toBeGreaterThan(.03);
   expect(result.scans).toBe(48);
   expect(result.accepted).toBe(48 * 18);
-  expect(result.silenceControls).toEqual({ bass: 0, mid: 0, high: 0 });
-  for (const value of Object.values(result.finalControls)) expect(value).toBeGreaterThan(.1);
+  expect(result.silenceControls).toEqual({ bass: 0, mid: 0, high: 0, kick: 0, snare: 0, hat: 0, beat: 0, energy: 0 });
+  for (const key of ['bass', 'mid', 'high', 'energy']) expect(result.finalControls[key], key).toBeGreaterThan(.1);
+  // Steady oscillator drone: percussion envelopes relax toward zero but stay valid.
+  for (const key of ['kick', 'snare', 'hat', 'beat']) {
+    expect(result.finalControls[key], key).toBeGreaterThanOrEqual(0);
+    expect(result.finalControls[key], key).toBeLessThanOrEqual(1.4);
+  }
   for (const row of result.rendered) {
     expect(row.rgb, row.id).toBeGreaterThan(6); expect(row.coverage, row.id).toBeGreaterThan(.1); expect(row.edge, row.id).toBeGreaterThan(.015);
   }

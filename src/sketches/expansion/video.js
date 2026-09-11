@@ -2,8 +2,9 @@
 // with drifted motion vectors) and rolling-shutter skew/wobble. ProgramRuntime
 // owns the capture lease; these never request another device. Offscreen
 // buffers are released on remove.
-import { TAU, expansionEntry, expansionParams, hash, makeExpansionReader, response } from './runtime.js';
+import { TAU, accent, expansionEntry, expansionParams, hash, makeExpansionReader, response } from './runtime.js';
 import { bounded } from '../band-reactive.js';
+import { accentsGain } from '../feature-controls.js';
 
 const W = 320, H = 180;
 function buffer() { const c = document.createElement('canvas'); c.width = W; c.height = H; return c; }
@@ -25,6 +26,8 @@ function cameraFactory(kind) {
     p.draw = () => {
       const dt = bounded(p.deltaTime / 1000, 1 / 60, 0, .1), c = read(dt);
       const b = response(c.bass), m = response(c.mid), h = response(c.high), detail = bounded(params.detail, 1, .5, 2);
+      const accents = accentsGain(params);
+      const kick = accent(c.kick) * accents, snare = accent(c.snare) * accents, hat = accent(c.hat) * accents;
       time += dt * bounded(params.speed, .6, 0, 2);
       const ctx = p.drawingContext, video = capture?.elt;
       ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
@@ -47,21 +50,21 @@ function cameraFactory(kind) {
         const slot = Math.floor(frame / 5);
         for (let y = 0; y < rowsN; y++) for (let x = 0; x < cols; x++) {
           const id = x * 73 + y * 131;
-          const stale = hash(id, slot) < .12 + b * .55;                  // bass: hold strength
+          const stale = hash(id, slot) < .12 + b * .55 + kick * .28;     // bass + kick: hold surge
           const sx = x * W / cols, sy = y * H / rowsN;
           if (stale) {
-            const dx = m * cw * 2.4 * Math.sin(y * .7 + time * 2 + hash(id, 2) * TAU); // mid: vector drift
-            const dy = m * ch * 1.8 * Math.cos(x * .9 - time * 1.4 + hash(id, 3) * TAU);
+            const dx = (m * 2.4 + snare * .9) * cw * Math.sin(y * .7 + time * 2 + hash(id, 2) * TAU); // mid + snare: vector drift jolt
+            const dy = (m * 1.8 + snare * .6) * ch * Math.cos(x * .9 - time * 1.4 + hash(id, 3) * TAU);
             ctx.drawImage(ref, sx, sy, W / cols, H / rowsN, x * cw + dx, y * ch + dy, cw + .5, ch + .5);
             if (b > .01) {                                                // bass: P-frame color drift
               ctx.fillStyle = hash(id, 13) > .5 ? `rgba(255 255 255 / ${b * .14})` : `rgba(0 0 0 / ${b * .2})`;
               ctx.fillRect(x * cw + dx, y * ch + dy, cw + .5, ch + .5);
             }
-            if (h > .01) {                                                // high: block-edge speckle
-              ctx.strokeStyle = `rgba(255 255 255 / ${h * .8})`;
+            if (h > .01 || hat > .01) {                                   // high + hat: block-edge speckle burst
+              ctx.strokeStyle = `rgba(255 255 255 / ${Math.min(1, h * .8 + hat * .4)})`;
               ctx.lineWidth = 1.5;
               ctx.strokeRect(x * cw + dx + .5, y * ch + dy + .5, cw - 1, ch - 1);
-              for (let sp = 0; sp < 3; sp++) if (hash(id + sp, slot + 11) < h * .7) {
+              for (let sp = 0; sp < 3; sp++) if (hash(id + sp, slot + 11) < h * .7 + hat * .3) {
                 ctx.fillStyle = `rgba(255 255 255 / ${h * .9})`;
                 ctx.fillRect(x * cw + dx + hash(id + sp, 5) * (cw - 3), y * ch + dy + hash(id + sp, 6) * (ch - 3), 3, 3);
               }
@@ -83,13 +86,13 @@ function cameraFactory(kind) {
         const bh = p.height / bands, sh = H / bands;
         for (let j = 0; j < bands; j++) {
           const y0 = j * bh;
-          let offset = b * p.width * .13 * Math.sin(j * .11 + time * 3)   // bass: skew amplitude
-            + m * p.width * .1 * Math.sin(j * (.04 + m * .12) - time * 2); // mid: wobble geometry
-          const torn = h > .01 && hash(j, Math.floor(time * 18)) < h * .7; // high: band tears
-          if (torn) offset += (hash(j, Math.floor(time * 18) + 5) - .5) * p.width * .3 * h;
+          let offset = (b * .13 + kick * .05) * p.width * Math.sin(j * .11 + time * 3) // bass + kick: skew surge
+            + (m * .1 + snare * .045) * p.width * Math.sin(j * (.04 + m * .12) - time * 2); // mid + snare: wobble snap
+          const torn = (h > .01 || hat > .01) && hash(j, Math.floor(time * 18)) < h * .7 + hat * .28; // high + hat: band tears
+          if (torn) offset += (hash(j, Math.floor(time * 18) + 5) - .5) * p.width * .3 * Math.min(1, h + hat * .5);
           for (const wrap of [-1, 0, 1]) ctx.drawImage(source, 0, j * sh, W, sh + .5, offset + wrap * p.width, y0, p.width, bh + .5);
           if (torn) {
-            ctx.fillStyle = `rgba(255 255 255 / ${h * .75})`;
+            ctx.fillStyle = `rgba(255 255 255 / ${Math.min(1, h * .75 + hat * .35)})`;
             ctx.fillRect(0, y0, p.width, 2);
           }
         }

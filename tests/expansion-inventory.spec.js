@@ -2,7 +2,8 @@ import { test, expect } from '@playwright/test';
 import { SKETCHES, getGroups } from '../src/sketch-registry.js';
 import { EXPANSION_PATTERNS, RESTORED_CAMERA_PATTERNS } from '../src/sketches/expansion/index.js';
 import { createExpansionController } from '../src/sketches/expansion/runtime.js';
-import { BAND_PARAMS, BAND_SCHEMA } from '../src/sketches/band-reactive.js';
+import { BAND_PARAMS } from '../src/sketches/band-reactive.js';
+import { FEATURE_SCHEMA } from '../src/sketches/feature-controls.js';
 
 const ALL = [...EXPANSION_PATTERNS, ...RESTORED_CAMERA_PATTERNS];
 
@@ -28,7 +29,7 @@ test('expansion provenance: 21 new + 2 restored, registry totals 91, category or
   // shared band schema/sliders, transport, description and docs of band roles.
   for (const s of ALL) {
     expect(s.createAudioController, s.id).toBe(createExpansionController);
-    expect(s.audioControlSchema, s.id).toBe(BAND_SCHEMA);
+    expect(s.audioControlSchema, s.id).toBe(FEATURE_SCHEMA);
     expect(s.audioTransport, s.id).toBe('pattern-controls');
     expect(s.audioReactive, s.id).toBe(true);
     expect(s.params.filter((p) => ['bass', 'mid', 'high'].includes(p.key)), s.id).toEqual(BAND_PARAMS);

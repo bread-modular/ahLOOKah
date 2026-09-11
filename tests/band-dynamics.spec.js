@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { createReplacementController, measuredSupport as replacementSupport } from '../src/sketches/replacements/runtime.js';
 import { createExpansionController, measuredSupport as expansionSupport } from '../src/sketches/expansion/runtime.js';
+import { SILENT_FEATURES } from '../src/sketches/feature-controls.js';
 import { SharedAudioAnalysisView } from '../src/pattern-audio-engine.js';
 import { makeAudioFeatures } from '../src/sketches/audio-features.js';
 
@@ -107,9 +108,9 @@ test.describe('band dynamics under loud continuous/broadband material', { tag: '
       // settling drift aside).
       expect(Math.abs(justAfter.mid - beforeStep.mid), 'mid unaffected by bass step').toBeLessThan(.1);
       const silent = run(Controller, Array.from({ length: 90 }, () => ({ ...broadbandFrame(.4), rms: 0 })));
-      expect(silent.at(-1)).toEqual({ bass: 0, mid: 0, high: 0 });
+      expect(silent.at(-1)).toEqual(SILENT_FEATURES);
       const muted = run(Controller, Array.from({ length: 60 }, () => broadbandFrame(.4)), { bass: 0, mid: 0, high: 0 });
-      expect(muted.at(-1)).toEqual({ bass: 0, mid: 0, high: 0 });
+      expect(muted.at(-1)).toEqual(SILENT_FEATURES);
       const half = run(Controller, Array.from({ length: 90 }, () => broadbandFrame(.35)), { bass: .5 });
       const full = run(Controller, Array.from({ length: 90 }, () => broadbandFrame(.35)), {});
       expect(half.at(-1).bass).toBeCloseTo(full.at(-1).bass * .5, 9);

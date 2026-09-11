@@ -5,7 +5,8 @@
 // the band response is deliberately subtle — a shimmer on top of the picture,
 // not a replacement. ProgramRuntime owns the capture lease.
 import { AUDIO_SHADER_HEADER, FULLSCREEN_VERT } from '../shader-utils.js';
-import { BAND_PARAMS, BAND_SCHEMA, bounded } from '../band-reactive.js';
+import { BAND_PARAMS, bounded } from '../band-reactive.js';
+import { FEATURE_SCHEMA } from '../feature-controls.js';
 import { createExpansionController, makeExpansionReader } from './runtime.js';
 
 const HEADER = `${AUDIO_SHADER_HEADER}
@@ -136,7 +137,7 @@ export const RESTORED_CAMERA_PATTERNS = LOOKS.map(({ id, name, description, deta
   factory: restoredCameraFactory(body),
   audioReactive: true,
   audioTransport: 'pattern-controls',
-  audioControlSchema: BAND_SCHEMA,
+  audioControlSchema: FEATURE_SCHEMA,
   createAudioController: createExpansionController,
   params: [
     { key: 'amount', label: 'FX Amount', min: 0, max: 1, step: 0.01, default: 0.5 },
