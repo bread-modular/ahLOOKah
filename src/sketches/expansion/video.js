@@ -15,7 +15,7 @@ function cameraFactory(kind) {
     let source, ref, primed = false;
     const read = makeExpansionReader(audio, params, runtime);
     p.setup = () => {
-      p.pixelDensity(1); p.createCanvas(p.windowWidth, p.windowHeight);
+      p.createCanvas(p.windowWidth, p.windowHeight); p.pixelDensity(1);
       source = buffer();
       if (kind === 'mosh') ref = buffer();
       const constraints = { video: { ...(device ? { deviceId: { exact: device } } : {}), width: { ideal: 640 }, height: { ideal: 480 } }, audio: false };
@@ -30,7 +30,7 @@ function cameraFactory(kind) {
       const kick = accent(c.kick) * accents, snare = accent(c.snare) * accents, hat = accent(c.hat) * accents;
       time += dt * bounded(params.speed, .6, 0, 2);
       const ctx = p.drawingContext, video = capture?.elt;
-      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+      p.resetMatrix(); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
       ctx.fillStyle = '#000'; ctx.fillRect(0, 0, p.width, p.height);
       if (!ready || !video || video.readyState < 2 || !video.videoWidth) return;
       // Cover-crop once at a fixed low resolution, mirrored like a stage camera.

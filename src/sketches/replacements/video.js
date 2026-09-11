@@ -11,7 +11,7 @@ function cameraFactory(kind) {
     let source, history = [];
     const read = makeReplacementReader(audio, params, runtime);
     p.setup = () => {
-      p.pixelDensity(1); p.createCanvas(p.windowWidth, p.windowHeight);
+      p.createCanvas(p.windowWidth, p.windowHeight); p.pixelDensity(1);
       source = buffer();
       if (kind === 'slit') history = Array.from({ length: HISTORY }, buffer);
       const constraints = { video: { ...(device ? { deviceId: { exact: device } } : {}), width: { ideal: 640 }, height: { ideal: 480 } }, audio: false };
@@ -26,7 +26,7 @@ function cameraFactory(kind) {
       const kick = accent(c.kick) * accents, snare = accent(c.snare) * accents, hat = accent(c.hat) * accents;
       time += dt * bounded(params.speed, .6, 0, 2);
       const ctx = p.drawingContext, video = capture?.elt;
-      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, p.width, p.height);
+      p.resetMatrix(); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, p.width, p.height);
       if (!ready || !video || video.readyState < 2 || !video.videoWidth) return;
       // Cover-crop once, at a fixed low history resolution, mirrored like a stage camera.
       const sc = source.getContext('2d'), scale = Math.max(W / video.videoWidth, H / video.videoHeight);

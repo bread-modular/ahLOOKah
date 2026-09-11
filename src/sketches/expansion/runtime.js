@@ -106,12 +106,16 @@ export function canvasFactory(draw, { background = '#050811' } = {}) {
   return (audio, _device, params = {}, runtime = {}) => (p) => {
     let time = 0;
     const read = makeExpansionReader(audio, params, runtime);
-    p.setup = () => { p.pixelDensity(1); p.createCanvas(p.windowWidth, p.windowHeight); };
+    // p5 2 creates a new renderer (and its density) in createCanvas. Set the
+    // single-density policy on that renderer, not the discarded default canvas.
+    p.setup = () => { p.createCanvas(p.windowWidth, p.windowHeight); p.pixelDensity(1); };
     p.draw = () => {
       const dt = bounded(p.deltaTime / 1000, 1 / 60, 0, .1);
       time += dt * bounded(params.speed, .6, 0, 2);
       const c = read(dt), ctx = p.drawingContext;
-      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+      // Reset logical coordinates without throwing away the backing-store
+      // density transform. Identity alone paints only 1/density² of the frame.
+      p.resetMatrix(); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
       ctx.fillStyle = background; ctx.fillRect(0, 0, p.width, p.height);
       ctx.save(); ctx.translate(p.width / 2, p.height / 2); ctx.scale(p.height / 2, p.height / 2);
       ctx.lineJoin = 'round'; ctx.lineCap = 'round';

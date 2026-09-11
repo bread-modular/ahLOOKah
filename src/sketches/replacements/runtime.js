@@ -60,12 +60,15 @@ export function canvasFactory(draw) {
   return (audio, _device, params = {}, runtime = {}) => (p) => {
     let time = 0;
     const read = makeReplacementReader(audio, params, runtime);
-    p.setup = () => { p.pixelDensity(1); p.createCanvas(p.windowWidth, p.windowHeight); };
+    // createCanvas replaces the renderer in p5 2, including its density.
+    p.setup = () => { p.createCanvas(p.windowWidth, p.windowHeight); p.pixelDensity(1); };
     p.draw = () => {
       const dt = bounded(p.deltaTime / 1000, 1 / 60, 0, .1);
       time += dt * bounded(params.speed, .6, 0, 2);
       const c = read(dt), ctx = p.drawingContext;
-      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+      // Keep logical drawing coordinates in sync with the backing density,
+      // including when the host changes density or resizes the canvas.
+      p.resetMatrix(); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
       ctx.fillStyle = '#050811'; ctx.fillRect(0, 0, p.width, p.height);
       ctx.save(); ctx.translate(p.width / 2, p.height / 2); ctx.scale(p.height / 2, p.height / 2);
       ctx.lineJoin = 'round'; ctx.lineCap = 'round';

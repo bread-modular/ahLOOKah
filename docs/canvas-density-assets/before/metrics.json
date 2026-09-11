@@ -1,0 +1,914 @@
+[
+  {
+    "density": 1,
+    "id": "circles",
+    "role": "control",
+    "keys": [
+      "role",
+      "renderPerformance",
+      "singletonBlocked",
+      "singletonError",
+      "pattern",
+      "patternId",
+      "merge",
+      "screenOnline",
+      "params",
+      "cue",
+      "cueParams",
+      "cueRuntime",
+      "programs",
+      "runtimeCounts",
+      "cueTimings",
+      "blend",
+      "audioFeatures",
+      "bands",
+      "postfx",
+      "screenMapping",
+      "eq",
+      "noise",
+      "audio",
+      "audioOwner",
+      "audioStatus",
+      "audioDeviceId",
+      "patternAudio",
+      "captureAudio",
+      "readLog"
+    ],
+    "width": 505,
+    "height": 622,
+    "css": [
+      504.890625,
+      622
+    ],
+    "opaque": 1,
+    "samples": [
+      [
+        0,
+        0,
+        0,
+        255
+      ],
+      [
+        0,
+        0,
+        0,
+        255
+      ],
+      [
+        0,
+        0,
+        0,
+        255
+      ],
+      [
+        0,
+        0,
+        0,
+        255
+      ],
+      [
+        0,
+        0,
+        0,
+        255
+      ]
+    ],
+    "transform": "matrix(1, 0, 0, 1, 0, 0)"
+  },
+  {
+    "density": 1,
+    "id": "circles",
+    "role": "output",
+    "keys": [
+      "role",
+      "renderPerformance",
+      "singletonBlocked",
+      "singletonError",
+      "pattern",
+      "patternId",
+      "merge",
+      "screenOnline",
+      "params",
+      "cue",
+      "cueParams",
+      "cueRuntime",
+      "programs",
+      "runtimeCounts",
+      "cueTimings",
+      "blend",
+      "audioFeatures",
+      "bands",
+      "postfx",
+      "screenMapping",
+      "eq",
+      "noise",
+      "audio",
+      "audioOwner",
+      "audioStatus",
+      "audioDeviceId",
+      "patternAudio",
+      "captureAudio",
+      "readLog"
+    ],
+    "width": 960,
+    "height": 540,
+    "css": [
+      960,
+      540
+    ],
+    "opaque": 1,
+    "samples": [
+      [
+        0,
+        0,
+        0,
+        255
+      ],
+      [
+        0,
+        0,
+        0,
+        255
+      ],
+      [
+        0,
+        0,
+        0,
+        255
+      ],
+      [
+        0,
+        0,
+        0,
+        255
+      ],
+      [
+        0,
+        0,
+        0,
+        255
+      ]
+    ],
+    "transform": "matrix(1, 0, 0, 1, 0, 0)"
+  },
+  {
+    "density": 1,
+    "id": "pendulum-wave",
+    "role": "control",
+    "keys": [
+      "role",
+      "renderPerformance",
+      "singletonBlocked",
+      "singletonError",
+      "pattern",
+      "patternId",
+      "merge",
+      "screenOnline",
+      "params",
+      "cue",
+      "cueParams",
+      "cueRuntime",
+      "programs",
+      "runtimeCounts",
+      "cueTimings",
+      "blend",
+      "audioFeatures",
+      "bands",
+      "postfx",
+      "screenMapping",
+      "eq",
+      "noise",
+      "audio",
+      "audioOwner",
+      "audioStatus",
+      "audioDeviceId",
+      "patternAudio",
+      "captureAudio",
+      "readLog"
+    ],
+    "width": 505,
+    "height": 622,
+    "css": [
+      504.890625,
+      622
+    ],
+    "opaque": 1,
+    "samples": [
+      [
+        5,
+        8,
+        17,
+        255
+      ],
+      [
+        5,
+        8,
+        17,
+        255
+      ],
+      [
+        5,
+        8,
+        17,
+        255
+      ],
+      [
+        5,
+        8,
+        17,
+        255
+      ],
+      [
+        5,
+        8,
+        17,
+        255
+      ]
+    ],
+    "transform": "matrix(1, 0, 0, 1, 0, 0)"
+  },
+  {
+    "density": 1,
+    "id": "pendulum-wave",
+    "role": "output",
+    "keys": [
+      "role",
+      "renderPerformance",
+      "singletonBlocked",
+      "singletonError",
+      "pattern",
+      "patternId",
+      "merge",
+      "screenOnline",
+      "params",
+      "cue",
+      "cueParams",
+      "cueRuntime",
+      "programs",
+      "runtimeCounts",
+      "cueTimings",
+      "blend",
+      "audioFeatures",
+      "bands",
+      "postfx",
+      "screenMapping",
+      "eq",
+      "noise",
+      "audio",
+      "audioOwner",
+      "audioStatus",
+      "audioDeviceId",
+      "patternAudio",
+      "captureAudio",
+      "readLog"
+    ],
+    "width": 960,
+    "height": 540,
+    "css": [
+      960,
+      540
+    ],
+    "opaque": 1,
+    "samples": [
+      [
+        5,
+        8,
+        17,
+        255
+      ],
+      [
+        5,
+        8,
+        17,
+        255
+      ],
+      [
+        5,
+        8,
+        17,
+        255
+      ],
+      [
+        5,
+        8,
+        17,
+        255
+      ],
+      [
+        5,
+        8,
+        17,
+        255
+      ]
+    ],
+    "transform": "matrix(1, 0, 0, 1, 0, 0)"
+  },
+  {
+    "density": 1,
+    "id": "counterweight",
+    "role": "control",
+    "keys": [
+      "role",
+      "renderPerformance",
+      "singletonBlocked",
+      "singletonError",
+      "pattern",
+      "patternId",
+      "merge",
+      "screenOnline",
+      "params",
+      "cue",
+      "cueParams",
+      "cueRuntime",
+      "programs",
+      "runtimeCounts",
+      "cueTimings",
+      "blend",
+      "audioFeatures",
+      "bands",
+      "postfx",
+      "screenMapping",
+      "eq",
+      "noise",
+      "audio",
+      "audioOwner",
+      "audioStatus",
+      "audioDeviceId",
+      "patternAudio",
+      "captureAudio",
+      "readLog"
+    ],
+    "width": 505,
+    "height": 622,
+    "css": [
+      504.890625,
+      622
+    ],
+    "opaque": 1,
+    "samples": [
+      [
+        5,
+        8,
+        17,
+        255
+      ],
+      [
+        5,
+        8,
+        17,
+        255
+      ],
+      [
+        5,
+        8,
+        17,
+        255
+      ],
+      [
+        5,
+        8,
+        17,
+        255
+      ],
+      [
+        5,
+        8,
+        17,
+        255
+      ]
+    ],
+    "transform": "matrix(1, 0, 0, 1, 0, 0)"
+  },
+  {
+    "density": 1,
+    "id": "counterweight",
+    "role": "output",
+    "keys": [
+      "role",
+      "renderPerformance",
+      "singletonBlocked",
+      "singletonError",
+      "pattern",
+      "patternId",
+      "merge",
+      "screenOnline",
+      "params",
+      "cue",
+      "cueParams",
+      "cueRuntime",
+      "programs",
+      "runtimeCounts",
+      "cueTimings",
+      "blend",
+      "audioFeatures",
+      "bands",
+      "postfx",
+      "screenMapping",
+      "eq",
+      "noise",
+      "audio",
+      "audioOwner",
+      "audioStatus",
+      "audioDeviceId",
+      "patternAudio",
+      "captureAudio",
+      "readLog"
+    ],
+    "width": 960,
+    "height": 540,
+    "css": [
+      960,
+      540
+    ],
+    "opaque": 1,
+    "samples": [
+      [
+        5,
+        8,
+        17,
+        255
+      ],
+      [
+        5,
+        8,
+        17,
+        255
+      ],
+      [
+        5,
+        8,
+        17,
+        255
+      ],
+      [
+        5,
+        8,
+        17,
+        255
+      ],
+      [
+        5,
+        8,
+        17,
+        255
+      ]
+    ],
+    "transform": "matrix(1, 0, 0, 1, 0, 0)"
+  },
+  {
+    "density": 2,
+    "id": "circles",
+    "role": "control",
+    "keys": [
+      "role",
+      "renderPerformance",
+      "singletonBlocked",
+      "singletonError",
+      "pattern",
+      "patternId",
+      "merge",
+      "screenOnline",
+      "params",
+      "cue",
+      "cueParams",
+      "cueRuntime",
+      "programs",
+      "runtimeCounts",
+      "cueTimings",
+      "blend",
+      "audioFeatures",
+      "bands",
+      "postfx",
+      "screenMapping",
+      "eq",
+      "noise",
+      "audio",
+      "audioOwner",
+      "audioStatus",
+      "audioDeviceId",
+      "patternAudio",
+      "captureAudio",
+      "readLog"
+    ],
+    "width": 1010,
+    "height": 1244,
+    "css": [
+      504.890625,
+      622
+    ],
+    "opaque": 1,
+    "samples": [
+      [
+        0,
+        0,
+        0,
+        255
+      ],
+      [
+        0,
+        0,
+        0,
+        255
+      ],
+      [
+        0,
+        0,
+        0,
+        255
+      ],
+      [
+        0,
+        0,
+        0,
+        255
+      ],
+      [
+        0,
+        0,
+        0,
+        255
+      ]
+    ],
+    "transform": "matrix(2, 0, 0, 2, 0, 0)"
+  },
+  {
+    "density": 2,
+    "id": "circles",
+    "role": "output",
+    "keys": [
+      "role",
+      "renderPerformance",
+      "singletonBlocked",
+      "singletonError",
+      "pattern",
+      "patternId",
+      "merge",
+      "screenOnline",
+      "params",
+      "cue",
+      "cueParams",
+      "cueRuntime",
+      "programs",
+      "runtimeCounts",
+      "cueTimings",
+      "blend",
+      "audioFeatures",
+      "bands",
+      "postfx",
+      "screenMapping",
+      "eq",
+      "noise",
+      "audio",
+      "audioOwner",
+      "audioStatus",
+      "audioDeviceId",
+      "patternAudio",
+      "captureAudio",
+      "readLog"
+    ],
+    "width": 1920,
+    "height": 1080,
+    "css": [
+      960,
+      540
+    ],
+    "opaque": 1,
+    "samples": [
+      [
+        0,
+        0,
+        0,
+        255
+      ],
+      [
+        0,
+        0,
+        0,
+        255
+      ],
+      [
+        0,
+        0,
+        0,
+        255
+      ],
+      [
+        0,
+        0,
+        0,
+        255
+      ],
+      [
+        0,
+        0,
+        0,
+        255
+      ]
+    ],
+    "transform": "matrix(2, 0, 0, 2, 0, 0)"
+  },
+  {
+    "density": 2,
+    "id": "pendulum-wave",
+    "role": "control",
+    "keys": [
+      "role",
+      "renderPerformance",
+      "singletonBlocked",
+      "singletonError",
+      "pattern",
+      "patternId",
+      "merge",
+      "screenOnline",
+      "params",
+      "cue",
+      "cueParams",
+      "cueRuntime",
+      "programs",
+      "runtimeCounts",
+      "cueTimings",
+      "blend",
+      "audioFeatures",
+      "bands",
+      "postfx",
+      "screenMapping",
+      "eq",
+      "noise",
+      "audio",
+      "audioOwner",
+      "audioStatus",
+      "audioDeviceId",
+      "patternAudio",
+      "captureAudio",
+      "readLog"
+    ],
+    "width": 1010,
+    "height": 1244,
+    "css": [
+      504.890625,
+      622
+    ],
+    "opaque": 0.2607207666104231,
+    "samples": [
+      [
+        71,
+        148,
+        198,
+        255
+      ],
+      [
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0
+      ]
+    ],
+    "transform": "matrix(1, 0, 0, 1, 0, 0)"
+  },
+  {
+    "density": 2,
+    "id": "pendulum-wave",
+    "role": "output",
+    "keys": [
+      "role",
+      "renderPerformance",
+      "singletonBlocked",
+      "singletonError",
+      "pattern",
+      "patternId",
+      "merge",
+      "screenOnline",
+      "params",
+      "cue",
+      "cueParams",
+      "cueRuntime",
+      "programs",
+      "runtimeCounts",
+      "cueTimings",
+      "blend",
+      "audioFeatures",
+      "bands",
+      "postfx",
+      "screenMapping",
+      "eq",
+      "noise",
+      "audio",
+      "audioOwner",
+      "audioStatus",
+      "audioDeviceId",
+      "patternAudio",
+      "captureAudio",
+      "readLog"
+    ],
+    "width": 1920,
+    "height": 1080,
+    "css": [
+      960,
+      540
+    ],
+    "opaque": 0.25,
+    "samples": [
+      [
+        5,
+        8,
+        17,
+        255
+      ],
+      [
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0
+      ]
+    ],
+    "transform": "matrix(1, 0, 0, 1, 0, 0)"
+  },
+  {
+    "density": 2,
+    "id": "counterweight",
+    "role": "control",
+    "keys": [
+      "role",
+      "renderPerformance",
+      "singletonBlocked",
+      "singletonError",
+      "pattern",
+      "patternId",
+      "merge",
+      "screenOnline",
+      "params",
+      "cue",
+      "cueParams",
+      "cueRuntime",
+      "programs",
+      "runtimeCounts",
+      "cueTimings",
+      "blend",
+      "audioFeatures",
+      "bands",
+      "postfx",
+      "screenMapping",
+      "eq",
+      "noise",
+      "audio",
+      "audioOwner",
+      "audioStatus",
+      "audioDeviceId",
+      "patternAudio",
+      "captureAudio",
+      "readLog"
+    ],
+    "width": 1010,
+    "height": 1244,
+    "css": [
+      504.890625,
+      622
+    ],
+    "opaque": 0.25856865429308207,
+    "samples": [
+      [
+        5,
+        8,
+        17,
+        255
+      ],
+      [
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0
+      ]
+    ],
+    "transform": "matrix(1, 0, 0, 1, 0, 0)"
+  },
+  {
+    "density": 2,
+    "id": "counterweight",
+    "role": "output",
+    "keys": [
+      "role",
+      "renderPerformance",
+      "singletonBlocked",
+      "singletonError",
+      "pattern",
+      "patternId",
+      "merge",
+      "screenOnline",
+      "params",
+      "cue",
+      "cueParams",
+      "cueRuntime",
+      "programs",
+      "runtimeCounts",
+      "cueTimings",
+      "blend",
+      "audioFeatures",
+      "bands",
+      "postfx",
+      "screenMapping",
+      "eq",
+      "noise",
+      "audio",
+      "audioOwner",
+      "audioStatus",
+      "audioDeviceId",
+      "patternAudio",
+      "captureAudio",
+      "readLog"
+    ],
+    "width": 1920,
+    "height": 1080,
+    "css": [
+      960,
+      540
+    ],
+    "opaque": 0.25,
+    "samples": [
+      [
+        5,
+        8,
+        17,
+        255
+      ],
+      [
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0
+      ]
+    ],
+    "transform": "matrix(1, 0, 0, 1, 0, 0)"
+  }
+]
