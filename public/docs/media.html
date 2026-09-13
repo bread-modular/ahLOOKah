@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ahLOOKah — Docs: Media Patterns</title>
+  <meta name="description" content="Load your own images and videos into ahLOOKah as patterns: scaling, zoom, pan, playback speed, relinking, and using media as a projection source." />
+  <meta name="theme-color" content="#0b0b0f" />
+  <link rel="canonical" href="https://ahlookah.com/docs/media.html" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="ahLOOKah — Docs: Media Patterns" />
+  <meta property="og:description" content="Put your own images and videos on the output, framed exactly how you want them." />
+  <meta property="og:image" content="https://ahlookah.com/ahlookah-in-action.png" />
+  <link rel="stylesheet" href="/docs/docs.css" />
+</head>
+
+<body>
+  <header class="topbar">
+    <button class="menu-toggle" id="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="sidebar">
+      <span></span><span></span><span></span>
+    </button>
+    <a class="topbar__brand" href="/docs/">ahLOOKah Docs</a>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar__header">
+        <a class="sidebar__brand" href="/docs/">ah<span class="glow">LOOK</span>ah</a>
+        <span class="sidebar__tag">Docs</span>
+      </div>
+      <nav class="sidebar__nav" aria-label="Documentation">
+        <ul>
+          <li><a href="/docs/">Introduction</a></li>
+          <li><a href="/docs/getting-started.html">Getting Started</a></li>
+          <li><a href="/docs/interface.html">The Interface</a></li>
+          <li><a href="/docs/patterns.html">Patterns &amp; Parameters</a></li>
+          <li><a href="/docs/media.html" class="is-active" aria-current="page">Media Patterns</a></li>
+          <li><a href="/docs/slots.html">Slots &amp; Shortcuts</a></li>
+          <li><a href="/docs/blending.html">Blending Two Patterns</a></li>
+          <li><a href="/docs/post-processing.html">Post-processing</a></li>
+          <li><a href="/docs/eq-noise.html">EQ &amp; Noise</a></li>
+          <li><a href="/docs/cue-mode.html">Cue Mode</a></li>
+          <li><a href="/docs/screen-mapping.html">Screen Mapping</a></li>
+          <li><a href="/docs/projection-mapping.html">Projection Mapping</a></li>
+          <li><a href="/docs/devices.html">Devices &amp; Setup</a></li>
+        </ul>
+      </nav>
+      <div class="sidebar__footer">
+        <a href="/">← Back to app</a>
+      </div>
+    </aside>
+
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+    <main class="content">
+      <article class="article">
+        <h1>Media Patterns</h1>
+        <p class="lede">Media patterns put <em>your</em> images and videos on the output as fullscreen layers — no code, no uploads. Pick a file, and it appears in the pattern library next to the built-in effects.</p>
+
+        <h2>Loading a file</h2>
+        <p>Scroll to the bottom of the <strong>pattern library</strong> and find the <strong>Media</strong> group. Click <strong>ADD</strong> in the group header and choose one or more images or videos. Each file becomes its own pattern, named after the file, and it behaves like any other library item: click it to play it live, drag it to a pad slot, or use it as a mapping source.</p>
+
+        <p>The Media group is always shown — even before you add anything — so the <strong>ADD</strong> button is always within reach.</p>
+
+        <figure class="figure">
+          <img src="/docs/shots/media-empty.jpg" alt="The Media group in the ahLOOKah pattern library with its ADD button and the message No media loaded" />
+          <figcaption>The <strong>Media</strong> group starts empty; <strong>ADD</strong> loads images and videos from this computer.</figcaption>
+        </figure>
+
+        <h2>Your files stay on your computer</h2>
+        <p>ahLOOKah never uploads or copies your media. A media pattern is a <em>reference</em>: the library stores the name and a path-equivalent file handle, and the file itself is read from disk when the pattern plays. That keeps the app's saved data tiny and your footage where it belongs.</p>
+
+        <ul>
+          <li><strong>Desktop Chrome / Edge</strong> use the File System Access picker. The handle is remembered, so your media patterns survive reloads and app restarts. Chrome may ask once to re-confirm read access after a restart — see <a href="#when-a-file-cannot-be-reached">If a file can't be reached</a>.</li>
+          <li><strong>Other browsers</strong> fall back to a standard file chooser. Your loaded patterns still appear in the library, and if one can't reach its file later you'll see one of the messages below and can use <strong>Relink File</strong>.</li>
+        </ul>
+
+        <div class="callout">
+          <p><strong>Formats</strong> Images: PNG, JPEG, GIF, WebP, BMP, AVIF and SVG. Videos: MP4, M4V, WebM, MOV, MKV, AVI and OGV. Anything the browser itself can decode will play.</p>
+        </div>
+
+        <p>Once a file is loaded, the pattern appears in the Media group with an icon showing what it is — a picture frame for an image, a film strip for a video.</p>
+
+        <figure class="figure">
+          <img src="/docs/shots/media-library.jpg" alt="The ahLOOKah control panel with three media patterns loaded in the Media group, the selected image playing in the live preview, and its framing controls in the parameters panel" />
+          <figcaption>Loaded media patterns sit in the <strong>Media</strong> group; click one and its framing controls appear in the parameters panel.</figcaption>
+        </figure>
+
+        <h2>Framing the picture</h2>
+        <p>Media patterns are not audio reactive — the audio never nudges them. Instead they expose framing controls so a still or a loop lands exactly where you need it on the screen:</p>
+
+        <table>
+          <thead>
+            <tr><th>Control</th><th>What it does</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>Scaling</strong></td><td>Fit Width, Fit Height, Fit Screen (whole picture inside the frame, letterboxed) or Fill Screen (cover the frame, cropping the overflow). Defaults to <em>Fit Screen</em>.</td></tr>
+            <tr><td><strong>Zoom</strong></td><td>Multiplies the chosen fit — push in on a detail, or pull back past the edges.</td></tr>
+            <tr><td><strong>Pan X</strong> / <strong>Pan Y</strong></td><td>Slides the picture across the output, up to half a frame in each direction.</td></tr>
+            <tr><td><strong>Playback Speed</strong></td><td>Video only. Slows a loop down or speeds it up; the file keeps looping.</td></tr>
+          </tbody>
+        </table>
+
+        <figure class="figure">
+          <img src="/docs/shots/media-video.jpg" alt="The ahLOOKah control panel with a video media pattern selected, showing Scaling, Zoom, Pan X, Pan Y and Playback Speed in the parameters panel" />
+          <figcaption>Media controls live in the parameters panel, with <strong>Rename</strong> and <strong>Remove</strong> pinned underneath. Videos add a <strong>Playback Speed</strong> slider.</figcaption>
+        </figure>
+
+        <p>Change a control while the pattern is live and the output follows immediately, exactly like a built-in effect.</p>
+
+        <h2>Renaming and removing</h2>
+        <p><strong>Rename</strong> changes only the label in the library — handy when several files share a similar camera name. <strong>Remove</strong> drops the pattern from the library and forgets its reference; the original file on disk is left untouched.</p>
+
+        <h2 id="when-a-file-cannot-be-reached">If a file can't be reached</h2>
+        <p>Because media lives outside the app, a reference can go stale. ahLOOKah tells you exactly what happened and how to fix it:</p>
+
+        <ul>
+          <li><strong>"Click to grant file access"</strong> — the browser needs your permission to read the file again after a restart. Click the output (or the preview) to grant it, and the pattern loads.</li>
+          <li><strong>"Media file not linked — use Relink File"</strong> — the file moved, was renamed, or the pattern arrived from an imported settings file. Select the pattern and click <strong>Relink File</strong> in the parameters panel to point it at the file again. The button only appears when a pattern genuinely can't reach its file.</li>
+          <li><strong>Missing in the mapping editor</strong> — if a projection mapping uses a media source that is no longer available, the editor flags it and the surface renders black (or transparent with Alpha Blend) until you choose a replacement.</li>
+        </ul>
+
+        <div class="callout tip">
+          <p><strong>Tip</strong> Searching the library for <em>media</em> narrows the list to your loaded files, while <em>camera</em> finds the built-in Video FX patterns.</p>
+        </div>
+
+        <h2>Where media patterns fit in</h2>
+        <ul>
+          <li><strong>Blending</strong> — a media pattern is a normal input to merge mode, so you can crossfade a live effect into a still or an additive layer on top of one.</li>
+          <li><strong>Projection mapping</strong> — any media pattern can be a mapping source, which is how you play a logo, backdrop, or pre-rendered loop on a warped surface. See <a href="/docs/projection-mapping.html">Projection Mapping</a>.</li>
+          <li><strong>Cue mode</strong> — stage a media pattern behind the scenes like any other effect. Parked cue videos pause decoding until they're taken live.</li>
+          <li><strong>Export / import</strong> — settings travel as references only, so media patterns arrive with their names and metadata but need <strong>Relink File</strong> on the new machine. See <a href="/docs/devices.html">Devices &amp; Setup</a>.</li>
+          <li><strong>Preview</strong> — media patterns render in the control preview as well as the output, so you can frame a picture without looking at the projector. Camera-input effects are the ones that only render on the output.</li>
+        </ul>
+
+        <div class="pager">
+          <a href="/docs/patterns.html"><span class="label">Previous</span><span class="title">Patterns &amp; Parameters</span></a>
+          <a class="next" href="/docs/slots.html"><span class="label">Next</span><span class="title">Slots &amp; Shortcuts</span></a>
+        </div>
+      </article>
+    </main>
+  </div>
+
+  <script src="/docs/docs.js"></script>
+  <script>
+    window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+  </script>
+  <script defer src="/_vercel/insights/script.js"></script>
+</body>
+
+</html>

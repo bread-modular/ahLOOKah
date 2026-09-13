@@ -225,9 +225,9 @@ Non-black colors retain their color and existing transparency; unmapped areas ar
 transparent too. This mask works in the output, preview, and CSS fallback, and
 combines with edge smoothing. It defaults to off and persists with the pattern's
 parameters, including across layout/source changes and CUE/TAKE. The **Alphas**
-library group is purpose-built for this mode: eight white/gray-on-black looks
-(rings, bars, grid, spot, sweep, diamonds, fog, waves) whose brightness reads as
-opacity once the black background keys out.
+library group is purpose-built for this mode: four grayscale-on-black mattes
+(Iris Diaphragm, Cellular Gate, Gobo Wheel, Blinder Matrix) whose brightness
+reads as opacity once the black background keys out.
 Name a new mapping to create it; an unnamed mapping is not added. **Close** or
 Escape keeps your changes—there is no separate Save or Cancel. The popup contains no
 source parameters. In the sidebar, each mapping has **Edit** and **Remove** actions;
@@ -288,6 +288,13 @@ npm run test:full -- tests/projection-mapping.spec.js --workers=1
 npm run test:full -- 'tests/*performance.spec.js' --workers=1
 PLAYWRIGHT_PORT=5273 npm test     # Isolate a worktree from another server on 5173
 ```
+
+Docs screenshots (`public/docs/shots/*.jpg`) are regenerated on demand with
+`node scripts/docs-screenshots.mjs`. It boots its own isolated dev server, drives
+the real control and output windows with Playwright (stubbing only the file
+picker), and writes whole-window figures at 2× device pixels for the
+`public/docs/*.html` pages — no cropped element shots, so the guide always shows
+where each control lives.
 
 `test:all` and `test:e2e` remain aliases for the full suite. No tests are deleted
 for speed: only explicitly tagged `@core` tests run by default. Untagged edge

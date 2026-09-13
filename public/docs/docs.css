@@ -310,7 +310,11 @@ th { color: #fff; font-weight: 600; }
 .callout.tip { border-left-color: var(--muted); }
 .callout.warn { border-left-color: var(--border-strong); }
 .callout p { margin: 0; }
-.callout strong { display: block; margin-bottom: 2px; }
+/* Only the leading word of a callout is its label and sits on its own line.
+   Any later <strong> is inline emphasis — it must NOT be forced onto a line
+   of its own (that used to break sentences mid-flow). */
+.callout > strong,
+.callout p > strong:first-child { display: block; margin-bottom: 2px; }
 
 /* ---------- Video embed ---------- */
 .video-frame {
