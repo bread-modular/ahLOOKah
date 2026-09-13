@@ -1,17 +1,9 @@
 // Window runtime coordinator. Owns all long-lived browser resources and the
 // screen-authoritative LIVE/CUE state machine. React only renders the shell and
 // reads accepted snapshots from the per-window store; components invoke the
-// `commands` surface below and never touch BroadcastChannel or p5 directly.
-import p5 from 'p5';
-
-// Disable p5's Friendly Error System app-wide. Two reasons:
-//  1. Its sketch checker fetches the LAST <script> in the document to parse the
-//     "user code" — in production that is the Vercel analytics tag (which 404s
-//     or is a remote bundle), producing a spurious "Error parsing code:
-//     SyntaxError: Unexpected token (1:0)" on every pattern activation.
-//  2. FES adds per-call argument validation overhead that a 60fps VJ output
-//     does not need. All sketch code here is bundled, not user-authored.
-p5.disableFriendlyErrors = true;
+// `commands` surface below and never touch BroadcastChannel or the rendering
+// core directly.
+import VizCore from '../core/index.js';
 import {
   getOrderedSketches,
   SKETCHES,
@@ -55,7 +47,7 @@ import {
 import {
   ProgramRuntime,
   copyProgramSelection,
-  disposeP5Instance,
+  disposeVizInstance,
   selectionsEqual,
 } from '../program-runtime.js';
 import { registerProjectionSketches, loadProjectionMeta, saveProjectionMeta, sanitizeProjection,
@@ -676,7 +668,7 @@ export function createAppRuntime({
   // ---------------------------------------------------------------------------
   function createRuntime(selection, getBankParams, layer, reason = 'cue') {
     const runtime = new ProgramRuntime({
-      p5Constructor: p5,
+      coreConstructor: VizCore,
       selection,
       sketches: SKETCHES,
       audio: screenAudio,
@@ -1815,7 +1807,7 @@ export function createAppRuntime({
       factory(p);
     };
 
-    const inst = new p5(wrappedSketch, previewStage);
+    const inst = new VizCore(wrappedSketch, previewStage);
     previewP5.push(inst);
     attachPreviewCanvas(inst, sketch, layer, generation);
     return inst;
@@ -1827,7 +1819,7 @@ export function createAppRuntime({
     previewGeneration += 1;
     patternAudioStore.retireSlots(previewAudioSlots.map((slot) => slot.runtimeId));
     previewAudioSlots = [];
-    previewP5.forEach((inst) => disposeP5Instance(inst));
+    previewP5.forEach((inst) => disposeVizInstance(inst));
     previewP5 = [];
     if (previewStage) {
       previewStage.classList.remove('projection-runtime-preview');
@@ -1860,7 +1852,7 @@ export function createAppRuntime({
     if (sketches.some((sketch) => sketch.projection)) {
       previewStage.classList.add('projection-runtime-preview');
       projectionPreview = new ProgramRuntime({
-        p5Constructor: p5, selection: previewSelection, sketches: SKETCHES,
+        coreConstructor: VizCore, selection: previewSelection, sketches: SKETCHES,
         audio: previewAudio, getParams: getEditingParams, layer: previewStage,
         getSize: getPreviewSize, preview: true, generation: `preview-${previewGeneration}`,
         audioControlStore: patternAudioStore, consumerSessionId: windowId, audioRole: 'preview',

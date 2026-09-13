@@ -142,8 +142,7 @@ for (const [kind, mixed] of [['image', false], ['video', false], ['image', true]
   test(`real ${kind} ${mixed ? 'mixed-mapping input' : 'projection'} retains fresh-frame readiness without redundant static uploads`, async ({ page }) => {
     await page.goto('/docs/');
     const result = await page.evaluate(async ({ kind, mixed, videoBase64 }) => {
-      const { default: p5 } = await import('/node_modules/p5/lib/p5.esm.js');
-      p5.disableFriendlyErrors = true;
+      const { default: VizCore } = await import('/src/core/index.js');
       const { ProgramRuntime } = await import('/src/program-runtime.js');
       const { putMediaRecord } = await import('/src/media/media-store.js');
       const { buildMediaSketchEntry } = await import('/src/media/media-registry.js');
@@ -161,7 +160,7 @@ for (const [kind, mixed] of [['image', false], ['video', false], ['image', true]
       const params = {};
       const mapping = { enabled: true, quad: null, edgeBlur: 10 };
       const costs = [];
-      const runtime = new ProgramRuntime({ p5Constructor: p5, sketches,
+      const runtime = new ProgramRuntime({ coreConstructor: VizCore, sketches,
         selection: { ids: mixed ? ['projection-perf', 'media-perf'] : ['projection-perf'], merge: mixed },
         getParams: () => params, getSize: () => [200, 120], layer: host,
         getScreenMapping: () => mapping, onRenderCost: (...entry) => costs.push(entry) });

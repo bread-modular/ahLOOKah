@@ -2,8 +2,9 @@
 // sketch or a two-sketch merge, and owns the canvases, parameter resolver, CSS
 // post-processing layer and lifecycle needed to prepare it safely off-program.
 //
-// p5 2.x creates its canvas asynchronously, so readiness deliberately waits for
-// both canvas attachment and a completed draw from every child instance.
+// The rendering core creates its canvas asynchronously, so readiness
+// deliberately waits for both canvas attachment and a completed draw from every
+// child instance.
 
 import {
   PATTERN_CONTROLS_TRANSPORT,
@@ -11,6 +12,7 @@ import {
   snapshotPatternParams,
 } from './pattern-audio-protocol.js';
 
+import { disposeVizInstance, releaseVizContext } from './core/index.js';
 import { ScreenMappingLayer } from './screen-mapping-layer.js';
 import { ProjectionLayer } from './projection/ProjectionLayer.js';
 import { surfaceParamView } from './projection/projection-registry.js';
@@ -24,74 +26,16 @@ function cloneSelection(selection = {}) {
   };
 }
 
-// p5 removes the canvas but does not explicitly release its WebGL context. Keep
-// this teardown shared by full-screen runtimes and the embedded control preview
-// so neither path can exhaust Chrome's process-wide active-context allowance.
-export function loseP5WebGLContext(instance) {
-  if (!instance) return false;
+// Core-owned teardown. `releaseVizContext` frees the WebGL context (a bare
+// canvas removal leaves contexts active long enough for rapid LIVE/CUE switches
+// to exhaust Chrome's allowance) and `disposeVizInstance` stops the draw loop,
+// releases GL and detaches the canvas.
+export { disposeVizInstance, releaseVizContext };
 
-  const renderers = [
-    instance._renderer,
-    instance._curElement?._renderer,
-    instance._curElement,
-  ].filter(Boolean);
-  const contexts = new Set();
-  for (const renderer of renderers) {
-    for (const candidate of [renderer.GL, renderer.gl, renderer.drawingContext]) {
-      if (candidate && typeof candidate.getExtension === 'function') contexts.add(candidate);
-    }
-  }
-  if (instance.drawingContext && typeof instance.drawingContext.getExtension === 'function') {
-    contexts.add(instance.drawingContext);
-  }
-
-  // Current p5 exposes RendererGL.GL. Only probe the canvas as a guarded
-  // fallback for another p5 wrapper layout that still declares a 3D renderer;
-  // probing an untyped/2D canvas could create the very context we are releasing.
-  if (!contexts.size && renderers.some((renderer) => renderer.isP3D) && instance.canvas) {
-    try {
-      const gl = instance.canvas.getContext('webgl2')
-        || instance.canvas.getContext('webgl')
-        || instance.canvas.getContext('experimental-webgl');
-      if (gl) contexts.add(gl);
-    } catch {}
-  }
-
-  let released = false;
-  for (const gl of contexts) {
-    try {
-      const extension = gl.getExtension('WEBGL_lose_context');
-      if (extension) {
-        extension.loseContext();
-        released = true;
-      }
-    } catch {
-      // Context loss is best-effort on browser shutdown or an already-lost GL.
-    }
-  }
-  return released;
-}
-
-export function disposeP5Instance(instance) {
-  if (!instance) return;
-  try {
-    instance.noLoop?.();
-  } catch {
-    // The instance may already be between p5 teardown phases.
-  }
-  loseP5WebGLContext(instance);
-  try {
-    const removal = instance.remove?.();
-    // p5 2.x remove() is async. Keep teardown best-effort without leaking an
-    // unhandled rejection into page shutdown or a rapid selection replacement.
-    removal?.catch?.(() => {});
-  } catch {
-    // A removed p5 instance is already in the desired state.
-  }
-}
 
 export class ProgramRuntime {
   constructor({
+    coreConstructor,
     p5Constructor,
     selection,
     sketches,
@@ -121,7 +65,7 @@ export class ProgramRuntime {
     this.projectionLayers = [];
     this.projectionParamSnapshots = new Map();
     this.presentationElements = [];
-    this.p5Constructor = p5Constructor;
+    this.coreConstructor = coreConstructor || p5Constructor;
     this.selection = cloneSelection(selection);
     this.sketches = sketches;
     this.audio = audio;
@@ -160,7 +104,7 @@ export class ProgramRuntime {
     this.cleanup = [];
     this.playbackLifecycle = [];
     // A fresh-frame request remains active until a compositor frame has run,
-    // not merely until p5 calls draw(). Requests arriving during that compositor
+    // not merely until the core calls draw(). Requests arriving during that compositor
     // gate are queued for a subsequent frame so an older frame can never be
     // mistaken for one rendered with newly-mutated cue params.
     this.freshWaiter = null;
@@ -410,16 +354,16 @@ export class ProgramRuntime {
 
     const wrappedSketch = (p) => {
       try {
-        // p5 2.x may create its default 100×100 canvas after this wrapper is
+        // The core may create a default 100×100 canvas after this wrapper is
         // installed. Keep normal sketches viewport-sized, but retain an explicit
         // shader-utils request for a reduced backing buffer (renderScale).
         const viewportSize = () => [
           Math.max(1, Math.round(this.getSize()[0])),
           Math.max(1, Math.round(this.getSize()[1])),
         ];
-        // Some deterministic ProgramRuntime tests use a deliberately minimal p5
+        // Some deterministic ProgramRuntime tests use a deliberately minimal core
         // fake with no canvas APIs. Keep that supported: only install sizing
-        // guards when both APIs exist on a real p5-like instance.
+        // guards when both APIs exist on a real core-like instance.
         if (typeof p.createCanvas === 'function' && typeof p.resizeCanvas === 'function') {
           const createP5Canvas = p.createCanvas.bind(p);
           const resizeP5Canvas = p.resizeCanvas.bind(p);
@@ -478,25 +422,30 @@ export class ProgramRuntime {
         const originalDraw = p.draw;
         p.draw = (...args) => {
           const started = this.onRenderCost ? performance.now() : 0;
-          try {
-            const result = typeof originalDraw === 'function' ? originalDraw.apply(p, args) : undefined;
-            // A migrated child becomes fresh only when it explicitly read a
-            // matching controls packet during this draw. The binding records
-            // that fact before ProgramRuntime evaluates fresh-frame waiters.
-            // Capture before the browser can clear an unpreserved WebGL buffer.
-            // Media may return false when pixels are unchanged; control reads
-            // still count as fresh draws, but the existing texture is reusable.
+          const reportCost = () => this.onRenderCost?.(this.selection.ids[node.topIndex], node.surface?.id || null, performance.now() - started);
+          const complete = (result) => {
+            // Capture and publish readiness only after the user's callback has
+            // completed, including async callbacks. Never publish a retired draw.
+            if (this.disposed || p._removed) return result;
             if (node.projection) node.projection.capture(node, p.canvas, result !== false);
             else if (node.mapping) node.mapping.capture(p.canvas, result !== false);
             else this.onDraw?.(p.canvas, result !== false);
             audioSlot?.binding?.noteDraw();
             this._noteDraw(index);
             return result;
+          };
+          try {
+            const result = typeof originalDraw === 'function' ? originalDraw.apply(p, args) : undefined;
+            if (result && typeof result.then === 'function') {
+              return Promise.resolve(result).then(complete).catch(error => this._fail(error)).finally(reportCost);
+            }
+            const completed = complete(result);
+            reportCost();
+            return completed;
           } catch (error) {
             this._fail(error);
+            reportCost();
             return undefined;
-          } finally {
-            this.onRenderCost?.(this.selection.ids[node.topIndex], node.surface?.id || null, performance.now() - started);
           }
         };
       } catch (error) {
@@ -504,16 +453,16 @@ export class ProgramRuntime {
       }
     };
 
-    // p5 may invoke draw during construction in some builds, so initialise the
+    // The core may invoke draw during construction, so initialise the
     // counter before it gets a chance to call the wrapped callback.
     this.drawCounts[index] = 0;
     let instance;
     try {
-      // Give p5 its program layer at construction time. p5 2.x creates the
+      // Give the core its program layer at construction time. The core creates the
       // canvas asynchronously, and constructing without a parent briefly puts
       // it in the document body where it can flash above LIVE before our attach
       // retry moves it into the hidden CUE layer.
-      instance = new this.p5Constructor(wrappedSketch, node.host);
+      instance = new this.coreConstructor(wrappedSketch, node.host);
     } catch (error) {
       this._fail(error);
       return;
@@ -671,7 +620,7 @@ export class ProgramRuntime {
       this._rejectFreshRequests(error);
     }, waiter.timeoutMs);
     this.freshWaiter = waiter;
-    // p5 may draw synchronously in tests, before the waiter is installed.
+    // The core may draw synchronously in tests, before the waiter is installed.
     this._checkFreshFrame();
   }
 
@@ -706,7 +655,7 @@ export class ProgramRuntime {
         this._finishFreshCompositorFrame(waiter);
         return;
       }
-      // The second rAF is the compositor-confirmation gate: a p5 draw observed
+      // The second rAF is the compositor-confirmation gate: a draw observed
       // in JavaScript is not yet a safe visible frame until the browser has had
       // an opportunity to composite it.
       waiter.compositorConfirmRaf = requestAnimationFrame(() => {
@@ -783,7 +732,7 @@ export class ProgramRuntime {
     if (this.disposed) return;
     if (!this.paused) {
       this.paused = true;
-      // Suppress events before noLoop so a queued p5 draw cannot consume a
+      // Suppress events before noLoop so a queued draw cannot consume a
       // one-shot effect after this CUE runtime has become hidden.
       this._setAudioEventDeliveryEnabled(false);
       this.playbackLifecycle.forEach((hooks) => { try { hooks.pause?.(); } catch {} });
@@ -792,7 +741,7 @@ export class ProgramRuntime {
       try {
         instance?.noLoop?.();
       } catch {
-        // A removed p5 instance can reject noLoop during teardown; it is safe.
+        // A removed instance can reject noLoop during teardown; it is safe.
       }
     });
   }
@@ -810,12 +759,12 @@ export class ProgramRuntime {
       try {
         instance?.loop?.();
       } catch {
-        // Ignore an instance that is in the middle of p5 removal.
+        // Ignore an instance that is in the middle of removal.
       }
     });
   }
 
-  // Canvas dimensions are exclusively mutated through each sketch's p5 resize
+  // Canvas dimensions are exclusively mutated through each sketch's resize
   // hook. This preserves intentional reduced backing buffers (shader renderScale)
   // while CSS continues to fill the stage. Direct DOM width/height assignments
   // would clear 2D buffers and can reset WebGL programs.
@@ -916,7 +865,7 @@ export class ProgramRuntime {
     }
     if (this.timeoutId) clearTimeout(this.timeoutId);
     this.timeoutId = 0;
-    // Reject active and compositor-queued callers before removing p5. Otherwise
+    // Reject active and compositor-queued callers before removal. Otherwise
     // a pending TAKE/parameter promise can hang forever after CANCEL or a
     // selection replacement disposes this runtime.
     this._rejectFreshRequests(disposeError);
@@ -929,9 +878,9 @@ export class ProgramRuntime {
       }
     });
 
-    // Stop rendering, release GL, then remove p5. remove() alone leaves WebGL
+    // Stop rendering, release GL, then remove the canvas. A bare canvas removal leaves WebGL
     // contexts active long enough for rapid LIVE/CUE switches to exhaust Chrome.
-    this.instances.forEach((instance) => disposeP5Instance(instance));
+    this.instances.forEach((instance) => disposeVizInstance(instance));
     this.instances = [];
     this.playbackLifecycle = [];
     this.composedLayers.forEach((layer) => layer.dispose());

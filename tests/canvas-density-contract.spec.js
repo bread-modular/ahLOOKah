@@ -7,15 +7,15 @@ import { test, expect } from '@playwright/test';
 test('Canvas2D factories repaint their own surface at backing density 1 and 2, including a later resize', { tag: '@patterns' }, async ({ page }) => {
   await page.goto('/tests/fixtures/render.html');
   const results = await page.evaluate(async () => {
-    const { default: p5 } = await import('/node_modules/p5/lib/p5.esm.js');
+    const { default: VizCore } = await import('/src/core/index.js');
     const { SKETCHES, defaultParamValues } = await import('/src/sketch-registry.js');
-    const { disposeP5Instance } = await import('/src/program-runtime.js');
+    const { disposeVizInstance } = await import('/src/program-runtime.js');
     const rows=[];
     for (const id of ['pendulum-wave','counterweight','video-slit-scan','video-facet-fold','video-datamosh','video-rolling-shutter']) {
       const entry=SKETCHES.find(s=>s.id===id);
       let instance;
       await new Promise(resolve => {
-        instance = new p5(p => {
+        instance = new VizCore(p => {
           entry.factory(null, null, defaultParamValues(id), {
             // Not-ready capture covers the early opaque placeholder; the live
             // camera pipeline and populated histories are tested in the UI suite.
@@ -41,7 +41,7 @@ test('Canvas2D factories repaint their own surface at backing density 1 and 2, i
             rows.push({id,density,w,h,width:instance.width,height:instance.height,backing:[instance.canvas.width,instance.canvas.height],transform:[ctx.getTransform().a,ctx.getTransform().d],transparent,magenta});
           }
         }
-      } finally { disposeP5Instance(instance); }
+      } finally { disposeVizInstance(instance); }
     }
     return rows;
   });

@@ -1,8 +1,8 @@
 // Browser-only deterministic test harness. No production hooks, FFT mocks in the
 // output, frozen motion, wall-clock phase comparisons, or screenshot timing races.
-import p5 from '/node_modules/p5/lib/p5.esm.js';
+import VizCore from '/src/core/index.js';
 import { SKETCHES, defaultParamValues } from '/src/sketch-registry.js';
-import { disposeP5Instance } from '/src/program-runtime.js';
+import { disposeVizInstance } from '/src/program-runtime.js';
 export const W = 320, H = 180, FRAMES = 24, DT = 1 / 20;
 const all = value => ({ sub: value, mid: value, high: value });
 const samples = [8, 12, 16, 20, 23];
@@ -36,7 +36,7 @@ export async function renderTimeline(id, featuresAt = () => ({}), patch = {}, co
     createCapture(_p, _constraints, ready) { ready(); return { elt: camera, hide() {} }; },
   };
   const poison = { isStarted: true, getAnalysisFrame() { throw new Error('Render-side FFT scan'); } };
-  const p = await new Promise(resolve => new p5(p => {
+  const p = await new Promise(resolve => new VizCore(p => {
     sketch.factory(poison, null, params, runtime)(p);
     const setup = p.setup, draw = p.draw, redraw = p.redraw.bind(p);
     p.setup = () => { setup(); p.noLoop(); };
@@ -71,7 +71,7 @@ export async function renderTimeline(id, featuresAt = () => ({}), patch = {}, co
       frames.resized = [p.canvas.width, p.canvas.height];
     }
     return frames;
-  } finally { controller.dispose(); disposeP5Instance(p); HTMLCanvasElement.prototype.getContext = getContext; }
+  } finally { controller.dispose(); disposeVizInstance(p); HTMLCanvasElement.prototype.getContext = getContext; }
 }
 export function png(rgba) {
   const c = document.createElement('canvas'); c.width = W; c.height = H;
