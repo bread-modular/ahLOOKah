@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ahLOOKah — Docs: Screen Mapping</title>
+  <meta name="description" content="Square up your projector with screen mapping: drag the four output corners into a true rectangle and soften the edges to blend multiple projectors." />
+  <meta name="theme-color" content="#0b0b0f" />
+  <link rel="canonical" href="https://ahlookah.com/docs/screen-mapping.html" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="ahLOOKah — Docs: Screen Mapping" />
+  <meta property="og:description" content="Software keystone correction for projectors, right inside the control panel." />
+  <meta property="og:image" content="https://ahlookah.com/ahlookah-in-action.png" />
+  <link rel="stylesheet" href="/docs/docs.css" />
+</head>
+
+<body>
+  <header class="topbar">
+    <button class="menu-toggle" id="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="sidebar">
+      <span></span><span></span><span></span>
+    </button>
+    <a class="topbar__brand" href="/docs/">ahLOOKah Docs</a>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar__header">
+        <a class="sidebar__brand" href="/docs/">ah<span class="glow">LOOK</span>ah</a>
+        <span class="sidebar__tag">Docs</span>
+      </div>
+      <nav class="sidebar__nav" aria-label="Documentation">
+        <ul>
+          <li><a href="/docs/">Introduction</a></li>
+          <li><a href="/docs/getting-started.html">Getting Started</a></li>
+          <li><a href="/docs/interface.html">The Interface</a></li>
+          <li><a href="/docs/patterns.html">Patterns &amp; Parameters</a></li>
+          <li><a href="/docs/media.html">Media Patterns</a></li>
+          <li><a href="/docs/slots.html">Slots &amp; Shortcuts</a></li>
+          <li><a href="/docs/blending.html">Blending Two Patterns</a></li>
+          <li><a href="/docs/post-processing.html">Post-processing</a></li>
+          <li><a href="/docs/eq-noise.html">EQ &amp; Noise</a></li>
+          <li><a href="/docs/cue-mode.html">Cue Mode</a></li>
+          <li><a href="/docs/screen-mapping.html" class="is-active" aria-current="page">Screen Mapping</a></li>
+          <li><a href="/docs/projection-mapping.html">Projection Mapping</a></li>
+          <li><a href="/docs/devices.html">Devices &amp; Setup</a></li>
+        </ul>
+      </nav>
+      <div class="sidebar__footer">
+        <a href="/">← Back to app</a>
+      </div>
+    </aside>
+
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+    <main class="content">
+      <article class="article">
+        <h1>Screen Mapping</h1>
+        <p class="lede">Projectors rarely point straight at the surface. Screen mapping is a software keystone: drag the four corners of the output until your picture forms a true rectangle on the wall — no lens adjustment needed.</p>
+
+        <h2>Enabling it</h2>
+        <p>Screen mapping is a <strong>global</strong> setting. In the control panel, open <strong>Global Settings → Screen Mapping</strong> and tick <strong>Enable screen mapping</strong>. It is off by default, which means ordinary patterns fill the whole output frame.</p>
+
+        <p>The section also shows the output window's current resolution, so you can check what you're calibrating against. While the screen window is closed it reads <em>offline — 16:9 assumed</em>; the corners are locked until mapping is enabled.</p>
+
+        <figure class="figure">
+          <img src="/docs/shots/screen-mapping.jpg" alt="The Screen Mapping section with the enable checkbox, a warped corner editor, Reset to Full Frame, and the Edge blurring slider" />
+          <figcaption>The Screen Mapping editor: four corner handles over a three-by-three guide grid, with <strong>Reset to Full Frame</strong> and <strong>Edge blurring</strong> below.</figcaption>
+        </figure>
+
+        <h2>Square it up</h2>
+        <ol>
+          <li>Put the screen window on the projector and play something with obvious edges — a checkerboard works well.</li>
+          <li>Drag the <strong>TL</strong>, <strong>TR</strong>, <strong>BR</strong> and <strong>BL</strong> handles. Each corner is where that corner of the picture should land on your physical surface.</li>
+          <li>Keep adjusting until the projection is rectangular and fills the screen. Every change applies to the output <em>in real time</em>, so you can stand at the projector and drag on the laptop.</li>
+        </ol>
+
+        <p><strong>Reset to Full Frame</strong> clears the warp and returns the output to the untransformed full screen — useful when you move to a different room.</p>
+
+        <div class="callout tip">
+          <p><strong>Tip</strong> Mapping a single projector in a flat room? Leave it off. Screen mapping is opt-in precisely so ordinary sets pay nothing for it.</p>
+        </div>
+
+        <h2>Edge blurring</h2>
+        <p><strong>Edge blurring</strong> (0–25%) gently fades all four edges of the output into black. It's the soft blend you want where two projectors overlap, and it never softens the picture itself. At <strong>0%</strong> it is off.</p>
+        <p>Unlike the corner warp, edge blurring works even while the corners are still at full frame. It saves with the rest of your screen calibration, survives CUE/TAKE, and is included in exported settings.</p>
+
+        <h2>What it applies to</h2>
+        <ul>
+          <li><strong>Ordinary programs</strong> — the warp is applied <em>after</em> blending and post-processing, so the grade and merge happen first and the geometry comes last.</li>
+          <li><strong>Projection mapping patterns</strong> — these keep their own per-surface geometry. A live projection pattern <em>bypasses</em> the global screen mapping (your calibration is preserved, not deleted and not applied), and the panel says so while it's selected.</li>
+          <li><strong>Merged programs</strong> — when an ordinary pattern is merged with a projection pattern, the ordinary input is mapped first, then the shared blend and post-processing run.</li>
+        </ul>
+
+        <p>Mapped output uses a WebGL2 subpixel sampling pass (16 samples per physical output pixel, on a 4×4 grid) so sloping edges and gaps stay smooth instead of stair-stepping. The extra GPU work only happens while mapping is enabled and the quad is warped or edge blurring is on; turning mapping off releases it. If the GPU path can't start, a calibrated CSS fallback keeps the alignment intact.</p>
+
+        <div class="callout">
+          <p><strong>Saved with your calibration</strong> Corner positions and edge blurring are stored in this browser alongside your other settings, and travel in <strong>Export Settings</strong>. See <a href="/docs/devices.html">Devices &amp; Setup</a>.</p>
+        </div>
+
+        <div class="pager">
+          <a href="/docs/cue-mode.html"><span class="label">Previous</span><span class="title">Cue Mode</span></a>
+          <a class="next" href="/docs/projection-mapping.html"><span class="label">Next</span><span class="title">Projection Mapping</span></a>
+        </div>
+      </article>
+    </main>
+  </div>
+
+  <script src="/docs/docs.js"></script>
+  <script>
+    window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+  </script>
+  <script defer src="/_vercel/insights/script.js"></script>
+</body>
+
+</html>

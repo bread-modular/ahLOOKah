@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ahLOOKah — Docs: Projection Mapping</title>
+  <meta name="description" content="Build reusable projection mapping patterns in ahLOOKah: up to eight named surfaces, each with its own source pattern and warped corners, plus Alpha Blend and CUE support." />
+  <meta name="theme-color" content="#0b0b0f" />
+  <link rel="canonical" href="https://ahlookah.com/docs/projection-mapping.html" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="ahLOOKah — Docs: Projection Mapping" />
+  <meta property="og:description" content="Up to eight independently warped surfaces in one reusable pattern." />
+  <meta property="og:image" content="https://ahlookah.com/ahlookah-in-action.png" />
+  <link rel="stylesheet" href="/docs/docs.css" />
+</head>
+
+<body>
+  <header class="topbar">
+    <button class="menu-toggle" id="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="sidebar">
+      <span></span><span></span><span></span>
+    </button>
+    <a class="topbar__brand" href="/docs/">ahLOOKah Docs</a>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar__header">
+        <a class="sidebar__brand" href="/docs/">ah<span class="glow">LOOK</span>ah</a>
+        <span class="sidebar__tag">Docs</span>
+      </div>
+      <nav class="sidebar__nav" aria-label="Documentation">
+        <ul>
+          <li><a href="/docs/">Introduction</a></li>
+          <li><a href="/docs/getting-started.html">Getting Started</a></li>
+          <li><a href="/docs/interface.html">The Interface</a></li>
+          <li><a href="/docs/patterns.html">Patterns &amp; Parameters</a></li>
+          <li><a href="/docs/media.html">Media Patterns</a></li>
+          <li><a href="/docs/slots.html">Slots &amp; Shortcuts</a></li>
+          <li><a href="/docs/blending.html">Blending Two Patterns</a></li>
+          <li><a href="/docs/post-processing.html">Post-processing</a></li>
+          <li><a href="/docs/eq-noise.html">EQ &amp; Noise</a></li>
+          <li><a href="/docs/cue-mode.html">Cue Mode</a></li>
+          <li><a href="/docs/screen-mapping.html">Screen Mapping</a></li>
+          <li><a href="/docs/projection-mapping.html" class="is-active" aria-current="page">Projection Mapping</a></li>
+          <li><a href="/docs/devices.html">Devices &amp; Setup</a></li>
+        </ul>
+      </nav>
+      <div class="sidebar__footer">
+        <a href="/">← Back to app</a>
+      </div>
+    </aside>
+
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+    <main class="content">
+      <article class="article">
+        <h1>Projection Mapping</h1>
+        <p class="lede">A projection mapping pattern is a reusable container of named surfaces. Each surface gets its own source — any pattern, image or video — and its own warped corners, so one library entry can dress several walls, objects, or screens at once.</p>
+
+        <figure class="figure">
+          <img src="/docs/shots/projection-output.jpg" alt="Five independently warped surfaces on the ahLOOKah output window: a colour-bar banner across the top, three wall panels each showing a different pattern, and a laser-grid floor" />
+          <figcaption>One projection pattern, five surfaces — a header banner, three walls, and a floor. Each is warped to its own physical target and all of them render from one output window.</figcaption>
+        </figure>
+
+        <h2>Creating a pattern and adding a mapping</h2>
+        <ol>
+          <li>In the <strong>pattern library</strong>, open the <strong>Projection Mapping</strong> group and click <strong>ADD</strong>.</li>
+          <li>Name the pattern — for example, <em>Main stage</em>. It appears in the library like any other pattern and plays on the output when selected.</li>
+          <li>In the third column, click <strong>Add mapping</strong> to open the mapping editor.</li>
+          <li>Give the mapping a name (for example, <em>Left wall</em>), keep <strong>Checkerboard</strong> or choose another source, and position its corners.</li>
+        </ol>
+
+        <p>New mappings default to <strong>Checkerboard</strong> from the <strong>Simple</strong> group, because hard squares are the easiest thing to line up against a real edge. A projection pattern can hold up to <strong>eight</strong> mappings, and the panel shows a running count such as <em>5 / 8 mappings</em> — add one per wall, prop, or screen. Mapping patterns cannot contain other mapping patterns.</p>
+
+        <figure class="figure">
+          <img src="/docs/shots/projection-panel.jpg" alt="The ahLOOKah projection mapping panel showing the pattern name, the Alpha Blend checkbox, the count 5 of 8 mappings, and five named mapping rows with Edit and Remove buttons" />
+          <figcaption>The projection panel: pattern name, <strong>Alpha Blend</strong>, the mapping count, and one row per named surface — five here, up to eight.</figcaption>
+        </figure>
+
+        <h2>The mapping editor</h2>
+        <p>Each mapping has three things to set — a name, a source, and a position.</p>
+
+        <ul>
+          <li><strong>Mapping name</strong> — required. A new mapping isn't created until it has a name.</li>
+          <li><strong>Source pattern</strong> — a dropdown of every ordinary pattern, grouped by the same categories as the library, plus your loaded images and videos. Camera-input Video FX patterns are valid sources too, but they render on the output only, never in the control preview.</li>
+          <li><strong>Edge smoothing</strong> — 0–25%; softens all four edges of this mapping only, without blurring the picture. Overlapping mappings blend through their softened edges. It saves with the mapping and survives source changes.</li>
+        </ul>
+
+        <h3>Mapping a pattern: placing the corners</h3>
+        <p>In the <strong>Output mapping</strong> canvas, drag the four corner handles so the surface sits exactly on its target. Faint dashed outlines show your other mappings, which makes it easy to line up adjacent surfaces without closing the editor.</p>
+
+        <figure class="figure">
+          <img src="/docs/shots/projection-editor.jpg" alt="The ahLOOKah mapping editor showing Mapping name, Source pattern, Edge smoothing, and the Output mapping canvas with corner handles" />
+          <figcaption>The mapping editor. The picture's four corners land where you drag them; other mappings appear as faint outlines.</figcaption>
+        </figure>
+
+        <p>For precision, click a handle and nudge it with the <strong>arrow keys</strong> — <kbd>Shift</kbd> plus an arrow takes larger steps. Open <strong>Corner positions (%)</strong> to type exact X/Y percentages for <strong>TL</strong>, <strong>TR</strong>, <strong>BR</strong> and <strong>BL</strong> instead of dragging.</p>
+
+        <figure class="figure">
+          <img src="/docs/shots/projection-corners.jpg" alt="The Corner positions (%) panel showing exact X and Y percentages for the TL, TR, BR and BL corners" />
+          <figcaption><strong>Corner positions (%)</strong> gives you exact coordinates when eyeballing isn't precise enough.</figcaption>
+        </figure>
+
+        <div class="callout">
+          <p><strong>There is no Save button — and no Cancel.</strong> Valid name, source, corner and smoothing edits save automatically as you work. <strong>Close</strong> or <kbd>Esc</kbd> closes the editor and keeps everything. If you drag the corners so they cross, the last valid shape is kept and the editor flags the problem instead of applying it.</p>
+        </div>
+
+        <h2>Managing the surfaces</h2>
+        <ul>
+          <li><strong>Show the controls</strong> — click a mapping's title to reveal or hide its source parameters. They're collapsed by default, and each mapping keeps a complete, independent copy of its source's settings even when two mappings share the same source.</li>
+          <li><strong>Reorder</strong> — drag the ⠿ handle to move a mapping up or down. <em>Later mappings cover earlier ones.</em></li>
+          <li><strong>Remove</strong> — each row has <strong>Remove</strong>, and <strong>Remove projection pattern</strong> deletes the whole entry from the library.</li>
+        </ul>
+
+        <h3>Swapping a mapping's source by dragging</h3>
+        <p>You don't have to open the editor to change what a surface shows. Drag any pattern from the library — or from the pad — and drop it straight onto a mapping row. The row under the pointer is outlined while you hold the pattern over it.</p>
+
+        <figure class="figure">
+          <img src="/docs/shots/projection-replace.jpg" alt="The ahLOOKah control panel with Wormhole Transit being dragged from the pattern library; the Stage floor mapping row is outlined with a dashed accent border to show it will receive the pattern" />
+          <figcaption>Drag a pattern onto a mapping row to replace that surface's source without opening the editor. The dashed outline marks the row that will take it.</figcaption>
+        </figure>
+
+        <ul>
+          <li>The row has to be <strong>collapsed</strong>. A row with its parameters open is not a drop target — click its title to close it first.</li>
+          <li>Only the source changes: the mapping keeps its <strong>name</strong>, its <strong>corners</strong>, and its <strong>edge smoothing</strong>.</li>
+          <li>The incoming pattern starts from its own current settings and keeps its own controls from then on, so two mappings can share a source without sharing values.</li>
+          <li>Dropping the pattern that is already assigned does nothing.</li>
+        </ul>
+
+        <p>The same drag does different jobs elsewhere: drop a pattern on a <strong>pad slot</strong> or on the library to assign it there, and drag a mapping's ⠿ handle inside the list to reorder it.</p>
+
+        <p>By default, unmapped areas are black and each surface's interior is opaque, so later surfaces hide earlier ones. Overlapping edges blend where edge smoothing is set.</p>
+
+        <h2>Alpha Blend</h2>
+        <p>Tick <strong>Alpha Blend</strong> in the projection panel to make black areas transparent. That reveals the mappings underneath and lets the pattern behind show through in a merge, while non-black colours keep their colour and any existing transparency. Unmapped areas become transparent too.</p>
+
+        <p>The mask works in the output, the preview, and the CSS fallback, and it combines with edge smoothing. It's off by default and persists with the pattern's parameters, including across layout and source changes and across CUE/TAKE.</p>
+
+        <figure class="figure">
+          <img src="/docs/shots/projection-alpha-blend.jpg" alt="The projection mapping panel with Alpha Blend ticked and the hint explaining that black areas become transparent" />
+          <figcaption><strong>Alpha Blend</strong> keys out black so surfaces can stack and composite.</figcaption>
+        </figure>
+
+        <div class="callout tip">
+          <p><strong>Tip</strong> The <strong>Alphas</strong> library group exists for this mode: four grayscale-on-black mattes — Iris Diaphragm, Cellular Gate, Gobo Wheel, and Blinder Matrix — whose brightness reads as opacity once the black background is keyed out. It is a black key, not a proportional luminance-to-opacity conversion.</p>
+        </div>
+
+        <h2>Cue mode, saving, and recovery</h2>
+        <ul>
+          <li><strong>Layouts and parameters persist locally</strong> and sync across the control and output windows.</li>
+          <li><strong>CUE</strong> — corners, edge smoothing, and a mapping's source controls can be staged in real time without changing LIVE; <kbd>Enter</kbd> (<strong>TAKE</strong>) applies them atomically. Names, sources, and structure are locked until you finish or cancel CUE.</li>
+          <li><strong>If a replacement can't start</strong> — the previous output stays intact and the panel offers <strong>Retry projection layout</strong> (and <strong>Retry output</strong> inside the editor). Saved edits stay pending on the output until it starts successfully.</li>
+          <li><strong>Missing sources</strong> — flagged in the editor and rendered black (transparent with Alpha Blend) until you pick a replacement. Files the browser can't read show their permission or missing-file message inside their surface.</li>
+        </ul>
+
+        <h2>Screen mapping vs. projection mapping</h2>
+        <p>They solve different problems and never fight each other:</p>
+
+        <table>
+          <thead>
+            <tr><th></th><th>Screen Mapping</th><th>Projection Mapping</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>Scope</strong></td><td>Global — one warp for the whole output</td><td>Per pattern — up to eight warps, one per surface</td></tr>
+            <tr><td><strong>Typical use</strong></td><td>Keystone a single projector onto a flat screen</td><td>Dress several walls, props, or screens with different content</td></tr>
+            <tr><td><strong>Applies to</strong></td><td>Ordinary patterns (after blend and post-processing)</td><td>Its own surfaces; bypasses the global calibration without deleting it</td></tr>
+          </tbody>
+        </table>
+
+        <p>In a merge, each input is mapped before the shared blend and post-processing, so an ordinary pattern still uses your saved screen warp and edge blurring while a projection pattern keeps its own geometry. Global post-processing applies to the result either way. Each surface owns a renderer, so reduce the surface count or shader complexity if the projector machine can't keep up — especially while cueing, when a second program is warming up.</p>
+
+        <div class="pager">
+          <a href="/docs/screen-mapping.html"><span class="label">Previous</span><span class="title">Screen Mapping</span></a>
+          <a class="next" href="/docs/devices.html"><span class="label">Next</span><span class="title">Devices &amp; Setup</span></a>
+        </div>
+      </article>
+    </main>
+  </div>
+
+  <script src="/docs/docs.js"></script>
+  <script>
+    window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+  </script>
+  <script defer src="/_vercel/insights/script.js"></script>
+</body>
+
+</html>
