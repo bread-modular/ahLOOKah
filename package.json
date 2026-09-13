@@ -22,7 +22,6 @@
   },
   "dependencies": {
     "@vercel/analytics": "^2.0.1",
-    "p5": "^2.3.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   }

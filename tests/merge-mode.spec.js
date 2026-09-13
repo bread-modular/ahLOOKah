@@ -3,6 +3,14 @@ import { test, expect } from '@playwright/test';
 const SCREEN_URL = '/?role=screen';
 const CONTROL_URL = '/?role=control';
 
+// The control window only learns that the screen's message bus is live from the
+// screen's own state broadcast. Waiting for it keeps the merge/selection
+// gestures deterministic instead of depending on how fast a window boots (the
+// screen silently misses messages that arrive before its bus exists).
+async function waitForScreenOnline(control) {
+  await control.waitForFunction(() => window.__viz?.screenOnline === true);
+}
+
 // Dual-effect merge mode: holding two number keys (1-9/0) on the control panel
 // selects BOTH effects and blends them on the screen. The params list switches
 // from the individual effect sliders to the global blend sliders.
@@ -12,6 +20,7 @@ test.describe('dual-effect merge mode', () => {
     await page.goto(SCREEN_URL); // screen window
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
+    await waitForScreenOnline(control);
 
     // First key held -> plain single selection
     await control.keyboard.down('1');
@@ -52,6 +61,7 @@ test.describe('dual-effect merge mode', () => {
     await page.goto(SCREEN_URL);
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
+    await waitForScreenOnline(control);
 
     await control.keyboard.down('1');
     await control.keyboard.down('2');
@@ -109,6 +119,7 @@ test.describe('dual-effect merge mode', () => {
     await page.goto(SCREEN_URL); // screen window
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
+    await waitForScreenOnline(control);
 
     await control.keyboard.down('1');
     await control.keyboard.down('3');
@@ -133,6 +144,7 @@ test.describe('dual-effect merge mode', () => {
     await page.goto(SCREEN_URL); // screen window
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
+    await waitForScreenOnline(control);
 
     await control.keyboard.down('1');
     await control.keyboard.down('3');
@@ -173,6 +185,7 @@ test.describe('dual-effect merge mode', () => {
     await page.goto(SCREEN_URL); // screen window
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
+    await waitForScreenOnline(control);
 
     await control.keyboard.down('1');
     await control.keyboard.down('3');
@@ -211,6 +224,7 @@ test.describe('dual-effect merge mode', () => {
     await page.goto(SCREEN_URL); // screen window
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
+    await waitForScreenOnline(control);
 
     await control.keyboard.down('1');
     await control.keyboard.down('3');
@@ -230,6 +244,7 @@ test.describe('dual-effect merge mode', () => {
     await page.goto(SCREEN_URL); // screen window
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
+    await waitForScreenOnline(control);
 
     await control.keyboard.down('1');
     await control.keyboard.down('3');
@@ -250,6 +265,7 @@ test.describe('dual-effect merge mode', () => {
     await page.goto(SCREEN_URL); // screen window
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
+    await waitForScreenOnline(control);
 
     // Focus the first param slider (bass on Circles)
     const slider = control.locator('#params-list input[type="range"]').first();
@@ -275,6 +291,7 @@ test.describe('dual-effect merge mode', () => {
     await page.goto(SCREEN_URL); // screen window
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
+    await waitForScreenOnline(control);
 
     // '1' = Circles (2D), '5' = Character 3D (WEBGL) — index 4
     await control.keyboard.down('1');

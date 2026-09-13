@@ -8,9 +8,9 @@ async function mount(page, id) {
   await page.setViewportSize({ width: 360, height: 240 });
   await page.goto('/docs/patterns.html');
   await page.evaluate(async (id) => {
-    const { default: p5 } = await import('/node_modules/p5/lib/p5.esm.js');
+    const { default: VizCore } = await import('/src/core/index.js');
     const { SKETCHES, defaultParamValues } = await import('/src/sketch-registry.js');
-    const { disposeP5Instance } = await import('/src/program-runtime.js');
+    const { disposeVizInstance } = await import('/src/program-runtime.js');
     const sketch = SKETCHES.find((s) => s.id === id);
     const params = { ...defaultParamValues(id), speed: 0 };
     const controller = sketch.createAudioController();
@@ -56,7 +56,7 @@ async function mount(page, id) {
       },
     };
     const poison = { isStarted: true, getAnalysisFrame() { throw new Error('Output read raw audio'); } };
-    const p = await new Promise((resolve) => new p5((p) => {
+    const p = await new Promise((resolve) => new VizCore((p) => {
       sketch.factory(poison, null, params, context)(p);
       const setup = p.setup;
       p.setup = () => { setup(); p.noLoop(); resolve(p); };
@@ -82,7 +82,7 @@ async function mount(page, id) {
         intervals.forEach(clearInterval);
         streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
         controller.dispose();
-        disposeP5Instance(p);
+        disposeVizInstance(p);
       },
     };
   }, id);

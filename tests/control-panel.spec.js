@@ -699,8 +699,9 @@ test.describe('default UI + opening screens', () => {
     await expect(page.locator('#config-panel')).toBeVisible();
     await page.waitForFunction(() => window.__viz.role === 'control');
 
-    // Control mode owns one clipped p5 preview canvas, not a full-screen stage.
-    await expect(page.locator('#preview-stage canvas.p5Canvas')).toHaveCount(1);
+    // Control mode owns one clipped core-managed preview canvas, not a
+    // full-screen stage.
+    await expect(page.locator('#preview-stage canvas.preview-canvas')).toHaveCount(1);
 
     // With no screen open yet the status reads SCREEN OFFLINE and the
     // Open Screen action sits beside it
@@ -718,7 +719,7 @@ test.describe('default UI + opening screens', () => {
 
     expect(screen.url()).toContain('role=screen');
     await expect(screen.locator('body')).toHaveClass(/is-screen/);
-    await expect(screen.locator('canvas.p5Canvas')).toBeVisible();
+    await expect(screen.locator('#screen-wrap canvas.program-canvas')).toBeVisible();
     await screen.waitForFunction(() => window.__viz.role === 'screen');
 
     // The panel flips its SCREEN badge to ONLINE once the new screen announces

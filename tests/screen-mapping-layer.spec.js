@@ -84,7 +84,7 @@ test('mixed noLoop runtime re-enables calibration and gates fresh presentation',
   await page.goto('/docs/');
   await page.setContent('<link rel="stylesheet" href="/src/styles/stage.css"><link rel="stylesheet" href="/src/styles/projection-mapping.css"><div id="screen-wrap"><div class="program-layer program-layer-live"></div></div>');
   await page.evaluate(async () => {
-    const { default: p5 } = await import('/node_modules/.vite/deps/p5.js');
+    const { default: VizCore } = await import('/src/core/index.js');
     const { ProgramRuntime } = await import('/src/program-runtime.js');
     const mapping = { enabled: false, edgeBlur: 15, quad: null };
     const ordinary = { id: 'test-static', params: [], factory: () => (p) => {
@@ -96,7 +96,7 @@ test('mixed noLoop runtime re-enables calibration and gates fresh presentation',
       p.setup = () => { p.createCanvas(innerWidth, innerHeight); p.noLoop(); };
       p.draw = () => p.background('black');
     } };
-    const runtime = new ProgramRuntime({ p5Constructor: p5, selection: { ids: ['test-projection', 'test-static'], merge: true },
+    const runtime = new ProgramRuntime({ coreConstructor: VizCore, selection: { ids: ['test-projection', 'test-static'], merge: true },
       sketches: [ordinary, projection, black], layer: document.querySelector('.program-layer'),
       getParams: () => ({ mix: 1 }), getScreenMapping: () => mapping });
     window.runtimeTest = { runtime, mapping };
