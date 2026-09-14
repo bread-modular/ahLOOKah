@@ -23,7 +23,7 @@ test('all replacements render min/max visual settings at max band gains and resi
     }
     return results;
   });
-  expect(results).toHaveLength(36);
+  expect(results).toHaveLength(20);
   for (const result of results) { expect(result.resized, result.id).toEqual([480, 270]); expect(result.bytes).toBe(320 * 180 * 4); }
   expect(errors).toEqual([]);
 });

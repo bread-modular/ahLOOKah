@@ -20,10 +20,10 @@ for(const deviceScaleFactor of [1,2]) test.describe(`composited canvas DPR ${dev
     await context.addInitScript(({projectionId})=>{
       if(localStorage.getItem('density-compositing-seeded'))return;
       localStorage.setItem('density-compositing-seeded','1');
-      localStorage.setItem('viz2_slot_order',JSON.stringify(['solid-color','pendulum-wave',projectionId]));
+      localStorage.setItem('viz2_slot_order',JSON.stringify(['solid-color','membrane-modes',projectionId]));
       localStorage.setItem('viz2_projection_patterns',JSON.stringify([{id:projectionId,name:'Density projection',surfaces:[
         {id:'sbase',name:'Red base',patternId:'solid-color'},
-        {id:'stop',name:'Pendulum',patternId:'pendulum-wave'},
+        {id:'stop',name:'Membrane',patternId:'membrane-modes'},
       ]}]));
       const quad=[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],values={alphaBlend:0,'sbase:hue':0,'sbase:saturation':1,'sbase:brightness':1,'sbase:pulse':0};
       for(const s of ['sbase','stop'])quad.forEach((p,i)=>{values[`${s}:${i}x`]=p.x;values[`${s}:${i}y`]=p.y;});

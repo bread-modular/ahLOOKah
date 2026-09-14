@@ -50,7 +50,7 @@ const NEW_IDS = [
   'video-dots-gpu',
   'video-high-contrast',
   ...REPLACEMENT_PATTERNS.map(s => s.id),
-  // Expansion wave: 21 researched VJ/VFX patterns + 2 restored legacy camera looks.
+  // Expansion wave: 9 researched VJ/VFX patterns + 2 restored legacy camera looks.
   ...EXPANSION_PATTERNS.map(s => s.id),
   ...RESTORED_CAMERA_PATTERNS.map(s => s.id),
 ];

@@ -7,15 +7,14 @@ import { FEATURE_SCHEMA } from '../src/sketches/feature-controls.js';
 
 const ALL = [...EXPANSION_PATTERNS, ...RESTORED_CAMERA_PATTERNS];
 
-test('expansion provenance: 21 new + 2 restored, registry totals 91, category order intact', { tag: '@core' }, () => {
-  expect(EXPANSION_PATTERNS).toHaveLength(21);
+test('expansion provenance: 9 new + 2 restored, registry totals 71, category order intact', { tag: '@core' }, () => {
+  expect(EXPANSION_PATTERNS).toHaveLength(9);
   expect(RESTORED_CAMERA_PATTERNS.map((s) => s.id)).toEqual(['video-edge-glow', 'video-thermal']);
   expect(ALL.every(Boolean)).toBe(true);
-  expect(SKETCHES).toHaveLength(91);
-  expect(new Set(SKETCHES.map((s) => s.id)).size).toBe(91);
-  // Exactly two new entries per existing visual category, plus the three
-  // Techno 3D descendants in 3D. No Media/Projection Mapping additions.
-  const expected = { Simple: 2, Rhythmic: 2, '3D': 5, 'Cinematic / Shaders': 2, 'Neon / Lasers': 2, 'Video FX': 2, 'Glitch / Effects': 2, Basics: 2, Alphas: 2 };
+  expect(SKETCHES).toHaveLength(71);
+  expect(new Set(SKETCHES.map((s) => s.id)).size).toBe(71);
+  // Remaining entries per existing visual category. No Media/Projection Mapping additions.
+  const expected = { Simple: 0, Rhythmic: 0, '3D': 2, 'Cinematic / Shaders': 1, 'Neon / Lasers': 0, 'Video FX': 2, 'Glitch / Effects': 2, Basics: 1, Alphas: 1 };
   for (const [group, count] of Object.entries(expected)) {
     expect(EXPANSION_PATTERNS.filter((s) => s.group === group), group).toHaveLength(count);
   }

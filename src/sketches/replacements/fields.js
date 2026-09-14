@@ -108,17 +108,6 @@ void main() {
   vec3 col = mix(vec3(.018, .025, .04), ink(v * .45) * (.35 + .65 * v), mask);
   gl_FragColor = vec4(col, 1.0);
 }`);
-const stairWipe = shaderFactory(`
-void main() {
-  vec2 p = vTexCoord * 2.0 - 1.0;
-  p = rotate2d(.4 + uMid * 1.9 + uSnare * .4) * p;
-  float steps = max(2.0, 8.0 * uDetail / (1.0 + uHigh * 3.2 + uHat * .9));
-  float edge = floor(p.y * steps) / steps * .65 + sin(uTime * uSpeed * .5) * .08;
-  // Bounded travel keeps the reveal on stage even with all gains at maximum.
-  float shift = (uSub - .2) * 2.3 / (1.0 + uSub * 1.2) + uKick * .3 / (1.0 + uKick);
-  float reveal = line(p.x - edge - shift, .12 + uHigh * .13);
-  gl_FragColor = vec4(ink(.0) * reveal * (1.0 + uBeat * .5), 1.0);
-}`);
 const cellular = shaderFactory(`
 void main() {
   vec2 uv = vTexCoord * 2.0 - 1.0; uv.x *= uResolution.x / uResolution.y;
@@ -152,6 +141,5 @@ export const FIELD_PATTERNS = [
   entry('schlieren-flow', 'Schlieren Flow', 'Cinematic / Shaders', 'Refractive-density contours: bass warps the fluid, mids turn the density field, highs split fine ridges; kicks surge the warp, snares snap the turn, hats brighten the ridges.', schlieren, 'Flow Scale'),
   entry('tidal-glass', 'Tidal Glass', 'Cinematic / Shaders', 'Raymarched glass lobes: bass separates bodies, mids lift and turn the upper lobe, highs corrugate the glass surface; kicks push the lobes apart, snares snap the lift, hats shimmer the corrugation.', tidalGlass, 'Surface Frequency'),
   entry('bitplane-rewire', 'Bitplane Rewire', 'Glitch / Effects', 'XOR address-plane corruption: bass grows address blocks, mids displace scanline addresses, highs rewire row strides; kicks swell the blocks, snares burst the displacement, hats reseed the strides.', bitplane, 'Address Density'),
-  entry('stair-wipe', 'Stair Wipe', 'Basics', 'Stepped diagonal wipe: bass translates the reveal, mids turn its axis, highs unfold deeper staircase teeth; kicks punch the travel, snares snap the axis, hats tighten the teeth.', stairWipe, 'Step Count'),
   entry('cellular-gate', 'Cellular Gate', 'Alphas', 'Voronoi channel matte: bass dilates walls, mids move cell sites, highs punch internal apertures; kicks surge the dilation, snares jitter the sites, hats flicker the vents.', cellular, 'Cell Scale'),
 ];

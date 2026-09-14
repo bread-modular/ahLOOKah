@@ -244,8 +244,8 @@ import webcamHighContrast, {
 // Shared slider definitions preserve older pattern defaults.
 import { BAND_PARAMS as BAND_RESPONSIVENESS } from './sketches/band-reactive.js';
 import { REPLACEMENT_PATTERNS } from './sketches/replacements/index.js';
-// Expansion wave: 21 new researched VJ/VFX patterns (two per category plus
-// three Techno 3D descendants) and two restored legacy camera looks.
+// Expansion wave: 9 researched VJ/VFX patterns and two restored legacy
+// camera looks.
 import { EXPANSION_PATTERNS, RESTORED_CAMERA_PATTERNS } from './sketches/expansion/index.js';
 
 // The cinematic shader looks also expose transient gain. Band sliders shape
@@ -1047,7 +1047,7 @@ export const SKETCHES = [
   }, // 59
   // Preserve all 50 older entries above (including Checkerboard and Ion Tempest).
   ...REPLACEMENT_PATTERNS,
-  // Appended after the 18 replacements: nothing above moves or changes.
+  // Appended after the 10 replacements: nothing above moves or changes.
   ...EXPANSION_PATTERNS,
   ...RESTORED_CAMERA_PATTERNS,
 ];

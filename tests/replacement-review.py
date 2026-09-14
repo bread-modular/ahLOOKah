@@ -11,9 +11,9 @@ from PIL import Image, ImageDraw, ImageFont
 ROOT = Path('test-results/replacement-strength')
 OUT = Path('docs/replacement-strength-assets')
 OUT.mkdir(parents=True, exist_ok=True)
-IDS = ['counterweight', 'ratchet-wheel', 'vector-knot', 'prism-scanner', 'riso-misprint', 'barn-doors',
+IDS = ['riso-misprint',
        'iris-diaphragm', 'truchet-relay', 'membrane-modes', 'schlieren-flow', 'tidal-glass', 'bitplane-rewire',
-       'stair-wipe', 'cellular-gate', 'pin-relief', 'folded-spire', 'video-slit-scan', 'video-facet-fold']
+       'cellular-gate', 'video-slit-scan', 'video-facet-fold']
 BANDS = ['neutral', 'bass', 'mid', 'high']
 font = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', 16)
 small = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', 12)

@@ -54,41 +54,6 @@ void main() {
   gl_FragColor = vec4(filmicTone(col * 1.5), 1.0);
 }`);
 
-// Video-feedback zoom (Paik-style camera-into-monitor recursion, procedural).
-// Bass pumps the per-layer zoom, mids rotate successive layers (spiral
-// geometry), highs fringing layer frames with hue-shifted edges and grain.
-// Kicks surge the zoom, snares snap the spiral, hats burst the fringe, the
-// detected beat flashes the inner glow.
-const feedbackBloom = shaderFactory(`
-void main() {
-  vec2 uv = vTexCoord * 2.0 - 1.0; uv.x *= uResolution.x / uResolution.y;
-  float t = uTime * uSpeed;
-  float zoom = 1.18 + uSub * .6 + uKick * .14 + .06 * sin(t * .8);  // bass + kick: zoom pump/surge
-  vec2 p = uv;
-  vec3 col = vec3(.008, .01, .02) + ink(.55) * .05;
-  float total = 0.0;
-  for (int i = 0; i < 8; i++) {
-    float fi = float(i);
-    p = rotate2d(uMid * .85 + uSnare * .28 + .08 * sin(t * .3 + fi)) * p; // mid + snare: spiral snap
-    p *= zoom;
-    vec2 q = abs(p) - vec2(1.0, .72);
-    float ring = line(max(q.x, q.y), .014 + uSub * .01);
-    vec3 layer = ink(fi * .07 + fbm4(p * .7 + t * .05) * .25);
-    float fade = pow(.78, fi);
-    col = mix(col, layer * (1.1 - fi * .07), ring * fade);
-    float inner = 1.0 - smoothstep(.0, .35, max(q.x, q.y));
-    col += layer * inner * fade * (.1 + uSub * .12 + uBeat * .08); // beat: inner glow flash
-    // high + hat: chromatic fringe ghosts on each frame edge
-    float fringe = line(max(q.x, q.y) + .02 + uHigh * .05 + uHat * .025, .008);
-    col += ink(.5 + fi * .03) * fringe * fade * (uHigh + uHat * .5) * .8;
-    total += ring * fade;
-  }
-  float grain = hash21(vTexCoord * uResolution + fract(t) * 91.0) - .5;
-  col += grain * (.015 + uHigh * .07 + uHat * .035);  // high + hat: monitor grain
-  col = filmicTone(col * 1.45);
-  gl_FragColor = vec4(col, 1.0);
-}`);
-
 // VHS tracking errors: horizontal tear bands, head-switching noise, chroma
 // bleed and dropouts over a synthesized broadcast signal. Bass tears the
 // bands across the frame, mids restructure band count and wobble curvature,
@@ -185,7 +150,6 @@ void main() {
 
 export const FIELD_PATTERNS = [
   expansionEntry({ id: 'godray-forge', name: 'Godray Forge', group: 'Cinematic / Shaders', factory: godrayForge, params: expansionParams('Ray Detail'), description: 'Volumetric light shafts: bass extends shaft reach and radiant energy, mids rotate and thicken the occluder field, highs reseed drifting dust motes in the beams; kicks surge the shafts, snares snap the field, hats burst the motes.' }),
-  expansionEntry({ id: 'feedback-bloom', name: 'Feedback Bloom', group: 'Cinematic / Shaders', factory: feedbackBloom, params: expansionParams('Layer Detail'), description: 'Video-feedback recursion: bass pumps the per-layer zoom, mids rotate successive layers into spirals, highs fringe frame edges with hue-shifted ghosts and monitor grain; kicks surge the zoom, snares snap the spiral, hats burst the fringe.' }),
   expansionEntry({ id: 'vhs-head-switch', name: 'VHS Head Switch', group: 'Glitch / Effects', factory: vhsTracking, params: expansionParams('Signal Detail'), description: 'VHS head-switching and tracking errors over a synthesized broadcast signal: bass tears horizontal bands across the frame, mids restructure band count and wobble curvature, highs reseed dropouts, grain and chroma bleed; kicks surge the tears, snares snap the bands, hats burst the dropouts.' }),
   expansionEntry({ id: 'dct-blocks', name: 'DCT Blocks', group: 'Glitch / Effects', factory: dctBlocks, params: expansionParams('Artifact Scale'), description: 'JPEG/DCT compression artifacts: bass swells the block grid, mids crush coefficient levels and darken boundary DC bleed, highs swarm mosquito noise and flicker block DC; kicks surge the blocks, snares snap the crush, hats burst the swarm.' }),
 ];

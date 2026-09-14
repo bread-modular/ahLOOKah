@@ -13,10 +13,9 @@ const ids = fs.readdirSync(root, { withFileTypes: true })
   .map((d) => d.name)
   .sort();
 const groups = {
-  'Simple / Rhythmic': ['lissajous-scope', 'pendulum-wave', 'step-sequencer', 'stutter-buffer'],
-  '3D (2 + 3 Techno descendants)': ['voxel-cascade', 'gyro-lattice', 'techno-torus', 'techno-helix', 'techno-array'],
-  'Cinematic / Neon / Glitch': ['godray-forge', 'feedback-bloom', 'galvo-sweep', 'neon-sign', 'vhs-head-switch', 'dct-blocks'],
-  'Video FX / Basics / Alphas': ['video-datamosh', 'video-rolling-shutter', 'waveform-monitor', 'test-card', 'gobo-wheel', 'blinder-matrix'],
+  '3D': ['voxel-cascade', 'gyro-lattice'],
+  'Cinematic / Glitch': ['godray-forge', 'vhs-head-switch', 'dct-blocks'],
+  'Video FX / Basics / Alphas': ['video-datamosh', 'video-rolling-shutter', 'test-card', 'blinder-matrix'],
 };
 
 const browser = await chromium.launch();
@@ -69,7 +68,7 @@ for (const [title, ids2] of Object.entries(groups)) {
 }
 // One animated (pulse-locked) sheet across representative patterns.
 await sheet('Expansion wave — pulse-locked animation frames (beat on/off)', [
-  'lissajous-scope', 'step-sequencer', 'techno-torus', 'godray-forge', 'video-datamosh', 'gobo-wheel',
+  'voxel-cascade', 'godray-forge', 'video-datamosh', 'blinder-matrix',
 ], 'sheet-animated-pulse.png', { animated: true });
 
 // Restored camera pair: from the integration/lifecycle run render them now via the audit harness format.

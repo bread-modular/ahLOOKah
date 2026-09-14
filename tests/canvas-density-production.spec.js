@@ -47,7 +47,7 @@ for (const deviceScaleFactor of [1, 2]) {
       await screen.setViewportSize(sizes[0].output); await screen.goto('/?role=screen');
       await expect(screen.locator(output)).toBeVisible();
       await expect(page.getByText('SCREEN ONLINE', { exact: true })).toBeVisible();
-      await select(page, screen, 'pendulum-wave');
+      await select(page, screen, 'membrane-modes');
       const reports = [];
       for (const size of sizes) {
         await page.setViewportSize(size.control); await screen.setViewportSize(size.output);
