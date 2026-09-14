@@ -5,7 +5,7 @@ const ALL = [...EXPANSION_PATTERNS, ...RESTORED_CAMERA_PATTERNS];
 const output = process.env.EXPANSION_ARTIFACTS || 'test-results/expansion-evidence';
 test.use({ viewport: { width: 320, height: 180 }, launchOptions: { args: ['--autoplay-policy=no-user-gesture-required', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] } });
 
-test('actual Web Audio capture → analyser → noise floor → engine → packet/store → all 23 expansion renderers; real alpha compositing', { tag: '@patterns' }, async ({ page }) => {
+test('actual Web Audio capture → analyser → noise floor → engine → packet/store → all 11 expansion renderers; real alpha compositing', { tag: '@patterns' }, async ({ page }) => {
   test.setTimeout(180_000);
   await page.goto('/tests/fixtures/render.html');
   const result = await page.evaluate(async (ids) => {
@@ -66,7 +66,7 @@ test('actual Web Audio capture → analyser → noise floor → engine → packe
     const { surfaceQuadValues } = await import('/src/projection/projection-registry.js');
     const quad = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }];
     const alphas = [];
-    for (const id of ['gobo-wheel', 'blinder-matrix']) {
+    for (const id of ['blinder-matrix']) {
       const host = document.createElement('div'); document.body.append(host);
       const values = { ...surfaceQuadValues('base', quad), ...surfaceQuadValues('matte', quad), alphaBlend: 1 };
       const layer = new ProjectionLayer({ host, pattern: { id: 'test-projection' }, getParams: () => values, getSize: () => [W, H] });
@@ -99,7 +99,7 @@ test('actual Web Audio capture → analyser → noise floor → engine → packe
   await writeFile(`${output}/integration.json`, JSON.stringify({ ...result, alphas: result.alphas.map(({ images, ...a }) => a) }, null, 2));
   expect(result.rms).toBeGreaterThan(.03);
   expect(result.scans).toBe(48);
-  expect(result.accepted).toBe(48 * 23);
+  expect(result.accepted).toBe(48 * 11);
   expect(result.silenceControls).toEqual({ bass: 0, mid: 0, high: 0, kick: 0, snare: 0, hat: 0, beat: 0, energy: 0 });
   for (const key of ['bass', 'mid', 'high', 'energy']) expect(result.finalControls[key], key).toBeGreaterThan(.1);
   // Steady oscillator drone: percussion envelopes relax toward zero but stay valid.
@@ -109,7 +109,7 @@ test('actual Web Audio capture → analyser → noise floor → engine → packe
   }
   for (const row of result.rendered) {
     // The two restored legacy looks are deliberately subtle (documented in
-    // expansion-restored-camera.spec.js); the 21 new patterns meet the full
+    // expansion-restored-camera.spec.js); the 9 new patterns meet the full
     // structural floors.
     const restored = row.id === 'video-thermal' || row.id === 'video-edge-glow';
     expect(row.rgb, row.id).toBeGreaterThan(restored ? 1.5 : 6);

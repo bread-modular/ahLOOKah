@@ -29,7 +29,7 @@ test('all expansion patterns render min/max visual settings at max band gains an
     }
     return results;
   }, [...EXPANSION_PATTERNS, ...RESTORED_CAMERA_PATTERNS].map((s) => s.id));
-  expect(results).toHaveLength(46);
+  expect(results).toHaveLength(22);
   for (const result of results) { expect(result.resized, result.id).toEqual([480, 270]); expect(result.bytes).toBe(320 * 180 * 4); }
   expect(errors).toEqual([]);
 });

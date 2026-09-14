@@ -11,7 +11,7 @@ test('Canvas2D factories repaint their own surface at backing density 1 and 2, i
     const { SKETCHES, defaultParamValues } = await import('/src/sketch-registry.js');
     const { disposeVizInstance } = await import('/src/program-runtime.js');
     const rows=[];
-    for (const id of ['pendulum-wave','counterweight','video-slit-scan','video-facet-fold','video-datamosh','video-rolling-shutter']) {
+    for (const id of ['truchet-relay','membrane-modes','video-slit-scan','video-facet-fold','video-datamosh','video-rolling-shutter']) {
       const entry=SKETCHES.find(s=>s.id===id);
       let instance;
       await new Promise(resolve => {

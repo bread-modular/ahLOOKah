@@ -13,7 +13,7 @@
 //   * noLoop()/loop()/isLooping()/redraw()/remove() are promise-aware and are
 //     defined before user code runs, because patterns capture `p.remove`.
 //
-// Deliberately NOT reimplemented (nothing in the 91 patterns uses them): global
+// Deliberately NOT reimplemented (nothing in the 71 patterns uses them): global
 // mode, preload/FES, DOM element factories beyond video/image, save*, shaders
 // other than the vertex+fragment pair, framebuffers, curves/arcs/bezier, and
 // pixel-level filters.

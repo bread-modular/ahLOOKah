@@ -3,7 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { REPLACEMENT_PATTERNS } from '../src/sketches/replacements/index.js';
 import { EXPANSION_PATTERNS, RESTORED_CAMERA_PATTERNS } from '../src/sketches/expansion/index.js';
 
-// Feature-accent validation for the 18 + 21 wave patterns (plus the two
+// Feature-accent validation for the 10 + 9 wave patterns (plus the two
 // restored camera looks) through the SAME production path as the live app:
 // pattern.createAudioController() -> audioControls binding -> pattern.factory.
 // Signals are matched, time-varying feature streams (sustained levels plus

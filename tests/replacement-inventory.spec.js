@@ -6,15 +6,15 @@ import { REPLACEMENT_PATTERNS } from '../src/sketches/replacements/index.js';
 const inventory = JSON.parse(readFileSync(new URL('./fixtures/replacement-inventory.json', import.meta.url)));
 const hash = value => createHash('sha256').update(value).digest('hex');
 
-test('replacement provenance: exactly 60 removed, 50 older unchanged, 18 new, category order intact', { tag: '@core' }, () => {
+test('replacement provenance: exactly 60 removed, 50 older unchanged, 10 new, category order intact', { tag: '@core' }, () => {
   const registry = readFileSync('src/sketch-registry.js', 'utf8');
   const retained = registry.slice(registry.indexOf('export const SKETCHES = ['), registry.indexOf('  // Preserve all 50 older entries'));
   expect(hash(retained), 'exact original 50 registry declarations, including factory/controller bindings').toBe(inventory.retainedDeclarationSha256);
-  expect(SKETCHES).toHaveLength(91);
+  expect(SKETCHES).toHaveLength(71);
   expect(inventory.removed).toHaveLength(60);
   expect(inventory.older).toHaveLength(50);
-  expect(REPLACEMENT_PATTERNS).toHaveLength(18);
-  expect(new Set(SKETCHES.map(s => s.id)).size).toBe(91);
+  expect(REPLACEMENT_PATTERNS).toHaveLength(10);
+  expect(new Set(SKETCHES.map(s => s.id)).size).toBe(71);
   // The expansion wave restored exactly two removed legacy camera looks
   // (video-thermal, video-edge-glow); every other removed id stays absent.
   const restored = new Set(['video-thermal', 'video-edge-glow']);
@@ -27,7 +27,8 @@ test('replacement provenance: exactly 60 removed, 50 older unchanged, 18 new, ca
   }
   for (const [path, digest] of Object.entries(inventory.files)) expect(hash(readFileSync(path)), path).toBe(digest);
   const groups = ['Simple', 'Rhythmic', '3D', 'Cinematic / Shaders', 'Neon / Lasers', 'Video FX', 'Glitch / Effects', 'Basics', 'Alphas'];
-  for (const group of groups) expect(REPLACEMENT_PATTERNS.filter(s => s.group === group), group).toHaveLength(2);
+  const expected = { Simple: 1, Rhythmic: 1, '3D': 0, 'Cinematic / Shaders': 2, 'Neon / Lasers': 0, 'Video FX': 2, 'Glitch / Effects': 2, Basics: 0, Alphas: 2 };
+  for (const group of groups) expect(REPLACEMENT_PATTERNS.filter(s => s.group === group), group).toHaveLength(expected[group]);
   expect(getGroups()).toEqual([...groups, 'Media', 'Projection Mapping']);
   expect(SKETCHES.slice(0, 4).map(s => s.id)).toEqual(['circles', 'bars', 'techno3d', 'character3d']);
   expect(SKETCHES.find(s => s.id === 'checkerboard').audioReactive).toBe(false);

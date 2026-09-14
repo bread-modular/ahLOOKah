@@ -151,22 +151,22 @@ by accident. Move focus out of the field first for those CUE gestures.
 
 ### Replacement VJ patterns and camera FX
 
-The library contains **68 built-ins**: all 50 older entries (including Ion Tempest
-and Checkerboard), plus exactly two replacements per visual category. The rejected
+The library contains **69 built-ins**: all 50 older entries (including Ion Tempest
+and Checkerboard), plus 10 replacements and 9 expansion patterns. The rejected
 60-pattern expansion is removed, not hidden. Category labels/order, Media, custom
 Projection Mapping, and older controls/renderers are unchanged.
 
 | Group | Replacement patterns |
 | --- | --- |
-| Simple | Truchet Relay, Counterweight |
-| Rhythmic | Membrane Modes, Ratchet Wheel |
-| 3D | Pin Relief, Folded Spire |
-| Cinematic / Shaders | Schlieren Flow, Tidal Glass |
-| Neon / Lasers | Vector Knot, Prism Scanner |
-| Video FX | Video Slit Scan, Video Facet Fold |
-| Glitch / Effects | Bitplane Rewire, Riso Misprint |
-| Basics | Barn Doors, Stair Wipe |
-| Alphas | Iris Diaphragm, Cellular Gate |
+| Simple | Truchet Relay |
+| Rhythmic | Membrane Modes |
+| 3D | Voxel Cascade, Gyro Lattice |
+| Cinematic / Shaders | Schlieren Flow, Tidal Glass, Godray Forge |
+| Neon / Lasers | — |
+| Video FX | Video Slit Scan, Video Facet Fold, Video Datamosh, Video Rolling Shutter |
+| Glitch / Effects | Bitplane Rewire, Riso Misprint, VHS Head Switch, DCT Blocks |
+| Basics | Test Card |
+| Alphas | Iris Diaphragm, Cellular Gate, Blinder Matrix |
 
 Every replacement has independent **Bass / Mid / High Responsiveness** controls.
 Zero disables exactly that band, including with other bands active. The sliders
@@ -225,8 +225,8 @@ Non-black colors retain their color and existing transparency; unmapped areas ar
 transparent too. This mask works in the output, preview, and CSS fallback, and
 combines with edge smoothing. It defaults to off and persists with the pattern's
 parameters, including across layout/source changes and CUE/TAKE. The **Alphas**
-library group is purpose-built for this mode: four grayscale-on-black mattes
-(Iris Diaphragm, Cellular Gate, Gobo Wheel, Blinder Matrix) whose brightness
+library group is purpose-built for this mode: three grayscale-on-black mattes
+(Iris Diaphragm, Cellular Gate, Blinder Matrix) whose brightness
 reads as opacity once the black background keys out.
 Name a new mapping to create it; an unnamed mapping is not added. **Close** or
 Escape keeps your changes—there is no separate Save or Cancel. The popup contains no

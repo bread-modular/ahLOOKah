@@ -109,7 +109,7 @@ test('musical modulation is visible at the renderer: beat frames differ structur
       beat.push({ continuous: { bass: 1.6 * kick, mid: 1.2 * Math.exp(-p * 9), high: 0.8 * Math.exp(-p * 14) }, arrays: {}, events: [] });
     }
     const out = {};
-    for (const id of ['lissajous-scope', 'step-sequencer', 'voxel-cascade']) {
+    for (const id of ['voxel-cascade', 'godray-forge', 'test-card']) {
       const silent = await renderTimeline(id, () => ({}), {});
       const driven = await renderTimeline(id, () => ({}), {}, beat);
       // Sample AT the beat attacks (frames 1/13 sit on kick transients).

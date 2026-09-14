@@ -3,7 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 const output = process.env.REPLACEMENT_ARTIFACTS || 'test-results/replacement-evidence';
 test.use({ viewport: { width: 320, height: 180 }, launchOptions: { args: ['--autoplay-policy=no-user-gesture-required', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] } });
 
-test('actual Web Audio capture → analyser → noise floor → engine → packet/store → all 18 renderers; real alpha compositing', { tag: '@patterns' }, async ({ page }) => {
+test('actual Web Audio capture → analyser → noise floor → engine → packet/store → all 10 renderers; real alpha compositing', { tag: '@patterns' }, async ({ page }) => {
   test.setTimeout(120_000);
   await page.goto('/tests/fixtures/render.html');
   const result = await page.evaluate(async () => {
@@ -98,7 +98,7 @@ test('actual Web Audio capture → analyser → noise floor → engine → packe
   await writeFile(`${output}/integration.json`, JSON.stringify({ ...result, alphas: result.alphas.map(({ images, ...a }) => a) }, null, 2));
   expect(result.rms).toBeGreaterThan(.03);
   expect(result.scans).toBe(48);
-  expect(result.accepted).toBe(48 * 18);
+  expect(result.accepted).toBe(48 * 10);
   expect(result.silenceControls).toEqual({ bass: 0, mid: 0, high: 0, kick: 0, snare: 0, hat: 0, beat: 0, energy: 0 });
   for (const key of ['bass', 'mid', 'high', 'energy']) expect(result.finalControls[key], key).toBeGreaterThan(.1);
   // Steady oscillator drone: percussion envelopes relax toward zero but stay valid.

@@ -24,7 +24,7 @@ const results = await page.evaluate(async () => {
     ['thick-line', true, p => { p.background(0); p.stroke(255); p.strokeWeight(8); p.line(-100,0,0,100,0,0); }],
     ['wire-box', true, p => { p.background(0); p.noFill(); p.stroke(255); p.strokeWeight(6); p.rotateX(.3); p.rotateY(.5); p.box(100); }],
     ['wire-sphere', true, p => { p.background(0); p.noFill(); p.stroke(255); p.strokeWeight(3); p.sphere(65,12,12); }],
-    ...['pendulum-wave','gradient-wash','event-horizon','techno3d','character3d'].map(id => [id, null, null]),
+    ...['gradient-wash','event-horizon','techno3d','character3d'].map(id => [id, null, null]),
   ];
   async function render(Renderer, [id, gl, draw]) {
     let seed = 12345;
