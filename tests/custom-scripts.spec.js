@@ -201,7 +201,7 @@ test('Custom Scripts @core multiwindow reload cancels cue, disposes preview/outp
   await expect.poll(() => output.evaluate(async () => (await import('/src/sketch-registry.js')).SKETCHES.some((s) => s.id === 'custom-demo'))).toBe(false);
 });
 
-for (const name of ['drawing', 'mesh', 'shader', 'audio', 'image', 'video', 'camera', 'crud-lifecycle']) {
+for (const name of ['drawing', 'mesh', 'shader', 'audio', 'audio-advanced', 'image', 'video', 'camera', 'crud-lifecycle']) {
   test(`Custom Scripts @core example ${name} renders and disposes`, async ({ page }) => {
     await page.goto('/tests/fixtures/render.html');
     const result = await page.evaluate(async (name) => {
@@ -229,7 +229,11 @@ for (const name of ['drawing', 'mesh', 'shader', 'audio', 'image', 'video', 'cam
       const pattern = adaptPattern(entry, (e) => errors.push(e), assets);
       const params = Object.fromEntries(pattern.params.map((p) => [p.key, p.default]));
       const controller = pattern.createAudioController();
-      const controls = controller.update({ shared: { getByteFrequencies: () => ({ left: new Uint8Array(256).fill(128) }) }, params, deltaSeconds: 0.25 });
+      const { SharedAudioAnalysisView } = await import('/src/pattern-audio-engine.js');
+      const frame = { left: new Float32Array(1024).fill(-60), sampleRate: 48000, fftSize: 2048, rms: .1 };
+      const controls = controller.update({ frame, shared: new SharedAudioAnalysisView(frame), params, deltaSeconds: 1 / 30 });
+      if (name === 'audio' && !(controls.continuous.bass > 0)) throw Error('default reactive transport missing');
+      if (name === 'audio-advanced' && !(controls.continuous.level > 0 && controls.arrays.spectrum.length === 32)) throw Error('advanced reactive/raw transport missing');
       let consumed = false;
       const inst = new VizCore(pattern.factory({}, null, params, { audioControls: {
         read: () => controls, consumeEvents: () => { const events = consumed ? [] : controls.events; consumed = true; return events; },
