@@ -20,6 +20,86 @@ export function createParamRepository({ dev = false } = {}) {
   let paramRawValues = {};
   let devReadLog = dev ? {} : null;
 
+  // Merge one accepted bank entry into an existing object in place so live
+  // sketch factories (which captured the object by reference) keep following
+  // it. Returns true when anything changed.
+  function mergeBankEntryInPlace(current, next) {
+    let touched = false;
+    for (const key of Object.keys(current)) {
+      if (key.startsWith('__')) continue;
+      if (!(key in next)) {
+        delete current[key];
+        touched = true;
+      }
+    }
+    for (const [key, value] of Object.entries(next)) {
+      if (current[key] !== value) {
+        current[key] = value;
+        touched = true;
+      }
+    }
+    return touched;
+  }
+
+  // Reconcile an accepted canonical bank while preserving the identity of
+  // every entry object that renderers may already hold. Added ids are created
+  // through getParams() so both maps stay in sync; removed ids are reset to
+  // their defaults in place (never left stale in either map). BANDS_ID is
+  // system-scoped and never part of the visual bank.
+  function adoptCanonicalBank(bank) {
+    const incoming = {};
+    for (const [id, values] of Object.entries(copyVisualBank(bank))) {
+      if (id === BANDS_ID || !values || typeof values !== 'object') continue;
+      incoming[id] = values;
+    }
+    const known = new Set([...Object.keys(paramRawValues), ...Object.keys(incoming)]);
+    let touched = false;
+    for (const id of known) {
+      if (id === BANDS_ID) continue;
+      const next = incoming[id];
+      if (next && typeof next === 'object') {
+        const current = getParams(id);
+        if (mergeBankEntryInPlace(current, next)) touched = true;
+        paramRawValues[id] = current;
+      } else {
+        const current = paramValues[id];
+        const defaults = defaultParamValues(id);
+        if (current && typeof current === 'object') {
+          // Reset in place: renderers holding this object see defaults, and
+          // no stale keys survive in either map.
+          let reset = false;
+          for (const key of Object.keys(current)) {
+            if (key.startsWith('__')) continue;
+            if (!(key in defaults) || current[key] !== defaults[key]) {
+              delete current[key];
+              reset = true;
+            }
+          }
+          for (const [key, value] of Object.entries(defaults)) {
+            if (current[key] !== value) {
+              current[key] = value;
+              reset = true;
+            }
+          }
+          if (reset) touched = true;
+          paramRawValues[id] = current;
+        } else if (paramRawValues[id] !== undefined) {
+          delete paramRawValues[id];
+          touched = true;
+        }
+      }
+    }
+    return touched;
+  }
+
+  function copyVisualBank(bank = {}) {
+    const out = {};
+    for (const [id, values] of Object.entries(bank)) {
+      if (id !== BANDS_ID && values && typeof values === 'object') out[id] = { ...values };
+    }
+    return out;
+  }
+
   function sanitizeParamEntry(id, values) {
     if (!values || typeof values !== 'object' || Array.isArray(values)) return null;
     const keys = Object.keys(values);
@@ -147,6 +227,7 @@ export function createParamRepository({ dev = false } = {}) {
     loadParamValues,
     saveParamValues,
     getParams,
+    adoptCanonicalBank,
     setRawBank,
     getRawBank,
     getReadLog,

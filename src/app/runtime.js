@@ -365,11 +365,17 @@ export function createAppRuntime({
   function applyCanonicalLiveParamBank(bank) {
     if (role === 'screen' || !bank || typeof bank !== 'object') return false;
     if (visualParamBanksEqual(params.getRawBank(), bank)) return false;
+    // Merge through the repository so both param maps stay in sync while
+    // every entry object keeps its identity: preview sketch factories
+    // captured those objects by reference at construction, so an
+    // already-running offline preview keeps following reconnected output
+    // state even when the selection itself is unchanged.
+    if (!params.adoptCanonicalBank(bank)) return false;
     const hadStoredParams = localStorage.getItem(STORAGE.params) !== null;
-    adoptVisualParamBank(bank, {
-      persist: hadStoredParams || !visualParamBankUsesOnlyDefaults(bank),
-    });
+    if (hadStoredParams || !visualParamBankUsesOnlyDefaults(params.getRawBank())) params.saveParamValues();
     if (role === 'control' && !cueSession) {
+      applyPreviewCompositing();
+      queuePatternAudioPlanPublish();
       store.setState((s) => ({ paramRevision: s.paramRevision + 1, postFxRevision: s.postFxRevision + 1 }));
     }
     return true;
@@ -383,14 +389,19 @@ export function createAppRuntime({
     }
     params.saveParamValues();
     const editingCue = Boolean(cueSession);
+    if (role === 'control' && !editingCue) {
+      // Sketches read their param objects live every frame, so ordinary value
+      // changes need no renderer work. Blend/post-FX compositing lives on the
+      // preview host itself, so refresh it even for non-blend/postfx edits
+      // (e.g. a reconnect echo that only changes ordinary pattern params).
+      applyPreviewCompositing();
+    }
     if (id === BLEND_ID) {
       if (role === 'screen') applyBlendStyles();
-      if (role === 'control' && !editingCue) applyPreviewCompositing();
     }
     if (id === BANDS_ID) setBandSplit(getParams(BANDS_ID));
     if (id === POSTFX_ID) {
       applyPostFx();
-      if (role === 'control' && !editingCue) applyPreviewCompositing();
     }
     if (role === 'control' && (!editingCue || id === BANDS_ID)) {
       if (id === BANDS_ID) store.setState({ bandValues: { ...getParams(BANDS_ID) } });
@@ -2481,18 +2492,31 @@ export function createAppRuntime({
         return;
 
       case 'blend-step': {
-        if (role !== 'screen' || cueSession || !currentLiveSelection().merge
-          || (msg.delta !== 0.05 && msg.delta !== -0.05)) return;
+        if (cueSession || (msg.delta !== 0.05 && msg.delta !== -0.05)) return;
+        if (role === 'screen') {
+          if (!currentLiveSelection().merge) return;
+        } else if (screenOnline) {
+          // Online the screen stays the param authority; the local echo only
+          // mirrors its accepted live-params broadcast below.
+          return;
+        }
         const blend = getParams(BLEND_ID);
         const key = blend.mode === 1 ? 'add' : 'mix';
         const next = Math.max(0, Math.min(1, Math.round(((blend[key] ?? 0.5) + msg.delta) * 100) / 100));
         applyAcceptedLiveParamValues(BLEND_ID, { [key]: next });
-        bus.broadcast({ type: 'live-params', id: BLEND_ID, values: { [key]: next } });
+        if (role !== 'screen') syncUI();
+        else bus.broadcast({ type: 'live-params', id: BLEND_ID, values: { [key]: next } });
         return;
       }
 
       case 'params': {
-        if ((role !== 'screen' && (screenOnline || !SKETCHES.find((s) => s.id === msg.id)?.projection)) || typeof msg.id !== 'string' || msg.id.length > 64 || !msg.values || typeof msg.values !== 'object' || Array.isArray(msg.values) || Object.keys(msg.values).length > MAX_PROJECTION_PARAMS) return;
+        if (typeof msg.id !== 'string' || msg.id.length > 64 || !msg.values || typeof msg.values !== 'object' || Array.isArray(msg.values) || Object.keys(msg.values).length > MAX_PROJECTION_PARAMS) return;
+        // Online the screen stays the authority; the local echo only mirrors
+        // its accepted live-params broadcast below. When the output is offline
+        // the control window owns the bank directly so the preview keeps
+        // responding to sliders. (Projection topology edits ride
+        // 'projection-edit', not this path.)
+        if (role !== 'screen' && screenOnline) return;
         if (!isKnownLiveParamId(msg.id)) return;
         const cleanParams = {};
         for (const [k, v] of Object.entries(msg.values)) {
@@ -2775,6 +2799,15 @@ export function createAppRuntime({
     installDebugBridge(buildDebugGetters(), {
       captureAudio: audio,
       readLog: () => params.getReadLog(),
+      patternAudioIntensity: (patternId, key) => {
+        for (const [runtimeId, state] of patternAudioStore.slots) {
+          if (state?.descriptor?.patternId !== patternId) continue;
+          const snapshot = patternAudioStore.read(runtimeId, { markRead: false });
+          const value = snapshot?.continuous?.[key];
+          if (Number.isFinite(value)) return value;
+        }
+        return null;
+      },
     });
     store.setState({ bootStatus: 'ready' });
     return true;
@@ -2827,6 +2860,7 @@ export function createAppRuntime({
       singletonError: () => singletonBlocked,
       pattern: () => currentIndex,
       patternId: () => activeSketchId,
+      liveSelection: () => copyProgramSelection(currentLiveSelection()),
       merge: () => (mergeIndices ? [...mergeIndices] : null),
       screenOnline: () => screenOnline,
       params: () => getParams(activeSketchId || getOrderedSketches()[0].id),
