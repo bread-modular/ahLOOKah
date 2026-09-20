@@ -55,15 +55,16 @@
 
     <main class="content"><article class="article">
       <h1>Custom Scripts</h1>
+<nav aria-label="On this page" class="script-doc-toc"><strong>On this page</strong><ul><li><a href="#folder">Link Folder</a></li><li><a href="#open">Open Script</a></li><li><a href="#edit">Edit and reload</a></li><li><a href="#validation">Validation and rollback</a></li><li><a href="#lifecycle">Lifecycle</a></li><li><a href="#api-custom-scripts-api-v1-agent-reference">Custom Scripts API v1 — agent reference</a></li><li><a href="#api-files-and-activation-contract">Files and activation contract</a></li><li><a href="#api-synchronous-registration-api">Synchronous registration API</a></li><li><a href="#api-definition-schema">Definition schema</a></li><li><a href="#api-renderer-context-and-cleanup">Renderer context and cleanup</a></li><li><a href="#api-existing-vizcore-capabilities-not-full-p5">Existing VizCore capabilities (not full p5)</a></li><li><a href="#api-audio-controllers">Audio controllers</a></li><li><a href="#api-examples-and-normal-host-features">Examples and normal host features</a></li><li><a href="#api-reload-delete-and-unlink">Reload, Delete and unlink</a></li><li><a href="#api-troubleshooting-and-agent-handoff-checklist">Troubleshooting and agent handoff checklist</a></li><li><a href="#api-developer-verification">Developer verification</a></li><li><a href="#api-complete-examples">Complete examples</a></li><li><a href="#api-audio-viz-js">audio.viz.js</a></li><li><a href="#api-camera-viz-js">camera.viz.js</a></li><li><a href="#api-crud-lifecycle-viz-js">crud-lifecycle.viz.js</a></li><li><a href="#api-drawing-viz-js">drawing.viz.js</a></li><li><a href="#api-image-viz-js">image.viz.js</a></li><li><a href="#api-mesh-viz-js">mesh.viz.js</a></li><li><a href="#api-shader-viz-js">shader.viz.js</a></li><li><a href="#api-video-viz-js">video.viz.js</a></li></ul></nav>
       <p class="lead">Build your own visuals in a real local folder. Edit with your favorite editor or coding agent, then explicitly reload them into ahLOOKah.</p>
       <h2 id="trust">Before you begin: trusted code</h2>
       <p><strong>JavaScript runs with the application's privileges. This is NOT a security sandbox.</strong> Only choose folders containing code you trust. Syntax checks catch mistakes, not malicious behavior or infinite loops. Back up your folder.</p>
       <p>Use desktop Chrome on HTTPS or localhost. The feature checks for File System Access support and explains missing support instead of silently substituting uploads or a virtual filesystem. File access permission is separate from microphone/camera permission.</p>
-      <h2 id="folder">1. Choose your scripts folder</h2>
-      <ol><li>In the pattern library, expand <strong>Custom Scripts</strong>.</li><li>Click <strong>Choose folder</strong>, confirm that you trust its JavaScript, then select a real directory in Chrome's OS picker. Allow read/write access.</li><li>Chrome saves a directory handle in this site's IndexedDB. No absolute path is exposed. The panel displays the directory name and permission status.</li></ol>
-      <p>On subsequent visits, the last activated source snapshot is restored without reading your unsaved or externally edited files. If permissions expire, click <strong>Reconnect</strong>. If the folder moved or was deleted, choose it again. Denied permission does not erase last-good patterns.</p>
-      <h2 id="create">2. Create and play your first pattern</h2>
-      <p>Click <strong>Create script</strong>, enter a name, and a unique <code>custom-name-unique.viz.js</code> file is written directly into that directory. The starter is validated and activated. Click its pattern button to play; the Size slider updates the circle. No browser-only draft is created.</p>
+      <h2 id="folder">1. Link your scripts folder</h2>
+      <ol><li>In the pattern library, expand <strong>Custom Scripts</strong>.</li><li>Click <strong>Link Folder</strong>, then select a real directory in Chrome's OS picker. Allow read access. Linking does not execute scripts.</li><li>Chrome saves a directory handle in this site's IndexedDB. No absolute path is exposed. The compact right-aligned name has a full-name tooltip and copies that name when clicked. Chrome cannot provide an absolute native path; the panel explains this limitation.</li></ol>
+      <p>On subsequent visits, the last activated source snapshot is restored without reading your unsaved or externally edited files. If permissions expire, click <strong>Open Script</strong> or the reload icon to request access again. If the folder moved or was deleted, unlink with the close icon and link it again. Denied permission does not erase last-good patterns.</p>
+      <h2 id="open">2. Open and play your first pattern</h2>
+<p>Save the code below as <code>my-circle.viz.js</code> in your linked folder using an external editor. Click <strong>Open Script</strong>, select that file in the app’s modal, then <strong>Open</strong>. Only open trusted code. Syntax is checked before execution and definitions are validated before activation. Its patterns then appear in the library. Click a pattern to play and use its Size slider in Parameters.</p>
       <pre><code>api.requireVersion(1);
 api.create({
   id: 'custom-my-circle', name: 'My circle',
@@ -74,34 +75,341 @@ api.create({
   }
 });</code></pre>
       <h2 id="edit">3. Edit externally, then Reload</h2>
-      <p>Open the chosen directory in your editor or give that actual OS path to your coding agent. <strong>Edit guidance</strong> identifies the filename; it cannot launch a specific editor or reveal an absolute path. Change the color, save the disk file, then click <strong>Reload</strong>. Until Reload, the existing code keeps running. There is no filesystem watcher.</p>
+      <p>Open the chosen directory in your editor or give that actual OS path to your coding agent. The Parameters panel identifies the selected script file and offers <strong>Reload</strong> and <strong>Delete</strong>. Change the color, save the disk file, then click its <strong>Reload</strong> in Parameters. The folder reload icon reloads all opened files, never unselected files. Until Reload, the existing code keeps running. There is no filesystem watcher.</p>
       <p>Only immediate <code>*.viz.js</code> files are scripts. Use classic strict JavaScript, not TypeScript/JSX or ES modules. Imports (including dynamic imports) are unsupported; bundle libraries into the same file. The folder may also contain assets such as PNGs and videos. Limits: 100 script files, 1 MB per file, 256 custom patterns.</p>
       <h2 id="validation">4. Understand validation and rollback</h2>
-      <p>Every candidate file is parsed and compiled <em>before any candidate registration code executes</em>. The app then validates metadata, hook types, numeric parameter/audio schemas, IDs and collisions before changing the registry. Unknown fields are rejected to catch typos. An invalid file rejects the whole folder reload: last-good registrations and renderers remain active. The panel names the file and failing field; syntax errors include the parser location. Correct it and Reload again.</p>
+      <p>Every selected candidate file is parsed and compiled <em>before any candidate registration code executes</em>. The app then validates metadata, hook types, numeric parameter/audio schemas, IDs and collisions before changing the registry. Unknown fields are rejected to catch typos. An invalid file rejects the whole selected reload: last-good registrations and renderers remain active. The panel names the file and failing field; syntax errors include the parser location. Correct it and Reload again.</p>
       <p>Validation does not run every possible hook. JavaScript setup/draw exceptions, GLSL compilation failures, missing assets or arbitrary global side effects are not transactional. Runtime errors identify their file and hook; revert the file from your backup and Reload if needed. Never allocate timers, streams or listeners at the registration top level.</p>
       <h2 id="lifecycle">5. Use normal LIVE, CUE, output and cleanup</h2>
       <p>Custom patterns use the same VizCore engine as built-ins: Canvas2D, WebGL meshes and shaders, parameters, compact audio controls, media, embedded preview and output. VizCore is focused and <strong>not full p5.js</strong>. Drag a custom pattern to a pad slot, blend it with another, apply post-processing/screen mapping, or select it as a Projection Mapping child.</p>
       <p>Shift-click stages CUE and Enter takes it LIVE. A successful script Reload/removal cancels CUE and pending TAKE, invalidates pending promotions, disposes old resources/audio and restarts affected output/preview. A brief interruption is intentional. Deleted selected IDs fall back to a built-in; missing projection children fall back to black. Camera patterns use the shared output camera; embedded preview shows the standard camera placeholder.</p>
       <p>Each renderer gets its own <code>state</code> and an abort <code>signal</code>. Register timers/listeners/offscreen buffers with <code>onCleanup</code>, and honor cancellation after awaits. The host removes its canvas, media elements and GL contexts; scripts remain responsible for resources they allocate themselves. See the lifecycle example and API reference.</p>
-      <h2 id="examples">6. Try the capability examples</h2>
-      <p>Save these files into your chosen scripts folder (not the application source tree), then Reload. Their IDs are distinct, so they can coexist.</p>
-      <ul>
-        <li><a href="/docs/custom-script-examples/drawing.viz.js" download>Drawing</a>: shapes, text, HSB, transforms, parameters, pixels and offscreen graphics.</li>
-        <li><a href="/docs/custom-script-examples/mesh.viz.js" download>WebGL meshes</a>: box, sphere, cone and lighting.</li>
-        <li><a href="/docs/custom-script-examples/shader.viz.js" download>GLSL shader</a>: animated uniforms and offscreen texture.</li>
-        <li><a href="/docs/custom-script-examples/audio.viz.js" download>Audio</a>: capture-owner spectrum, continuous level and one-shot events.</li>
-        <li><a href="/docs/custom-script-examples/image.viz.js" download>Image</a>: put <code>photo.png</code> in the folder; async loading, tint and compositing.</li>
-        <li><a href="/docs/custom-script-examples/video.viz.js" download>Video</a>: put <code>clip.mp4</code> in the folder; supported codec, muted playback, CUE pause/resume and cleanup.</li>
-        <li><a href="/docs/custom-script-examples/camera.viz.js" download>Camera</a>: allow/select a camera for shared output capture and mirroring.</li>
-        <li><a href="/docs/custom-script-examples/crud-lifecycle.viz.js" download>CRUD and lifecycle</a>: staged create/read/update/delete, timer/listener teardown.</li>
-      </ul>
-      <h2 id="delete">7. Unload versus delete</h2>
-      <p><strong>Remove registrations</strong> unloads every pattern from that file but keeps the disk file; Reload restores it. <code>api.delete(id)</code> only deletes a staged registration owned by that script. Neither deletes disk content.</p>
-      <p><strong>Delete file…</strong> asks for confirmation showing the filename, then permanently deletes the actual disk file and removes all its patterns. There is no undo/trash. External edits are also deleted. External file deletion is recognized on Reload. If disk deletion succeeds but browser storage fails, the error is reported; Reload reconciles the registry.</p>
-      <h2 id="troubleshooting">Troubleshooting and handing off to an agent</h2>
-      <ul><li><strong>Unsupported / insecure:</strong> open desktop Chrome on HTTPS or localhost; no fallback is provided.</li><li><strong>Permission denied:</strong> click Reconnect and allow read/write, or choose the moved folder again. Storage failures may require a persistent Chrome profile or freeing quota.</li><li><strong>Filename / syntax / ID / hook error:</strong> edit the named file, use <code>api.requireVersion(1)</code>, unique <code>custom-…</code> IDs and the exact schema; remove imports and Reload.</li><li><strong>Blank or stalled visual:</strong> inspect the reported file/hook and Chrome console. Check renderer mode, GLSL logs, asset filename/codec and camera permission. Use a working example, then add changes incrementally.</li><li><strong>Output differs temporarily:</strong> windows synchronize the activated source snapshot asynchronously and independently validate. Keep registration deterministic and avoid cross-window globals. Reload is not a distributed atomic show transition.</li></ul>
-      <p>Give your agent the real folder path plus the <a href="/docs/custom-scripts-api.md">complete Markdown API reference and checklist</a>. Ask it to implement within those capabilities, clean up resources, save the file and tell you when to Reload. Test preview, LIVE, CUE/TAKE, output reopening, merge and mapping before a show. Settings export does not bundle scripts, handles or assets: back up/copy the OS folder separately.</p>
-      <div class="pager"><a href="/docs/patterns.html">← Patterns &amp; Parameters</a><a class="next" href="/docs/media.html">Media Patterns →</a></div>
+<h2 id="examples">Full reference and all examples</h2><p>Everything below is inline on this page. For coding agents, <a href="/docs/custom-scripts-api.md" download>download the complete single Markdown</a>, including every example.</p>
+<h2 id="api-custom-scripts-api-v1-agent-reference">Custom Scripts API v1 — agent reference</h2>
+<p>This is ahLOOKah&#x27;s <strong>trusted JavaScript</strong> extension API, not p5.js and <strong>not a security sandbox</strong>. Scripts execute in each same-origin app window with application privileges. Only use reviewed code. Syntax/metadata validation prevents mistakes, not hostile behavior. A loop can hang Chrome; arbitrary global/network/storage effects cannot be rolled back. The site&#x27;s existing CSP still applies.</p>
+<h3 id="api-files-and-activation-contract">Files and activation contract</h3>
+<ul>
+<li>Desktop Chrome, HTTPS or localhost, with <code>showDirectoryPicker</code>. The app checks capabilities; other Chromium browsers may expose them but are not the supported target. No upload/virtual-filesystem fallback.</li>
+<li>Choose a real OS directory in <strong>Custom Scripts → Link Folder</strong>. Chrome persists the directory handle using IndexedDB structured cloning. Permissions can expire independently. Open Script and reload request renewed read permission from a user gesture; denied permission never discards last-good registrations.</li>
+<li>Write scripts in your external editor. Linking only lists filenames; it never executes files. Click <strong>Open Script</strong>, choose a file in the app modal, then <strong>Open</strong> to validate and activate it. There is no Create Script workflow, browser editor or disk writing. External saves remain inactive until Reload.</li>
+<li>Only explicitly opened immediate files named <code>*.viz.js</code> are executed (alphanumeric initial character, then ASCII letters/digits/dot/underscore/hyphen). No recursive traversal. At most 100 files, 1 MB each, 256 resulting patterns. Non-script files are assets.</li>
+<li>Each file is a <strong>classic strict JavaScript script</strong>, receiving the lexical <code>api</code> argument. Not ESM, CommonJS, TypeScript, JSX or p5 global mode. Static and dynamic <code>import</code> are rejected. Bundle dependencies into one <code>.viz.js</code> file; no local module resolver, npm/CDN import loader or source maps. Local asset bytes are available separately.</li>
+<li>Every candidate file is parsed with Acorn and compiled before <strong>any</strong> candidate registration code executes. Registration then runs synchronously in opened-file order; per-script reload re-evaluates only that file, retaining other last-good definitions. Hook bodies are not executed for validation. Any syntax/registration/schema/collision error rejects the <strong>selected reload generation</strong> and preserves the prior registry and renderers.</li>
+<li>Deterministic declarations only at top level. Do not allocate resources or mutate globals during registration: the same text executes independently in control/output windows and again on app startup. Put allocations in lifecycle hooks, state in <code>ctx.state</code>.</li>
+<li>Successful generations are stored in IndexedDB as source snapshots plus their folder handle, not as serialized functions. Open windows receive a revision notification, read the same snapshot and independently revalidate. Late-opened windows restore that snapshot without reading edited source files. This is eventual synchronization, not an atomic distributed renderer transaction. Do not depend on immediate cross-window globals.</li>
+<li>Reload cancels staged CUE and pending TAKE, invalidates in-flight promotions, disposes affected LIVE and all previews, retires audio slots/controllers and rebuilds against new definitions. A brief output interruption is intentional. Missing selected IDs fall back to a built-in; missing projection children use existing black fallback. Slots are reconciled. Existing compatible parameter values survive, clamped to changed ranges; new keys receive defaults.</li>
+<li>This rollback is <strong>registration rollback</strong>, not arbitrary JavaScript/runtime rollback. A setup/draw/GLSL/media failure after activation reports the file/hook; the previous generation is not automatically restored. Keep a backup and revert the disk file, then Reload.</li>
+</ul>
+<h3 id="api-synchronous-registration-api">Synchronous registration API</h3>
+<pre><code>api.requireVersion(1); // mandatory in every file; api.version === 1
+const id = api.create({ id: &#x27;custom-example&#x27;, name: &#x27;Example&#x27;, draw({p}) { p.background(20); } });
+api.update(id, { name: &#x27;Renamed&#x27; });
+const definition = api.get(id); // immutable snapshot, this file only
+const definitions = api.list(); // this file&#x27;s staged definitions only
+api.create({ ...definition, id: &#x27;custom-copy&#x27; });
+api.delete(&#x27;custom-copy&#x27;); // unregister staged pattern; DOES NOT delete a file</code></pre>
+<p><code>create</code> rejects duplicates even within the same file. <code>update(id, patch)</code> is a shallow merge followed by complete validation (replace an entire params/audio array/object); IDs cannot change. <code>get</code>, <code>update</code>, <code>delete</code> reject IDs not created by this file in the <strong>current evaluation</strong>, including built-ins, media, projection and other scripts. All mutations are staged, not live until evaluation completes. API methods become closed after synchronous registration; never call from hooks, timers or promises. To update across reloads, rewrite the declaration (each reload starts an empty custom staging registry). To stop loading a file, use Delete in Parameters. To permanently remove a definition from its source, edit the file externally. <code>api.list</code> is not the global pattern library.</p>
+<h4 id="api-definition-schema">Definition schema</h4>
+<p>Unknown fields are errors (including <code>factory</code>, <code>group</code>, <code>media</code>, <code>projection</code>, misspelled hooks). Required: <code>id</code>, <code>name</code>, <code>draw</code>.</p>
+<table><thead><tr><th>Field</th><th>Contract</th></tr></thead><tbody>
+<tr><td><code>id</code></td><td><code>custom-</code> + lowercase letter/digit followed by up to 55 lowercase letters/digits/hyphens; max 63 total. Globally unique.</td></tr>
+<tr><td><code>name</code></td><td>Nonblank string, max 80 characters.</td></tr>
+<tr><td><code>renderer</code></td><td>Optional <code>&#x27;2d&#x27;</code> (default) or <code>&#x27;webgl&#x27;</code>.</td></tr>
+<tr><td><code>camera</code></td><td>Optional boolean; true enables output camera readiness and disables control camera preview, like built-ins.</td></tr>
+<tr><td><code>params</code></td><td>Optional array of at most 16 numeric sliders. Unique safe keys.</td></tr>
+<tr><td><code>preload(ctx)</code></td><td>Optional sync or async hook, before canvas/setup; suitable for asset loading.</td></tr>
+<tr><td><code>setup(ctx)</code></td><td>Optional sync or async hook, after automatic host-sized canvas creation.</td></tr>
+<tr><td><code>draw(ctx)</code></td><td>Required synchronous function, called per frame.</td></tr>
+<tr><td><code>resize(ctx)</code></td><td>Optional synchronous hook after automatic resizing.</td></tr>
+<tr><td><code>dispose(ctx)</code></td><td>Optional synchronous hook, once per renderer instance before core removal.</td></tr>
+<tr><td><code>audio</code></td><td>Optional capture-owner controller definition: <code>{schema, update(frame,state), dispose(state)?}</code>.</td></tr>
+</tbody></table>
+<p>Generators are unsupported. Drawing/disposal/audio hooks must not be async. A synchronous hook returning a Promise is also inappropriate except preload/setup; async work must honor cancellation and explicitly handle rejection.</p>
+<pre><code>params: [{ key: &#x27;speed&#x27;, label: &#x27;Speed&#x27;, min: 0, max: 4, step: 0.1, default: 1 }]</code></pre>
+<p>All six fields required. <code>key</code>: starts with ASCII letter, then letters/digits/underscore/hyphen, max 64; no <code>constructor</code>/<code>prototype</code>/<code>__proto__</code>. <code>label</code>: nonblank max 80. All numbers finite with absolute value &lt;= 1,000,000; min &lt;= max, step &gt; 0, default inside range. Read <code>ctx.params.speed</code> on every draw; do not copy once during setup. The host maintains mutable parameter banks across live edits, cue/take, preview and output. Do not write directly to them to change UI state.</p>
+<h3 id="api-renderer-context-and-cleanup">Renderer context and cleanup</h3>
+<table><thead><tr><th>Member</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>p</code></td><td>Actual VizCore instance, full existing rendering API, no proxy/security membrane.</td></tr>
+<tr><td><code>params</code></td><td>Current host-owned parameter object.</td></tr>
+<tr><td><code>state</code></td><td>Fresh mutable object for this renderer instance; separate for each output, CUE, preview and projection child.</td></tr>
+<tr><td><code>controls</code></td><td>Compact audio binding. <code>read()</code> returns continuous/arrays and freshness; <code>consumeEvents()</code> drains fresh events once.</td></tr>
+<tr><td><code>onCleanup(fn)</code></td><td>Register synchronous cleanup, reverse order, once. If already disposed, runs immediately.</td></tr>
+<tr><td><code>signal</code></td><td>AbortSignal aborted before dispose/cleanup. Async work must check it before using p/state/resources.</td></tr>
+<tr><td><code>assetURL(filename)</code></td><td>Promise of a blob URL from this generation&#x27;s real folder. Immediate filename only, no paths. Automatically revoked on disposal. Does not execute JS. Permission errors instruct reconnect.</td></tr>
+<tr><td><code>createCapture(constraints, callback?)</code></td><td>Output&#x27;s shared camera factory (selected camera device), fallback to VizCore capture outside ProgramRuntime. Use instead of opening your own stream.</td></tr>
+<tr><td><code>videoDeviceId</code></td><td>Selected output device ID, null in control preview.</td></tr>
+<tr><td><code>runtime</code></td><td>Existing integration callbacks: <code>audioSlot</code>, <code>audioControls</code>, <code>createCapture(p, constraints, callback)</code>, <code>isPaused()</code>, <code>addPlaybackLifecycle({pause,resume})</code>, <code>reportMediaReady()</code>, <code>reportMediaSettled()</code>, <code>addCleanup(fn)</code> where supplied. Some are absent in embedded preview; use optional chaining. Prefer <code>ctx.onCleanup</code> for portable teardown.</td></tr>
+<tr><td><code>audio</code></td><td>Existing legacy audio object, not a guaranteed raw capture stream in remote windows. For reliable audio use controller <code>shared</code> and renderer <code>controls</code>.</td></tr>
+</tbody></table>
+<p>The adapter handles canvas sizing, graphics mode, lifecycle error reporting, loop stop on draw failure and exactly-once cleanup. VizCore removal stops rAF, removes canvas/media/listeners and releases GL. You <strong>must</strong> clean up timers, external listeners, fetched resources, workers, offscreen Graphics, raw GL resources and manually owned MediaStreams. Do not remove the host canvas, replace the host draw loop or use page reload as cleanup. Do not allocate on every frame. Disposal also happens on ordinary pattern switches, not just script reload.</p>
+<pre><code>setup({state, onCleanup, signal}) {
+  state.count = 0;
+  const timer = setInterval(() =&gt; state.count++, 1000);
+  onCleanup(() =&gt; clearInterval(timer));
+  window.addEventListener(&#x27;online&#x27;, () =&gt; { state.count = 0; }, {signal});
+}</code></pre>
+<h4 id="api-existing-vizcore-capabilities-not-full-p5">Existing VizCore capabilities (not full p5)</h4>
+<p>The custom adapter does not reduce <code>p</code>. Current source of truth: <code>src/core/api.js</code>, <code>src/core/sketch.js</code>, <code>src/core/renderer-2d.js</code>, <code>src/core/renderer-gl.js</code>, <code>src/core/media.js</code>; renderer-specific calls can be no-ops in the other mode.</p>
+<ul>
+<li>Canvas: <code>createCanvas(w,h,mode)</code>, <code>resizeCanvas(w,h,noRedraw?)</code>, <code>pixelDensity(value?)</code>, <code>width</code>, <code>height</code>, <code>canvas</code>, <code>drawingContext</code>. Host preview/output sizing overrides requested dimensions; draw using <code>p.width/p.height</code>, never assume window dimensions match preview.</li>
+<li>Time/lifecycle: <code>frameCount</code>, <code>deltaTime</code> (ms), <code>millis()</code>, <code>frameRate(fps)</code>, <code>getTargetFrameRate()</code>, <code>noLoop()</code>, <code>loop()</code>, <code>isLooping()</code>, <code>redraw(count?)</code>, <code>whenReady()</code>, <code>remove()</code>. Leave lifecycle control to host unless deliberately writing a still pattern. CUE uses fresh-frame requests.</li>
+<li>Color/style: <code>colorMode(RGB|HSB,...)</code>, <code>color(...)</code>, <code>fill</code>, <code>noFill</code>, <code>stroke</code>, <code>noStroke</code>, <code>strokeWeight</code>, <code>tint</code>, <code>noTint</code>, <code>blendMode</code>, <code>background</code>, <code>clear</code>. RGB/HSB maxima and alpha are mode-dependent.</li>
+<li>Transforms: <code>push/pop</code>, <code>translate</code>, <code>scale</code>, <code>rotate</code>, <code>rotateX/Y/Z</code>, <code>resetMatrix</code>. 2D origin top-left; WebGL default mesh origin centered.</li>
+<li>Geometry: <code>rect</code>, <code>circle</code>, <code>ellipse</code>, <code>line</code>, <code>triangle</code>, <code>beginShape/vertex/endShape</code>, <code>rectMode</code>, <code>ellipseMode</code>. WebGL meshes: <code>box</code>, <code>sphere</code>, <code>plane</code>, <code>cone</code>; <code>ambientLight</code>, <code>pointLight</code>, <code>noLights</code>.</li>
+<li>Text: <code>text</code>, <code>textAlign</code>, <code>textSize</code>, <code>textFont</code>, <code>textStyle</code> (Canvas2D). Not full p5 typography/font loading.</li>
+<li>Images/compositing: <code>image</code>, <code>imageMode</code>, <code>get</code>, <code>copy</code>, <code>createImage</code>, <code>loadImage(url, success, failure)</code>. VizImage: <code>loadPixels</code>, <code>pixels</code>, <code>updatePixels</code>, <code>get</code>, <code>set</code>, <code>resize</code>; pixels are RGBA bytes. <code>createGraphics(w,h)</code> is <strong>2D only</strong> and has its own canvas/style/density plus drawing API; call its <code>remove()</code> in cleanup.</li>
+<li>GLSL: <code>createShader(vertex,fragment)</code>, <code>shader(program)</code>, <code>program.setUniform(name,value)</code>. With custom shader active <code>rect</code> draws fullscreen, ignoring rect placement arguments. Vertex attributes <code>aPosition</code> (quad 0..1), <code>aTexCoord</code>; map positions to -1..1 as in example. Texture uniforms accept supported canvas/image/video/Graphics sources. Shader compile/link failures occur at runtime, not JS syntax check.</li>
+<li>Media: <code>createVideo(src, callback?)</code>, <code>createCapture(constraints,callback?)</code>. Wrappers expose <code>elt</code>, <code>hide</code>, <code>show</code>, <code>size</code>, <code>play</code>, <code>pause</code>, <code>stop</code>, <code>remove</code> (methods), <code>loop</code>, <code>muted</code>, <code>currentTime</code>, <code>playbackRate</code> (properties) as implemented in core. Use supported local image/video formats; a <code>.mp4</code> extension alone does not guarantee codec support. Keep video muted to avoid autoplay/sound surprises. Shared capture is the recommended camera route.</li>
+<li>Math: <code>random</code>, <code>noise</code>, <code>noiseSeed</code>, <code>noiseDetail</code>, <code>map</code>, <code>lerp</code>, <code>constrain</code>, <code>dist</code>, <code>mag</code>, standard trig/power/rounding wrappers, <code>radians/degrees</code>. No assumption of p5&#x27;s entire math API.</li>
+<li>Constants: <code>P2D</code>, <code>WEBGL</code>, <code>RGB</code>, <code>HSB</code>, <code>BLEND</code>, <code>ADD</code>, <code>LIGHTEST</code>, <code>DARKEST</code>, <code>MULTIPLY</code>, <code>SCREEN</code>, <code>CENTER</code>, <code>LEFT/RIGHT/TOP/BOTTOM/BASELINE</code>, <code>CORNER/CORNERS/RADIUS</code>, <code>CLOSE/OPEN</code>, <code>PI/TWO_PI/TAU/HALF_PI/QUARTER_PI</code>.</li>
+<li><code>p.mouseX/mouseY</code> and canvas mouse hooks are available; set needed handlers in setup. Raw Canvas2D/WebGL access remains trusted and your cleanup responsibility.</li>
+<li><code>setAttributes</code>, <code>smooth</code>, <code>noSmooth</code>, <code>describe</code> are compatibility no-ops, <strong>not</strong> full p5 features. No p5.sound, DOM plugin suite, arbitrary WebGL offscreen buffers or unsupported p5 addons. Use the tested examples as starting points.</li>
+</ul>
+<h3 id="api-audio-controllers">Audio controllers</h3>
+<p>Audio interpretation happens on the capture owner, once per runtime slot. The renderer receives compact validated controls, avoiding separate audio analysis in output/preview windows.</p>
+<p><code>audio.update({frame, shared, params, deltaSeconds, captureTime, sequence}, state)</code> returns <code>{continuous?, arrays?, events?}</code>. Missing containers default empty. State is per controller, with seeded <code>state.rng()</code> supplied by the engine. Use <code>deltaSeconds</code>, not an assumed cadence. Dispose is called when retired/reloaded. All numeric values must match schema; errors are reported and neutral output is substituted.</p>
+<ul>
+<li><code>shared.getByteFrequencies()</code> → <code>{left,right}</code> byte-frequency arrays (0..255).</li>
+<li><code>shared.getByteWaveforms()</code> → <code>{left,right}</code> byte-waveform arrays.</li>
+<li><code>shared.getFeatures()</code> → existing shared feature snapshot; inspect <code>src/sketches/audio-features.js</code> and <code>src/pattern-audio-engine.js</code> for detailed feature contract. Do not mutate shared arrays.</li>
+<li><code>continuous</code>: max 64 keys, each <code>{min,max,neutral}</code>. Values interpolate/decay toward neutral when packets go stale.</li>
+<li><code>arrays</code>: max 64 keys, each <code>{min,max,minLength?,maxLength?}</code>. Return numeric typed arrays; max 512 elements each. Not ordinary JS arrays.</li>
+<li><code>events</code>: max 64 declared types, each <code>{fields:{field:{min,max,required?,integer?}}}</code>. Return max 16 events per packet, each <code>{id:&#x27;unique-per-controller&#x27;,type:&#x27;declared-type&#x27;,...numericFields}</code>. Do not use <code>id</code> or <code>type</code> as a field name. Use monotonically increasing IDs for new events. Render with <code>consumeEvents</code>, not repeated playback from persistent state.</li>
+<li><code>schema.neutral</code> may supply <code>{continuous,arrays}</code> overrides, validated against the schema. Arrays use typed arrays.</li>
+<li>Keys start with an ASCII letter then letters/digits/underscore/hyphen (max 64). Unknown schema fields, invalid ranges, hook types and neutral values fail registration. All values finite within absolute 1,000,000. Runtime payload validation is also enforced by the existing protocol.</li>
+</ul>
+<p>See the inline <code>audio.viz.js</code> example below for a working parameterized spectrum + continuous level + one-shot pulse implementation.</p>
+<h3 id="api-examples-and-normal-host-features">Examples and normal host features</h3>
+<p>Save any complete example below as its named file in your linked folder, then explicitly Open Script. Optional downloadable copies are also in <code>public/docs/custom-script-examples/</code>; navigation is not required. Files can coexist (unique IDs).</p>
+<table><thead><tr><th>File</th><th>Capability</th></tr></thead><tbody>
+<tr><td><code>drawing.viz.js</code></td><td>2D shapes, text, transforms, HSB, parameters, image pixels, offscreen buffer and cleanup</td></tr>
+<tr><td><code>mesh.viz.js</code></td><td>WebGL meshes, rotations, lighting</td></tr>
+<tr><td><code>shader.viz.js</code></td><td>GLSL, fullscreen quad, animated uniforms, offscreen texture</td></tr>
+<tr><td><code>audio.viz.js</code></td><td>Capture-owner controls, frequency arrays, events, parameters</td></tr>
+<tr><td><code>image.viz.js</code></td><td>Async local asset load, image tint, additive compositing; add <code>photo.png</code></td></tr>
+<tr><td><code>video.viz.js</code></td><td>Async video readiness, muted playback, CUE pause/resume, cancellation; add <code>clip.mp4</code></td></tr>
+<tr><td><code>camera.viz.js</code></td><td>Shared output camera and mirrored image; choose/allow camera</td></tr>
+<tr><td><code>crud-lifecycle.viz.js</code></td><td>Create/read/update/delete registrations, timers/listener cleanup</td></tr>
+</tbody></table>
+<p>Custom entries are normal registry patterns: click LIVE, Shift-click CUE, Enter TAKE; drag to a pad slot, blend two patterns, use post-processing/screen mapping, and choose as children in Projection Mapping. No separate script-owned preview/output window API is necessary. The host owns these windows, readiness gates and disposals. Scripts cannot use registration API to modify built-in definitions or create special media/projection registry records, but can render media and participate as projection children. Create mappings with the normal mapping editor.</p>
+<h3 id="api-reload-delete-and-unlink">Reload, Delete and unlink</h3>
+<ul>
+<li>Folder reload refreshes the file list and reloads <strong>only opened files</strong>. New/unselected files never execute. Per-script <strong>Reload</strong> in Parameters reloads that file only. Validation or storage failure keeps the last-good selection, patterns and runtime.</li>
+<li><strong>Delete</strong> in Parameters removes the loaded script and all its patterns from the library, like media removal. Confirmation explicitly says the source file is kept. Reload and restart do not reopen deleted items; use Open Script to restore them. No disk-delete API or UI is provided.</li>
+<li>The folder close icon <strong>unlinks</strong> the directory, clears the persisted selection and removes runtime patterns/resources in all windows. Source files are untouched. This also works with expired permission.</li>
+<li>External disk deletion is noticed on reload and retires the affected selected file&#x27;s patterns when the reload succeeds. A bad selected file blocks that reload; fix it or Delete its loaded item first.</li>
+<li>Hover the right-aligned folder name to see the full available name; click to copy it. Chrome File System Access does not expose an absolute native path. The tooltip/copy never fabricates one. Find the actual path in your OS/editor.</li>
+<li>On restart, only last-good explicitly opened source snapshots restore, not external edits. Older autoload snapshots are not executed; open their files explicitly once after upgrading.</li>
+</ul>
+<h3 id="api-troubleshooting-and-agent-handoff-checklist">Troubleshooting and agent handoff checklist</h3>
+<ol>
+<li>Identify the chosen directory in the operator&#x27;s OS/editor; Chrome shows its name, not absolute path. Confirm trust, Chrome support and HTTPS/localhost. Do not invent a server-side path.</li>
+<li>Use a unique <code>.viz.js</code> filename and <code>custom-...</code> IDs; start with <code>api.requireVersion(1)</code>. Bundle any libraries; no import/exports, TS, JSX or <code>require</code>.</li>
+<li>Declare exactly supported metadata, valid numeric parameter/audio schemas, callable hooks. Keep top level deterministic and resource-free. Every file is evaluated per window.</li>
+<li>Use the real VizCore API, not assumed p5 methods. Select renderer explicitly for GL. Size to <code>p.width/height</code>; test high-DPI, resized preview and output.</li>
+<li>Use capture-owner audio and consumed events; provide neutral values. Test silence/disconnected audio and stale frames.</li>
+<li>Register cleanup immediately after allocation; handle <code>ctx.signal.aborted</code> after every await; close raw media/workers/GL objects. Avoid global state and async draw.</li>
+<li>Save files; use Open Script for a new file or Reload for an already opened file. Syntax/import errors name the file and parser location. Registration errors name file/field; fix the typo/range/collision and Reload. Entire last-good registry remains on these failures.</li>
+<li>If permission expired, click Open Script or reload to request read permission. If folder moved/deleted, choose it again. If storage quota/private mode blocks persistence, free space/use a persistent profile; old registrations remain.</li>
+<li>For setup/draw errors, inspect file-specific status and Chrome console stack (<code>custom-scripts/&lt;filename&gt;</code>). For image/video failures add the named local asset, check codecs, allow camera; for shader errors inspect GLSL compiler log. Runtime/global failures cannot be rolled back automatically.</li>
+<li>Test LIVE, embedded preview, CUE/TAKE, merged output, projection child, output opened before/after reload, repeated reload/removal, no leaked canvases/camera/audio. Reload intentionally cancels CUE/TAKE. Do not assume distributed activation is instantaneous.</li>
+<li>Use Delete in Parameters for reversible unloading; remove physical files only in your external editor/OS. Keep version-control/backups. Settings export does not package scripts, folder handles or assets; move the OS folder separately and choose it in the destination profile.</li>
+</ol>
+<h3 id="api-developer-verification">Developer verification</h3>
+<p><code>PLAYWRIGHT_PORT=5183 npx playwright test tests/custom-scripts.spec.js --project=chromium</code></p>
+<p>Tests use real browser filesystem handles backed by OPFS to automate filesystem operations/IndexedDB cloning, <strong>not</strong> as the production storage backend. Native OS picker UI and persistent permission revocation require a manual desktop Chrome check: link an actual OS folder, Open Script, edit externally, Reload, restart Chrome, renew/deny permission, unlink/relink a moved folder, cancel/confirm library Delete, and verify the OS file is preserved. Automated tests cannot stand in for that manual check.</p>
+<h3 id="api-complete-examples">Complete examples</h3>
+<h4 id="api-audio-viz-js">audio.viz.js</h4>
+<pre><code>api.requireVersion(1);
+api.create({
+  id: &#x27;custom-audio&#x27;, name: &#x27;Audio controls / spectrum / events&#x27;,
+  params: [{ key: &#x27;gain&#x27;, label: &#x27;Gain&#x27;, min: 0, max: 4, step: 0.1, default: 1 }],
+  audio: {
+    schema: {
+      continuous: { level: { min: 0, max: 1, neutral: 0 } },
+      arrays: { spectrum: { min: 0, max: 1, minLength: 32, maxLength: 32 } },
+      events: { pulse: { fields: { strength: { min: 0, max: 1, required: true } } } },
+    },
+    update({ shared, params, deltaSeconds }, state) {
+      const freqs = shared?.getByteFrequencies?.().left || [];
+      const spectrum = new Float32Array(32);
+      for (let i = 0; i &lt; 32; i++) spectrum[i] = Math.min(1, ((freqs[i * 4] || 0) / 255) * params.gain);
+      const level = spectrum.reduce((sum, x) =&gt; sum + x, 0) / 32;
+      state.elapsed = (state.elapsed || 0) + deltaSeconds;
+      const events = [];
+      if (level &gt; 0.3 &amp;&amp; state.elapsed &gt; 0.2) {
+        state.elapsed = 0; state.count = (state.count || 0) + 1;
+        events.push({ id: `pulse-${state.count}`, type: &#x27;pulse&#x27;, strength: level });
+      }
+      return { continuous: { level }, arrays: { spectrum }, events };
+    },
+  },
+  draw({ p, controls, state }) {
+    const packet = controls?.read();
+    const level = packet?.continuous.level || 0;
+    if (controls?.consumeEvents().length) state.flash = 1;
+    state.flash = Math.max(0, (state.flash || 0) - p.deltaTime / 300);
+    p.background(5 + state.flash * 80); p.noStroke(); p.fill(50, 200, 255);
+    const bins = packet?.arrays.spectrum || [];
+    for (let i = 0; i &lt; bins.length; i++) p.rect(i * p.width / 32, p.height, p.width / 32 - 2, -bins[i] * p.height);
+    p.fill(255, 100, 180); p.circle(p.width / 2, p.height / 2, 30 + level * 150);
+  },
+});</code></pre>
+<h4 id="api-camera-viz-js">camera.viz.js</h4>
+<pre><code>api.requireVersion(1);
+api.create({
+  id: &#x27;custom-camera&#x27;, name: &#x27;Shared camera / mirror&#x27;, camera: true,
+  setup({ state, createCapture }) {
+    // Output shares its selected camera across LIVE/CUE. Control preview is
+    // intentionally a camera placeholder, matching built-in camera patterns.
+    state.capture = createCapture({ video: true, audio: false });
+    state.capture.hide();
+  },
+  draw({ p, state }) {
+    p.background(0);
+    if (state.capture?.elt.readyState &gt;= 2) {
+      p.push(); p.translate(p.width, 0); p.scale(-1, 1);
+      p.image(state.capture, 0, 0, p.width, p.height); p.pop();
+    }
+  },
+});</code></pre>
+<h4 id="api-crud-lifecycle-viz-js">crud-lifecycle.viz.js</h4>
+<pre><code>api.requireVersion(1);
+const id = api.create({
+  id: &#x27;custom-crud&#x27;, name: &#x27;Temporary name&#x27;,
+  setup({ state, onCleanup }) {
+    state.tick = 0;
+    const timer = setInterval(() =&gt; state.tick++, 1000);
+    onCleanup(() =&gt; clearInterval(timer));
+    const listener = () =&gt; { state.tick = 0; };
+    window.addEventListener(&#x27;online&#x27;, listener);
+    onCleanup(() =&gt; window.removeEventListener(&#x27;online&#x27;, listener));
+  },
+  draw({ p, state }) {
+    p.background(15); p.fill(255); p.textSize(22);
+    p.text(`Alive ${state.tick}s`, 20, 40);
+  },
+  dispose({ state }) { state.tick = 0; },
+});
+api.update(id, { name: &#x27;CRUD / resource lifecycle&#x27; });
+api.create({ ...api.get(id), id: &#x27;custom-temporary&#x27;, name: &#x27;Never activated&#x27; });
+api.delete(&#x27;custom-temporary&#x27;); // Registry only. Never deletes a disk file.
+// api.list() returns this file&#x27;s staged definitions. CRUD is synchronous during
+// registration, not callable from draw/timers. Rewrite this file to change it.</code></pre>
+<h4 id="api-drawing-viz-js">drawing.viz.js</h4>
+<pre><code>api.requireVersion(1);
+api.create({
+  id: &#x27;custom-drawing&#x27;, name: &#x27;Drawing / type / pixels&#x27;,
+  params: [{ key: &#x27;speed&#x27;, label: &#x27;Speed&#x27;, min: 0, max: 3, step: 0.1, default: 1 }],
+  setup({ p, state, onCleanup }) {
+    state.buffer = p.createGraphics(160, 100); // Canvas2D offscreen buffer
+    const g = state.buffer;
+    g.background(20, 40, 70); g.fill(100, 230, 255); g.noStroke();
+    g.triangle(10, 90, 80, 10, 150, 90);
+    state.image = p.createImage(16, 16);
+    state.image.loadPixels();
+    for (let i = 0; i &lt; state.image.pixels.length; i += 4) {
+      state.image.pixels.set([255, 150, 50, 255], i);
+    }
+    state.image.updatePixels();
+    onCleanup(() =&gt; g.remove());
+  },
+  draw({ p, state, params }) {
+    p.background(10); p.image(state.buffer, 10, 10, 160, 100);
+    p.image(state.image, 180, 10, 50, 50);
+    p.push(); p.translate(p.width / 2, p.height / 2);
+    p.rotate(p.millis() * 0.001 * params.speed);
+    p.colorMode(p.HSB, 360, 100, 100, 1);
+    p.fill((p.frameCount % 360), 80, 100); p.stroke(0, 0, 100); p.strokeWeight(2);
+    p.rect(-40, -40, 80, 80); p.circle(70, 0, 20); p.pop();
+    p.fill(255); p.noStroke(); p.textSize(18); p.text(&#x27;VizCore • not full p5&#x27;, 10, p.height - 20);
+  },
+});</code></pre>
+<h4 id="api-image-viz-js">image.viz.js</h4>
+<pre><code>// Put photo.png beside this file in the chosen scripts directory.
+api.requireVersion(1);
+api.create({
+  id: &#x27;custom-image&#x27;, name: &#x27;Local image / compositing&#x27;,
+  async preload(ctx) {
+    const url = await ctx.assetURL(&#x27;photo.png&#x27;);
+    ctx.state.image = await new Promise((resolve, reject) =&gt; ctx.p.loadImage(url, resolve, reject));
+  },
+  draw({ p, state }) {
+    p.background(12); p.tint(255, 180);
+    p.image(state.image, 0, 0, p.width, p.height); p.noTint();
+    p.blendMode(p.ADD); p.fill(40, 50, 80); p.circle(p.width / 2, p.height / 2, 100); p.blendMode(p.BLEND);
+  },
+});</code></pre>
+<h4 id="api-mesh-viz-js">mesh.viz.js</h4>
+<pre><code>api.requireVersion(1);
+api.create({
+  id: &#x27;custom-mesh&#x27;, name: &#x27;Lit WebGL geometry&#x27;, renderer: &#x27;webgl&#x27;,
+  draw({ p }) {
+    p.background(5, 8, 20); p.noStroke();
+    p.ambientLight(70); p.pointLight(255, 220, 180, 100, -100, 200);
+    p.push(); p.rotateY(p.millis() / 1500); p.rotateX(0.3);
+    p.fill(60, 150, 230); p.box(90); p.pop();
+    p.push(); p.translate(120, 0, 0); p.fill(230, 90, 160); p.sphere(40, 16, 12); p.pop();
+    p.push(); p.translate(-120, 0, 0); p.fill(100, 230, 120); p.cone(35, 80, 16); p.pop();
+  },
+});</code></pre>
+<h4 id="api-shader-viz-js">shader.viz.js</h4>
+<pre><code>api.requireVersion(1);
+api.create({
+  id: &#x27;custom-shader&#x27;, name: &#x27;GLSL with offscreen texture&#x27;, renderer: &#x27;webgl&#x27;,
+  setup({ p, state, onCleanup }) {
+    state.texture = p.createGraphics(64, 64);
+    state.texture.background(20, 100, 220); state.texture.fill(250, 200, 40);
+    state.texture.circle(32, 32, 32);
+    onCleanup(() =&gt; state.texture.remove());
+    state.shader = p.createShader(`
+      precision highp float;
+      attribute vec3 aPosition; attribute vec2 aTexCoord;
+      varying vec2 uv;
+      void main(){ uv=aTexCoord; gl_Position=vec4(aPosition.xy*2.0-1.0,0.0,1.0); }
+    `, `
+      precision highp float;
+      varying vec2 uv; uniform float time; uniform sampler2D image;
+      void main(){ vec2 q=fract(uv+vec2(sin(time)*0.1,0.0));
+        gl_FragColor=texture2D(image,q)*vec4(0.7+0.3*sin(time+uv.x*6.28),1.0,1.0,1.0); }
+    `);
+  },
+  draw({ p, state }) {
+    p.shader(state.shader);
+    state.shader.setUniform(&#x27;time&#x27;, p.millis() / 1000);
+    state.shader.setUniform(&#x27;image&#x27;, state.texture);
+    p.rect(0, 0, p.width, p.height); // custom shader draws a fullscreen quad
+  },
+});</code></pre>
+<h4 id="api-video-viz-js">video.viz.js</h4>
+<pre><code>// Put clip.mp4 beside this file. Browser-supported video codec required.
+api.requireVersion(1);
+api.create({
+  id: &#x27;custom-video&#x27;, name: &#x27;Local video / playback cleanup&#x27;,
+  async setup(ctx) {
+    const { p, state, signal, runtime, onCleanup } = ctx;
+    const url = await ctx.assetURL(&#x27;clip.mp4&#x27;);
+    if (signal.aborted) return;
+    const video = state.video = p.createVideo(url);
+    video.hide(); video.elt.muted = true; video.elt.loop = true;
+    onCleanup(() =&gt; video.remove());
+    runtime.addPlaybackLifecycle?.({ pause: () =&gt; video.pause(), resume: () =&gt; video.play() });
+    await new Promise((resolve, reject) =&gt; {
+      const timer = setTimeout(() =&gt; reject(new Error(&#x27;clip.mp4: video readiness timed out&#x27;)), 8000);
+      const done = () =&gt; { clearTimeout(timer); resolve(); };
+      video.elt.addEventListener(&#x27;loadeddata&#x27;, done, { once: true, signal });
+      video.elt.addEventListener(&#x27;error&#x27;, () =&gt; { clearTimeout(timer); reject(new Error(&#x27;clip.mp4: unsupported or broken video&#x27;)); }, { once: true, signal });
+      signal.addEventListener(&#x27;abort&#x27;, () =&gt; { clearTimeout(timer); resolve(); }, { once: true });
+      if (video.elt.readyState &gt;= 2) done();
+    });
+    if (!signal.aborted &amp;&amp; !runtime.isPaused?.()) await video.elt.play();
+  },
+  draw({ p, state }) {
+    p.background(0);
+    if (state.video?.elt.readyState &gt;= 2) p.image(state.video, 0, 0, p.width, p.height);
+  },
+});</code></pre>
+<div class="pager"><a href="/docs/patterns.html">← Patterns &amp; Parameters</a><a class="next" href="/docs/media.html">Media Patterns →</a></div>
     </article></main>
   </div>
 

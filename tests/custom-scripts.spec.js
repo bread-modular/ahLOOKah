@@ -58,53 +58,49 @@ test.describe('Custom Scripts @core', () => {
     expect(result.crud).toEqual([{ id: 'custom-copy', name: 'Updated' }]);
   });
 
-  test('filesystem create/reload rollback/remove/disk delete, persistence and permission failure', async ({ page }) => {
+  test('selected-only loading, rollback, Delete persistence and permission failure', async ({ page }) => {
     await page.goto('/tests/fixtures/render.html');
     const result = await page.evaluate(async (valid) => {
       const { CustomScripts } = await import('/src/custom-scripts/service.js');
       const { SKETCHES } = await import('/src/sketch-registry.js');
       const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('scripts', { create: true });
       const write = async (name, text) => { const w = await (await dir.getFileHandle(name, { create: true })).createWritable(); await w.write(text); await w.close(); };
-      const service = new CustomScripts();
-      await service.start(); service.handle = dir;
-      await service.storage('folder', dir);
       await write('demo.viz.js', valid);
+      await write('unopened.viz.js', "window.unopenedExecuted=true; throw Error('UNSELECTED EXECUTION');");
+      await write('syntax.viz.js', 'const = ;');
+      window.showDirectoryPicker = async () => dir;
+      const service = new CustomScripts(); await service.start(); await service.choose();
       await service.reload();
+      const initiallyEmpty = service.active.sources.length === 0;
+      await service.open('demo.viz.js');
       const before = SKETCHES.find((s) => s.id === 'custom-demo');
       await write('demo.viz.js', 'api.requireVersion(1); broken(');
       try { await service.reload(); } catch {}
-      const rollback = SKETCHES.find((s) => s.id === 'custom-demo') === before;
+      const syntaxRollback = SKETCHES.find((s) => s.id === 'custom-demo') === before;
+      await write('demo.viz.js', valid.replace('name:"Demo"', 'name:null'));
+      try { await service.reload('demo.viz.js'); } catch {}
+      const definitionRollback = SKETCHES.find((s) => s.id === 'custom-demo') === before;
       await write('demo.viz.js', valid.replace('Demo', 'Changed externally'));
       const explicit = SKETCHES.find((s) => s.id === 'custom-demo').name;
       await service.reload();
       const updated = SKETCHES.find((s) => s.id === 'custom-demo').name;
-      await service.remove('demo.viz.js');
-      const removed = !SKETCHES.some((s) => s.id === 'custom-demo');
+      await service.remove('demo.viz.js'); await service.reload();
+      const staysRemoved = !SKETCHES.some((s) => s.id === 'custom-demo');
       const diskRetained = !!await dir.getFileHandle('demo.viz.js');
-      await service.reload();
-      let refused = false;
-      try { await service.deleteFile('demo.viz.js'); } catch { refused = true; }
-      await service.deleteFile('demo.viz.js', true);
-      let diskDeleted = false;
-      try { await dir.getFileHandle('demo.viz.js'); } catch (e) { diskDeleted = e.name === 'NotFoundError'; }
-      await write('external.viz.js', valid.replace('Demo', 'Not yet activated'));
-      const filename = await service.create('New script');
-      const createDidNotReloadExternal = !SKETCHES.some((s) => s.id === 'custom-demo');
-      const createdText = await (await (await dir.getFileHandle(filename)).getFile()).text();
       const persisted = await service.storage('active');
-      const handle = await service.storage('folder');
-      service.handle = { queryPermission: async () => 'denied' };
-      let denied;
-      try { await service.reload(); } catch (e) { denied = e.message; }
       service.close();
-      return { rollback, explicit, updated, removed, diskRetained, refused, diskDeleted, createdText, persisted: persisted.sources.length, createDidNotReloadExternal, handle: handle.name, denied };
+      const restored = new CustomScripts(); await restored.start();
+      const restoreEmpty = restored.active.sources.length === 0;
+      restored.handle = { queryPermission: async () => 'denied' };
+      let denied; try { await restored.reload(); } catch (e) { denied = e.message; }
+      restored.close();
+      return { initiallyEmpty, syntaxRollback, definitionRollback, explicit, updated, staysRemoved, diskRetained, persisted: persisted.sources.length, restoreEmpty, unopenedExecuted: !!window.unopenedExecuted, denied };
     }, source());
-    expect(result).toMatchObject({ rollback: true, explicit: 'Demo', updated: 'Changed externally', removed: true, diskRetained: true, refused: true, diskDeleted: true, persisted: 1, createDidNotReloadExternal: true, handle: 'scripts' });
-    expect(result.createdText).toContain('api.requireVersion(1)');
-    expect(result.denied).toContain('Reconnect');
+    expect(result).toMatchObject({ initiallyEmpty: true, syntaxRollback: true, definitionRollback: true, explicit: 'Demo', updated: 'Changed externally', staysRemoved: true, diskRetained: true, persisted: 0, restoreEmpty: true, unopenedExecuted: false });
+    expect(result.denied).toContain('permission denied');
   });
 
-  test('failed folder switch cannot delete same-named last-good registrations from another folder', async ({ page }) => {
+  test('link/switch/unlink never executes folder contents; storage failure preserves link and patterns', async ({ page }) => {
     await page.goto('/tests/fixtures/render.html');
     const result = await page.evaluate(async (valid) => {
       const { CustomScripts } = await import('/src/custom-scripts/service.js');
@@ -112,53 +108,28 @@ test.describe('Custom Scripts @core', () => {
       const root = await navigator.storage.getDirectory();
       const a = await root.getDirectoryHandle('folder-a', { create: true });
       const b = await root.getDirectoryHandle('folder-b', { create: true });
-      const filename = 'demo.viz.js';
-      const broken = 'api.requireVersion(1); broken(';
-      for (const [dir, text] of [[a, valid], [b, broken]]) {
-        const writer = await (await dir.getFileHandle(filename, { create: true })).createWritable();
+      for (const [dir, text] of [[a, valid], [b, 'window.bad=true; broken(']]) {
+        const writer = await (await dir.getFileHandle('demo.viz.js', { create: true })).createWritable();
         await writer.write(text); await writer.close();
       }
-      const service = new CustomScripts();
-      await service.start();
-      const originalPicker = window.showDirectoryPicker;
-      try {
-        window.showDirectoryPicker = async () => a;
-        await service.choose();
-        const before = SKETCHES.find((s) => s.id === 'custom-demo');
-        const revision = service.active.revision;
-        window.showDirectoryPicker = async () => b;
-        let reloadError;
-        try { await service.choose(); } catch (e) { reloadError = e.message; }
-        let deleteError;
-        try { await service.deleteFile(filename, true); } catch (e) { deleteError = e.message; }
-        const preserved = {
-          registry: SKETCHES.find((s) => s.id === 'custom-demo') === before,
-          revision: service.active.revision === revision,
-          persistedRevision: (await service.storage('active')).revision === revision,
-          activeFolder: await service.active.folder.isSameEntry(a),
-          chosenFolder: await service.handle.isSameEntry(b),
-          aText: await (await (await a.getFileHandle(filename)).getFile()).text(),
-          bText: await (await (await b.getFileHandle(filename)).getFile()).text(),
-        };
-        // A distinct handle for the same directory must still permit deletion.
-        service.handle = await root.getDirectoryHandle('folder-a');
-        await service.deleteFile(filename, true);
-        let aDeleted = false;
-        try { await a.getFileHandle(filename); } catch (e) { aDeleted = e.name === 'NotFoundError'; }
-        return { reloadError, deleteError, preserved, aDeleted,
-          unregistered: !SKETCHES.some((s) => s.id === 'custom-demo') };
-      } finally {
-        window.showDirectoryPicker = originalPicker;
-        service.close();
-      }
+      const service = new CustomScripts(); await service.start();
+      window.showDirectoryPicker = async () => a; await service.choose(); await service.open('demo.viz.js');
+      const before = SKETCHES.find((s) => s.id === 'custom-demo');
+      const storage = service.storage;
+      service.storage = async () => { throw Error('Quota exceeded'); };
+      window.showDirectoryPicker = async () => b;
+      try { await service.choose(); } catch {}
+      const retained = service.handle.name === 'folder-a' && SKETCHES.find((s) => s.id === 'custom-demo') === before;
+      service.storage = storage;
+      await service.choose();
+      const switchedEmpty = service.active.sources.length === 0 && !SKETCHES.some((s) => s.id === 'custom-demo');
+      await service.unlink(); service.close();
+      const next = new CustomScripts(); await next.start();
+      const unlinked = next.handle === null && next.active.sources.length === 0;
+      const sourcesKept = !!await a.getFileHandle('demo.viz.js') && !!await b.getFileHandle('demo.viz.js');
+      next.close(); return { retained, switchedEmpty, unlinked, sourcesKept, bad: !!window.bad };
     }, source());
-    expect(result.reloadError).toContain('demo.viz.js: syntax/import check:');
-    expect(result.deleteError).toContain('demo.viz.js: the selected folder has not activated successfully');
-    expect(result.deleteError).toContain('Fix its errors and Reload');
-    expect(result.preserved).toEqual({ registry: true, revision: true, persistedRevision: true,
-      activeFolder: true, chosenFolder: true, aText: source(), bText: 'api.requireVersion(1); broken(' });
-    expect(result.aDeleted).toBe(true);
-    expect(result.unregistered).toBe(true);
+    expect(result).toEqual({ retained: true, switchedEmpty: true, unlinked: true, sourcesKept: true, bad: false });
   });
 
   test('real renderer cleanup, controls, audio schema errors and runtime errors are file-specific', async ({ page }) => {
@@ -196,11 +167,18 @@ async function seedFolder(page, text) {
   }, text);
 }
 
+async function openScript(page, file = 'demo.viz.js') {
+  await page.getByRole('button', { name: 'Open Script', exact: true }).click();
+  await page.getByLabel('Script in scripts', { exact: true }).selectOption(file);
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(page.getByRole('dialog')).toBeHidden();
+}
+
 test('Custom Scripts @core multiwindow reload cancels cue, disposes preview/output and late output restores snapshot', async ({ page, context }) => {
   const text = source('Demo', "setup(){window.customStarts=(window.customStarts||0)+1;},dispose(){window.customStops=(window.customStops||0)+1;}");
   await seedFolder(page, text);
   await page.goto('/?role=control');
-  await page.getByRole('button', { name: 'Reload', exact: true }).click();
+  await openScript(page);
   // Use the same semantic pattern-id message as clicking a library pattern.
   await expect.poll(() => page.evaluate(async () => (await import('/src/sketch-registry.js')).SKETCHES.some((s) => s.id === 'custom-demo'))).toBe(true);
   const output = await context.newPage();
@@ -212,11 +190,13 @@ test('Custom Scripts @core multiwindow reload cancels cue, disposes preview/outp
   await expect.poll(() => page.evaluate(() => window.customStarts || 0)).toBeGreaterThan(0);
   await page.keyboard.press('Shift+1');
   await expect(page.locator('#cue-preview-controls')).toBeVisible();
-  await page.getByRole('button', { name: 'Reload', exact: true }).click();
+  await page.getByRole('button', { name: 'Reload linked scripts', exact: true }).click();
   await expect(page.locator('#cue-preview-controls')).toBeHidden();
   await expect.poll(() => output.evaluate(() => window.customStops || 0)).toBeGreaterThan(0);
   await expect.poll(() => output.evaluate(() => window.customStarts || 0)).toBeGreaterThan(1);
-  await page.getByRole('button', { name: 'Remove registrations', exact: true }).click();
+  await page.locator('[data-id="custom-demo"]').click();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#params-list').getByRole('button', { name: 'Delete', exact: true }).click();
   await expect.poll(() => output.evaluate(() => window.__viz?.patternId)).toBe('circles');
   await expect.poll(() => output.evaluate(async () => (await import('/src/sketch-registry.js')).SKETCHES.some((s) => s.id === 'custom-demo'))).toBe(false);
 });
@@ -273,37 +253,65 @@ for (const name of ['drawing', 'mesh', 'shader', 'audio', 'image', 'video', 'cam
   });
 }
 
-test('Custom Scripts @core folder picker UI writes actual handle, cancels deletion, and validates external edits', async ({ page }) => {
+test('Custom Scripts @core selection modal, parameter actions, path copy, unlink and no Create UI', async ({ page, context }, testInfo) => {
+  await seedFolder(page, source());
+  // Start unlinked; picker is the only mocked native UI. Handles/bytes are real OPFS.
+  await page.evaluate(async () => { const { scriptStorage } = await import('/src/custom-scripts/storage.js'); await scriptStorage('folder', null); });
   await page.goto('/?role=control');
   await page.evaluate(() => {
-    window.showDirectoryPicker = async () => (await navigator.storage.getDirectory()).getDirectoryHandle('chosen', { create: true });
+    window.showDirectoryPicker = async () => (await navigator.storage.getDirectory()).getDirectoryHandle('scripts');
   });
-  const dialogs = [];
-  page.on('dialog', async (dialog) => { dialogs.push(dialog.message()); if (dialog.type() === 'prompt') await dialog.accept('From UI'); else await dialog.accept(); });
-  await page.getByRole('button', { name: 'Choose folder', exact: true }).click();
-  await expect(page.locator('.custom-scripts-panel')).toContainText('Folder: chosen');
-  await page.getByRole('button', { name: 'Create script', exact: true }).click();
-  await expect(page.locator('.custom-scripts-panel li')).toHaveCount(1);
-  const filename = await page.locator('.custom-scripts-panel li code').textContent();
-  expect(filename).toMatch(/^custom-from-ui-.*\.viz\.js$/);
-  await page.getByRole('button', { name: 'Edit guidance' }).click();
-  await expect(page.locator('.custom-scripts-panel')).toContainText(`chosen/${filename}`);
-  await page.evaluate(async (name) => {
-    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('chosen');
-    const w = await (await dir.getFileHandle(name)).createWritable(); await w.write('api.requireVersion(1);syntax('); await w.close();
-  }, filename);
-  await page.getByRole('button', { name: 'Reload', exact: true }).click();
-  await expect(page.locator('.custom-scripts-panel')).toContainText(`${filename}: syntax/import check`);
-  await expect(page.locator('.library-btn', { hasText: 'From UI' })).toBeVisible();
-  page.removeAllListeners('dialog');
+  const panel = page.locator('.custom-scripts-panel');
+  await expect(panel.getByRole('button')).toHaveCount(1);
+  await expect(panel.getByRole('button', { name: 'Link Folder' })).toBeVisible();
+  await panel.screenshot({ path: testInfo.outputPath('unlinked.png') });
+  await page.getByRole('button', { name: 'Link Folder', exact: true }).click();
+  await expect(page.locator('[data-id="custom-demo"]')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /create script/i })).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: 'Copy folder name: scripts' })).toHaveAttribute('title', /Chrome does not expose the absolute native path/);
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await panel.getByRole('button', { name: 'Copy folder name: scripts' }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('scripts');
+  await page.getByRole('button', { name: 'Open Script', exact: true }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.getByRole('dialog')).toContainText('not in a sandbox');
+  await page.getByLabel('Script in scripts', { exact: true }).selectOption('demo.viz.js');
+  await expect(page.locator('[data-id="custom-demo"]')).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath('selection-modal.png') });
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Open Script', exact: true })).toBeFocused();
+  await openScript(page);
+  await page.locator('[data-id="custom-demo"]').click();
+  const params = page.locator('#params-list');
+  await expect(params.getByRole('button', { name: 'Reload', exact: true })).toBeVisible();
+  await expect(params.getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
+  const row = await panel.locator('.script-folder-row').boundingBox();
+  const folderName = await panel.locator('.script-folder-name').boundingBox();
+  const close = await panel.getByRole('button', { name: 'Unlink scripts folder' }).boundingBox();
+  expect(folderName.width).toBeLessThan(row.width / 2);
+  expect(Math.abs(close.x + close.width - row.x - row.width)).toBeLessThan(2);
+  await expect(panel.locator('.script-folder-name')).toHaveCSS('text-transform', 'none');
+  await page.screenshot({ path: testInfo.outputPath('linked-parameters.png') });
+  await page.evaluate(async () => {
+    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('scripts');
+    const w = await (await dir.getFileHandle('demo.viz.js')).createWritable(); await w.write('api.requireVersion(1);syntax('); await w.close();
+  });
+  await params.getByRole('button', { name: 'Reload', exact: true }).click();
+  await expect(params).toContainText('syntax/import check');
+  await expect(page.locator('[data-id="custom-demo"]')).toBeVisible();
   page.once('dialog', (dialog) => dialog.dismiss());
-  await page.getByRole('button', { name: 'Delete file…', exact: true }).click();
-  await expect(page.locator('.custom-scripts-panel li')).toHaveCount(1);
-  page.once('dialog', (dialog) => dialog.accept());
-  await page.getByRole('button', { name: 'Delete file…', exact: true }).click();
-  await expect(page.locator('.custom-scripts-panel li')).toHaveCount(0);
-  await expect(page.locator('.library-btn', { hasText: 'From UI' })).toHaveCount(0);
-  expect(dialogs[0]).toContain('not in a sandbox');
+  await params.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(page.locator('[data-id="custom-demo"]')).toBeVisible();
+  page.once('dialog', (dialog) => { expect(dialog.message()).toContain('source file is kept'); return dialog.accept(); });
+  await params.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(page.locator('[data-id="custom-demo"]')).toHaveCount(0);
+  await panel.getByRole('button', { name: 'Reload linked scripts' }).click();
+  await expect(panel.getByRole('alert')).toHaveCount(0); // broken but no longer selected
+  await panel.getByRole('button', { name: 'Unlink scripts folder' }).click();
+  await expect(panel.getByRole('button')).toHaveCount(1);
+  expect(await page.evaluate(async () => !!await (await (await navigator.storage.getDirectory()).getDirectoryHandle('scripts')).getFileHandle('demo.viz.js'))).toBe(true);
+  await page.reload();
+  await expect(panel.getByRole('button', { name: 'Link Folder' })).toBeVisible();
 });
 
 test('Custom Scripts @core reload is all-or-nothing for malformed definitions, duplicates and storage errors', async ({ page }) => {
@@ -364,7 +372,7 @@ test('Custom Scripts @core missing filesystem support and revoked permissions ar
 test('Custom Scripts @core stale TAKE cannot promote after reload; external deletion falls back', async ({ page, context }) => {
   await seedFolder(page, source());
   await page.goto('/?role=control');
-  await page.getByRole('button', { name: 'Reload', exact: true }).click();
+  await openScript(page);
   await expect(page.locator('[data-id="custom-demo"]')).toBeVisible();
   const output = await context.newPage(); await output.goto('/?role=screen');
   await page.waitForFunction(() => window.__viz?.screenOnline);
@@ -380,7 +388,7 @@ test('Custom Scripts @core stale TAKE cannot promote after reload; external dele
   await page.locator('#library-pane h3').click();
   await page.keyboard.press('Enter');
   await expect.poll(() => output.evaluate(() => window.__viz.cue?.takePending)).toBe(true);
-  await page.getByRole('button', { name: 'Reload', exact: true }).click();
+  await page.getByRole('button', { name: 'Reload linked scripts', exact: true }).click();
   await expect.poll(() => output.evaluate(() => window.__viz.cue)).toBeNull();
   await output.evaluate(() => {
     const { original, callbacks, cancel } = window.holdFrames;
@@ -391,7 +399,7 @@ test('Custom Scripts @core stale TAKE cannot promote after reload; external dele
   await page.locator('[data-id="custom-demo"]').click();
   await expect.poll(() => output.evaluate(() => window.__viz.patternId)).toBe('custom-demo');
   await page.evaluate(async () => { const d = await (await navigator.storage.getDirectory()).getDirectoryHandle('scripts'); await d.removeEntry('demo.viz.js'); });
-  await page.getByRole('button', { name: 'Reload', exact: true }).click();
+  await page.getByRole('button', { name: 'Reload linked scripts', exact: true }).click();
   await expect.poll(() => output.evaluate(() => window.__viz.patternId)).toBe('circles');
 });
 
@@ -403,7 +411,7 @@ test('Custom Scripts @core parameter schema changes and projection children reco
     saveProjectionMeta([{ id: 'projection-custom', name: 'Custom mapping', surfaces: [{ id: 's1', name: 'Surface', patternId: 'custom-demo' }] }]);
   });
   await page.goto('/?role=control');
-  await page.getByRole('button', { name: 'Reload', exact: true }).click();
+  await openScript(page);
   const output = await context.newPage(); await output.goto('/?role=screen');
   await page.waitForFunction(() => window.__viz?.screenOnline);
   await page.locator('[data-id="projection-custom"]').click();
@@ -413,9 +421,104 @@ test('Custom Scripts @core parameter schema changes and projection children reco
     const w = await (await dir.getFileHandle('demo.viz.js')).createWritable(); await w.write(text); await w.close();
   }, text);
   await update(text.replace("max:100", "max:20").replace('default:50', 'default:10'));
-  await page.getByRole('button', { name: 'Reload', exact: true }).click();
+  await page.getByRole('button', { name: 'Reload linked scripts', exact: true }).click();
   await expect.poll(() => output.evaluate(async () => (await import('/src/sketch-registry.js')).SKETCHES.find((s) => s.id === 'projection-custom').params.find((p) => p.label === 'Size')?.max)).toBe(20);
   await expect.poll(() => output.evaluate(() => window.__viz.programs.live?.children)).toEqual(['custom-demo']);
-  await page.getByRole('button', { name: 'Remove registrations', exact: true }).click();
+  await page.locator('[data-id="custom-demo"]').click();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#params-list').getByRole('button', { name: 'Delete', exact: true }).click();
+  await page.locator('[data-id="projection-custom"]').click();
   await expect.poll(() => output.evaluate(() => window.__viz.programs.live?.children)).toEqual(['solid-color']);
+});
+
+test('Custom Scripts @core per-file reload/Delete do not evaluate other selected files; closed and screen roles cannot mutate', async ({ page }) => {
+  await page.goto('/tests/fixtures/render.html');
+  const result = await page.evaluate(async (valid) => {
+    const { CustomScripts } = await import('/src/custom-scripts/service.js');
+    const { SKETCHES } = await import('/src/sketch-registry.js');
+    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('scripts', { create: true });
+    for (const [name, text] of [['demo.viz.js', 'window.demoRuns=(window.demoRuns||0)+1;' + valid], ['other.viz.js', 'window.otherRuns=(window.otherRuns||0)+1;' + valid.replace('custom-demo', 'custom-other')]]) {
+      const writer = await (await dir.getFileHandle(name, { create: true })).createWritable(); await writer.write(text); await writer.close();
+    }
+    window.showDirectoryPicker = async () => dir;
+    const service = new CustomScripts(); await service.start(); await service.choose();
+    await service.open('demo.viz.js'); await service.open('other.viz.js');
+    const other = SKETCHES.find((s) => s.id === 'custom-other');
+    await service.reload('demo.viz.js'); await service.remove('demo.viz.js');
+    const kept = other === SKETCHES.find((s) => s.id === 'custom-other');
+    const screen = new CustomScripts({ role: 'screen' });
+    let denied = 0;
+    for (const fn of [() => screen.choose(), () => screen.open('other.viz.js'), () => screen.reload(), () => screen.remove('other.viz.js'), () => screen.unlink()]) {
+      try { await fn(); } catch (e) { if (e.message.includes('Only the control window')) denied++; }
+    }
+    service.close(); await service.unlink();
+    return { demoRuns: window.demoRuns, otherRuns: window.otherRuns, kept, denied, closedKept: service.active.sources.length === 1 };
+  }, source());
+  expect(result).toEqual({ demoRuns: 2, otherRuns: 1, kept: true, denied: 5, closedKept: true });
+});
+
+test('Custom Scripts @core unlink disposes live and preview in all windows and late output stays empty', async ({ page, context }) => {
+  await seedFolder(page, source('Demo', 'dispose(){window.stops=(window.stops||0)+1;}'));
+  await page.goto('/?role=control'); await openScript(page);
+  const output = await context.newPage(); await output.goto('/?role=screen');
+  await page.waitForFunction(() => window.__viz?.screenOnline);
+  await page.locator('[data-id="custom-demo"]').click();
+  await expect.poll(() => output.evaluate(() => window.__viz?.patternId)).toBe('custom-demo');
+  await page.getByRole('button', { name: 'Unlink scripts folder' }).click();
+  await expect.poll(() => output.evaluate(() => window.__viz?.patternId)).toBe('circles');
+  await expect.poll(() => output.evaluate(() => window.stops || 0)).toBeGreaterThan(0);
+  await expect.poll(() => page.evaluate(() => window.stops || 0)).toBeGreaterThan(0);
+  await output.reload();
+  await expect.poll(() => output.evaluate(async () => (await import('/src/sketch-registry.js')).SKETCHES.filter((s) => s.customScript).length)).toBe(0);
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Link Folder' })).toBeVisible();
+});
+
+test('Custom Scripts @core failed Open stays in modal, preserves selection and supports retry', async ({ page }) => {
+  await seedFolder(page, source());
+  await page.evaluate(async () => {
+    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('scripts');
+    const w = await (await dir.getFileHandle('bad.viz.js', { create: true })).createWritable(); await w.write('window.syntaxRan=true; const = ;'); await w.close();
+  });
+  await page.goto('/?role=control'); await openScript(page);
+  await page.getByRole('button', { name: 'Open Script', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await page.getByLabel('Script in scripts', { exact: true }).selectOption('bad.viz.js');
+  await dialog.getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('syntax/import check');
+  await expect(page.locator('[data-id="custom-demo"]')).toBeAttached();
+  expect(await page.evaluate(() => !!window.syntaxRan)).toBe(false);
+  await page.evaluate(async (text) => {
+    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('scripts');
+    const w = await (await dir.getFileHandle('bad.viz.js')).createWritable(); await w.write(text.replace('custom-demo', 'custom-fixed')); await w.close();
+  }, source('Fixed'));
+  await dialog.getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('[data-id="custom-demo"]')).toBeVisible();
+  await expect(page.locator('[data-id="custom-fixed"]')).toBeVisible();
+});
+
+test('Custom Scripts @core legacy autoload snapshots do not execute; long folder names stay bounded and truthful', async ({ page }) => {
+  await seedFolder(page, source());
+  const name = 'scripts-with-a-very-long-folder-name-that-must-not-overflow-the-library-pane';
+  await page.evaluate(async ({ name, text }) => {
+    const { scriptStorage } = await import('/src/custom-scripts/storage.js');
+    const folder = await (await navigator.storage.getDirectory()).getDirectoryHandle(name, { create: true });
+    await scriptStorage('active', { revision: 1, folder, sources: [{ name: 'demo.viz.js', text: 'window.legacyExecuted=true;' + text }] });
+  }, { name, text: source() });
+  await page.goto('/?role=control');
+  const folder = page.getByRole('button', { name: `Copy folder name: ${name}` });
+  await expect(folder).toBeVisible();
+  await expect(folder).toHaveAttribute('title', `${name}\nClick to copy folder name. Chrome does not expose the absolute native path.`);
+  expect(await page.evaluate(() => !!window.legacyExecuted)).toBe(false);
+  await expect(page.locator('[data-id="custom-demo"]')).toHaveCount(0);
+  // Test the established narrow library content floor, without changing saved pane settings.
+  await page.locator('.custom-scripts-panel').evaluate((el) => { el.style.width = '210px'; });
+  const box = await page.locator('.script-folder-row').boundingBox();
+  const close = await page.getByRole('button', { name: 'Unlink scripts folder' }).boundingBox();
+  expect(close.x + close.width).toBeLessThanOrEqual(box.x + box.width + 1);
+  expect(await folder.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+  await page.getByRole('button', { name: 'Unlink scripts folder' }).click();
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Link Folder' })).toBeVisible();
 });

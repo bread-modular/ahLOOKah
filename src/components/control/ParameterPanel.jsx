@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ScriptFileControls } from './CustomScriptsPanel.jsx';
 import { PerformanceBudget } from './PerformanceBudget.jsx';
 import { getOrderedSketches, SKETCHES, BLEND_ID, BLEND_PARAMS } from '../../sketch-registry.js';
 import { selectionName } from '../../program/selection.js';
@@ -128,6 +129,7 @@ function EffectParams({ currentPattern, currentPatternId, getValue, changeParam,
     <>
       <PerformanceBudget patternId={currentPatternId} scope={scope} />
       {rows}
+      {sketch?.customScript && <ScriptFileControls key={sketch.customScript} file={sketch.customScript} locked={locked} />}
       {sketch?.media && (
         <div className="media-manage-row">
           <button

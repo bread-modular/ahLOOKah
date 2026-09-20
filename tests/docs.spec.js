@@ -107,3 +107,27 @@ test.describe('docs guide navigation', () => {
     });
   }
 });
+
+test('Custom Scripts reference and every complete example are inline with valid anchors', async ({ page, request }) => {
+  await page.goto('/docs/custom-scripts.html');
+  const article = page.locator('article');
+  await expect(article).toContainText('Open Script');
+  await expect(article).toContainText('Delete in Parameters');
+  await expect(article).not.toContainText('Click Create script');
+  await expect(article).not.toContainText('Delete file…');
+  for (const heading of ['Synchronous registration API', 'Definition schema', 'Renderer context and cleanup', 'Audio controllers', 'Reload, Delete and unlink']) {
+    await expect(article.getByRole('heading', { name: heading, exact: true })).toHaveCount(1);
+  }
+  const blocks = await article.locator('pre code').allTextContents();
+  const markdown = await (await request.get('/docs/custom-scripts-api.md')).text();
+  for (const name of ['drawing', 'mesh', 'shader', 'audio', 'image', 'video', 'camera', 'crud-lifecycle']) {
+    const code = (await (await request.get(`/docs/custom-script-examples/${name}.viz.js`)).text()).trim();
+    expect(blocks.map((text) => text.trim())).toContain(code);
+    expect(markdown).toContain(code);
+    await expect(article.getByRole('heading', { name: `${name}.viz.js`, exact: true })).toHaveCount(1);
+  }
+  const anchors = await article.locator('nav[aria-label="On this page"] a').evaluateAll((links) => links.map((a) => ({ href: a.getAttribute('href'), exists: !!document.getElementById(a.hash.slice(1)) })));
+  expect(anchors.length).toBeGreaterThan(15);
+  expect(anchors.every((a) => a.href.startsWith('#') && a.exists)).toBe(true);
+  expect(await page.evaluate(() => { const ids = [...document.querySelectorAll('[id]')].map((e) => e.id); return ids.length === new Set(ids).size; })).toBe(true);
+});
