@@ -1,3 +1,4 @@
+import { chooseFolder, folderPermission, requireFolderPermission, scanFolder } from '../platform/folderAccess.js';
 import { SKETCHES } from '../sketch-registry.js';
 import { stageSources, SCRIPT_SUFFIX } from './compiler.js';
 import { adaptPattern } from './adapter.js';
@@ -91,7 +92,7 @@ export class CustomScripts {
   async permission(request = false) {
     this.assertControl();
     if (!this.handle) throw new Error('Link a scripts folder first.');
-    let permission = await this.handle.queryPermission({ mode: 'read' });
+    let permission = await folderPermission(this.handle);
     if (permission !== 'granted' && request) permission = await this.handle.requestPermission({ mode: 'read' });
     this.publish({ permission });
     if (permission !== 'granted') throw new Error('Folder permission denied or expired. Click Open Script or reload to renew access, or unlink and Link Folder again. Last-good scripts remain active.');
@@ -100,7 +101,7 @@ export class CustomScripts {
   async choose() {
     this.assertControl();
     if (supportError()) throw new Error(supportError());
-    const handle = await showDirectoryPicker({ id: 'viz2-custom-scripts', mode: 'read' });
+    const handle = await chooseFolder({ id: 'viz2-custom-scripts', mode: 'read', label: 'Custom Scripts' });
     return this.enqueue(async () => {
       const files = await this.listFiles(handle, false);
       await this.commit([], handle, [], files);
@@ -118,15 +119,30 @@ export class CustomScripts {
   async listFiles(folder = this.handle, publish = true) {
     this.assertControl();
     if (!folder) throw new Error('Link a scripts folder first.');
-    const files = [];
-    for await (const [name, handle] of folder.entries()) {
-      if (handle.kind !== 'file' || !name.endsWith(SCRIPT_SUFFIX)) continue;
-      if (files.length >= 100) throw new Error('Folder: maximum 100 .viz.js files');
-      files.push(name);
-    }
-    files.sort((a, b) => a.localeCompare(b));
+    const files = (await scanFolder(folder, { accepts: name => name.endsWith(SCRIPT_SUFFIX), limit: 100 })).map(entry => entry.name);
     if (publish) this.publish({ files });
     return files;
+  }
+  async create(name) {
+    this.assertControl();
+    if (typeof name !== 'string' || name.length > 128 || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*\.viz\.js$/.test(name)) throw new Error('Use a filename ending in .viz.js (letters, numbers, dots, hyphens, underscores).');
+    const folder = this.handle;
+    await requireFolderPermission(folder, 'readwrite', true);
+    return this.enqueue(async () => {
+      if (this.handle !== folder) throw new Error('Linked folder changed. Retry in the current folder.');
+      if ((await this.listFiles()).length >= 100) throw new Error('Folder: maximum 100 .viz.js files');
+      // Never overwrite a user's source file. Serialize creation across tabs.
+      await navigator.locks.request('viz2-script-create', async () => {
+        try { await this.handle.getFileHandle(name); throw new Error('File already exists. Open it instead.'); }
+        catch (error) { if (error.name !== 'NotFoundError') throw error; }
+        const file = await this.handle.getFileHandle(name, { create: true });
+        const writer = await file.createWritable();
+        try { await writer.write(`// Edit this file in your editor; reload it in the library.\napi.requireVersion(1);\napi.create({ id: 'custom-${crypto.randomUUID()}', name: ${JSON.stringify(name.replace(/\.viz\.js$/, '').slice(0, 80))}, draw({ p }) { p.background(24); } });\n`); await writer.close(); }
+        catch (error) { await writer.abort().catch(() => {}); throw error; }
+      });
+      const files = await this.listFiles();
+      await this.commit(this.active.sources, this.handle, [], files);
+    });
   }
   browse() { return this.enqueue(async () => { await this.permission(); return this.listFiles(); }); }
   async readSource(name) {

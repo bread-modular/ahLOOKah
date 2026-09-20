@@ -19,9 +19,6 @@
 :is(.custom-scripts-panel, .node-patterns-panel) p { margin: 8px 0; }
 :is(.custom-scripts-panel, .node-patterns-panel) a { color: var(--accent); }
 .script-hint { color: var(--text-dim); font-size: 11px; line-height: 1.5; margin: 8px 0; overflow-wrap: anywhere; }
-.script-folder-row { display: flex; justify-content: flex-end; align-items: center; gap: 4px; min-width: 0; }
-#config-panel .script-folder-row .script-folder-name { width: auto; display: block; text-align: right; min-width: 0; flex: 0 1 auto; max-width: calc(100% - 128px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: none; letter-spacing: normal; border-color: transparent; padding: 5px 6px; }
-#config-panel .script-folder-row .script-icon { flex: 0 0 28px; width: 28px; height: 28px; padding: 5px; }
 .script-icon svg { display: block; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 :is(.custom-scripts-panel, .node-patterns-panel) [role="alert"], .script-picker [role="alert"], .script-file-controls [role="alert"] { color: #ffb5a4; overflow-wrap: anywhere; }
 .script-picker { color: var(--text-main); font-size: 12px; }
@@ -34,8 +31,6 @@
 #config-panel.cue-pending :is(.custom-scripts-panel, .node-patterns-panel) { pointer-events: auto; }
 
 #config-panel :is(.custom-scripts-panel, .node-patterns-panel) [role="alert"] p, #config-panel .script-file-controls [role="alert"] { color: #ffb5a4; }
-#config-panel :is(.custom-scripts-panel, .node-patterns-panel) > .btn { margin-top: 8px; }
-#config-panel .script-folder-name:focus-visible { border-color: var(--accent); }
 
 
 .node-patterns-panel a.btn { text-decoration: none; }

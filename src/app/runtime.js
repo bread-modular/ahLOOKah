@@ -1,3 +1,5 @@
+import { MediaFolder } from '../media/folderService.js';
+import { listMediaRecords } from '../media/media-store.js';
 import { registerNodeSketches } from '../nodes/registry.js';
 import { watchGraphs, nodePatterns } from '../nodes/repository.js';
 // Window runtime coordinator. Owns all long-lived browser resources and the
@@ -167,6 +169,30 @@ export function createAppRuntime({
     role,
     onStatus: (status) => store.setState({ customScripts: status }),
     onChange: applyCustomScriptRevision,
+  });
+
+  const mediaFolder = new MediaFolder({
+    onStatus: status => store.setState({ mediaFolder: status }),
+    onFiles: async sources => {
+      const existing = await listMediaRecords();
+      for (const source of sources) {
+        let duplicate = false;
+        for (const record of existing) {
+          try {
+            if (record.handle && await record.handle.isSameEntry(source.handle)) { duplicate = true; break; }
+          } catch { /* An unavailable old reference must not block new files. */ }
+        }
+        if (duplicate) continue;
+        if (loadMediaMeta().length >= 256) throw new Error('Media library: maximum 256 files');
+        const meta = { id: `m${crypto.randomUUID()}`, name: mediaDisplayName(source.name), kind: source.kind };
+        await putMediaRecord({ ...source, ...meta });
+        existing.push({ ...source, ...meta });
+        addMediaPattern(SKETCHES, meta);
+        // Publish each persisted entry, including partial progress on an I/O failure.
+        bumpMediaRevision();
+        bus.broadcast({ type: 'media-patterns', metas: loadMediaMeta() });
+      }
+    },
   });
 
   const knownAudioConsumers = new Set();
@@ -2730,6 +2756,7 @@ export function createAppRuntime({
   // ---------------------------------------------------------------------------
   function disposeViz() {
     customScripts.close();
+    mediaFolder.close();
     cancelAnimationFrame(performanceRaf);
     clearTimeout(performanceExpiry);
     renderPerformance = null;
@@ -2771,6 +2798,7 @@ export function createAppRuntime({
     await nodePatterns.refresh();
     registerNodeSketches(SKETCHES);
     await customScripts.start();
+    if (role === 'control') await mediaFolder.start();
     customScriptsBooted = true;
 
     const bootBands = getParams(BANDS_ID);
@@ -3193,8 +3221,7 @@ export function createAppRuntime({
           viaPicker = true;
         } catch (error) {
           if (error?.name === 'AbortError') return [];
-          console.error('[media] file picker failed', error);
-          return [];
+          throw error;
         }
       } else {
         sources = Array.from(fileList || []).map((file) => ({
@@ -3481,6 +3508,7 @@ export function createAppRuntime({
     dispose: disposeViz,
     commands,
     customScripts,
+    mediaFolder,
     eqSink,
     registerPreviewHost,
     getEditingParams,

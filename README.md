@@ -391,3 +391,31 @@ PLAYWRIGHT_PORT=5186 npx playwright test tests/nodes.spec.js --no-deps
 The graph tests cover blend pixels, chained DAGs, real 2D/WebGL/projection/media/
 custom sources, editor gestures, disk save/open/reload, permissions and overwrite safety, cross-tab library
 updates, LIVE/CUE isolation, independent audio slots, resize and disposal.
+
+### Linked library folders
+
+Custom Scripts, Node Patterns and Media share the browser-only folder controls:
+**Link Folder**, then a **Linked** badge beside the category name. The badge opens
+folder details, copy-name, refresh/reconnect and unlink. Full native paths are not
+exposed by the browser. Handles stay in IndexedDB; no server or new UI package is
+involved. Folder selection requires desktop Chrome on HTTPS or localhost.
+
+- **Custom Scripts:** `+` creates a starter `.viz.js` without overwriting existing
+  files (write permission is requested only for creation). Open still requires an
+  explicit trusted-script selection; linking never executes folder contents.
+- **Node Patterns:** `+` opens a new editor; Open keeps the individual-file flow.
+  Linked `.nodes.json` files remain disk-authoritative, including saves/conflicts.
+- **Media:** linking scans supported image/video files in the selected directory,
+  excluding subfolders and audio/text files. Refresh adds new files without
+  duplicating existing file handles. ADD/Open still pick individual files, with
+  the existing file-input fallback. Playback reads persisted handles from disk.
+  Unlink stops scanning but keeps loaded media references; remove media separately.
+
+`src/platform/folderAccess.js` owns shared picker, permission and filtered-scan
+logic. Feature repositories retain their existing storage/transaction semantics;
+`FolderControls.jsx` shares the badge/dialog and asynchronous action UI. Media's
+folder service uses Web Locks and BroadcastChannel for link state across tabs.
+Background restoration never requests permission; use Refresh folder to reconnect.
+
+Focused regression coverage: `tests/folder-linking.spec.js`, alongside the custom
+scripts, nodes, media, library-search and settings-portability suites.

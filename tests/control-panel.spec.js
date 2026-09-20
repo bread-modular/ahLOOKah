@@ -80,7 +80,7 @@ test.describe('control panel window', () => {
     ]);
     // The Media group always renders its add-media control, even when empty.
     await expect(control.locator('.media-add-btn')).toHaveCount(1);
-    await expect(headers.last().locator('span')).toHaveText('Node Patterns');
+    await expect(headers.last().locator('.library-group-toggle span')).toHaveText('Node Patterns');
     await expect(control.getByRole('button', { name: 'Add projection mapping pattern' })).toHaveCount(1);
 
     // The Video FX group lists all 12 camera effects (8 + 2 new + 2 restored),
