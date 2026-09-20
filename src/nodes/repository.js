@@ -1,4 +1,5 @@
-import { chooseFolder, requireFolderPermission as permission, scanFolder } from '../platform/folderAccess.js';
+import { assertFolderReference, confirmFolderReference, missingFolderFiles, referencedFileId, folderReference } from '../platform/folderReferences.js';
+import { chooseFolder, requireFolderPermission as permission, scanFolder, linkedFile } from '../platform/folderAccess.js';
 import { parseGraph, serializeGraph } from './portability.js';
 import { validateGraph, MAX_BYTES } from './model.js';
 import { createHandleStorage } from '../platform/handleStorage.js';
@@ -11,6 +12,7 @@ const lock = fn => navigator.locks ? navigator.locks.request(CHANNEL, fn) : Prom
 async function digest(text) {
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))].map(n => n.toString(16).padStart(2, '0')).join('');
 }
+export async function nodeFileId(folderId, name) { return `nodes-${(await digest(folderId + '/' + name)).slice(0, 40)}`; }
 async function read(handle) {
   const file = await handle.getFile();
   if (file.size > MAX_BYTES) throw new Error('Pattern exceeds 200 KB');
@@ -41,6 +43,7 @@ export class NodePatterns {
       try {
         this.state = await this.store('handles') || empty();
         const { folder, opened } = this.state;
+        assertFolderReference('nodes', folder?.handle);
         const add = async (handle, id, folderId = null) => {
           try { await permission(handle); records.push({ ...await read(handle), id, handle, fileName: handle.name, folderId }); }
           catch (e) { errors.push(`${handle.name}: ${e.message}`); }
@@ -48,8 +51,10 @@ export class NodePatterns {
         if (folder) {
           try {
             await permission(folder.handle);
-            for (const { name, handle } of await scanFolder(folder.handle, { accepts: name => name.endsWith(SUFFIX), limit: 64, onLimit: () => errors.push('Folder limit: 64 node patterns') })) {
-              await add(handle, `nodes-${(await digest(folder.id + '/' + name)).slice(0, 40)}`, folder.id);
+            const files = await scanFolder(folder.handle, { accepts: name => name.endsWith(SUFFIX), limit: 64, onLimit: () => errors.push('Folder limit: 64 node patterns') });
+            errors.push(...missingFolderFiles('nodes', files.map(file => file.name)));
+            for (const { name, handle } of files) {
+              await add(handle, referencedFileId('nodes', name, true) || await nodeFileId(folder.id, name), folder.id);
             }
           } catch (e) { errors.push(e.message); }
         }
@@ -61,7 +66,17 @@ export class NodePatterns {
           if (!duplicate) await add(entry.handle, entry.id);
         }
       } catch (e) { errors.push(`Storage/reconnect: ${e.message}`); }
+      for (const file of folderReference('nodes')?.files || []) {
+        if (!file.linked && !records.some(record => record.fileName === file.fileName)) errors.push(`${file.fileName}: Open this individual pattern again to restore access.`);
+      }
       // Never revive browser content when disk is missing, invalid or inaccessible.
+      if (this.state.folder && !errors.length) {
+        const references = records.filter(record => record.folderId).map(record => ({ fileName: record.fileName, id: record.id, linked: true }));
+        try { await lock(async () => {
+          const current = await this.store('handles');
+          if (current?.folder?.id === this.state.folder.id) await this.store('handles', { ...current, references });
+        }); } catch (error) { errors.push(`Reference storage: ${error.message}`); }
+      }
       this.records = records.sort((a, b) => a.fileName.localeCompare(b.fileName));
       this.errors = errors; this.notify();
       return this.records;
@@ -70,11 +85,13 @@ export class NodePatterns {
   }
   async link() {
     const handle = await chooseFolder({ id: 'viz2-node-patterns', mode: 'readwrite', label: 'Node patterns' });
+    assertFolderReference('nodes', handle, true);
     await lock(async () => {
       const state = await this.store('handles') || empty();
       const same = state.folder && await state.folder.handle.isSameEntry(handle);
       await this.store('handles', { folder: { handle, id: same ? state.folder.id : crypto.randomUUID() }, opened: [] });
     });
+    confirmFolderReference('nodes');
     await this.refresh(); this.changed();
   }
   async unlink() {
@@ -91,9 +108,22 @@ export class NodePatterns {
       for (const entry of this.state.opened) await permission(entry.handle, 'read', true);
     } finally { await this.refresh(); this.changed(); }
   }
-  async open() {
-    if (!globalThis.showOpenFilePicker) throw new Error('Open pattern requires desktop Chrome with File System Access.');
-    const [handle] = await showOpenFilePicker({ id: 'viz2-node-patterns', multiple: false, types: [{ description: 'Node pattern', accept: { 'application/json': ['.json'] } }] });
+  async browse() {
+    const handle = this.state.folder?.handle;
+    assertFolderReference('nodes', handle);
+    await permission(handle, 'read', true);
+    return scanFolder(handle, { accepts: name => name.endsWith(SUFFIX), limit: 64 });
+  }
+  async open(name) {
+    let handle;
+    if (this.state.folder) {
+      assertFolderReference('nodes', this.state.folder.handle);
+      await permission(this.state.folder.handle, 'read', true);
+      handle = await linkedFile(this.state.folder.handle, name, name => name.endsWith(SUFFIX));
+    } else {
+      if (!globalThis.showOpenFilePicker) throw new Error('Open pattern requires desktop Chrome with File System Access.');
+      [handle] = await showOpenFilePicker({ id: 'viz2-node-patterns', multiple: false, types: [{ description: 'Node pattern', accept: { 'application/json': ['.json'] } }] });
+    }
     if (!handle) throw new DOMException('Canceled', 'AbortError');
     await permission(handle, 'read', true);
     await read(handle); // Validate before remembering the handle or replacing a draft.
@@ -104,7 +134,7 @@ export class NodePatterns {
       for (const entry of state.opened) if (await entry.handle.isSameEntry(handle)) id = entry.id;
       if (!id) {
         if (state.opened.length >= 64) throw new Error('Maximum 64 opened files. Link Folder to reset the selection.');
-        id = `nodes-${crypto.randomUUID()}`;
+        id = referencedFileId('nodes', handle.name, false) || `nodes-${crypto.randomUUID()}`;
         state.opened.push({ id, handle }); await this.store('handles', state);
       }
     });
@@ -128,6 +158,7 @@ export class NodePatterns {
     parseGraph(text);
     if (new TextEncoder().encode(text).length > MAX_BYTES) throw new Error('Pattern exceeds 200 KB');
     const folder = this.state.folder;
+    assertFolderReference('nodes', folder?.handle);
     if (!folder) throw new Error('Link a node patterns folder in the main UI first.');
     if (current?.folderId && current.folderId !== folder.id) throw new Error('Linked folder changed. Reopen the pattern from the main library before saving; your draft is retained.');
     await permission(folder.handle, 'readwrite', true);
@@ -158,7 +189,7 @@ export class NodePatterns {
       let writer;
       try { writer = await handle.createWritable(); await writer.write(text); await writer.close(); }
       catch (e) { try { await writer?.abort(); } catch { /* Already closed */ } throw e; }
-      return { ...parseGraph(text), text, hash: await digest(text), id: `nodes-${(await digest(folder.id + '/' + fileName)).slice(0, 40)}`, handle, fileName, folderId: folder.id };
+      return { ...parseGraph(text), text, hash: await digest(text), id: referencedFileId('nodes', fileName, true) || await nodeFileId(folder.id, fileName), handle, fileName, folderId: folder.id };
     });
     await this.refresh(); this.changed(); return result;
   }

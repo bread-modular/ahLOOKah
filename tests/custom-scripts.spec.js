@@ -258,7 +258,7 @@ for (const name of ['drawing', 'mesh', 'shader', 'audio', 'audio-advanced', 'ima
   });
 }
 
-test('Custom Scripts @core selection modal, parameter actions, folder details, path copy and unlink', async ({ page, context }, testInfo) => {
+test('Custom Scripts @core selection modal, parameter actions, folder details cleanup and unlink', async ({ page, context }, testInfo) => {
   await seedFolder(page, source());
   // Start unlinked; picker is the only mocked native UI. Handles/bytes are real OPFS.
   await page.evaluate(async () => { const { scriptStorage } = await import('/src/custom-scripts/storage.js'); await scriptStorage('folder', null); });
@@ -274,10 +274,8 @@ test('Custom Scripts @core selection modal, parameter actions, folder details, p
   await expect(page.locator('[data-id="custom-demo"]')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'New Script' })).toBeEnabled();
   const details = await folderDetails(page, 'Custom Scripts');
-  await expect(details).toContainText('does not expose its full path');
-  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-  await details.getByRole('button', { name: 'Copy folder name: scripts' }).click();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('scripts');
+  await expect(details).toContainText('Full paths are private');
+  await expect(details.getByRole('button', { name: /Copy folder/ })).toHaveCount(0);
   await details.getByRole('button', { name: 'Close folder details' }).click();
   await page.getByRole('button', { name: 'Open Script', exact: true }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
@@ -517,7 +515,7 @@ test('Custom Scripts @core legacy autoload snapshots do not execute; long folder
   await page.goto('/?role=control');
   const dialog = await folderDetails(page, 'Custom Scripts');
   await expect(dialog.locator('.folder-details-name')).toHaveText(name);
-  await expect(dialog).toContainText('does not expose its full path');
+  await expect(dialog).toContainText('Full paths are private');
   expect(await page.evaluate(() => !!window.legacyExecuted)).toBe(false);
   await expect(page.locator('[data-id="custom-demo"]')).toHaveCount(0);
   expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);

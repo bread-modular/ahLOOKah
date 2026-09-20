@@ -39,7 +39,7 @@ async function openFixture(page, data = graph()) {
   await seedFixture(page, data);
   const id = await page.evaluate(async () => {
     const { nodePatterns } = await import('/src/nodes/repository.js');
-    await nodePatterns.link(); return (await nodePatterns.open()).id;
+    await nodePatterns.link(); return (await nodePatterns.open('neon.nodes.json')).id;
   });
   await page.goto(`/?role=nodes&graph=${encodeURIComponent(id)}`);
   await expect(page.getByLabel('Graph name')).toHaveValue(data.name);
@@ -515,16 +515,19 @@ test('outside picker files survive reload; invalid and oversized files never rep
     await writer.write(JSON.stringify(data)); await writer.close();
     window.showOpenFilePicker = async () => [handle];
   }, before);
-  const outsideId = await page.evaluate(async () => (await (await import('/src/nodes/repository.js')).nodePatterns.open()).id);
+  const outsideId = await page.evaluate(async () => {
+    const { nodePatterns } = await import('/src/nodes/repository.js');
+    await nodePatterns.unlink(); return (await nodePatterns.open()).id;
+  });
   await page.goto(`/?role=nodes&graph=${outsideId}`);
   await expect(page.getByLabel('Graph name')).toHaveValue('Outside pattern');
   const main = await context.newPage(); await main.goto('/');
   await expect(main.locator('.library-btn').filter({ hasText: 'Outside pattern' })).toBeVisible();
   await page.reload();
-  await expect.poll(() => recordNames(page)).toHaveLength(2);
+  await expect.poll(() => recordNames(page)).toHaveLength(1);
   await expect(page.getByLabel('Graph name')).toHaveValue('Outside pattern');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.locator('.nodes-status')).toHaveCount(0);
+  await expect(page.locator('.nodes-status')).toContainText('Link a node patterns folder');
   expect(await diskText(page)).toBe(before);
   for (const [text, message] of [['{"format":"viz2-nodes","version":99}', 'Unsupported'], ['x'.repeat(200001), '200 KB']]) {
     await page.evaluate(async text => {
@@ -611,7 +614,10 @@ test('Node Patterns category owns folder/open; sidebar opens the selected graph 
   const category = page.locator('#library-section-Node-Patterns');
   await expect(category.locator('.library-btn')).toHaveCount(2);
   await panel.getByRole('button', { name: 'Open Pattern', exact: true }).click();
-  await expect(panel.getByRole('button', { name: 'Open Pattern', exact: true })).toBeEnabled();
+  const picker = page.getByRole('dialog', { name: 'Open Pattern', exact: true });
+  await picker.getByRole('combobox').selectOption('neon.nodes.json');
+  await picker.getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(picker).toHaveCount(0);
   await expect(category.locator('.library-btn')).toHaveCount(2);
   const id = await page.evaluate(async () => (await import('/src/nodes/repository.js')).nodePatterns.records.find(r => r.fileName === 'neon.nodes.json').id);
   await category.locator(`[data-id="${id}"]`).click();
@@ -738,7 +744,7 @@ test('shared typed parameters retain independent edits and numeric option contro
   await page.screenshot({ path: '/tmp/refined-nodes-editor.png' });
 });
 
-test('linked folder icon rows and unlink preserve source files and standalone workflow', async ({ page }) => {
+test('linked folder text rows and unlink preserve source files and standalone workflow', async ({ page }) => {
   await page.goto('/'); await seedFixture(page);
   const panel = page.getByRole('region', { name: 'Node pattern files' });
   await expect(panel.getByRole('button', { name: 'Open Pattern', exact: true })).toBeEnabled();
@@ -748,7 +754,8 @@ test('linked folder icon rows and unlink preserve source files and standalone wo
   await expect(panel.getByRole('button', { name: 'Node Patterns: Linked' })).toBeVisible();
   await expect((await folderDetails(page, 'Node Patterns')).locator('.folder-details-name')).toHaveText('node-patterns');
   await page.getByRole('button', { name: 'Close folder details' }).click();
-  for (const control of await panel.locator('.script-icon').all()) {
+  await expect(panel.locator('.library-add-btn')).toHaveText(['ADD', 'OPEN']);
+  for (const control of await panel.locator('.library-add-btn').all()) {
     await expect(control).toHaveAttribute('aria-label', /.+/);
     await expect(control).toHaveAttribute('title', /.+/);
   }

@@ -1,5 +1,6 @@
+import { assertFolderReference, confirmFolderReference, missingFolderFiles } from '../platform/folderReferences.js';
 import { createHandleStorage } from '../platform/handleStorage.js';
-import { chooseFolder, folderPermission, requireFolderPermission, scanFolder } from '../platform/folderAccess.js';
+import { chooseFolder, folderPermission, requireFolderPermission, scanFolder, linkedFile } from '../platform/folderAccess.js';
 import { mediaKindForName, mimeForName } from './media-store.js';
 
 // Folder links never contain media bytes. Existing media persistence/playback
@@ -21,16 +22,19 @@ export class MediaFolder {
     this.channel.onmessage = () => this.lock(() => this.restore()).catch(e => this.publish({ errors: [e.message] }));
     try { await this.refresh(false); } catch (e) { this.publish({ errors: [e.message] }); }
   }
-  async scan(handle) {
+  async scan(handle, choosing = false) {
+    assertFolderReference('media', handle, choosing);
     await requireFolderPermission(handle);
-    return (await scanFolder(handle, { accepts: mediaKindForName, limit: 256 })).map(entry => ({ ...entry, kind: mediaKindForName(entry.name), mime: mimeForName(entry.name) }));
+    return (await scanFolder(handle, { accepts: mediaKindForName, limit: 256 })).map(entry => ({ ...entry, kind: mediaKindForName(entry.name), mime: mimeForName(entry.name), folderName: handle.name }));
   }
   async link() {
     const handle = await chooseFolder({ id: 'viz2-media-folder', label: 'Media' });
-    const files = await this.scan(handle); // canceled/denied/invalid folder leaves the previous link intact
+    const files = await this.scan(handle, true); // canceled/denied/invalid folder leaves the previous link intact
     await this.lock(async () => {
       await this.storage('folder', handle);
+      confirmFolderReference('media');
       await this.restore();
+      this.publish({ errors: missingFolderFiles('media', files.map(file => file.name)) });
       try { await this.onFiles(files); }
       finally { this.channel?.postMessage('changed'); }
     });
@@ -40,10 +44,25 @@ export class MediaFolder {
     if (request && this.handle) await requireFolderPermission(this.handle, 'read', true);
     return this.lock(async () => {
       await this.restore();
+      assertFolderReference('media', this.handle);
       if (!this.handle) return;
-      if (!request && this.status.permission !== 'granted') return;
-      await this.onFiles(await this.scan(this.handle));
+      if (!request && this.status.permission !== 'granted') await requireFolderPermission(this.handle);
+      const files = await this.scan(this.handle);
+      this.publish({ errors: missingFolderFiles('media', files.map(file => file.name)) });
+      await this.onFiles(files);
     });
+  }
+  async browse() {
+    assertFolderReference('media', this.handle);
+    await requireFolderPermission(this.handle, 'read', true);
+    return this.scan(this.handle);
+  }
+  async open(name) {
+    assertFolderReference('media', this.handle);
+    await requireFolderPermission(this.handle, 'read', true);
+    const handle = await linkedFile(this.handle, name, mediaKindForName);
+    await handle.getFile(); // Report a deleted/unreadable selection before adding.
+    await this.onFiles([{ handle, name, kind: mediaKindForName(name), mime: mimeForName(name), folderName: this.handle.name }]);
   }
   async unlink() {
     await this.lock(async () => { await this.storage('folder', null); await this.restore(); });

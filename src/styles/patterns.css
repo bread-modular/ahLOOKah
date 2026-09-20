@@ -672,3 +672,11 @@
 
 #config-panel .folder-actions .script-icon { flex: 0 0 28px; width: 28px; height: 28px; padding: 5px; }
 #config-panel .folder-linked { margin: 0; letter-spacing: normal; }
+
+.folder-details, .directory-picker { width: min(440px, 90vw); font-size: 13px; line-height: 1.5; }
+.folder-details h2, .directory-picker h2 { margin: 0 32px 16px 0; font-size: 18px; font-weight: 600; }
+.folder-details-name { margin: 0 0 12px; font-size: 14px; }
+.directory-picker .control-select { text-transform: none; }
+.folder-details .device-setup-modal-actions, .directory-picker .device-setup-modal-actions { margin-top: 24px; flex-wrap: wrap; }
+.folder-details [role="alert"], .directory-picker [role="alert"] { color: #ffb5a4; overflow-wrap: anywhere; }
+#config-panel a.library-add-btn { text-decoration: none; line-height: normal; }

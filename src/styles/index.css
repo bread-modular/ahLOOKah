@@ -20,10 +20,9 @@
 :is(.custom-scripts-panel, .node-patterns-panel) a { color: var(--accent); }
 .script-hint { color: var(--text-dim); font-size: 11px; line-height: 1.5; margin: 8px 0; overflow-wrap: anywhere; }
 .script-icon svg { display: block; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-:is(.custom-scripts-panel, .node-patterns-panel) [role="alert"], .script-picker [role="alert"], .script-file-controls [role="alert"] { color: #ffb5a4; overflow-wrap: anywhere; }
-.script-picker { color: var(--text-main); font-size: 12px; }
-.script-picker::backdrop { background: rgba(6, 8, 10, .72); backdrop-filter: blur(6px); }
-.script-picker .device-setup-modal-field select { text-overflow: ellipsis; text-transform: none; appearance: auto; -webkit-appearance: auto; background-image: none; }
+:is(.custom-scripts-panel, .node-patterns-panel) [role="alert"], .directory-picker [role="alert"], .script-file-controls [role="alert"] { color: #ffb5a4; overflow-wrap: anywhere; }
+.directory-picker { color: var(--text-main); font-size: 12px; }
+.directory-picker::backdrop { background: rgba(6, 8, 10, .72); backdrop-filter: blur(6px); }
 .script-file-controls { margin-top: 16px; }
 #config-panel .script-file-controls .media-manage-row { margin-top: 8px; }
 /* Script activation explicitly cancels TAKE; keep its recovery controls usable

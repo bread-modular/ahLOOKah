@@ -372,14 +372,14 @@ Scripts are trusted JavaScript, **not a sandbox**. The complete tutorial is
 
 ## Node graph patterns
 
-Choose **New Node Pattern ↗** in the main **Node Patterns** category, or navigate to
+Choose **ADD** (New Node Pattern) in the main **Node Patterns** category, or navigate to
 `?role=nodes`. The dependency-free React/DOM + SVG editor composes source pixels
 through chained Blend nodes. The main **Node Patterns** category owns **Link Folder**,
 **Open Pattern**, **Refresh folder**, and **New Node Pattern**. Select a graph, then
 use the sidebar’s **Edit Pattern** to open a separate tab at `/?role=nodes&graph=<id>`.
 The editor reads that exact disk graph via shared handles, reports unavailable files
 without a fallback, and focuses on editing, **Save**, and **Reload from disk**.
-Disk-authoritative `.nodes.json` patterns stay synchronized across same-origin tabs. Browser storage holds handles only;
+Disk-authoritative `.nodes.json` patterns stay synchronized across same-origin tabs. Browser storage holds handles and filename metadata only;
 drafts stay in memory. Confirmed overwrites update selected patterns, while
 unsaved edits never change LIVE. See the [Nodes guide](public/docs/nodes.html) for connections,
 shortcuts, source support, JSON dependency manifests and resource limits.
@@ -394,28 +394,53 @@ updates, LIVE/CUE isolation, independent audio slots, resize and disposal.
 
 ### Linked library folders
 
-Custom Scripts, Node Patterns and Media share the browser-only folder controls:
-**Link Folder**, then a **Linked** badge beside the category name. The badge opens
-folder details, copy-name, refresh/reconnect and unlink. Full native paths are not
-exposed by the browser. Handles stay in IndexedDB; no server or new UI package is
-involved. Folder selection requires desktop Chrome on HTTPS or localhost.
+Custom Scripts, Node Patterns and Media share **Link Folder**, then a **Linked**
+badge beside the category name. The badge opens compact folder details with
+**Refresh**, **Relink**, and **Unlink**. Full paths are not exposed by the browser.
+Handles stay in IndexedDB; no server or new UI package is involved. Folder selection
+requires desktop Chrome on HTTPS or localhost.
 
-- **Custom Scripts:** `+` creates a starter `.viz.js` without overwriting existing
-  files (write permission is requested only for creation). Open still requires an
-  explicit trusted-script selection; linking never executes folder contents.
-- **Node Patterns:** `+` opens a new editor; Open keeps the individual-file flow.
-  Linked `.nodes.json` files remain disk-authoritative, including saves/conflicts.
-- **Media:** linking scans supported image/video files in the selected directory,
-  excluding subfolders and audio/text files. Refresh adds new files without
-  duplicating existing file handles. ADD/Open still pick individual files, with
-  the existing file-input fallback. Playback reads persisted handles from disk.
-  Unlink stops scanning but keeps loaded media references; remove media separately.
+- **Custom Scripts:** **ADD** creates a starter `.viz.js` without overwriting an
+  existing file. **OPEN** requires an explicit trusted-script selection; linking
+  never executes folder contents. Scripts run with app privileges, not in a sandbox.
+- **Node Patterns:** **ADD** opens a new editor. When linked, **OPEN** lists only
+  direct-child `.nodes.json` files; unlinked Open retains the native individual-file
+  workflow. Linked patterns remain disk-authoritative, including saves/conflicts.
+- **Media:** linking scans supported images/videos, excluding subfolders and
+  audio/text files. Refresh adds new files without duplicating handles. Linked
+  **ADD** and **OPEN** use the same in-app directory picker; unlinked controls keep
+  the native picker/file-input fallback. Unlink keeps loaded media references.
 
-`src/platform/folderAccess.js` owns shared picker, permission and filtered-scan
-logic. Feature repositories retain their existing storage/transaction semantics;
-`FolderControls.jsx` shares the badge/dialog and asynchronous action UI. Media's
-folder service uses Web Locks and BroadcastChannel for link state across tabs.
-Background restoration never requests permission; use Refresh folder to reconnect.
+`src/platform/folderAccess.js` shares permissions, filtered scans and safe child
+resolution. `DirectoryPicker.jsx` shares loading/empty/error/selection states and
+uses the same `Select` chrome as `ParamSelect`. `FolderControls.jsx` shares the
+badge/details/actions. Background restoration never requests permission.
 
-Focused regression coverage: `tests/folder-linking.spec.js`, alongside the custom
-scripts, nodes, media, library-search and settings-portability suites.
+#### Project/settings portability
+
+The existing main-menu settings export/import carries an optional `folders` section
+for Scripts, Node Patterns and Media: `folderName` plus relevant `fileName` references
+(and IDs for node/media patterns). It contains **no native handles, script source,
+graph source or media bytes**. This is not a standalone node export feature.
+
+After import, use **Linked → Relink**, or **Relink Folder** in an unlinked section.
+A wrong folder name is an explicit error and is never silently substituted. Even a
+matching name must be explicitly reselected: names are hints, not directory
+identities. You must verify same-name folders yourself; files are not content-hashed
+or copied. Missing files remain named in the recovery metadata; restore them and
+Refresh. Expired permissions require a user gesture. Scripts must be explicitly
+opened again after import, even after relinking. Linked node/media IDs are retained
+on recovery so parameter and pad references continue to resolve.
+
+Old exports without `folders` keep their historical behavior; no folder name can be
+inferred from them. Individually opened files retain filenames but require explicit
+reopening/relinking. Ambiguous same-name standalone node references are rejected
+rather than guessed. Export/import and relink never overwrite or delete source files.
+
+Focused coverage (use a free isolated port):
+
+```sh
+PLAYWRIGHT_PORT=5188 npx playwright test tests/linked-library.spec.js tests/folder-linking.spec.js tests/settings-portability.spec.js tests/custom-scripts.spec.js --project=chromium --workers=2
+PLAYWRIGHT_PORT=5188 npx playwright test tests/nodes.spec.js --project=chromium --workers=2 --grep 'disk persistence|new drafts save|stale drafts|denied save|outside picker|background reload|folder switch|category owns|linked folder text'
+npm run build
+```
