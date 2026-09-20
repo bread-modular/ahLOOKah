@@ -10,8 +10,7 @@ import {
 } from '../sketch-registry.js';
 import { copyProgramSelection, selectionsEqual } from '../program-runtime.js';
 
-// Node graph IDs identify immutable saved revisions (not a mutable document).
-// Ordinary selection equality therefore pins the exact graph across CUE/TAKE.
+// Disk node patterns have stable IDs; registry changes invalidate staged runtimes.
 export function singleSelection(id) {
   return { ids: id ? [id] : [], merge: false };
 }

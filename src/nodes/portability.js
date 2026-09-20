@@ -50,7 +50,7 @@ export function sourceDiagnostics(graph, sketches, manifest = []) {
   }
   return [...new Set(messages)];
 }
-export function exportGraph(graph, dependencies) {
+export function serializeGraph(graph, dependencies) {
   return JSON.stringify({ format: 'viz2-nodes', version: 1, graph: validateGraph(graph), dependencies,
     portability: 'Local media files/permissions and matching custom scripts/projection definitions are required on the destination. No files or executable code are embedded.' }, null, 2);
 }
@@ -58,8 +58,8 @@ export function validateManifest(value) {
   if (!Array.isArray(value) || value.length > 80 || value.some(d => !d || typeof d.id !== 'string' || d.id.length > 80 || (d.signature !== null && typeof d.signature !== 'string'))) throw new Error('Invalid dependency manifest');
   return value.map(d => ({ id: d.id, name: typeof d.name === 'string' ? d.name.slice(0, 80) : d.id, kind: typeof d.kind === 'string' ? d.kind.slice(0, 40) : 'missing', signature: d.signature }));
 }
-export function importGraph(text) {
-  if (text.length > MAX_BYTES) throw new Error('Import exceeds 200 KB');
+export function parseGraph(text) {
+  if (text.length > MAX_BYTES) throw new Error('Pattern exceeds 200 KB');
   const raw = JSON.parse(text);
   if (raw.format !== 'viz2-nodes' || raw.version !== 1) throw new Error('Unsupported graph file');
   raw.dependencies = validateManifest(raw.dependencies);

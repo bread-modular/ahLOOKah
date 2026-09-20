@@ -1,11 +1,16 @@
 import { listGraphs } from './repository.js';
 import { graphFactory } from './runtime.js';
 export function registerNodeSketches(sketches) {
-  for (const record of listGraphs()) {
-    // A revision's ID is never reused. Keep already-selected revisions alive
-    // even if local storage is cleared in a different tab.
-    if (sketches.some(s => s.id === record.id)) continue;
-    sketches.push({ id: record.id, name: `${record.graph.name} · ${record.id.slice(-6)}`, group: 'Node Graphs',
-      nodesGraph: true, params: [], factory: graphFactory(record, sketches), graphRecord: record });
-  }
+  const records = listGraphs(), changed = new Set();
+  const previous = sketches.filter(s => s.nodesGraph);
+  for (const old of previous) if (!records.some(r => r.id === old.id && r.hash === old.graphRecord.hash)) changed.add(old.id);
+  const next = records.map(record => {
+    const old = previous.find(s => s.id === record.id && s.graphRecord.hash === record.hash);
+    if (old) return old;
+    changed.add(record.id);
+    return { id: record.id, name: record.graph.name, group: 'Node Graphs',
+      nodesGraph: true, params: [], factory: graphFactory(record, sketches), graphRecord: record };
+  });
+  sketches.splice(0, sketches.length, ...sketches.filter(s => !s.nodesGraph), ...next);
+  return changed;
 }

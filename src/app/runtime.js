@@ -1,5 +1,5 @@
 import { registerNodeSketches } from '../nodes/registry.js';
-import { watchGraphs } from '../nodes/repository.js';
+import { watchGraphs, nodePatterns } from '../nodes/repository.js';
 // Window runtime coordinator. Owns all long-lived browser resources and the
 // screen-authoritative LIVE/CUE state machine. React only renders the shell and
 // reads accepted snapshots from the per-window store; components invoke the
@@ -2768,6 +2768,8 @@ export function createAppRuntime({
       return false;
     }
     singleton.startHeartbeat();
+    await nodePatterns.refresh();
+    registerNodeSketches(SKETCHES);
     await customScripts.start();
     customScriptsBooted = true;
 
@@ -2929,12 +2931,12 @@ export function createAppRuntime({
   // ---------------------------------------------------------------------------
   // Custom scripts and user media (local files)
   // ---------------------------------------------------------------------------
-  function applyCustomScriptRevision(changedIds) {
+  function applyCustomScriptRevision(changedIds, reason = 'CUSTOM SCRIPTS RELOADED') {
     // A registry generation is a transport boundary: no queued TAKE or old
     // renderer may promote after it. Registration failures never reach here.
     directGeneration += 1;
-    if (role === 'screen') cancelCueSession('CUE CANCELED — CUSTOM SCRIPTS RELOADED');
-    else if (cueSession) applyReceivedCueState(null, 'CUE CANCELED — CUSTOM SCRIPTS RELOADED');
+    if (role === 'screen') cancelCueSession(`CUE CANCELED — ${reason}`);
+    else if (cueSession) applyReceivedCueState(null, `CUE CANCELED — ${reason}`);
     cueEntryPending = null;
     clearCueMutationQueue();
     const selected = currentLiveSelection();
@@ -2972,7 +2974,7 @@ export function createAppRuntime({
     setPreviewSelection(selection);
     if (role === 'screen' && affected) prepareThenPromoteLive(selection, { force: true });
     queuePatternAudioPlanPublish();
-    syncUI('CUSTOM SCRIPTS RELOADED');
+    syncUI(reason);
     if (role === 'screen') broadcastLiveState();
   }
 
@@ -3453,7 +3455,8 @@ export function createAppRuntime({
     }
   });
   const stopWatchingGraphs = watchGraphs(() => {
-    registerNodeSketches(SKETCHES);
+    const changed = registerNodeSketches(SKETCHES);
+    if (changed.size && customScriptsBooted) applyCustomScriptRevision(changed, 'NODE PATTERNS UPDATED');
     store.setState(s => ({ mediaRevision: s.mediaRevision + 1 }));
   });
   lifecycle.track(stopWatchingGraphs);

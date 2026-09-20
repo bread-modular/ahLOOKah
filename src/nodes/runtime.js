@@ -100,7 +100,7 @@ export class GraphRuntime {
   dispose() { if (this.disposed) return; this.disposed = true; this.sources.forEach(s => s.dispose()); this.sources.clear(); this.buffers.forEach(c => { c.width = c.height = 1; }); this.buffers.clear(); }
 }
 export function graphFactory(record, sketches) {
-  // Closed-over JSON snapshot: saving another revision never mutates this one.
+  // Closed-over disk snapshot; registry changes replace the factory and runtime.
   return (audio, videoDeviceId, params, context = {}) => p => {
     let graph;
     p.setup = () => {

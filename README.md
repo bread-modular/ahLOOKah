@@ -374,9 +374,11 @@ Scripts are trusted JavaScript, **not a sandbox**. The complete tutorial is
 
 Open **Open Nodes editor ↗** above the pattern library, or navigate to
 `?role=nodes`. The dependency-free React/DOM + SVG editor composes source pixels
-through chained Blend nodes and publishes immutable, selectable **Node Graphs**
-revisions to the same-origin pattern library. Drafts remain per-tab and never
-edit LIVE. See the [Nodes guide](public/docs/nodes.html) for connections,
+through chained Blend nodes. **Link Folder**, **Save**, **Open pattern** and
+**Refresh folder** use disk-authoritative `.nodes.json` patterns, selectable as
+**Node Graphs** across same-origin tabs. Browser storage holds handles only;
+drafts stay in memory. Confirmed overwrites update selected patterns, while
+unsaved edits never change LIVE. See the [Nodes guide](public/docs/nodes.html) for connections,
 shortcuts, source support, JSON dependency manifests and resource limits.
 
 ```sh
@@ -384,5 +386,5 @@ PLAYWRIGHT_PORT=5186 npx playwright test tests/nodes.spec.js --no-deps
 ```
 
 The graph tests cover blend pixels, chained DAGs, real 2D/WebGL/projection/media/
-custom sources, editor gestures, persistence/import/export, cross-tab library
+custom sources, editor gestures, disk save/open/reload, permissions and overwrite safety, cross-tab library
 updates, LIVE/CUE isolation, independent audio slots, resize and disposal.

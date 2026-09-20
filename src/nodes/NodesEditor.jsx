@@ -6,18 +6,14 @@ import { PROJECTION_STORAGE_KEY, registerProjectionSketches } from '../projectio
 import { CustomScripts } from '../custom-scripts/service.js';
 import { MODES, newGraph, validateGraph, connect, deleteNode, inputs, DRAG_TYPE, readPatternDrag } from './model.js';
 import { GraphRuntime } from './runtime.js';
-import { listGraphs, saveGraph, watchGraphs } from './repository.js';
-import { manifestFor, sourceDiagnostics, exportGraph, importGraph } from './portability.js';
+import { listGraphs, nodePatterns, watchGraphs } from './repository.js';
+import { manifestFor, sourceDiagnostics, serializeGraph } from './portability.js';
 import './nodes.css';
 
-const DRAFT = 'viz2_nodes_draft_v1';
 function initialParams(sketch) {
   let bank = {};
   try { bank = JSON.parse(localStorage.getItem('viz2_params') || '{}')?.[sketch.id] || {}; } catch {}
   return Object.fromEntries((sketch.params || []).map(p => [p.key, Number.isFinite(bank[p.key]) && bank[p.key] >= p.min && bank[p.key] <= p.max ? bank[p.key] : p.default]));
-}
-function initialDraft() {
-  try { return importGraph(sessionStorage.getItem(DRAFT) || ''); } catch { return { graph: newGraph(), dependencies: [] }; }
 }
 function Preview({ graph, dependencies, selected, revision }) {
   const canvas = useRef(null), current = useRef(null), target = useRef(selected);
@@ -46,18 +42,28 @@ function Preview({ graph, dependencies, selected, revision }) {
   return <><canvas ref={canvas} width="480" height="270" aria-label="Selected node live preview" data-testid="node-preview" /><div role="status" className="nodes-diagnostics">{messages.map((m, i) => <p key={i}>{m}</p>)}</div></>;
 }
 export function NodesEditor() {
-  const [draft, setDraft] = useState(initialDraft);
+  const [draft, setDraft] = useState(() => ({ graph: newGraph(), dependencies: [] }));
   const { graph, dependencies } = draft;
   const [selected, setSelected] = useState('output'), [pending, setPending] = useState(null);
   const [query, setQuery] = useState(''), [message, setMessage] = useState('Draft only — live output is unchanged.');
   const [library, setLibrary] = useState(listGraphs), [loadId, setLoadId] = useState(''), [revision, setRevision] = useState(0);
-  const file = useRef(null), drag = useRef(null);
+  const drag = useRef(null);
+  const [current, setCurrent] = useState(null), [busy, setBusy] = useState(false);
+  const baseline = useRef(serializeGraph(newGraph(), []));
+  const dirty = () => serializeGraph(graph, dependencies) !== baseline.current;
+  const discard = () => !dirty() || window.confirm('Discard unsaved changes to this draft?');
+  const diskAction = async fn => {
+    if (busy) return;
+    setBusy(true);
+    try { await fn(); } catch (e) { setMessage(e.name === 'AbortError' ? 'Canceled. Draft retained.' : e.message); }
+    finally { setBusy(false); }
+  };
   const node = graph.nodes.find(n => n.id === selected);
   const sketch = SKETCHES.find(s => s.id === node?.patternId);
   const label = n => n.type === 'pattern' ? SKETCHES.find(s => s.id === n.patternId)?.name || n.patternId : n.type === 'blend' ? 'Blend' : 'Output';
   useEffect(() => {
     const refresh = () => { setRevision(v => v + 1); };
-    const stop = watchGraphs(() => setLibrary(listGraphs()));
+    const stop = watchGraphs(() => { setLibrary([...listGraphs()]); if (nodePatterns.errors.length) setMessage(nodePatterns.errors.join('; ')); });
     const sync = event => {
       // Control/screen leases and LIVE parameter writes are NOT draft changes.
       if (event.key !== null && ![MEDIA_STORAGE_KEY, PROJECTION_STORAGE_KEY].includes(event.key)) return;
@@ -68,10 +74,6 @@ export function NodesEditor() {
     scripts.start();
     return () => { stop(); window.removeEventListener('storage', sync); scripts.close(); };
   }, []);
-  useEffect(() => {
-    try { sessionStorage.setItem(DRAFT, exportGraph(graph, dependencies)); }
-    catch (e) { setMessage(`Draft could not be stored: ${e.message}`); }
-  }, [draft]);
   const attempt = fn => { try { fn(); } catch (e) { setMessage(e.message); } };
   const edit = next => { setDraft(d => ({ ...d, graph: validateGraph(next) })); };
   const patch = values => attempt(() => edit({ ...graph, nodes: graph.nodes.map(n => n.id === selected ? { ...n, ...values } : n) }));
@@ -83,7 +85,7 @@ export function NodesEditor() {
         ...(patternId ? { patternId, params: initialParams(s) } : { mode: 'Normal', opacity: 1 }) };
       const next = validateGraph({ ...graph, nodes: [...graph.nodes, n] });
       const fresh = manifestFor(next, SKETCHES);
-      // Preserve imported dependency fingerprints until explicit refresh.
+      // Preserve opened dependency fingerprints until explicit refresh.
       setDraft({ graph: next, dependencies: fresh.map(d => dependencies.find(old => old.id === d.id) || d) });
       setSelected(n.id); setMessage(`Added ${label(n)}. Connect an output port to an input port.`);
     });
@@ -93,34 +95,39 @@ export function NodesEditor() {
     attempt(() => { edit(connect(graph, pending, to, name)); setPending(null); setMessage('Connected. Click a wire or Disconnect to remove it.'); });
   }
   const remove = () => { if (!node || node.type === 'output') return; edit(deleteNode(graph, selected)); setSelected('output'); setPending(null); };
-  function load(record) { setDraft({ graph: structuredClone(record.graph), dependencies: structuredClone(record.dependencies || []) }); setSelected('output'); setPending(null); setMessage('Loaded as an isolated draft. Save creates a new revision.'); }
+  function load(record) {
+    const data = { graph: structuredClone(record.graph), dependencies: structuredClone(record.dependencies || []) };
+    setDraft(data); setCurrent(record); setLoadId(record.id); baseline.current = serializeGraph(data.graph, data.dependencies);
+    setSelected('output'); setPending(null); setMessage(`Opened ${record.fileName} from disk. Draft edits are not saved until Save.`);
+  }
+  useEffect(() => {
+    const warn = e => { if (dirty()) { e.preventDefault(); e.returnValue = ''; } };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [draft]);
   return <main className="nodes-app">
     <header className="nodes-toolbar"><h1>Nodes <small>Pattern compositor</small></h1>
-      <input className="control-input" aria-label="Graph name" value={graph.name} maxLength={80} onChange={e => setDraft({ ...draft, graph: { ...graph, name: e.target.value } })} />
-      <button className="btn" onClick={() => { setDraft({ graph: newGraph(), dependencies: [] }); setSelected('output'); setPending(null); }}>New draft</button>
-      <button className="btn btn--solid" onClick={() => attempt(() => {
+      <input className="control-input" aria-label="Graph name" disabled={busy} value={graph.name} maxLength={80} onChange={e => setDraft({ ...draft, graph: { ...graph, name: e.target.value } })} />
+      <button className="btn" disabled={busy} onClick={() => { if (!discard()) return; const next = { graph: newGraph(), dependencies: [] }; setDraft(next); baseline.current = serializeGraph(next.graph, []); setCurrent(null); setSelected('output'); setPending(null); setMessage('New unsaved draft.'); }}>New draft</button>
+      <button className="btn" disabled={busy} onClick={() => diskAction(async () => { await nodePatterns.link(); setMessage(`Linked ${nodePatterns.state.folder.handle.name}. ${nodePatterns.errors.join('; ')}`); })}>Link Folder</button>
+      <button className="btn btn--solid" disabled={busy} onClick={() => diskAction(async () => {
         const errors = sourceDiagnostics(graph, SKETCHES, dependencies); if (errors.length) throw new Error(errors.join('; '));
-        const record = saveGraph(graph, dependencies); setLoadId(record.id); setMessage(`Saved ${graph.name} · ${record.id.slice(-6)}. Select it in the main pattern library; live was not changed.`);
-      })}>Save revision</button>
-      <button className="btn" onClick={() => attempt(() => {
-        const blob = new Blob([exportGraph(graph, dependencies)], { type: 'application/json' }), url = URL.createObjectURL(blob);
-        const link = document.createElement('a'); link.href = url; link.download = 'node-graph.v1.json'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-        setMessage('Exported graph + dependency manifest. Local media and custom assets are not embedded.');
-      })}>Export JSON</button>
-      <button className="btn" onClick={() => file.current.click()}>Import JSON</button>
-      <input hidden ref={file} type="file" accept=".json,application/json" aria-label="Import graph file" onChange={async e => {
-        const upload = e.target.files[0]; e.target.value = ''; if (!upload) return;
-        try { if (upload.size > 200000) throw new Error('Import exceeds 200 KB'); const data = importGraph(await upload.text()); load(data); } catch (error) { setMessage(error.message); }
-      }} />
+        const record = await nodePatterns.save(graph, dependencies, current);
+        setCurrent(record); setLoadId(record.id); baseline.current = serializeGraph(graph, dependencies);
+        setMessage(`Saved ${graph.name} to ${record.fileName}. Select it in the main pattern library.`);
+      })}>Save</button>
+      <button className="btn" disabled={busy} onClick={() => { if (discard()) diskAction(async () => load(await nodePatterns.open())); }}>Open pattern</button>
       <a href="/docs/nodes.html" target="_blank" rel="noopener">Help ↗</a>
     </header>
     <div className="nodes-status" role="status">{message}</div>
-    <div className="nodes-layout">
+    <div className="nodes-layout" inert={busy}>
       <aside className="nodes-palette"><h2>Pattern palette</h2><input className="control-input" aria-label="Search patterns" placeholder="Search patterns…" value={query} onChange={e => setQuery(e.target.value)} />
         <p>Drag into the workspace or click to add.</p><button className="btn" onClick={() => add()}>+ Blend</button>
         <div className="nodes-pattern-list">{SKETCHES.filter(s => !s.nodesGraph && `${s.name} ${s.group}`.toLowerCase().includes(query.toLowerCase())).map(s => <button className="btn" key={s.id} draggable onDragStart={e => { e.dataTransfer.effectAllowed = 'copy'; e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ version: 1, patternId: s.id })); }} onClick={() => add(s.id)}><span>{s.name}</span><small>{s.group}{s.camera ? ' · Output camera' : ''}</small></button>)}</div>
-        <h2>Shared library</h2><Select aria-label="Saved graph" value={loadId} onChange={e => setLoadId(e.target.value)}><option value="">Choose revision…</option>{library.map(r => <option key={r.id} value={r.id}>{r.graph.name} · {r.id.slice(-6)}</option>)}</Select>
-        <button className="btn" disabled={!loadId} onClick={() => { const record = library.find(r => r.id === loadId); if (record) load(record); }}>Load draft</button>
+        <h2>Folder library</h2><p>{nodePatterns.state.folder?.handle.name || 'No folder linked'} · {current?.fileName || 'Unsaved draft'}</p>
+        <Select aria-label="Saved graph" value={loadId} onChange={e => setLoadId(e.target.value)}><option value="">Choose pattern…</option>{library.map(r => <option key={r.id} value={r.id}>{r.graph.name} · {r.fileName}</option>)}</Select>
+        <button className="btn" disabled={busy || !loadId} onClick={() => { if (discard()) diskAction(async () => load(await nodePatterns.load(loadId))); }}>Load pattern</button>
+        <button className="btn" disabled={busy} onClick={() => diskAction(async () => { await nodePatterns.reconnect(); setMessage(nodePatterns.errors.join('; ') || 'Folder library refreshed from disk.'); })}>Refresh folder</button>
       </aside>
       <section className="nodes-workspace" aria-label="Graph workspace" tabIndex={0} onKeyDown={e => {
         if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
@@ -157,7 +164,7 @@ export function NodesEditor() {
         {node?.type === 'pattern' && <>{!sketch && <p>Missing pattern. Delete and replace this node, or restore its dependency.</p>}{sketch?.params?.map(p => <label key={p.key}>{p.label}<input className="control-input" aria-label={p.label} type="number" min={p.min} max={p.max} step={p.step || 'any'} value={node.params[p.key] ?? p.default} onChange={e => { const value = Number(e.target.value); if (Number.isFinite(value) && value >= p.min && value <= p.max) patch({ params: { ...node.params, [p.key]: value } }); }} /></label>)}</>}
         {node && graph.edges.filter(e => e.to === node.id).map(e => <button className="btn btn--sm" key={e.port} onClick={() => edit({ ...graph, edges: graph.edges.filter(w => w !== e) })}>Disconnect {e.port}</button>)}
         <button className="btn btn--danger" disabled={!node || node.type === 'output'} onClick={remove}>Delete node</button>
-        <details><summary>Dependencies & limits</summary><p>24 nodes, 8 leaf renderers, 1280×720 internal image. No recursive graphs. Camera capture stays on output. Local files and custom assets are not embedded.</p>{dependencies.map(d => <p key={d.id}>{d.name || d.id} · {d.kind}</p>)}<button className="btn" onClick={() => attempt(() => { setDraft({ ...draft, dependencies: manifestFor(graph, SKETCHES) }); setMessage('Dependency manifest refreshed explicitly. Save a new revision when ready.'); })}>Refresh dependencies</button></details>
+        <details><summary>Dependencies & limits</summary><p>24 nodes, 8 leaf renderers, 1280×720 internal image. No recursive graphs. Camera capture stays on output. Local files and custom assets are not embedded.</p>{dependencies.map(d => <p key={d.id}>{d.name || d.id} · {d.kind}</p>)}<button className="btn" onClick={() => attempt(() => { setDraft({ ...draft, dependencies: manifestFor(graph, SKETCHES) }); setMessage('Dependency manifest refreshed explicitly. Save when ready.'); })}>Refresh dependencies</button></details>
       </aside>
     </div>
   </main>;
