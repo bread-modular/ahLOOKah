@@ -363,6 +363,61 @@ const diskText = page => page.evaluate(async () => {
   return (await (await dir.getFileHandle('neon.nodes.json')).getFile()).text();
 });
 
+test('toolbar reload icon stays beside Save and preserves discard and busy safety', async ({ page }) => {
+  await page.goto('/?role=nodes');
+  await expect(page.getByLabel('Graph name')).toBeVisible();
+  const toolbar = page.locator('.nodes-toolbar');
+  const reload = toolbar.getByRole('button', { name: 'Reload from Disk', exact: true });
+  const save = toolbar.getByRole('button', { name: 'Save', exact: true });
+  await expect(toolbar.getByRole('button', { name: /New pattern/i })).toHaveCount(0);
+  await expect(reload).toHaveCount(0);
+  await openFixture(page);
+  await expect(toolbar.getByRole('button', { name: /New pattern/i })).toHaveCount(0);
+  await expect(reload).toHaveClass(/script-icon/);
+  await expect(reload).toHaveAttribute('title', 'Discard edits and reload this pattern from disk');
+  await expect(reload).toHaveText('');
+  await expect(reload.locator('svg[aria-hidden="true"] path')).toHaveAttribute('d', 'M20 7v5h-5M20 12a8 8 0 1 0-2 5');
+  for (const width of [1536, 1000]) {
+    await page.setViewportSize({ width, height: 960 });
+    const r = await reload.boundingBox(), s = await save.boundingBox();
+    expect(Math.abs(r.y + r.height / 2 - s.y - s.height / 2)).toBeLessThan(1);
+    expect(s.x - r.x - r.width).toBeCloseTo(8, 0);
+    expect(width - s.x - s.width).toBeCloseTo(18, 0);
+  }
+  await page.getByLabel('Graph name').fill('Unsaved draft');
+  const before = await diskText(page);
+  await page.evaluate(async () => {
+    const { nodePatterns } = await import('/src/nodes/repository.js');
+    const reconnect = nodePatterns.reconnect.bind(nodePatterns);
+    window.__reloadCalls = 0;
+    nodePatterns.reconnect = async () => {
+      window.__reloadCalls++;
+      await new Promise(resolve => { window.__releaseReload = resolve; });
+      return reconnect();
+    };
+  });
+  page.removeAllListeners('dialog');
+  page.once('dialog', async d => {
+    expect(d.message()).toBe('Discard unsaved changes to this draft?');
+    await d.dismiss();
+  });
+  await reload.click();
+  await expect(page.getByLabel('Graph name')).toHaveValue('Unsaved draft');
+  expect(await page.evaluate(() => window.__reloadCalls)).toBe(0);
+  expect(await diskText(page)).toBe(before);
+  page.once('dialog', d => d.accept());
+  await reload.click();
+  await expect(reload).toBeDisabled();
+  await expect(save).toBeDisabled();
+  await expect(page.getByLabel('Graph name')).toBeDisabled();
+  await expect(page.locator('.nodes-layout')).toHaveAttribute('inert', '');
+  await page.evaluate(() => window.__releaseReload());
+  await expect(page.getByLabel('Graph name')).toHaveValue('Neon composite');
+  await expect(reload).toBeEnabled();
+  await expect(save).toBeEnabled();
+  expect(await diskText(page)).toBe(before);
+});
+
 test('new drafts save in linked folder, collision cancellation and failed writes preserve disk', async ({ page }) => {
   await page.goto('/?role=nodes'); await openFixture(page);
   const before = await diskText(page);
@@ -371,7 +426,7 @@ test('new drafts save in linked folder, collision cancellation and failed writes
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.locator('.nodes-status')).toContainText('Canceled');
   expect(await diskText(page)).toBe(before);
-  await page.getByRole('button', { name: 'New pattern', exact: true }).click();
+  await page.getByRole('button', { name: 'Reload from Disk', exact: true }).click();
   await expect(page.getByLabel('Graph name')).toHaveValue('Edited draft');
   page.removeAllListeners('dialog'); page.on('dialog', d => d.accept());
   await page.evaluate(() => {
@@ -387,7 +442,7 @@ test('new drafts save in linked folder, collision cancellation and failed writes
   expect(await diskText(page)).toBe(before);
   await page.evaluate(() => window.__restoreWriter());
   // A fresh graph, not a loaded document, derives its filename from its name.
-  await page.getByRole('button', { name: 'New pattern', exact: true }).click();
+  await page.goto('/?role=nodes');
   await page.getByLabel('Search patterns').fill('checkerboard');
   await page.locator('.nodes-pattern-list button').click();
   await page.locator('.nodes-output').click(); await page.getByLabel('output input image').click();
@@ -502,7 +557,7 @@ test('background reload never prompts; disk is reread rather than stale browser 
     const data = JSON.parse(await (await handle.getFile()).text()); data.graph.name = 'External edit';
     const writer = await handle.createWritable(); await writer.write(JSON.stringify(data)); await writer.close();
   });
-  await page.getByRole('button', { name: 'Reload from disk' }).click();
+  await page.getByRole('button', { name: 'Reload from Disk', exact: true }).click();
   await expect(page.getByLabel('Graph name')).toHaveValue('External edit');
 });
 
@@ -617,7 +672,7 @@ test('refined canvas zoom, pan, drop, wires and sidebar scrolling use one coordi
   await page.goto('/?role=nodes'); await openFixture(page);
   await expect(page.getByRole('link', { name: /Help/ })).toHaveCount(0);
   await expect(page.locator('.nodes-palette a,.nodes-palette p,.nodes-palette h2')).toHaveCount(0);
-  await expect(page.locator('.nodes-toolbar').getByRole('button', { name: 'Reload from disk' })).toBeVisible();
+  await expect(page.locator('.nodes-toolbar').getByRole('button', { name: 'Reload from Disk', exact: true })).toBeVisible();
   const canvas = page.getByRole('region', { name: 'Graph workspace' });
   const plane = page.locator('.nodes-plane');
   const transform = () => plane.evaluate(el => { const m = new DOMMatrix(getComputedStyle(el).transform); return { x: m.e, y: m.f, zoom: m.a }; });

@@ -139,14 +139,15 @@ export function NodesEditor() {
   return <main className="nodes-app">
     <header className="nodes-toolbar">
       <input className="control-input" aria-label="Graph name" title="Edit pattern name" disabled={busy} value={graph.name} maxLength={80} onChange={e => setDraft({ ...draft, graph: { ...graph, name: e.target.value } })} />
-      <button className="btn" title="Create a new pattern" disabled={busy} onClick={() => { if (!discard()) return; const next = { graph: newGraph(), dependencies: [] }; setDraft(next); baseline.current = serializeGraph(next.graph, []); setCurrent(null); setSelected('output'); setPending(null); setMessage(''); updateRoute(); }}>New pattern</button>
-      {current && <button className="btn" title="Discard edits and reload this pattern from disk" disabled={busy} onClick={() => { if (discard()) diskAction(async () => { await nodePatterns.reconnect(); load(await nodePatterns.load(current.id)); }); }}>Reload from disk</button>}
-      <button className="btn btn--solid nodes-save" title="Save pattern to the linked folder" disabled={busy} onClick={() => diskAction(async () => {
-        const errors = sourceDiagnostics(graph, SKETCHES, dependencies); if (errors.length) throw new Error(errors.join('; '));
-        const record = await nodePatterns.save(graph, dependencies, current);
-        setCurrent(record); baseline.current = serializeGraph(graph, dependencies); updateRoute(record.id);
-        setMessage('');
-      })}>Save</button>
+      <div className="nodes-toolbar-actions">
+        {current && <IconControl icon="reload" label="Reload from Disk" title="Discard edits and reload this pattern from disk" disabled={busy} onClick={() => { if (discard()) diskAction(async () => { await nodePatterns.reconnect(); load(await nodePatterns.load(current.id)); }); }} />}
+        <button className="btn btn--solid nodes-save" title="Save pattern to the linked folder" disabled={busy} onClick={() => diskAction(async () => {
+          const errors = sourceDiagnostics(graph, SKETCHES, dependencies); if (errors.length) throw new Error(errors.join('; '));
+          const record = await nodePatterns.save(graph, dependencies, current);
+          setCurrent(record); baseline.current = serializeGraph(graph, dependencies); updateRoute(record.id);
+          setMessage('');
+        })}>Save</button>
+      </div>
     </header>
     {message && <div className="nodes-status" role="status">{message}</div>}
     <div className="nodes-layout" inert={busy}>
