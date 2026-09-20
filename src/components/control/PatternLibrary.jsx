@@ -1,12 +1,12 @@
+import { MediaFolderPanel } from './MediaFolderPanel.jsx';
 import { NodePatternsPanel } from './NodePatternsPanel.jsx';
 import { NODE_PATTERNS_GROUP } from '../../nodes/routes.js';
 import { CustomScriptsPanel } from './CustomScriptsPanel.jsx';
 import { PerformanceBudget } from './PerformanceBudget.jsx';
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { SKETCHES, getGroups, getSketchesByGroup, getOrderedSketches } from '../../sketch-registry.js';
 import { PROJECTION_GROUP } from '../../projection/projection-registry.js';
 import { MEDIA_GROUP } from '../../media/media-registry.js';
-import { canUseFileSystemPicker } from '../../media/media-store.js';
 import { STORAGE } from '../../platform/constants.js';
 import { useRuntime } from '../../app/RuntimeContext.jsx';
 import { useVizStore } from '../../state/useVizStore.js';
@@ -49,7 +49,6 @@ export function PatternLibrary() {
   const cue = useVizStore(store, (s) => s.cue);
   const mediaRevision = useVizStore(store, (s) => s.mediaRevision);
   useVizStore(store, (s) => s.projectionRevision);
-  const mediaInputRef = useRef(null);
   const [collapsedGroups, setCollapsedGroups] = useState(loadCollapsedGroups);
   const [query, setQuery] = useState('');
   const [favouriteIds, setFavouriteIds] = useState(loadFavouriteIds);
@@ -213,36 +212,9 @@ export function PatternLibrary() {
                   const name = window.prompt('Name your projection mapping pattern');
                   if (name?.trim()) runtime.commands.addProjection(name);
                 }}>ADD</button>}
-                {isMediaGroup && (
-                  <>
-                    <button
-                      type="button"
-                      className="library-add-btn media-add-btn"
-                      aria-label="Add media"
-                      title="Load images or videos from this computer as patterns (kept as file references; content is read from disk when played)"
-                      onClick={() => {
-                        // File System Access picker (Desktop Chrome): persists a
-                        // path-equivalent handle only. Fallback: hidden input.
-                        if (canUseFileSystemPicker()) runtime.commands.addMediaFiles();
-                        else mediaInputRef.current?.click();
-                      }}
-                    >ADD</button>
-                    {!canUseFileSystemPicker() && (
-                      <input
-                        ref={mediaInputRef}
-                        type="file"
-                        accept="image/*,video/*"
-                        multiple
-                        className="media-file-input"
-                        onChange={(event) => {
-                          const files = event.target.files;
-                          if (files?.length) runtime.commands.addMediaFiles(files);
-                          event.target.value = '';
-                        }}
-                      />
-                    )}
-                  </>
-                )}
+                {group === 'Custom Scripts' && <CustomScriptsPanel />}
+                {group === NODE_PATTERNS_GROUP && <NodePatternsPanel />}
+                {isMediaGroup && <MediaFolderPanel />}
               </div>
               {/* Always-mounted controlled region: `hidden` keeps aria-controls
                   valid while collapsed and keeps the Media empty state inside it. */}
@@ -251,8 +223,6 @@ export function PatternLibrary() {
                 id={groupSectionId(group)}
                 hidden={collapsed}
               >
-                {group === 'Custom Scripts' && <CustomScriptsPanel />}
-                {group === NODE_PATTERNS_GROUP && <NodePatternsPanel />}
                 {isMediaGroup && sketches.length === 0 && (
                   <div className="media-empty">No media loaded — add an image or video file.</div>
                 )}

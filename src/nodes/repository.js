@@ -1,3 +1,4 @@
+import { chooseFolder, requireFolderPermission as permission, scanFolder } from '../platform/folderAccess.js';
 import { parseGraph, serializeGraph } from './portability.js';
 import { validateGraph, MAX_BYTES } from './model.js';
 import { createHandleStorage } from '../platform/handleStorage.js';
@@ -7,11 +8,6 @@ const CHANNEL = 'viz2-nodes-disk';
 const storage = createHandleStorage('viz2-node-patterns');
 const empty = () => ({ folder: null, opened: [] });
 const lock = fn => navigator.locks ? navigator.locks.request(CHANNEL, fn) : Promise.reject(new Error('Node pattern writes require Web Locks in desktop Chrome.'));
-async function permission(handle, mode = 'read', request = false) {
-  let value = await handle.queryPermission({ mode });
-  if (value !== 'granted' && request) value = await handle.requestPermission({ mode });
-  if (value !== 'granted') throw new Error('Permission denied or expired. Click Refresh folder to reconnect, or Link Folder again.');
-}
 async function digest(text) {
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))].map(n => n.toString(16).padStart(2, '0')).join('');
 }
@@ -52,10 +48,7 @@ export class NodePatterns {
         if (folder) {
           try {
             await permission(folder.handle);
-            let count = 0;
-            for await (const [name, handle] of folder.handle.entries()) {
-              if (handle.kind !== 'file' || !name.endsWith(SUFFIX)) continue;
-              if (++count > 64) { errors.push('Folder limit: 64 node patterns'); break; }
+            for (const { name, handle } of await scanFolder(folder.handle, { accepts: name => name.endsWith(SUFFIX), limit: 64, onLimit: () => errors.push('Folder limit: 64 node patterns') })) {
               await add(handle, `nodes-${(await digest(folder.id + '/' + name)).slice(0, 40)}`, folder.id);
             }
           } catch (e) { errors.push(e.message); }
@@ -76,9 +69,7 @@ export class NodePatterns {
     this.queue = work.catch(() => {}); return work;
   }
   async link() {
-    if (!globalThis.isSecureContext || !globalThis.showDirectoryPicker) throw new Error('Node patterns require desktop Chrome on HTTPS or localhost with File System Access.');
-    const handle = await showDirectoryPicker({ id: 'viz2-node-patterns', mode: 'readwrite' });
-    await permission(handle, 'readwrite', true);
+    const handle = await chooseFolder({ id: 'viz2-node-patterns', mode: 'readwrite', label: 'Node patterns' });
     await lock(async () => {
       const state = await this.store('handles') || empty();
       const same = state.folder && await state.folder.handle.isSameEntry(handle);

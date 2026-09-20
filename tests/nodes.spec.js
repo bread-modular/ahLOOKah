@@ -1,3 +1,4 @@
+import { folderDetails, folderAction } from './fixtures/folder-controls.js';
 import { readFile } from 'node:fs/promises';
 import { test, expect } from '@playwright/test';
 import { validateGraph, connect, deleteNode } from '../src/nodes/model.js';
@@ -182,7 +183,7 @@ test('main link opens isolated editor; saved graph is selectable on real output;
     const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('node-patterns');
     await dir.removeEntry('neon.nodes.json');
   });
-  await page.getByRole('region', { name: 'Node pattern files' }).getByRole('button', { name: 'Refresh folder' }).click();
+  await folderAction(page, 'Node Patterns', 'Refresh folder');
   await expect(button).toHaveCount(0);
   await screen.waitForFunction(id => window.__viz.patternId !== id, id);
   expect(errors).toEqual([]);
@@ -488,7 +489,7 @@ test('denied save preserves draft; main pickers cancel or report unsupported', a
   await expect(page.locator('.nodes-status')).toContainText('Permission denied');
   expect(await diskText(page)).toBe(before);
   const main = await context.newPage(); await main.goto('/');
-  await main.getByRole('button', { name: 'Unlink node patterns folder' }).click();
+  await folderAction(main, 'Node Patterns', 'Unlink folder');
   const panel = main.getByRole('region', { name: 'Node pattern files' });
   await main.evaluate(() => { window.showDirectoryPicker = window.showOpenFilePicker = async () => { throw new DOMException('Canceled', 'AbortError'); }; });
   for (const name of ['Link Folder', 'Open Pattern']) {
@@ -604,7 +605,9 @@ test('Node Patterns category owns folder/open; sidebar opens the selected graph 
     const writer = await second.createWritable(); await writer.write(JSON.stringify(data)); await writer.close();
   });
   await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
-  await expect(panel.locator('.script-folder-name')).toHaveText('node-patterns');
+  await expect(panel.getByRole('button', { name: 'Node Patterns: Linked' })).toBeVisible();
+  await expect((await folderDetails(page, 'Node Patterns')).locator('.folder-details-name')).toHaveText('node-patterns');
+  await page.getByRole('button', { name: 'Close folder details' }).click();
   const category = page.locator('#library-section-Node-Patterns');
   await expect(category.locator('.library-btn')).toHaveCount(2);
   await panel.getByRole('button', { name: 'Open Pattern', exact: true }).click();
@@ -742,13 +745,15 @@ test('linked folder icon rows and unlink preserve source files and standalone wo
   await expect(panel.getByRole('link', { name: 'New Node Pattern' })).toBeVisible();
   await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
   await expect(panel.getByRole('button', { name: 'Link Folder', exact: true })).toHaveCount(0);
-  await expect(panel.locator('.script-folder-name')).toHaveText('node-patterns');
+  await expect(panel.getByRole('button', { name: 'Node Patterns: Linked' })).toBeVisible();
+  await expect((await folderDetails(page, 'Node Patterns')).locator('.folder-details-name')).toHaveText('node-patterns');
+  await page.getByRole('button', { name: 'Close folder details' }).click();
   for (const control of await panel.locator('.script-icon').all()) {
     await expect(control).toHaveAttribute('aria-label', /.+/);
     await expect(control).toHaveAttribute('title', /.+/);
   }
-  await panel.screenshot({ path: '/tmp/refined-node-folder.png' });
-  await panel.getByRole('button', { name: 'Unlink node patterns folder' }).click();
+  await panel.locator('..').screenshot({ path: '/tmp/refined-node-folder.png' });
+  await folderAction(page, 'Node Patterns', 'Unlink folder');
   await expect(panel.getByRole('button', { name: 'Link Folder', exact: true })).toBeVisible();
   expect(await diskText(page)).toContain('Neon composite');
   await panel.getByRole('button', { name: 'Open Pattern', exact: true }).click();

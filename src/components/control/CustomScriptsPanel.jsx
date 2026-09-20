@@ -1,3 +1,4 @@
+import { FolderControls, useFolderAction } from './FolderControls.jsx';
 import { IconControl } from './IconControl.jsx';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -40,33 +41,26 @@ function ScriptPicker({ scripts, status, onClose, opener }) {
 export function CustomScriptsPanel() {
   const { runtime, store } = useRuntime();
   const status = useVizStore(store, (s) => s.customScripts) || runtime.customScripts.status;
-  const [message, setMessage] = useState('');
+  const { busy, message, run, setMessage } = useFolderAction();
   const [picker, setPicker] = useState(false);
   const openButton = useRef(null);
   const scripts = runtime.customScripts;
-  const run = async (action) => {
-    setMessage('');
-    try { await action(); } catch (e) { if (e.name !== 'AbortError') setMessage(e.message); }
-  };
   // Permission prompts must originate directly from the button's user gesture.
   const withAccess = async (action) => {
     if (status.permission !== 'granted') await scripts.reconnect();
     return action();
   };
   return <div className="custom-scripts-panel" onKeyDown={(e) => e.stopPropagation()}>
-    {!status.folder ? <section aria-label="Link Folder">
-      <button className="btn btn--md" title="Link a local custom scripts folder" disabled={status.busy || !!status.support} onClick={() => run(() => scripts.choose())}>Link Folder</button>
-    </section> : <>
-      <div className="script-folder-row">
-        <button className="btn script-folder-name" aria-label={`Copy folder name: ${status.folder}`}
-          title={`${status.folder}\nClick to copy folder name. Chrome does not expose the absolute native path.`}
-          onClick={() => run(async () => { await navigator.clipboard.writeText(status.folder); setMessage('Folder name copied.'); })}>{status.folder}</button>
-        <IconControl icon="reload" label="Reload linked scripts" title="Reload opened scripts from this folder" disabled={status.busy} onClick={() => run(() => withAccess(() => scripts.reload()))} />
-        <IconControl icon="unlink" label="Unlink scripts folder" title="Unlink folder and remove its loaded patterns; source files are kept" disabled={status.busy} onClick={() => run(() => scripts.unlink())} />
-        <IconControl ref={openButton} icon="open" label="Open Script" title="Choose a trusted script from the linked folder" disabled={status.busy} onClick={() => run(() => withAccess(async () => { await scripts.browse(); setPicker(true); }))} />
-      </div>
-    </>}
-    <a href="/docs/custom-scripts.html" target="_blank" rel="noreferrer">Tutorial &amp; API</a>
+    <FolderControls label="Custom Scripts" folder={status.folder} permission={status.permission} busy={busy || status.busy} run={run}
+      link={() => scripts.choose()} refresh={() => withAccess(() => scripts.reload())} unlink={() => scripts.unlink()}
+      note="Only selected .viz.js scripts run. Unlink removes their loaded patterns, not source files.">
+      <IconControl icon="add" label="New Script" disabled={busy || status.busy || !status.folder} onClick={() => {
+        const name = window.prompt('New script filename', 'new-script.viz.js');
+        if (name?.trim()) run(async () => { await scripts.create(name.trim()); setMessage('Script created. Edit it in your editor, then Open Script.'); });
+      }} />
+      <IconControl ref={openButton} icon="open" label="Open Script" title="Choose a trusted script from the linked folder" disabled={busy || status.busy || !status.folder} onClick={() => run(() => withAccess(async () => { await scripts.browse(); setPicker(true); }))} />
+    </FolderControls>
+    <a className="script-tutorial" href="/docs/custom-scripts.html" target="_blank" rel="noreferrer">Tutorial &amp; API</a>
     {status.support && <p role="alert">{status.support}</p>}
     {status.busy && <p role="status">Reading / validating selected scripts…</p>}
     {message && <p role="status">{message}</p>}
