@@ -394,3 +394,8 @@ th { color: #fff; font-weight: 600; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+/* The complete scripts guide stays on one page, with compact anchor navigation. */
+.script-doc-toc { padding: 16px 20px; border: 1px solid #343440; border-radius: 8px; margin: 24px 0; }
+.script-doc-toc ul { columns: 2 220px; margin-bottom: 0; font-size: .85rem; }
+.script-doc-toc li { break-inside: avoid; }

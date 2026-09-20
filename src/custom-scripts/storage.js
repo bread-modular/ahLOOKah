@@ -22,6 +22,3 @@ export function supportError() {
   if (typeof globalThis.showDirectoryPicker !== 'function') return 'Custom Scripts requires desktop Chrome with File System Access. No upload fallback is used.';
   return '';
 }
-export function starterScript(id, name) {
-  return `// Trusted JavaScript. Edit this real file, save, then click Reload.\napi.requireVersion(1);\napi.create({\n  id: ${JSON.stringify(id)},\n  name: ${JSON.stringify(name)},\n  params: [{ key: 'size', label: 'Size', min: 10, max: 300, step: 1, default: 100 }],\n  draw({ p, params }) {\n    p.background(10);\n    p.noStroke();\n    p.fill(90, 210, 255);\n    p.circle(p.width / 2, p.height / 2, params.size);\n  }\n});\n`;
-}

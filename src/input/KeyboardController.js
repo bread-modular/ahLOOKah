@@ -16,7 +16,7 @@ export function createKeyboardController(ctx) {
 
   function onKeydown(e) {
     if (ctx.getRole() !== 'control') return;
-    if (document.querySelector('dialog.projection-editor[open]')) {
+    if (document.querySelector('dialog.projection-editor[open], dialog.script-picker[open]')) {
       heldKeys.length = 0;
       heldCueKeys.length = 0;
       return;
