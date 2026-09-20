@@ -1,3 +1,6 @@
+import { IconControl } from '../components/control/IconControl.jsx';
+import { ParameterControl } from '../components/control/ParameterControl.jsx';
+import { useCanvasNavigation } from './useCanvasNavigation.js';
 import { nodeEditorUrl } from './routes.js';
 import { Select } from '../components/control/Select.jsx';
 import { useEffect, useRef, useState } from 'react';
@@ -46,11 +49,12 @@ export function NodesEditor() {
   const [draft, setDraft] = useState(() => ({ graph: newGraph(), dependencies: [] }));
   const { graph, dependencies } = draft;
   const [selected, setSelected] = useState('output'), [pending, setPending] = useState(null);
-  const [query, setQuery] = useState(''), [message, setMessage] = useState('Draft only — live output is unchanged.');
+  const [query, setQuery] = useState(''), [message, setMessage] = useState('');
   const [revision, setRevision] = useState(0);
   const [routeId, setRouteId] = useState(() => new URLSearchParams(location.search).get('graph'));
   const [loadState, setLoadState] = useState('loading');
   const drag = useRef(null);
+  const navigation = useCanvasNavigation(loadState === 'ready');
   const [current, setCurrent] = useState(null), [busy, setBusy] = useState(false);
   const baseline = useRef(serializeGraph(newGraph(), []));
   const dirty = () => serializeGraph(graph, dependencies) !== baseline.current;
@@ -90,18 +94,18 @@ export function NodesEditor() {
       const fresh = manifestFor(next, SKETCHES);
       // Preserve opened dependency fingerprints until explicit refresh.
       setDraft({ graph: next, dependencies: fresh.map(d => dependencies.find(old => old.id === d.id) || d) });
-      setSelected(n.id); setMessage(`Added ${label(n)}. Connect an output port to an input port.`);
+      setSelected(n.id); setMessage('');
     });
   }
   function port(to, name) {
     if (!pending) { setMessage('Choose an output port first, then an input port.'); return; }
-    attempt(() => { edit(connect(graph, pending, to, name)); setPending(null); setMessage('Connected. Click a wire or Disconnect to remove it.'); });
+    attempt(() => { edit(connect(graph, pending, to, name)); setPending(null); setMessage(''); });
   }
   const remove = () => { if (!node || node.type === 'output') return; edit(deleteNode(graph, selected)); setSelected('output'); setPending(null); };
   function load(record) {
     const data = { graph: structuredClone(record.graph), dependencies: structuredClone(record.dependencies || []) };
     setDraft(data); setCurrent(record); baseline.current = serializeGraph(data.graph, data.dependencies);
-    setSelected('output'); setPending(null); setMessage(`Opened ${record.fileName} from disk. Draft edits are not saved until Save.`);
+    setSelected('output'); setPending(null); setMessage('');
   }
   // Resolve exactly this ID after restoring shared handles. Never fall back to
   // another record (or an editable empty graph) if disk access fails.
@@ -129,67 +133,67 @@ export function NodesEditor() {
     return () => window.removeEventListener('beforeunload', warn);
   }, [draft]);
   if (loadState !== 'ready') return <main className="nodes-app">
-    <header className="nodes-toolbar"><h1>Nodes</h1><a href="/" target="_blank" rel="noopener">Main pattern library ↗</a></header>
+    <header className="nodes-toolbar"><h1>Pattern editor</h1><a href="/" target="_blank" rel="noopener">Main pattern library ↗</a></header>
     {loadState === 'loading' ? <p role="status">Loading selected node pattern from disk…</p> : <section role="alert"><p>{message}</p><button className="btn" onClick={() => resolveRoute(true)}>Retry loading</button></section>}
   </main>;
   return <main className="nodes-app">
-    <header className="nodes-toolbar"><h1>Nodes <small>Pattern compositor</small></h1>
-      <input className="control-input" aria-label="Graph name" disabled={busy} value={graph.name} maxLength={80} onChange={e => setDraft({ ...draft, graph: { ...graph, name: e.target.value } })} />
-      <button className="btn" disabled={busy} onClick={() => { if (!discard()) return; const next = { graph: newGraph(), dependencies: [] }; setDraft(next); baseline.current = serializeGraph(next.graph, []); setCurrent(null); setSelected('output'); setPending(null); setMessage('New unsaved draft.'); updateRoute(); }}>New draft</button>
-      <button className="btn btn--solid" disabled={busy} onClick={() => diskAction(async () => {
+    <header className="nodes-toolbar">
+      <input className="control-input" aria-label="Graph name" title="Edit pattern name" disabled={busy} value={graph.name} maxLength={80} onChange={e => setDraft({ ...draft, graph: { ...graph, name: e.target.value } })} />
+      <button className="btn" title="Create a new pattern" disabled={busy} onClick={() => { if (!discard()) return; const next = { graph: newGraph(), dependencies: [] }; setDraft(next); baseline.current = serializeGraph(next.graph, []); setCurrent(null); setSelected('output'); setPending(null); setMessage(''); updateRoute(); }}>New pattern</button>
+      {current && <button className="btn" title="Discard edits and reload this pattern from disk" disabled={busy} onClick={() => { if (discard()) diskAction(async () => { await nodePatterns.reconnect(); load(await nodePatterns.load(current.id)); }); }}>Reload from disk</button>}
+      <button className="btn btn--solid nodes-save" title="Save pattern to the linked folder" disabled={busy} onClick={() => diskAction(async () => {
         const errors = sourceDiagnostics(graph, SKETCHES, dependencies); if (errors.length) throw new Error(errors.join('; '));
         const record = await nodePatterns.save(graph, dependencies, current);
         setCurrent(record); baseline.current = serializeGraph(graph, dependencies); updateRoute(record.id);
-        setMessage(`Saved ${graph.name} to ${record.fileName}. Select it in the main pattern library.`);
+        setMessage('');
       })}>Save</button>
-      <a href="/docs/nodes.html" target="_blank" rel="noopener">Help ↗</a>
     </header>
-    <div className="nodes-status" role="status">{message}</div>
+    {message && <div className="nodes-status" role="status">{message}</div>}
     <div className="nodes-layout" inert={busy}>
-      <aside className="nodes-palette"><h2>Pattern palette</h2><input className="control-input" aria-label="Search patterns" placeholder="Search patterns…" value={query} onChange={e => setQuery(e.target.value)} />
-        <p>Drag into the workspace or click to add.</p><button className="btn" onClick={() => add()}>+ Blend</button>
-        <div className="nodes-pattern-list">{SKETCHES.filter(s => !s.nodesGraph && `${s.name} ${s.group}`.toLowerCase().includes(query.toLowerCase())).map(s => <button className="btn" key={s.id} draggable onDragStart={e => { e.dataTransfer.effectAllowed = 'copy'; e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ version: 1, patternId: s.id })); }} onClick={() => add(s.id)}><span>{s.name}</span><small>{s.group}{s.camera ? ' · Output camera' : ''}</small></button>)}</div>
-        <p>{current?.fileName || 'Unsaved draft'}</p>
-        <p>Manage folders and files in Node Patterns in the main UI.</p>
-        <a href="/" target="_blank" rel="noopener">Main pattern library ↗</a>
-        {current && <button className="btn" disabled={busy} onClick={() => { if (discard()) diskAction(async () => { await nodePatterns.reconnect(); load(await nodePatterns.load(current.id)); }); }}>Reload from disk</button>}
+      <aside className="nodes-palette" aria-label="Pattern palette"><button className="btn" title="Add a Blend node" onClick={() => add()}>+ Blend</button><input className="control-input" aria-label="Search patterns" title="Filter available patterns" placeholder="Search patterns…" value={query} onChange={e => setQuery(e.target.value)} />
+        <div className="nodes-pattern-list">{SKETCHES.filter(s => !s.nodesGraph && `${s.name} ${s.group}`.toLowerCase().includes(query.toLowerCase())).map(s => <button className="btn" key={s.id} title={`Add ${s.name}; drag to position on the canvas`} draggable onDragStart={e => { e.dataTransfer.effectAllowed = 'copy'; e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ version: 1, patternId: s.id })); }} onClick={() => add(s.id)}><span>{s.name}</span><small>{s.group}{s.camera ? ' · Output camera' : ''}</small></button>)}</div>
       </aside>
-      <section className="nodes-workspace" aria-label="Graph workspace" tabIndex={0} onKeyDown={e => {
+      <section ref={navigation.workspace} {...navigation.handlers} className="nodes-workspace" aria-label="Graph workspace" tabIndex={0} onKeyDown={e => {
         if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
         if (e.key === 'Escape') setPending(null);
         if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); remove(); }
       }} onDragOver={e => { if (e.dataTransfer.types.includes(DRAG_TYPE)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }} onDrop={e => {
         e.preventDefault(); const id = readPatternDrag(e.dataTransfer, SKETCHES);
         if (!id) { setMessage('Invalid pattern drag payload'); return; }
-        const rect = e.currentTarget.getBoundingClientRect(); add(id, e.clientX - rect.left + e.currentTarget.scrollLeft, e.clientY - rect.top + e.currentTarget.scrollTop);
+        const point = navigation.toGraph(e.clientX, e.clientY); add(id, point.x, point.y);
       }}>
-        <div className="nodes-plane" style={{ width: Math.max(1000, ...graph.nodes.map(n => n.x + 220)), height: Math.max(850, ...graph.nodes.map(n => n.y + 180)) }}>
+        <div className="nodes-plane" style={{ transform: `translate(${navigation.view.x}px, ${navigation.view.y}px) scale(${navigation.view.zoom})`, width: Math.max(1000, ...graph.nodes.map(n => n.x + 220)), height: Math.max(850, ...graph.nodes.map(n => n.y + 180)) }}>
           <svg className="nodes-wires" aria-label="Connections">{graph.edges.map(e => {
             const a = graph.nodes.find(n => n.id === e.from), b = graph.nodes.find(n => n.id === e.to);
-            const x1 = a.x + 188, y1 = a.y + 65, x2 = b.x + 12, y2 = b.y + 65 + inputs(b).indexOf(e.port) * 32;
+            const x1 = a.x + 168, y1 = a.y + 49, x2 = b.x + 12, y2 = b.y + 49 + inputs(b).indexOf(e.port) * 32;
             return <path key={`${e.to}:${e.port}`} role="button" tabIndex={0} aria-label={`Disconnect ${label(a)} from ${label(b)} ${e.port}`} d={`M ${x1} ${y1} C ${x1 + 80} ${y1}, ${x2 - 80} ${y2}, ${x2} ${y2}`} onClick={() => edit({ ...graph, edges: graph.edges.filter(w => w !== e) })} onKeyDown={event => { if (event.key === 'Enter' || event.key === 'Delete') { event.stopPropagation(); edit({ ...graph, edges: graph.edges.filter(w => w !== e) }); } }} />;
           })}</svg>
           {graph.nodes.map(n => <article key={n.id} className={`nodes-node ${selected === n.id ? 'is-selected' : ''}`} data-node-id={n.id} style={{ left: n.x, top: n.y }} onClick={() => setSelected(n.id)}>
-            <button className="nodes-node-title" aria-label={`Select ${label(n)}`} onPointerDown={e => { if (e.button !== 0) return; setSelected(n.id); drag.current = { id: n.id, x: e.clientX, y: e.clientY, ox: n.x, oy: n.y }; e.currentTarget.setPointerCapture(e.pointerId); }} onPointerMove={e => {
+            <button className="nodes-node-title" title={`Select or drag ${label(n)}`} aria-label={`Select ${label(n)}`} onPointerDown={e => { if (e.button !== 0) return; setSelected(n.id); drag.current = { id: n.id, ...navigation.toGraph(e.clientX, e.clientY), ox: n.x, oy: n.y }; e.currentTarget.setPointerCapture(e.pointerId); }} onPointerMove={e => {
               const d = drag.current; if (!d || d.id !== n.id) return;
-              setDraft(prev => ({ ...prev, graph: { ...prev.graph, nodes: prev.graph.nodes.map(item => item.id === d.id ? { ...item, x: Math.max(0, Math.min(3800, d.ox + e.clientX - d.x)), y: Math.max(0, Math.min(3800, d.oy + e.clientY - d.y)) } : item) } }));
+              const point = navigation.toGraph(e.clientX, e.clientY);
+              setDraft(prev => ({ ...prev, graph: { ...prev.graph, nodes: prev.graph.nodes.map(item => item.id === d.id ? { ...item, x: Math.max(0, Math.min(3800, d.ox + point.x - d.x)), y: Math.max(0, Math.min(3800, d.oy + point.y - d.y)) } : item) } }));
             }} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }} onKeyDown={e => {
               const delta = { ArrowLeft: [-10, 0], ArrowRight: [10, 0], ArrowUp: [0, -10], ArrowDown: [0, 10] }[e.key];
               if (delta) { e.preventDefault(); attempt(() => edit({ ...graph, nodes: graph.nodes.map(item => item.id === n.id ? { ...item, x: Math.max(0, Math.min(3800, item.x + delta[0])), y: Math.max(0, Math.min(3800, item.y + delta[1])) } : item) })); }
-            }}><small>{n.type.toUpperCase()}</small>{label(n)}</button>
-            <div className="nodes-ports">{inputs(n).map(name => <button key={name} className="nodes-input" aria-label={`${n.id} input ${name}`} onClick={() => port(n.id, name)}>● {name}</button>)}
-              {n.type !== 'output' && <button className={`nodes-output ${pending === n.id ? 'active' : ''}`} aria-label={`${n.id} output`} onClick={() => { setPending(n.id); setMessage('Now click an input port. Escape cancels.'); }}>out ●</button>}
+            }}>{label(n)}</button>
+            <div className="nodes-ports">{inputs(n).map(name => <button key={name} className="nodes-input" title={`Connect to ${label(n)} ${name} input`} aria-label={`${n.id} input ${name}`} onClick={() => port(n.id, name)}>● {name}</button>)}
+              {n.type !== 'output' && <button className={`nodes-output ${pending === n.id ? 'active' : ''}`} title={`Connect from ${label(n)} output`} aria-label={`${n.id} output`} onClick={() => { setPending(n.id); setMessage(''); }}>out ●</button>}
             </div><small className="nodes-node-detail">{n.type === 'blend' ? `${n.mode} · ${Math.round(n.opacity * 100)}%` : n.type === 'output' ? 'Final image' : n.patternId}</small>
           </article>)}
         </div>
+        <div className="nodes-zoom" role="toolbar" aria-label="Canvas zoom">
+          <IconControl icon="zoomOut" label="Zoom out" disabled={navigation.view.zoom <= .25} onClick={() => navigation.zoomAt(1 / 1.2)} />
+          <button className="btn" title="Reset canvas zoom and pan" aria-label="Reset canvas view" onClick={navigation.reset}>{Math.round(navigation.view.zoom * 100)}%</button>
+          <IconControl icon="zoomIn" label="Zoom in" disabled={navigation.view.zoom >= 2.5} onClick={() => navigation.zoomAt(1.2)} />
+        </div>
       </section>
       <aside className="nodes-inspector"><h2>{node ? label(node) : 'Preview'}</h2><Preview graph={graph} dependencies={dependencies} selected={selected} revision={revision} />
-        <p>Selected node · live preview · draft only</p>
-        {node?.type === 'blend' && <><label>Blend mode<Select aria-label="Blend mode" value={node.mode} onChange={e => patch({ mode: e.target.value })}>{Object.keys(MODES).map(mode => <option key={mode}>{mode}</option>)}</Select></label><label>Opacity <output className="param-value">{Math.round(node.opacity * 100)}%</output><input className="control-range" aria-label="Opacity" type="range" min="0" max="1" step="0.01" value={node.opacity} onChange={e => patch({ opacity: Number(e.target.value) })} /></label></>}
-        {node?.type === 'pattern' && <>{!sketch && <p>Missing pattern. Delete and replace this node, or restore its dependency.</p>}{sketch?.params?.map(p => <label key={p.key}>{p.label}<input className="control-input" aria-label={p.label} type="number" min={p.min} max={p.max} step={p.step || 'any'} value={node.params[p.key] ?? p.default} onChange={e => { const value = Number(e.target.value); if (Number.isFinite(value) && value >= p.min && value <= p.max) patch({ params: { ...node.params, [p.key]: value } }); }} /></label>)}</>}
-        {node && graph.edges.filter(e => e.to === node.id).map(e => <button className="btn btn--sm" key={e.port} onClick={() => edit({ ...graph, edges: graph.edges.filter(w => w !== e) })}>Disconnect {e.port}</button>)}
-        <button className="btn btn--danger" disabled={!node || node.type === 'output'} onClick={remove}>Delete node</button>
-        <details><summary>Dependencies & limits</summary><p>24 nodes, 8 leaf renderers, 1280×720 internal image. No recursive graphs. Camera capture stays on output. Local files and custom assets are not embedded.</p>{dependencies.map(d => <p key={d.id}>{d.name || d.id} · {d.kind}</p>)}<button className="btn" onClick={() => attempt(() => { setDraft({ ...draft, dependencies: manifestFor(graph, SKETCHES) }); setMessage('Dependency manifest refreshed explicitly. Save when ready.'); })}>Refresh dependencies</button></details>
+        {node?.type === 'blend' && <><label>Blend mode<Select aria-label="Blend mode" title="Choose pixel blend mode" value={node.mode} onChange={e => patch({ mode: e.target.value })}>{Object.keys(MODES).map(mode => <option key={mode}>{mode}</option>)}</Select></label><label>Opacity <output className="param-value">{Math.round(node.opacity * 100)}%</output><input className="control-range" aria-label="Opacity" title="Adjust Blend opacity" type="range" min="0" max="1" step="0.01" value={node.opacity} onChange={e => patch({ opacity: Number(e.target.value) })} /></label></>}
+        {node?.type === 'pattern' && <>{!sketch && <p>Missing pattern. Delete and replace this node, or restore its dependency.</p>}{sketch?.params?.map(p => <ParameterControl key={`${node.id}:${p.key}`} scope="nodes" id={node.id} def={p} value={node.params[p.key] ?? p.default} onChange={value => patch({ params: { ...node.params, [p.key]: value } })} />)}</>}
+        {node && graph.edges.filter(e => e.to === node.id).map(e => <button className="btn btn--sm" title={`Disconnect ${e.port} input`} key={e.port} onClick={() => edit({ ...graph, edges: graph.edges.filter(w => w !== e) })}>Disconnect {e.port}</button>)}
+        <button className="btn btn--danger" title="Delete selected node and its wires" disabled={!node || node.type === 'output'} onClick={remove}>Delete node</button>
+        <details><summary>Dependencies & limits</summary><p>24 nodes, 8 leaf renderers, 1280×720 internal image. No recursive graphs. Camera capture stays on output. Local files and custom assets are not embedded.</p>{dependencies.map(d => <p key={d.id}>{d.name || d.id} · {d.kind}</p>)}<button className="btn" title="Refresh dependency fingerprints from available patterns" onClick={() => attempt(() => { setDraft({ ...draft, dependencies: manifestFor(graph, SKETCHES) }); setMessage('Dependency manifest refreshed explicitly. Save when ready.'); })}>Refresh dependencies</button></details>
       </aside>
     </div>
   </main>;

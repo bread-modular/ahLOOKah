@@ -1,3 +1,4 @@
+import { IconControl } from './IconControl.jsx';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useRuntime } from '../../app/RuntimeContext.jsx';
@@ -54,21 +55,16 @@ export function CustomScriptsPanel() {
   };
   return <div className="custom-scripts-panel" onKeyDown={(e) => e.stopPropagation()}>
     {!status.folder ? <section aria-label="Link Folder">
-      <button className="btn btn--md" disabled={status.busy || !!status.support} onClick={() => run(() => scripts.choose())}>Link Folder</button>
-      <p className="script-hint">Link a local folder, then choose which scripts to open.</p>
+      <button className="btn btn--md" title="Link a local custom scripts folder" disabled={status.busy || !!status.support} onClick={() => run(() => scripts.choose())}>Link Folder</button>
     </section> : <>
       <div className="script-folder-row">
         <button className="btn script-folder-name" aria-label={`Copy folder name: ${status.folder}`}
           title={`${status.folder}\nClick to copy folder name. Chrome does not expose the absolute native path.`}
           onClick={() => run(async () => { await navigator.clipboard.writeText(status.folder); setMessage('Folder name copied.'); })}>{status.folder}</button>
-        <button className="btn script-icon" aria-label="Reload linked scripts" title="Reload opened scripts from this folder" disabled={status.busy}
-          onClick={() => run(() => withAccess(() => scripts.reload()))}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M20 12a8 8 0 1 0-2 5M20 7v5" /></svg></button>
-        <button className="btn script-icon" aria-label="Unlink scripts folder" title="Unlink folder and remove its loaded patterns; source files are kept" disabled={status.busy}
-          onClick={() => run(() => scripts.unlink())}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button>
+        <IconControl icon="reload" label="Reload linked scripts" title="Reload opened scripts from this folder" disabled={status.busy} onClick={() => run(() => withAccess(() => scripts.reload()))} />
+        <IconControl icon="unlink" label="Unlink scripts folder" title="Unlink folder and remove its loaded patterns; source files are kept" disabled={status.busy} onClick={() => run(() => scripts.unlink())} />
+        <IconControl ref={openButton} icon="open" label="Open Script" title="Choose a trusted script from the linked folder" disabled={status.busy} onClick={() => run(() => withAccess(async () => { await scripts.browse(); setPicker(true); }))} />
       </div>
-      <p className="script-hint">Chrome exposes the folder name, not its absolute path.</p>
-      <button ref={openButton} className="btn btn--md" disabled={status.busy} onClick={() => run(() => withAccess(async () => { await scripts.browse(); setPicker(true); }))}>Open Script</button>
-      <p className="script-hint">Trusted JavaScript only. Edit externally; reload to apply changes.</p>
     </>}
     <a href="/docs/custom-scripts.html" target="_blank" rel="noreferrer">Tutorial &amp; API</a>
     {status.support && <p role="alert">{status.support}</p>}

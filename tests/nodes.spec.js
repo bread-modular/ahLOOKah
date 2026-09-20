@@ -89,7 +89,7 @@ test('real source rendering, chain editing, move, disconnect, delete and screens
   await expect.poll(() => pixel(page)).toEqual([0, 0, 0, 255]);
   await page.getByLabel('Blend mode').selectOption('Screen');
   await page.locator('[data-node-id="red"] .nodes-node-title').click();
-  await page.getByLabel('Brightness', { exact: true }).fill('0.5');
+  await page.getByLabel('Brightness', { exact: true }).evaluate(el => { el.value = '0.5'; el.dispatchEvent(new Event('input', { bubbles: true })); });
   await expect.poll(async () => (await pixel(page))[0]).toBeGreaterThan(120);
   const title = page.locator('[data-node-id="red"] .nodes-node-title');
   await title.focus(); await page.keyboard.press('ArrowRight');
@@ -128,7 +128,8 @@ test('searchable palette accepts validated cross-tab drag payload, rejects forei
 test('disk persistence, stable overwrite, reload and isolated drafts across tabs', async ({ page, context }) => {
   await page.goto('/?role=nodes'); await openFixture(page);
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.locator('.nodes-status')).toContainText('Saved Neon composite');
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+  await expect(page.locator('.nodes-status')).toHaveCount(0);
   const second = await context.newPage(); await second.goto('/?role=nodes');
   await expect(second.getByLabel('Graph name')).toHaveValue('Untitled graph');
   await expect.poll(() => recordNames(second)).toHaveLength(1);
@@ -166,14 +167,16 @@ test('main link opens isolated editor; saved graph is selectable on real output;
   await editor.locator('[data-node-id="red"] .nodes-node-title').click();
   await editor.getByLabel('Brightness', { exact: true }).fill('0');
   await editor.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(editor.locator('.nodes-status')).toContainText('Saved');
+  await expect(editor.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+  await expect(editor.locator('.nodes-status')).toHaveCount(0);
   await expect.poll(() => screen.evaluate(id => { const c = document.querySelector(`[data-program-ids="${id}"] canvas`); return c && [...c.getContext('2d').getImageData(c.width / 2, c.height / 2, 1, 1).data]; }, id)).toEqual([0, 255, 0, 255]);
   await expect(button).toHaveCount(1);
   await page.locator('.library-btn[data-id="checkerboard"]').click({ modifiers: ['Shift'] });
   await screen.waitForFunction(() => window.__viz.cue?.phase === 'ready');
   await editor.getByLabel('Brightness', { exact: true }).fill('0.25');
   await editor.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(editor.locator('.nodes-status')).toContainText('Saved');
+  await expect(editor.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+  await expect(editor.locator('.nodes-status')).toHaveCount(0);
   await screen.waitForFunction(() => window.__viz.cue === null);
   await editor.evaluate(async () => {
     const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('node-patterns');
@@ -321,7 +324,7 @@ test('editor shares main theme and control chrome without changing draft gesture
   await page.setViewportSize({ width: 1536, height: 960 });
   await page.goto('/?role=nodes'); await openFixture(page);
   await expect.poll(() => pixel(page)).toEqual([255, 255, 0, 255]);
-  await expect(page.getByRole('button', { name: 'Save' })).toHaveClass('btn btn--solid');
+  await expect(page.getByRole('button', { name: 'Save' })).toHaveClass('btn btn--solid nodes-save');
   await expect(page.getByLabel('Saved graph')).toHaveCount(0);
   await expect(page.getByRole('button', { name: /Link Folder|Open Pattern|Refresh folder/i })).toHaveCount(0);
   await expect(page.getByLabel('Search patterns')).toHaveClass('control-input');
@@ -331,7 +334,7 @@ test('editor shares main theme and control chrome without changing draft gesture
   await expect(page.getByRole('slider', { name: 'Opacity' })).toHaveValue('0.99');
   await expect(page.getByRole('slider', { name: 'Opacity' })).toHaveCSS('outline-style', 'solid');
   await page.locator('[data-node-id="red"] .nodes-node-title').click();
-  await expect(page.getByLabel('Brightness', { exact: true })).toHaveClass('control-input');
+  await expect(page.getByLabel('Brightness', { exact: true })).toHaveAttribute('type', 'range');
   const styles = await page.evaluate(() => {
     const root = getComputedStyle(document.documentElement);
     return {
@@ -368,7 +371,7 @@ test('new drafts save in linked folder, collision cancellation and failed writes
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.locator('.nodes-status')).toContainText('Canceled');
   expect(await diskText(page)).toBe(before);
-  await page.getByRole('button', { name: 'New draft', exact: true }).click();
+  await page.getByRole('button', { name: 'New pattern', exact: true }).click();
   await expect(page.getByLabel('Graph name')).toHaveValue('Edited draft');
   page.removeAllListeners('dialog'); page.on('dialog', d => d.accept());
   await page.evaluate(() => {
@@ -384,13 +387,13 @@ test('new drafts save in linked folder, collision cancellation and failed writes
   expect(await diskText(page)).toBe(before);
   await page.evaluate(() => window.__restoreWriter());
   // A fresh graph, not a loaded document, derives its filename from its name.
-  await page.getByRole('button', { name: 'New draft', exact: true }).click();
+  await page.getByRole('button', { name: 'New pattern', exact: true }).click();
   await page.getByLabel('Search patterns').fill('checkerboard');
   await page.locator('.nodes-pattern-list button').click();
   await page.locator('.nodes-output').click(); await page.getByLabel('output input image').click();
   await page.getByLabel('Graph name').fill('Fresh pattern');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.locator('.nodes-status')).toContainText('Fresh-pattern.nodes.json');
+  await expect(page.locator('.nodes-status')).toHaveCount(0);
   await expect.poll(() => recordNames(page)).toHaveLength(2);
   const saved = await page.evaluate(async () => {
     const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('node-patterns');
@@ -405,7 +408,8 @@ test('stale drafts cannot overwrite another tab; refresh retires deleted disk pa
   await expect(second.getByLabel('Graph name')).toHaveValue('Neon composite');
   await page.getByLabel('Graph name').fill('First writer');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.locator('.nodes-status')).toContainText('Saved First writer');
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+  await expect(page.locator('.nodes-status')).toHaveCount(0);
   await second.getByLabel('Graph name').fill('Stale writer');
   await second.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(second.locator('.nodes-status')).toContainText('File changed');
@@ -429,6 +433,7 @@ test('denied save preserves draft; main pickers cancel or report unsupported', a
   await expect(page.locator('.nodes-status')).toContainText('Permission denied');
   expect(await diskText(page)).toBe(before);
   const main = await context.newPage(); await main.goto('/');
+  await main.getByRole('button', { name: 'Unlink node patterns folder' }).click();
   const panel = main.getByRole('region', { name: 'Node pattern files' });
   await main.evaluate(() => { window.showDirectoryPicker = window.showOpenFilePicker = async () => { throw new DOMException('Canceled', 'AbortError'); }; });
   for (const name of ['Link Folder', 'Open Pattern']) {
@@ -463,7 +468,7 @@ test('outside picker files survive reload; invalid and oversized files never rep
   await expect.poll(() => recordNames(page)).toHaveLength(2);
   await expect(page.getByLabel('Graph name')).toHaveValue('Outside pattern');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.locator('.nodes-status')).toContainText('Outside-pattern.nodes.json');
+  await expect(page.locator('.nodes-status')).toHaveCount(0);
   expect(await diskText(page)).toBe(before);
   for (const [text, message] of [['{"format":"viz2-nodes","version":99}', 'Unsupported'], ['x'.repeat(200001), '200 KB']]) {
     await page.evaluate(async text => {
@@ -530,7 +535,7 @@ test('Node Patterns category owns folder/open; sidebar opens the selected graph 
   await page.setViewportSize({ width: 1536, height: 960 });
   await page.goto('/');
   const panel = page.getByRole('region', { name: 'Node pattern files' });
-  await expect(panel).toContainText('No folder linked');
+  await expect(panel.getByRole('button', { name: 'Link Folder', exact: true })).toBeVisible();
   await expect(panel.getByRole('link', { name: 'New Node Pattern' })).toHaveAttribute('target', '_blank');
   await seedFixture(page);
   // A second graph has the SAME display name. Routing must use the repository
@@ -544,11 +549,11 @@ test('Node Patterns category owns folder/open; sidebar opens the selected graph 
     const writer = await second.createWritable(); await writer.write(JSON.stringify(data)); await writer.close();
   });
   await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
-  await expect(panel).toContainText('Linked node patterns folder');
+  await expect(panel.locator('.script-folder-name')).toHaveText('node-patterns');
   const category = page.locator('#library-section-Node-Patterns');
   await expect(category.locator('.library-btn')).toHaveCount(2);
   await panel.getByRole('button', { name: 'Open Pattern', exact: true }).click();
-  await expect(panel).toContainText('Opened neon.nodes.json');
+  await expect(panel.getByRole('button', { name: 'Open Pattern', exact: true })).toBeEnabled();
   await expect(category.locator('.library-btn')).toHaveCount(2);
   const id = await page.evaluate(async () => (await import('/src/nodes/repository.js')).nodePatterns.records.find(r => r.fileName === 'neon.nodes.json').id);
   await category.locator(`[data-id="${id}"]`).click();
@@ -564,7 +569,8 @@ test('Node Patterns category owns folder/open; sidebar opens the selected graph 
   await expect(editor.getByRole('button', { name: /Link Folder|Open Pattern|Load pattern|Refresh folder/i })).toHaveCount(0);
   await editor.getByLabel('Graph name').fill('Selected graph saved');
   await editor.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(editor.locator('.nodes-status')).toContainText('Saved Selected graph saved');
+  await expect(editor.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+  await expect(editor.locator('.nodes-status')).toHaveCount(0);
   await expect(category.locator(`[data-id="${id}"]`)).toContainText('Selected graph saved');
   await expect(category.locator('.library-btn').filter({ hasText: 'Neon composite' })).toHaveCount(1);
   await editor.reload();
@@ -604,4 +610,112 @@ test('missing, empty, deleted and invalid graph routes never show an editable fa
   await page.getByRole('button', { name: 'Retry loading' }).click();
   await expect(page.getByRole('alert')).toContainText('not found or unavailable');
   await expect(page.getByLabel('Graph name')).toHaveCount(0);
+});
+
+test('refined canvas zoom, pan, drop, wires and sidebar scrolling use one coordinate space', async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 960 });
+  await page.goto('/?role=nodes'); await openFixture(page);
+  await expect(page.getByRole('link', { name: /Help/ })).toHaveCount(0);
+  await expect(page.locator('.nodes-palette a,.nodes-palette p,.nodes-palette h2')).toHaveCount(0);
+  await expect(page.locator('.nodes-toolbar').getByRole('button', { name: 'Reload from disk' })).toBeVisible();
+  const canvas = page.getByRole('region', { name: 'Graph workspace' });
+  const plane = page.locator('.nodes-plane');
+  const transform = () => plane.evaluate(el => { const m = new DOMMatrix(getComputedStyle(el).transform); return { x: m.e, y: m.f, zoom: m.a }; });
+  await page.getByRole('button', { name: 'Zoom out', exact: true }).click();
+  await expect.poll(async () => (await transform()).zoom).toBeCloseTo(1 / 1.2, 4);
+  const area = await canvas.boundingBox();
+  await page.mouse.move(area.x + 350, area.y + 550);
+  await page.mouse.down({ button: 'middle' }); await page.mouse.move(area.x + 410, area.y + 590); await page.mouse.up({ button: 'middle' });
+  const view = await transform();
+  const title = page.locator('[data-node-id="red"] .nodes-node-title');
+  const box = await title.boundingBox();
+  await page.mouse.move(box.x + 20, box.y + 10); await page.mouse.down(); await page.mouse.move(box.x + 70, box.y + 35); await page.mouse.up();
+  await expect.poll(() => page.locator('[data-node-id="red"]').evaluate(el => parseFloat(el.style.left))).toBeCloseTo(40 + 50 / view.zoom, 2);
+  const wire = await page.locator('.nodes-wires path').first().getAttribute('d');
+  expect(Number(wire.split(' ')[1])).toBeCloseTo(40 + 50 / view.zoom + 168, 2);
+  const dropPoint = await canvas.evaluate((el, view) => {
+    const rect = el.getBoundingClientRect(), transfer = new DataTransfer();
+    transfer.setData('application/x-viz-pattern+json', JSON.stringify({ version: 1, patternId: 'checkerboard' }));
+    const event = new DragEvent('drop', { bubbles: true, dataTransfer: transfer, clientX: rect.left + view.x + 300 * view.zoom, clientY: rect.top + view.y + 400 * view.zoom });
+    el.dispatchEvent(event);
+    return { x: (event.clientX - rect.left - view.x) / view.zoom, y: (event.clientY - rect.top - view.y) / view.zoom };
+  }, view);
+  const dropped = page.locator('.nodes-node').filter({ has: page.getByRole('button', { name: 'Select Checkerboard', exact: true }) });
+  await expect.poll(() => dropped.evaluate(el => parseFloat(el.style.left))).toBeCloseTo(dropPoint.x, 2);
+  await expect.poll(() => dropped.evaluate(el => parseFloat(el.style.top))).toBeCloseTo(dropPoint.y, 2);
+  const prior = await transform();
+  await page.locator('.nodes-pattern-list').hover(); await page.mouse.wheel(0, 500);
+  await expect.poll(() => page.locator('.nodes-pattern-list').evaluate(el => el.scrollTop)).toBeGreaterThan(0);
+  expect(await transform()).toEqual(prior);
+  await page.mouse.move(area.x + 450, area.y + 500); await page.mouse.wheel(0, -180);
+  await expect.poll(async () => (await transform()).zoom).toBeGreaterThan(prior.zoom);
+  await page.getByRole('button', { name: 'Reset canvas view' }).click();
+  expect(await transform()).toEqual({ x: 0, y: 0, zoom: 1 });
+});
+
+test('shared typed parameters retain independent edits and numeric option controls', async ({ page }) => {
+  await page.goto('/?role=nodes'); await openFixture(page);
+  await page.locator('[data-node-id="red"] .nodes-node-title').click();
+  for (const [label, value] of [['Brightness', .5], ['Saturation', .25], ['Brightness', .7]]) {
+    const input = page.getByRole('slider', { name: label, exact: true });
+    await input.evaluate((el, value) => { el.value = String(value); el.dispatchEvent(new Event('input', { bubbles: true })); }, value);
+  }
+  await expect(page.getByRole('slider', { name: 'Saturation', exact: true })).toHaveValue('0.25');
+  await expect(page.getByRole('slider', { name: 'Brightness', exact: true })).toHaveValue('0.7');
+  const source = await page.evaluate(async () => {
+    const { SKETCHES } = await import('/src/sketch-registry.js');
+    // Exercise an enum definition as supplied by dynamic patterns.
+    const s = SKETCHES.find(s => s.id === 'checkerboard');
+    const p = s.params[0];
+    p.options = [{ value: p.min, label: 'Low' }, { value: p.max, label: 'High' }];
+    return { name: s.name, label: p.label, value: String(p.options[1].value) };
+  });
+  await page.getByLabel('Search patterns').fill(source.name);
+  await page.locator('.nodes-pattern-list button').first().click();
+  await page.getByLabel(source.label, { exact: true }).selectOption(source.value);
+  await expect(page.getByLabel(source.label, { exact: true })).toHaveValue(source.value);
+  await expect(page.locator('.nodes-inspector input[type=number]')).toHaveCount(0);
+  await page.getByLabel('Search patterns').fill('');
+  await page.locator('[data-node-id=red] .nodes-node-title').click();
+  await page.screenshot({ path: '/tmp/refined-nodes-editor.png' });
+});
+
+test('linked folder icon rows and unlink preserve source files and standalone workflow', async ({ page }) => {
+  await page.goto('/'); await seedFixture(page);
+  const panel = page.getByRole('region', { name: 'Node pattern files' });
+  await expect(panel.getByRole('button', { name: 'Open Pattern', exact: true })).toBeEnabled();
+  await expect(panel.getByRole('link', { name: 'New Node Pattern' })).toBeVisible();
+  await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
+  await expect(panel.getByRole('button', { name: 'Link Folder', exact: true })).toHaveCount(0);
+  await expect(panel.locator('.script-folder-name')).toHaveText('node-patterns');
+  for (const control of await panel.locator('.script-icon').all()) {
+    await expect(control).toHaveAttribute('aria-label', /.+/);
+    await expect(control).toHaveAttribute('title', /.+/);
+  }
+  await panel.screenshot({ path: '/tmp/refined-node-folder.png' });
+  await panel.getByRole('button', { name: 'Unlink node patterns folder' }).click();
+  await expect(panel.getByRole('button', { name: 'Link Folder', exact: true })).toBeVisible();
+  expect(await diskText(page)).toContain('Neon composite');
+  await panel.getByRole('button', { name: 'Open Pattern', exact: true }).click();
+  await expect.poll(() => recordNames(page)).toEqual(['Neon composite']);
+});
+
+test('touch pan and pinch plus trackpad pan stay local to the canvas', async ({ page, context }) => {
+  await page.goto('/?role=nodes'); await openFixture(page);
+  const canvas = page.locator('.nodes-workspace'), plane = page.locator('.nodes-plane');
+  const area = await canvas.boundingBox();
+  const client = await context.newCDPSession(page);
+  const point = (id, x, y) => ({ id, x: area.x + x, y: area.y + y });
+  const before = await plane.getAttribute('style');
+  await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point(1, 150, 450)] });
+  await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [point(1, 180, 480)] });
+  await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await expect(plane).not.toHaveAttribute('style', before);
+  await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point(1, 150, 450), point(2, 250, 450)] });
+  await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [point(1, 120, 450), point(2, 280, 450)] });
+  await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await expect.poll(() => plane.evaluate(el => new DOMMatrix(getComputedStyle(el).transform).a)).toBeGreaterThan(1);
+  const panned = await plane.getAttribute('style');
+  await page.mouse.move(area.x + 400, area.y + 500); await page.mouse.wheel(100, 0);
+  await expect(plane).not.toHaveAttribute('style', panned);
 });

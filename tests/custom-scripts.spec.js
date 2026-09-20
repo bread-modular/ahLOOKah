@@ -291,11 +291,12 @@ test('Custom Scripts @core selection modal, parameter actions, path copy, unlink
   await expect(params.getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
   const row = await panel.locator('.script-folder-row').boundingBox();
   const folderName = await panel.locator('.script-folder-name').boundingBox();
-  const close = await panel.getByRole('button', { name: 'Unlink scripts folder' }).boundingBox();
+  const close = await panel.getByRole('button', { name: 'Open Script', exact: true }).boundingBox();
   expect(folderName.width).toBeLessThan(row.width / 2);
   expect(Math.abs(close.x + close.width - row.x - row.width)).toBeLessThan(2);
   await expect(panel.locator('.script-folder-name')).toHaveCSS('text-transform', 'none');
   await page.screenshot({ path: testInfo.outputPath('linked-parameters.png') });
+  await panel.screenshot({ path: '/tmp/refined-custom-scripts.png' });
   await page.evaluate(async () => {
     const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('scripts');
     const w = await (await dir.getFileHandle('demo.viz.js')).createWritable(); await w.write('api.requireVersion(1);syntax('); await w.close();

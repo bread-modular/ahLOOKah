@@ -8,6 +8,8 @@ import { formatParamValue } from './panelHelpers.js';
 // values sync back only while the operator is not dragging.
 export function ParamSlider({ scope, id, def, getValue, onChange, valueFormat = formatParamValue, disabled = false }) {
   const inputRef = useRef(null);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
   const draggingRef = useRef(false);
   const [label, setLabel] = useState(() => valueFormat(getValue(), def));
   const controlId = `param-${scope || 'live'}-${id || 'unknown'}-${def.key}`;
@@ -18,7 +20,7 @@ export function ParamSlider({ scope, id, def, getValue, onChange, valueFormat = 
     const onInput = () => {
       const v = parseFloat(el.value);
       setLabel(valueFormat(v, def));
-      onChange(v);
+      onChangeRef.current(v);
     };
     const onPointerDown = () => { draggingRef.current = true; };
     const onEnd = () => { draggingRef.current = false; };
@@ -53,6 +55,7 @@ export function ParamSlider({ scope, id, def, getValue, onChange, valueFormat = 
       <input
         ref={inputRef}
         type="range"
+        title={def.label}
         id={controlId}
         data-key={def.key}
         min={String(def.min)}

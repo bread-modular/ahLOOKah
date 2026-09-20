@@ -10,7 +10,7 @@ import { canUseFileSystemPicker, isMediaLinked } from '../../media/media-store.j
 import { formatParamValue, formatPostFxValue } from './panelHelpers.js';
 import { ProjectionMappingPanel } from './ProjectionMappingPanel.jsx';
 import { ParamSlider } from './ParamSlider.jsx';
-import { ParamSelect } from './ParamSelect.jsx';
+import { ParameterControl } from './ParameterControl.jsx';
 
 function blendName(index, id, ordered) {
   return ordered[index]?.name || SKETCHES.find((s) => s.id === id)?.name || 'Effect';
@@ -104,27 +104,9 @@ function EffectParams({ currentPattern, currentPatternId, getValue, changeParam,
 
   const rows = defs.length === 0
     ? [<p key="empty" className="param-empty">No parameters for this effect.</p>]
-    : defs.map((def) => (def.options ? (
-    <ParamSelect
-      key={`${scope}:${currentPatternId}:${def.key}`}
-      scope={scope}
-      id={currentPatternId}
-      def={def}
-      value={getValue(currentPatternId, def.key)}
-      onChange={(v) => changeParam(currentPatternId, def.key, v)}
-      disabled={locked}
-    />
-  ) : (
-    <ParamSlider
-      key={`${scope}:${currentPatternId}:${def.key}`}
-      scope={scope}
-      id={currentPatternId}
-      def={def}
-      getValue={() => getValue(currentPatternId, def.key)}
-      onChange={(v) => changeParam(currentPatternId, def.key, v)}
-      disabled={locked}
-    />
-  )));
+    : defs.map(def => <ParameterControl key={`${scope}:${currentPatternId}:${def.key}`}
+        scope={scope} id={currentPatternId} def={def} value={getValue(currentPatternId, def.key)}
+        onChange={v => changeParam(currentPatternId, def.key, v)} disabled={locked} />);
 
   return (
     <>
@@ -246,27 +228,9 @@ function MergePatternParams({ patternId, slotLabel, name, getValue, changeParam,
       <PerformanceBudget patternId={patternId} scope={scope} />
       {defs.length === 0 ? (
         <p className="param-empty">No parameters for this effect.</p>
-      ) : defs.map((def) => (def.options ? (
-        <ParamSelect
-          key={`${scope}:${patternId}:${def.key}`}
-          scope={scope}
-          id={patternId}
-          def={def}
-          value={getValue(patternId, def.key)}
-          onChange={(v) => changeParam(patternId, def.key, v)}
-          disabled={locked}
-        />
-      ) : (
-        <ParamSlider
-          key={`${scope}:${patternId}:${def.key}`}
-          scope={scope}
-          id={patternId}
-          def={def}
-          getValue={() => getValue(patternId, def.key)}
-          onChange={(v) => changeParam(patternId, def.key, v)}
-          disabled={locked}
-        />
-      )))}
+      ) : defs.map(def => <ParameterControl key={`${scope}:${patternId}:${def.key}`}
+        scope={scope} id={patternId} def={def} value={getValue(patternId, def.key)}
+        onChange={v => changeParam(patternId, def.key, v)} disabled={locked} />)}
     </section>
   );
 }

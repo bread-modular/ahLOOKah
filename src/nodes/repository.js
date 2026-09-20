@@ -86,6 +86,13 @@ export class NodePatterns {
     });
     await this.refresh(); this.changed();
   }
+  async unlink() {
+    await lock(async () => {
+      const state = await this.store('handles') || empty();
+      await this.store('handles', { ...state, folder: null });
+    });
+    await this.refresh(); this.changed();
+  }
   async reconnect() {
     // Permission calls originate in the click handler, never in a background queue.
     try {

@@ -116,6 +116,7 @@
 }
 
 .control-range,
+.param-row input[type="range"],
 #params-list input[type="range"],
 #post-fx-list input[type="range"],
 .projection-editor input[type="range"],
@@ -134,6 +135,7 @@
 }
 
 .control-range::-webkit-slider-runnable-track,
+.param-row input[type="range"]::-webkit-slider-runnable-track,
 #params-list input[type="range"]::-webkit-slider-runnable-track,
 #post-fx-list input[type="range"]::-webkit-slider-runnable-track,
 .projection-editor input[type="range"]::-webkit-slider-runnable-track,
@@ -144,6 +146,7 @@
 }
 
 .control-range::-webkit-slider-thumb,
+.param-row input[type="range"]::-webkit-slider-thumb,
 #params-list input[type="range"]::-webkit-slider-thumb,
 #post-fx-list input[type="range"]::-webkit-slider-thumb,
 .projection-editor input[type="range"]::-webkit-slider-thumb,
@@ -162,6 +165,7 @@
 }
 
 .control-range::-webkit-slider-thumb:hover,
+.param-row input[type="range"]::-webkit-slider-thumb:hover,
 #params-list input[type="range"]::-webkit-slider-thumb:hover,
 #post-fx-list input[type="range"]::-webkit-slider-thumb:hover,
 .projection-editor input[type="range"]::-webkit-slider-thumb:hover,
@@ -170,6 +174,7 @@
 }
 
 .control-range::-moz-range-track,
+.param-row input[type="range"]::-moz-range-track,
 #params-list input[type="range"]::-moz-range-track,
 #post-fx-list input[type="range"]::-moz-range-track,
 .projection-editor input[type="range"]::-moz-range-track,
@@ -180,6 +185,7 @@
 }
 
 .control-range::-moz-range-thumb,
+.param-row input[type="range"]::-moz-range-thumb,
 #params-list input[type="range"]::-moz-range-thumb,
 #post-fx-list input[type="range"]::-moz-range-thumb,
 .projection-editor input[type="range"]::-moz-range-thumb,
