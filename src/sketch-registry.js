@@ -1129,12 +1129,13 @@ export const GROUP_ORDER = [
   'Alphas',
   'Media',
   'Projection Mapping',
+  'Custom Scripts',
 ];
 
 // Group names present in SKETCHES, in GROUP_ORDER (unknown groups appended).
 // 'Media' is always present: it hosts the add-media control even before the
 // user has loaded any media patterns.
-const ALWAYS_PRESENT_GROUPS = new Set(['Media', 'Projection Mapping']);
+const ALWAYS_PRESENT_GROUPS = new Set(['Media', 'Projection Mapping', 'Custom Scripts']);
 
 export function getGroups() {
   const present = [];

@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ahLOOKah — Docs: Custom Scripts</title>
+  <meta name="description" content="Create trusted JavaScript visualization patterns from a real local scripts folder." />
+  <meta name="theme-color" content="#0b0b0f" />
+  <link rel="canonical" href="https://ahlookah.com/docs/custom-scripts.html" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="ahLOOKah — Docs: Custom Scripts" />
+  <meta property="og:image" content="https://ahlookah.com/ahlookah-in-action.png" />
+  <link rel="stylesheet" href="/docs/docs.css" />
+</head>
+
+<body>
+  <header class="topbar">
+    <button class="menu-toggle" id="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="sidebar">
+      <span></span><span></span><span></span>
+    </button>
+    <a class="topbar__brand" href="/docs/">ahLOOKah Docs</a>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar__header">
+        <a class="sidebar__brand" href="/docs/">ah<span class="glow">LOOK</span>ah</a>
+        <span class="sidebar__tag">Docs</span>
+      </div>
+      <nav class="sidebar__nav" aria-label="Documentation">
+        <ul>
+          <li><a href="/docs/">Introduction</a></li>
+          <li><a href="/docs/getting-started.html">Getting Started</a></li>
+          <li><a href="/docs/interface.html">The Interface</a></li>
+          <li><a href="/docs/patterns.html">Patterns &amp; Parameters</a></li>
+          <li><a href="/docs/custom-scripts.html" class="is-active" aria-current="page">Custom Scripts</a></li>
+          <li><a href="/docs/media.html">Media Patterns</a></li>
+          <li><a href="/docs/slots.html">Slots &amp; Shortcuts</a></li>
+          <li><a href="/docs/blending.html">Blending Two Patterns</a></li>
+          <li><a href="/docs/post-processing.html">Post-processing</a></li>
+          <li><a href="/docs/eq-noise.html">EQ &amp; Noise</a></li>
+          <li><a href="/docs/cue-mode.html">Cue Mode</a></li>
+          <li><a href="/docs/screen-mapping.html">Screen Mapping</a></li>
+          <li><a href="/docs/projection-mapping.html">Projection Mapping</a></li>
+          <li><a href="/docs/devices.html">Devices &amp; Setup</a></li>
+        </ul>
+      </nav>
+      <div class="sidebar__footer">
+        <a href="/">← Back to app</a>
+      </div>
+    </aside>
+
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+    <main class="content"><article class="article">
+      <h1>Custom Scripts</h1>
+      <p class="lead">Build your own visuals in a real local folder. Edit with your favorite editor or coding agent, then explicitly reload them into ahLOOKah.</p>
+      <h2 id="trust">Before you begin: trusted code</h2>
+      <p><strong>JavaScript runs with the application's privileges. This is NOT a security sandbox.</strong> Only choose folders containing code you trust. Syntax checks catch mistakes, not malicious behavior or infinite loops. Back up your folder.</p>
+      <p>Use desktop Chrome on HTTPS or localhost. The feature checks for File System Access support and explains missing support instead of silently substituting uploads or a virtual filesystem. File access permission is separate from microphone/camera permission.</p>
+      <h2 id="folder">1. Choose your scripts folder</h2>
+      <ol><li>In the pattern library, expand <strong>Custom Scripts</strong>.</li><li>Click <strong>Choose folder</strong>, confirm that you trust its JavaScript, then select a real directory in Chrome's OS picker. Allow read/write access.</li><li>Chrome saves a directory handle in this site's IndexedDB. No absolute path is exposed. The panel displays the directory name and permission status.</li></ol>
+      <p>On subsequent visits, the last activated source snapshot is restored without reading your unsaved or externally edited files. If permissions expire, click <strong>Reconnect</strong>. If the folder moved or was deleted, choose it again. Denied permission does not erase last-good patterns.</p>
+      <h2 id="create">2. Create and play your first pattern</h2>
+      <p>Click <strong>Create script</strong>, enter a name, and a unique <code>custom-name-unique.viz.js</code> file is written directly into that directory. The starter is validated and activated. Click its pattern button to play; the Size slider updates the circle. No browser-only draft is created.</p>
+      <pre><code>api.requireVersion(1);
+api.create({
+  id: 'custom-my-circle', name: 'My circle',
+  params: [{key:'size', label:'Size', min:10, max:300, step:1, default:100}],
+  draw({p, params}) {
+    p.background(10); p.noStroke(); p.fill(90, 210, 255);
+    p.circle(p.width / 2, p.height / 2, params.size);
+  }
+});</code></pre>
+      <h2 id="edit">3. Edit externally, then Reload</h2>
+      <p>Open the chosen directory in your editor or give that actual OS path to your coding agent. <strong>Edit guidance</strong> identifies the filename; it cannot launch a specific editor or reveal an absolute path. Change the color, save the disk file, then click <strong>Reload</strong>. Until Reload, the existing code keeps running. There is no filesystem watcher.</p>
+      <p>Only immediate <code>*.viz.js</code> files are scripts. Use classic strict JavaScript, not TypeScript/JSX or ES modules. Imports (including dynamic imports) are unsupported; bundle libraries into the same file. The folder may also contain assets such as PNGs and videos. Limits: 100 script files, 1 MB per file, 256 custom patterns.</p>
+      <h2 id="validation">4. Understand validation and rollback</h2>
+      <p>Every candidate file is parsed and compiled <em>before any candidate registration code executes</em>. The app then validates metadata, hook types, numeric parameter/audio schemas, IDs and collisions before changing the registry. Unknown fields are rejected to catch typos. An invalid file rejects the whole folder reload: last-good registrations and renderers remain active. The panel names the file and failing field; syntax errors include the parser location. Correct it and Reload again.</p>
+      <p>Validation does not run every possible hook. JavaScript setup/draw exceptions, GLSL compilation failures, missing assets or arbitrary global side effects are not transactional. Runtime errors identify their file and hook; revert the file from your backup and Reload if needed. Never allocate timers, streams or listeners at the registration top level.</p>
+      <h2 id="lifecycle">5. Use normal LIVE, CUE, output and cleanup</h2>
+      <p>Custom patterns use the same VizCore engine as built-ins: Canvas2D, WebGL meshes and shaders, parameters, compact audio controls, media, embedded preview and output. VizCore is focused and <strong>not full p5.js</strong>. Drag a custom pattern to a pad slot, blend it with another, apply post-processing/screen mapping, or select it as a Projection Mapping child.</p>
+      <p>Shift-click stages CUE and Enter takes it LIVE. A successful script Reload/removal cancels CUE and pending TAKE, invalidates pending promotions, disposes old resources/audio and restarts affected output/preview. A brief interruption is intentional. Deleted selected IDs fall back to a built-in; missing projection children fall back to black. Camera patterns use the shared output camera; embedded preview shows the standard camera placeholder.</p>
+      <p>Each renderer gets its own <code>state</code> and an abort <code>signal</code>. Register timers/listeners/offscreen buffers with <code>onCleanup</code>, and honor cancellation after awaits. The host removes its canvas, media elements and GL contexts; scripts remain responsible for resources they allocate themselves. See the lifecycle example and API reference.</p>
+      <h2 id="examples">6. Try the capability examples</h2>
+      <p>Save these files into your chosen scripts folder (not the application source tree), then Reload. Their IDs are distinct, so they can coexist.</p>
+      <ul>
+        <li><a href="/docs/custom-script-examples/drawing.viz.js" download>Drawing</a>: shapes, text, HSB, transforms, parameters, pixels and offscreen graphics.</li>
+        <li><a href="/docs/custom-script-examples/mesh.viz.js" download>WebGL meshes</a>: box, sphere, cone and lighting.</li>
+        <li><a href="/docs/custom-script-examples/shader.viz.js" download>GLSL shader</a>: animated uniforms and offscreen texture.</li>
+        <li><a href="/docs/custom-script-examples/audio.viz.js" download>Audio</a>: capture-owner spectrum, continuous level and one-shot events.</li>
+        <li><a href="/docs/custom-script-examples/image.viz.js" download>Image</a>: put <code>photo.png</code> in the folder; async loading, tint and compositing.</li>
+        <li><a href="/docs/custom-script-examples/video.viz.js" download>Video</a>: put <code>clip.mp4</code> in the folder; supported codec, muted playback, CUE pause/resume and cleanup.</li>
+        <li><a href="/docs/custom-script-examples/camera.viz.js" download>Camera</a>: allow/select a camera for shared output capture and mirroring.</li>
+        <li><a href="/docs/custom-script-examples/crud-lifecycle.viz.js" download>CRUD and lifecycle</a>: staged create/read/update/delete, timer/listener teardown.</li>
+      </ul>
+      <h2 id="delete">7. Unload versus delete</h2>
+      <p><strong>Remove registrations</strong> unloads every pattern from that file but keeps the disk file; Reload restores it. <code>api.delete(id)</code> only deletes a staged registration owned by that script. Neither deletes disk content.</p>
+      <p><strong>Delete file…</strong> asks for confirmation showing the filename, then permanently deletes the actual disk file and removes all its patterns. There is no undo/trash. External edits are also deleted. External file deletion is recognized on Reload. If disk deletion succeeds but browser storage fails, the error is reported; Reload reconciles the registry.</p>
+      <h2 id="troubleshooting">Troubleshooting and handing off to an agent</h2>
+      <ul><li><strong>Unsupported / insecure:</strong> open desktop Chrome on HTTPS or localhost; no fallback is provided.</li><li><strong>Permission denied:</strong> click Reconnect and allow read/write, or choose the moved folder again. Storage failures may require a persistent Chrome profile or freeing quota.</li><li><strong>Filename / syntax / ID / hook error:</strong> edit the named file, use <code>api.requireVersion(1)</code>, unique <code>custom-…</code> IDs and the exact schema; remove imports and Reload.</li><li><strong>Blank or stalled visual:</strong> inspect the reported file/hook and Chrome console. Check renderer mode, GLSL logs, asset filename/codec and camera permission. Use a working example, then add changes incrementally.</li><li><strong>Output differs temporarily:</strong> windows synchronize the activated source snapshot asynchronously and independently validate. Keep registration deterministic and avoid cross-window globals. Reload is not a distributed atomic show transition.</li></ul>
+      <p>Give your agent the real folder path plus the <a href="/docs/custom-scripts-api.md">complete Markdown API reference and checklist</a>. Ask it to implement within those capabilities, clean up resources, save the file and tell you when to Reload. Test preview, LIVE, CUE/TAKE, output reopening, merge and mapping before a show. Settings export does not bundle scripts, handles or assets: back up/copy the OS folder separately.</p>
+      <div class="pager"><a href="/docs/patterns.html">← Patterns &amp; Parameters</a><a class="next" href="/docs/media.html">Media Patterns →</a></div>
+    </article></main>
+  </div>
+
+  <script src="/docs/docs.js"></script>
+  <script>
+    window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+  </script>
+  <script defer src="/_vercel/insights/script.js"></script>
+</body>
+
+</html>

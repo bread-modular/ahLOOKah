@@ -21,7 +21,7 @@ test('expansion provenance: 9 new + 2 restored, registry totals 71, category ord
   expect(RESTORED_CAMERA_PATTERNS.every((s) => s.group === 'Video FX' && s.camera)).toBe(true);
   expect(EXPANSION_PATTERNS.filter((s) => s.camera).map((s) => s.id)).toEqual(['video-datamosh', 'video-rolling-shutter']);
   // Group labels/order unchanged; Media & Projection Mapping untouched.
-  expect(getGroups()).toEqual(['Simple', 'Rhythmic', '3D', 'Cinematic / Shaders', 'Neon / Lasers', 'Video FX', 'Glitch / Effects', 'Basics', 'Alphas', 'Media', 'Projection Mapping']);
+  expect(getGroups()).toEqual(['Simple', 'Rhythmic', '3D', 'Cinematic / Shaders', 'Neon / Lasers', 'Video FX', 'Glitch / Effects', 'Basics', 'Alphas', 'Media', 'Projection Mapping', 'Custom Scripts']);
   expect(SKETCHES.slice(0, 4).map((s) => s.id)).toEqual(['circles', 'bars', 'techno3d', 'character3d']);
   expect(SKETCHES.find((s) => s.id === 'checkerboard').audioReactive).toBe(false);
   // Every entry: own controller identity (never the replacement/shared ones),

@@ -29,7 +29,7 @@ test('replacement provenance: exactly 60 removed, 50 older unchanged, 10 new, ca
   const groups = ['Simple', 'Rhythmic', '3D', 'Cinematic / Shaders', 'Neon / Lasers', 'Video FX', 'Glitch / Effects', 'Basics', 'Alphas'];
   const expected = { Simple: 1, Rhythmic: 1, '3D': 0, 'Cinematic / Shaders': 2, 'Neon / Lasers': 0, 'Video FX': 2, 'Glitch / Effects': 2, Basics: 0, Alphas: 2 };
   for (const group of groups) expect(REPLACEMENT_PATTERNS.filter(s => s.group === group), group).toHaveLength(expected[group]);
-  expect(getGroups()).toEqual([...groups, 'Media', 'Projection Mapping']);
+  expect(getGroups()).toEqual([...groups, 'Media', 'Projection Mapping', 'Custom Scripts']);
   expect(SKETCHES.slice(0, 4).map(s => s.id)).toEqual(['circles', 'bars', 'techno3d', 'character3d']);
   expect(SKETCHES.find(s => s.id === 'checkerboard').audioReactive).toBe(false);
 });

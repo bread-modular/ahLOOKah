@@ -13,3 +13,17 @@
 @import "./modals.css";
 
 @import './projection-mapping.css';
+
+/* Filesystem scripts: flexible controls at the library's narrow pane floor. */
+.custom-scripts-panel { padding: 10px; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.custom-scripts-panel p { margin: 0 0 8px; }
+.custom-scripts-panel ul { padding-left: 16px; }
+.custom-scripts-panel li { margin-bottom: 10px; }
+.custom-scripts-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.custom-scripts-actions button { font: inherit; color: inherit; background: #24242c; border: 1px solid #555; border-radius: 4px; padding: 5px 8px; cursor: pointer; }
+.custom-scripts-actions button:disabled { opacity: .5; cursor: default; }
+.custom-scripts-panel [role="alert"] { color: #ffb5a4; }
+.custom-scripts-panel a { color: #8edbff; }
+/* Script activation explicitly cancels TAKE; keep its recovery controls usable
+   while the rest of the pattern library is transport-locked. */
+#config-panel.cue-pending .custom-scripts-panel { pointer-events: auto; }
