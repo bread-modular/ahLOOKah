@@ -1,3 +1,4 @@
+import { NODE_AUDIO_SOURCE } from '../nodes/audio-source.js';
 import { MediaFolder } from '../media/folderService.js';
 import { listMediaRecords } from '../media/media-store.js';
 import { registerNodeSketches } from '../nodes/registry.js';
@@ -1680,7 +1681,7 @@ export function createAppRuntime({
     // A removed media entry may still be painting in the retiring LIVE
     // runtime. Do not let its now-unresolvable controller invalidate the
     // complete plan and starve the replacement runtime's fresh-frame gate.
-    return slots.filter((slot) => SKETCHES.some((sketch) => sketch.id === slot.patternId));
+    return slots.filter((slot) => slot.patternId === NODE_AUDIO_SOURCE.id || SKETCHES.some((sketch) => sketch.id === slot.patternId));
   }
 
   function publishPatternAudioPlan({ force = false } = {}) {

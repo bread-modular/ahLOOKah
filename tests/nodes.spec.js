@@ -445,7 +445,7 @@ test('new drafts save in linked folder, collision cancellation and failed writes
   // A fresh graph, not a loaded document, derives its filename from its name.
   await page.goto('/?role=nodes');
   await page.getByLabel('Search patterns').fill('checkerboard');
-  await page.locator('.nodes-pattern-list button').click();
+  await page.locator('.nodes-pattern-list button').dragTo(page.getByLabel('Graph workspace'), { targetPosition: { x: 100, y: 120 } });
   await page.locator('.nodes-output').click(); await page.getByLabel('output input image').click();
   await page.getByLabel('Graph name').fill('Fresh pattern');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
@@ -709,7 +709,7 @@ test('refined canvas zoom, pan, drop, wires and sidebar scrolling use one coordi
   await expect.poll(() => dropped.evaluate(el => parseFloat(el.style.top))).toBeCloseTo(dropPoint.y, 2);
   const prior = await transform();
   await page.locator('.nodes-pattern-list').hover(); await page.mouse.wheel(0, 500);
-  await expect.poll(() => page.locator('.nodes-pattern-list').evaluate(el => el.scrollTop)).toBeGreaterThan(0);
+  await expect.poll(() => page.locator('.nodes-palette').evaluate(el => el.scrollTop)).toBeGreaterThan(0);
   expect(await transform()).toEqual(prior);
   await page.mouse.move(area.x + 450, area.y + 500); await page.mouse.wheel(0, -180);
   await expect.poll(async () => (await transform()).zoom).toBeGreaterThan(prior.zoom);
@@ -735,7 +735,7 @@ test('shared typed parameters retain independent edits and numeric option contro
     return { name: s.name, label: p.label, value: String(p.options[1].value) };
   });
   await page.getByLabel('Search patterns').fill(source.name);
-  await page.locator('.nodes-pattern-list button').first().click();
+  await page.locator('.nodes-pattern-list button').first().dragTo(page.getByLabel('Graph workspace'), { targetPosition: { x: 100, y: 420 } });
   await page.getByLabel(source.label, { exact: true }).selectOption(source.value);
   await expect(page.getByLabel(source.label, { exact: true })).toHaveValue(source.value);
   await expect(page.locator('.nodes-inspector input[type=number]')).toHaveCount(0);

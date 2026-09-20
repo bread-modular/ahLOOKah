@@ -18,11 +18,9 @@
 .nodes-palette input,.nodes-palette select { width:100%; }
 .nodes-palette > * { flex-shrink:0; }
 .nodes-palette > .btn:last-child { margin-top:8px; }
-.nodes-pattern-list {
-  overflow:auto; flex:1; min-height:150px; margin-top:12px;
-  padding-inline-end:8px; scrollbar-gutter:stable;
-  scrollbar-width:thin; scrollbar-color:var(--border-gray) var(--panel-bg);
-}
+.nodes-pattern-list { flex:none; min-height:0; margin-top:12px; padding:0; overflow:visible; }
+/* One scroll container at the panel divider; search and rows share its inset. */
+.nodes-palette { overflow-x:hidden; overflow-y:auto; scrollbar-gutter:auto; scrollbar-width:thin; scrollbar-color:var(--border-gray) var(--panel-bg); }
 .nodes-pattern-list .btn { text-align:left; display:block; width:100%; margin-bottom:6px; white-space:normal; text-transform:none; letter-spacing:normal; font-weight:500; color:var(--text-main); }
 .nodes-pattern-list small { display:block; color:var(--text-dim); font-size:10px; margin-top:4px; }
 .nodes-inspector { border-left:1px solid var(--border-gray); }
@@ -62,3 +60,18 @@
 
 .nodes-workspace { user-select:none; }
 .nodes-selection-box { position:absolute; border:1px solid var(--accent); background:rgba(77,163,255,.14); pointer-events:none; z-index:2; }
+
+/* Dashed violet modulation is never a visual/image wire. */
+.nodes-wires .nodes-signal-wire { stroke:#c29aff; stroke-dasharray:7 5; stroke-width:3px; }
+.nodes-signal-endpoint { color:#c29aff; border:0; border-top:1px solid var(--border-gray); background:transparent; width:100%; text-align:left; height:28px; cursor:pointer; }
+.nodes-signal-chip { white-space:normal; text-align:left; margin-bottom:6px; color:#c29aff; width:100%; }
+.nodes-signal-chip.active { border-color:#c29aff; }
+.nodes-mapping-overlay { position:absolute; inset:0 7px; pointer-events:none; }
+.nodes-mapping-box { position:absolute; top:0; bottom:0; min-width:2px; background:#b586ff40; border:1px solid #c29aff; border-radius:3px; cursor:grab; pointer-events:auto; touch-action:none; }
+.nodes-mapping-handle { position:absolute; top:-2px; bottom:-2px; width:7px; transform:translateX(-50%); background:#c29aff; border:1px solid #241936; cursor:ew-resize; pointer-events:auto; touch-action:none; }
+.nodes-mapping-fields { font-size:11px; color:#cdb6ed; padding:8px 0; }
+.nodes-mapping-fields > div { display:flex; gap:8px; }
+.nodes-mapping-fields label { flex:1; min-width:0; margin:8px 0; font-size:10px; }
+.nodes-mapping-fields .btn { margin:3px 4px 0 0; }
+.nodes-modulated-param > small { color:var(--text-dim); }
+.nodes-app .param-row input[type="range"]:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }

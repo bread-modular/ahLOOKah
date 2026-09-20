@@ -1,3 +1,4 @@
+import { NODE_AUDIO_SOURCE } from './nodes/audio-source.js';
 // Capture-owner engine for pattern-specific audio controls. It consumes one
 // cleaned AudioManager analysis frame per tick, exposes lazy shared conversions,
 // updates per-runtime controllers, and emits compact packets for each consumer.
@@ -113,7 +114,7 @@ export class PatternAudioControlEngine {
     createRng = null,
   } = {}) {
     this.ownerId = String(ownerId || 'audio-owner');
-    this.getSketchById = typeof getSketchById === 'function' ? getSketchById : () => null;
+    this.getSketchById = id => id === NODE_AUDIO_SOURCE.id ? NODE_AUDIO_SOURCE : (typeof getSketchById === 'function' ? getSketchById(id) : null);
     this.now = typeof now === 'function' ? now : defaultNow;
     this.planLeaseMs = Math.max(250, Number(planLeaseMs) || PATTERN_AUDIO_PLAN_LEASE_MS);
     this.expectedConsumerMs = Math.max(this.planLeaseMs, Number(expectedConsumerMs) || PATTERN_AUDIO_EXPECTED_CONSUMER_MS);

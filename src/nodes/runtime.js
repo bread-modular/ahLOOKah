@@ -1,3 +1,5 @@
+import { parameterView } from './modulation.js';
+import { createSignalConsumer } from './audio-provider.js';
 import VizCore from '../core/index.js';
 import { ProgramRuntime } from '../program-runtime.js';
 import { PreviewAudio } from '../preview-audio.js';
@@ -21,11 +23,15 @@ const sizeFor = (width, height) => {
 export class GraphRuntime {
   constructor({ graph, sketches, dependencies = [], width = 480, height = 270, audio = new PreviewAudio(), context = {}, videoDeviceId = null, preview = true }) {
     this.graph = validateGraph(graph);
+    this.signal = this.graph.nodes.some(n => n.type === 'audio') ? createSignalConsumer(context.audioControlStore, context.audioRole) : null;
+    if (this.signal) context.registerChildRuntime?.(this.signal);
+    this.readContinuous = context.readAudioSignals || this.signal?.read || (() => ({}));
+    this.params = new Map(this.graph.nodes.filter(n => ['pattern', 'blend'].includes(n.type)).map(n => [n.id, parameterView(this.graph, n, sketches, this.readContinuous)]));
     this.size = sizeFor(width, height);
     this.disposed = false;
     this.sources = new Map(); this.buffers = new Map(); this.messages = new Map();
     this.diagnostics = sourceDiagnostics(this.graph, sketches, dependencies);
-    this.graph.nodes.forEach(n => { const canvas = document.createElement('canvas'); [canvas.width, canvas.height] = this.size; this.buffers.set(n.id, canvas); });
+    this.graph.nodes.filter(n => n.type !== 'audio').forEach(n => { const canvas = document.createElement('canvas'); [canvas.width, canvas.height] = this.size; this.buffers.set(n.id, canvas); });
     if (this.diagnostics.length) { this.ready = Promise.resolve(); return; }
     const waits = [];
     for (const node of this.graph.nodes.filter(n => n.type === 'pattern')) {
@@ -34,7 +40,7 @@ export class GraphRuntime {
       if (camera && (preview || !context.cameraSource)) {
         this.messages.set(node.id, 'Camera is available only on the output screen (shared capture).'); continue;
       }
-      const params = { ...Object.fromEntries((sketch.params || []).map(d => [d.key, d.default])), ...node.params };
+      const params = this.params.get(node.id);
       const layer = document.createElement('div');
       const capture = canvas => {
         if (this.disposed) return;
@@ -74,9 +80,9 @@ export class GraphRuntime {
       if (done.has(id)) return this.buffers.get(id);
       done.add(id);
       const node = this.graph.nodes.find(n => n.id === id), canvas = this.buffers.get(id);
-      if (!node) return null;
+      if (!node || node.type === 'audio') return null;
       const source = port => { const edge = this.graph.edges.find(e => e.to === id && e.port === port); return edge ? visit(edge.from) : null; };
-      if (node.type !== 'pattern') composite(canvas.getContext('2d'), source(node.type === 'blend' ? 'base' : 'image'), node.type === 'blend' ? source('layer') : null, node.mode || 'Normal', node.opacity ?? 1);
+      if (node.type !== 'pattern') composite(canvas.getContext('2d'), source(node.type === 'blend' ? 'base' : 'image'), node.type === 'blend' ? source('layer') : null, node.mode || 'Normal', this.params.get(id)?.opacity ?? 1);
       const runtime = this.sources.get(id);
       const message = this.diagnostics[0] || this.messages.get(id) || runtime?.error?.message;
       if (message) {
@@ -97,7 +103,7 @@ export class GraphRuntime {
   }
   pause() { this.sources.forEach(s => s.pause()); }
   resume() { this.sources.forEach(s => s.resume()); }
-  dispose() { if (this.disposed) return; this.disposed = true; this.sources.forEach(s => s.dispose()); this.sources.clear(); this.buffers.forEach(c => { c.width = c.height = 1; }); this.buffers.clear(); }
+  dispose() { if (this.disposed) return; this.disposed = true; this.signal?.dispose(); this.sources.forEach(s => s.dispose()); this.sources.clear(); this.buffers.forEach(c => { c.width = c.height = 1; }); this.buffers.clear(); }
 }
 export function graphFactory(record, sketches) {
   // Closed-over disk snapshot; registry changes replace the factory and runtime.

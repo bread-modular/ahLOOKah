@@ -1,3 +1,4 @@
+import { mappingDiagnostics } from './modulation.js';
 import { validateGraph, MAX_BYTES, MAX_SOURCES } from './model.js';
 // Manifests deliberately do NOT execute imported scripts or claim that local
 // file handles are portable. Dynamic dependencies must already match locally.
@@ -25,7 +26,7 @@ export function manifestFor(graph, sketches) {
   return [...found.values()];
 }
 export function sourceDiagnostics(graph, sketches, manifest = []) {
-  const messages = [];
+  const messages = mappingDiagnostics(graph, sketches);
   let leaves = 0;
   for (const n of graph.nodes.filter(n => n.type === 'pattern')) {
     const s = sketches.find(s => s.id === n.patternId);

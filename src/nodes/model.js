@@ -16,7 +16,7 @@ export function validateGraph(raw, { complete = false } = {}) {
   if (!Array.isArray(raw.edges) || raw.edges.length > MAX_NODES * 2) fail('Too many wires');
   const ids = new Map();
   const nodes = raw.nodes.map(n => {
-    if (!n || !idOK(n.id) || ids.has(n.id) || !['pattern', 'blend', 'output'].includes(n.type)) fail('Invalid or duplicate node');
+    if (!n || !idOK(n.id) || ids.has(n.id) || !['pattern', 'blend', 'output', 'audio'].includes(n.type)) fail('Invalid or duplicate node');
     // Signed graph coordinates are independent of the visible pan/zoom viewport.
     if (![n.x, n.y].every(Number.isFinite)) fail('Invalid node position');
     const node = { id: n.id, type: n.type, x: n.x, y: n.y };
@@ -25,6 +25,10 @@ export function validateGraph(raw, { complete = false } = {}) {
       if (!n.params || typeof n.params !== 'object' || Array.isArray(n.params) || Object.keys(n.params).length > 256) fail('Invalid pattern parameters');
       for (const [k, v] of Object.entries(n.params)) if (k.length > 80 || ['__proto__', 'constructor', 'prototype'].includes(k) || !Number.isFinite(v) || Math.abs(v) > 1000000) fail('Invalid parameter value');
       Object.assign(node, { patternId: n.patternId, params: { ...n.params } });
+    }
+    if (n.type === 'audio') {
+      if (!['bass', 'mid', 'high'].includes(n.band)) fail('Invalid audio band');
+      node.band = n.band;
     }
     if (n.type === 'blend') {
       if (!Object.hasOwn(MODES, n.mode) || !Number.isFinite(n.opacity) || n.opacity < 0 || n.opacity > 1) fail('Invalid blend mode or opacity');
@@ -39,9 +43,22 @@ export function validateGraph(raw, { complete = false } = {}) {
   const edges = raw.edges.map(e => {
     const from = ids.get(e?.from), to = ids.get(e?.to);
     const key = `${e?.to}:${e?.port}`;
-    if (!from || !to || from.type === 'output' || !inputs(to).includes(e.port) || occupied.has(key)) fail('Invalid reference, port, or duplicate input wire');
+    if (!from || !to || !['pattern', 'blend'].includes(from.type) || !inputs(to).includes(e.port) || occupied.has(key)) fail('Invalid reference, port, or duplicate input wire');
     occupied.add(key);
     return { from: e.from, to: e.to, port: e.port };
+  });
+  if (raw.modulations !== undefined && (!Array.isArray(raw.modulations) || raw.modulations.length > 256)) fail('Invalid modulation links');
+  const mapped = new Set(), links = new Set();
+  const modulations = (raw.modulations || []).map(m => {
+    const from = ids.get(m?.from), to = ids.get(m?.to);
+    if (from?.type !== 'audio' || !['pattern', 'blend'].includes(to?.type)) fail('Invalid modulation reference or target');
+    const param = m.param ?? null;
+    if (param !== null && (!idOK(param) || ['__proto__', 'constructor', 'prototype'].includes(param) || (to.type === 'blend' && param !== 'opacity'))) fail('Invalid modulation parameter');
+    const key = `${m.to}:${param}`, link = `${m.from}:${key}`;
+    if (links.has(link) || (param && mapped.has(key))) fail('Duplicate modulation; explicitly replace the existing mapping');
+    links.add(link); if (param) mapped.add(key);
+    if (param && (![m.min, m.max].every(Number.isFinite) || Math.max(Math.abs(m.min), Math.abs(m.max)) > 1000000)) fail('Invalid modulation range');
+    return { from: m.from, to: m.to, param, ...(param ? { min: m.min, max: m.max } : {}) };
   });
   const visited = new Set(), visiting = new Set();
   function visit(id) {
@@ -58,7 +75,7 @@ export function validateGraph(raw, { complete = false } = {}) {
     walk(nodes.find(n => n.type === 'output').id);
     for (const id of required) for (const port of inputs(ids.get(id))) if (!occupied.has(`${id}:${port}`)) fail(`Connect ${id} ${port} before saving`);
   }
-  return { version: VERSION, name: raw.name.trim(), nodes, edges };
+  return { version: VERSION, name: raw.name.trim(), nodes, edges, ...(modulations.length ? { modulations } : {}) };
 }
 export function newGraph() {
   return { version: VERSION, name: 'Untitled graph', nodes: [{ id: 'output', type: 'output', x: 650, y: 220 }], edges: [] };
@@ -68,7 +85,7 @@ export function connect(graph, from, to, port) {
 }
 export function deleteNode(graph, id) {
   if (graph.nodes.find(n => n.id === id)?.type === 'output') return graph;
-  return { ...graph, nodes: graph.nodes.filter(n => n.id !== id), edges: graph.edges.filter(e => e.from !== id && e.to !== id) };
+  return { ...graph, nodes: graph.nodes.filter(n => n.id !== id), edges: graph.edges.filter(e => e.from !== id && e.to !== id), ...(graph.modulations ? { modulations: graph.modulations.filter(e => e.from !== id && e.to !== id) } : {}) };
 }
 export const DRAG_TYPE = 'application/x-viz-pattern+json';
 export function readPatternDrag(transfer, sketches) {
@@ -78,4 +95,14 @@ export function readPatternDrag(transfer, sketches) {
     const data = JSON.parse(text);
     return data.version === 1 && sketches.some(s => s.id === data.patternId && !s.nodesGraph) ? data.patternId : null;
   } catch { return null; }
+}
+
+export function connectSignal(graph, from, to) {
+  if ((graph.modulations || []).some(m => m.from === from && m.to === to)) return graph;
+  return validateGraph({ ...graph, modulations: [...(graph.modulations || []), { from, to, param: null }] });
+}
+export function mapSignal(graph, from, to, param, min, max, replace = false) {
+  const existing = (graph.modulations || []).find(m => m.to === to && m.param === param);
+  if (existing && existing.from !== from && !replace) throw new Error('Parameter already mapped; explicitly replace it');
+  return validateGraph({ ...graph, modulations: [...(graph.modulations || []).filter(m => !(m.to === to && (m.param === param || (m.from === from && m.param === null)))), { from, to, param, min, max }] });
 }
