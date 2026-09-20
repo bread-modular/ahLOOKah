@@ -91,7 +91,7 @@ export function NodesEditor() {
     attempt(() => {
       const s = SKETCHES.find(s => s.id === patternId);
       if (patternId && (!s || s.nodesGraph)) throw new Error('Choose a non-graph source; recursive graphs are not supported');
-      const n = { id: `n${crypto.randomUUID().slice(0, 8)}`, type: patternId ? 'pattern' : 'blend', x: Math.max(0, Math.min(3800, x)), y: Math.max(0, Math.min(3800, y)),
+      const n = { id: `n${crypto.randomUUID().slice(0, 8)}`, type: patternId ? 'pattern' : 'blend', x, y,
         ...(patternId ? { patternId, params: initialParams(s) } : { mode: 'Normal', opacity: 1 }) };
       const next = validateGraph({ ...graph, nodes: [...graph.nodes, n] });
       const fresh = manifestFor(next, SKETCHES);

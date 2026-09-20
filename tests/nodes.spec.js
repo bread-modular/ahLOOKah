@@ -857,7 +857,7 @@ test('graph-space marquee replaces, adds, cancels and clears selection at zoom/p
   await expect(page.locator('.nodes-selection-box')).toHaveCount(0);
 });
 
-test('selected group moves rigidly at zoom/pan, clamps together and saves/reloads safely', async ({ page }) => {
+test('selected group moves rigidly at zoom/pan and saves/reloads safely', async ({ page }) => {
   await page.setViewportSize({ width: 1536, height: 960 });
   await page.goto('/?role=nodes'); await openFixture(page);
   const { view, point } = await transformedCanvas(page);
@@ -876,20 +876,21 @@ test('selected group moves rigidly at zoom/pan, clamps together and saves/reload
   const wire = await page.locator('.nodes-wires path').first().getAttribute('d');
   expect(Number(wire.split(' ')[1])).toBeCloseTo(after.red.x + 168, 2);
   await page.screenshot({ path: '/tmp/hello-nodes-multiselect.png' });
-  // One delta clamped to the upper boundary retains the vertical separation.
+  // Crossing the top origin retains the vertical separation.
   const movedTitle = await nodeTitle(page, 'red').boundingBox();
   await page.mouse.move(movedTitle.x + 20, movedTitle.y + 10); await page.mouse.down();
   await page.mouse.move(movedTitle.x + 20, 10, { steps: 5 }); await page.mouse.up();
-  const clamped = await positions(page);
-  expect(clamped.red.y).toBe(0); expect(clamped.green.y).toBe(230);
+  const crossed = await positions(page);
+  expect(crossed.red.y).toBeLessThan(0);
+  expect(crossed.green.y - crossed.red.y).toBeCloseTo(230, 2);
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
   const saved = JSON.parse(await diskText(page));
-  expect(saved.graph.nodes.find(n => n.id === 'green').y).toBe(230);
+  expect(saved.graph.nodes.find(n => n.id === 'green').y).toBeCloseTo(crossed.green.y, 3);
   expect(saved.graph).not.toHaveProperty('selection');
   await nodeTitle(page, 'green').focus(); await page.keyboard.press('ArrowRight');
   await page.getByRole('button', { name: 'Reload from Disk' }).click();
-  await expect.poll(() => positions(page)).toEqual(clamped);
+  await expect.poll(() => positions(page)).toEqual(crossed);
   expect(await selectedIds(page)).toEqual(['output']);
 });
 
@@ -918,4 +919,93 @@ test('Save and Reload reuse actual Open Screen compact dimensions', async ({ pag
   expect(save).toEqual(open);
   expect(reload.height).toBe(open.height);
   expect(open.height).toBe(26);
+});
+
+test('graph positions preserve signed coordinates and reject non-finite values', () => {
+  const signed = { ...graph(), nodes: graph().nodes.map(n => ({ ...n, x: n.x - 5000.5, y: n.y - 6000.25 })) };
+  expect(validateGraph(signed, { complete: true })).toEqual(signed);
+  expect(validateGraph({ ...signed, nodes: signed.nodes.map(n => ({ ...n, x: -n.x, y: -n.y })) }).nodes[0].x).toBe(4960.5);
+  for (const axis of ['x', 'y']) for (const value of [NaN, Infinity, -Infinity, null, '0']) {
+    expect(() => validateGraph({ ...signed, nodes: signed.nodes.map(n => ({ ...n, [axis]: value })) })).toThrow(/position/);
+  }
+});
+
+test('25% zoom with pan: group and single drag cross left/top origin, wires and disk retain negatives', async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 960 });
+  await page.goto('/?role=nodes'); await openFixture(page);
+  for (let i = 0; i < 8; i++) await page.getByRole('button', { name: 'Zoom out', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Reset canvas view' })).toHaveText('25%');
+  const area = await page.locator('.nodes-workspace').boundingBox();
+  await page.mouse.move(area.x + 700, area.y + 600); await page.mouse.down({ button: 'middle' });
+  await page.mouse.move(area.x + 750, area.y + 635); await page.mouse.up({ button: 'middle' });
+  const transform = () => page.locator('.nodes-plane').evaluate(el => {
+    const m = new DOMMatrix(getComputedStyle(el).transform); return { x: m.e, y: m.f, zoom: m.a };
+  });
+  const view = await transform();
+  expect(view.zoom).toBe(.25);
+  expect(view.x).toBeCloseTo(area.width * .375 + 50, 2);
+  expect(view.y).toBeCloseTo(area.height * .375 + 35, 2);
+  const point = (x, y) => ({ x: area.x + view.x + x * .25, y: area.y + view.y + y * .25 });
+  const drag = async (id, dx, dy) => {
+    const box = await nodeTitle(page, id).boundingBox();
+    const x = box.x + box.width / 2, y = box.y + box.height / 2;
+    await page.mouse.move(x, y); await page.mouse.down();
+    await page.mouse.move(x + dx, y + dy, { steps: 5 }); await page.mouse.up();
+  };
+  await marquee(page, point(20, 40), point(240, 410));
+  expect(await selectedIds(page)).toEqual(['red', 'green']);
+  const before = await positions(page);
+  // 100 screen pixels = 400 graph units. Both nodes cross both axes.
+  await drag('red', -100, -100);
+  const crossed = await positions(page);
+  for (const id of ['red', 'green']) {
+    expect(crossed[id]).toEqual({ x: before[id].x - 400, y: before[id].y - 400 });
+    await expect(page.locator(`[data-node-id=${id}]`)).toBeInViewport();
+  }
+  expect(crossed.green.y - crossed.red.y).toBe(230);
+  expect(crossed.mix).toEqual(before.mix); expect(crossed.output).toEqual(before.output);
+  expect(await transform()).toEqual(view);
+  // Marquee itself must work entirely in negative graph space.
+  await marquee(page, point(-380, -360), point(-160, 10));
+  expect(await selectedIds(page)).toEqual(['red', 'green']);
+  await nodeTitle(page, 'red').focus(); await page.keyboard.press('ArrowLeft'); await page.keyboard.press('ArrowUp');
+  const nudged = await positions(page);
+  for (const id of ['red', 'green']) expect(nudged[id]).toEqual({ x: crossed[id].x - 10, y: crossed[id].y - 10 });
+  await drag('output', -200, -100); // An unselected node moves alone across both axes.
+  const final = await positions(page);
+  expect(final.output).toEqual({ x: -180, y: -230 });
+  expect(final.red).toEqual(nudged.red); expect(final.green).toEqual(nudged.green);
+  const verifyWires = async () => {
+    const pos = await positions(page);
+    for (const [index, edge] of graph().edges.entries()) {
+      const a = pos[edge.from], b = pos[edge.to];
+      const y2 = b.y + 49 + (edge.port === 'layer' ? 32 : 0);
+      const wire = page.locator('.nodes-wires path').nth(index);
+      await expect(wire).toHaveAttribute('d', `M ${a.x + 168} ${a.y + 49} C ${a.x + 248} ${a.y + 49}, ${b.x - 68} ${y2}, ${b.x + 12} ${y2}`);
+    }
+    // Actual browser hit testing on the negative portion catches SVG clipping,
+    // unlike checking only the path's d attribute or bounding box.
+    expect(await page.locator('.nodes-wires path').first().evaluate(path => {
+      for (let t = .1; t <= .8; t += .1) {
+        const p = path.getPointAtLength(path.getTotalLength() * t);
+        const screen = new DOMPoint(p.x, p.y).matrixTransform(path.getScreenCTM());
+        if (p.x < 0 && p.y < 0 && document.elementFromPoint(screen.x, screen.y) === path) return true;
+      }
+      return false;
+    })).toBe(true);
+  };
+  await verifyWires();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+  await expect(page.locator('.nodes-status')).toHaveCount(0);
+  const saved = JSON.parse(await diskText(page));
+  expect(Object.fromEntries(saved.graph.nodes.map(({ id, x, y }) => [id, { x, y }]))).toEqual(final);
+  expect(saved.graph.edges).toEqual(graph().edges);
+  await nodeTitle(page, 'output').focus(); await page.keyboard.press('ArrowRight');
+  await page.getByRole('button', { name: 'Reload from Disk' }).click();
+  await expect.poll(() => positions(page)).toEqual(final);
+  expect(await transform()).toEqual(view);
+  await verifyWires();
+  await page.reload();
+  await expect.poll(() => positions(page)).toEqual(final);
 });

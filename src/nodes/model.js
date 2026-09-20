@@ -17,7 +17,8 @@ export function validateGraph(raw, { complete = false } = {}) {
   const ids = new Map();
   const nodes = raw.nodes.map(n => {
     if (!n || !idOK(n.id) || ids.has(n.id) || !['pattern', 'blend', 'output'].includes(n.type)) fail('Invalid or duplicate node');
-    if (![n.x, n.y].every(v => Number.isFinite(v) && v >= 0 && v <= 4000)) fail('Node position outside workspace');
+    // Signed graph coordinates are independent of the visible pan/zoom viewport.
+    if (![n.x, n.y].every(Number.isFinite)) fail('Invalid node position');
     const node = { id: n.id, type: n.type, x: n.x, y: n.y };
     if (n.type === 'pattern') {
       if (!idOK(n.patternId) || n.patternId.startsWith('nodes-')) fail('Graph sources cannot recursively reference graphs; use ordinary patterns');

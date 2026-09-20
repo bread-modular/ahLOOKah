@@ -23,9 +23,8 @@ export function useNodeSelection(graph, setDraft, navigation) {
   };
   const reset = id => { cancel(); suppressClick.current = null; selectOnly(id); };
   const moveGroup = (origins, dx, dy) => {
-    // Clamp one shared delta, never each node independently (which distorts groups).
-    dx = Math.max(-Math.min(...origins.map(n => n.x)), Math.min(3800 - Math.max(...origins.map(n => n.x)), dx));
-    dy = Math.max(-Math.min(...origins.map(n => n.y)), Math.min(3800 - Math.max(...origins.map(n => n.y)), dy));
+    // The origin is a reference point, not a canvas boundary. Apply the same
+    // graph-space delta to every node so dragging/nudging preserves spacing.
     const positions = new Map(origins.map(n => [n.id, { x: n.x + dx, y: n.y + dy }]));
     setDraft(previous => ({ ...previous, graph: { ...previous.graph, nodes: previous.graph.nodes.map(n => positions.has(n.id) ? { ...n, ...positions.get(n.id) } : n) } }));
   };
