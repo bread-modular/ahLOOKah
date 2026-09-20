@@ -237,3 +237,19 @@ export function createFeatureController() {
     },
   };
 }
+
+// Default custom-script semantics, also used by non-visual Audio nodes.
+export function createReactiveController() {
+  let controller, disposed = false;
+  return {
+    update(frame = {}) {
+      const input = frame.frame ?? frame.shared?.frame;
+      if (disposed || (!input?.left?.length && !input?.right?.length)) {
+        controller?.dispose(); controller = undefined;
+        return { continuous: { ...SILENT_FEATURES }, arrays: {}, events: [] };
+      }
+      return (controller ||= createFeatureController()).update(frame);
+    },
+    dispose() { disposed = true; controller?.dispose(); controller = undefined; },
+  };
+}

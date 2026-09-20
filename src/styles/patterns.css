@@ -412,6 +412,11 @@
   flex: 0 0 auto;
   margin-left: auto;
   font-size: 0.68rem;
+  font-family: inherit;
+  font-weight: 400;
+  letter-spacing: normal;
+  line-height: normal;
+  text-transform: none;
   padding: 2px 8px;
   background: transparent;
   color: var(--text-dim);
