@@ -1,3 +1,4 @@
+import { assertFolderReference, confirmFolderReference, missingFolderFiles, forgetFolderFile } from '../platform/folderReferences.js';
 import { chooseFolder, folderPermission, requireFolderPermission, scanFolder } from '../platform/folderAccess.js';
 import { SKETCHES } from '../sketch-registry.js';
 import { stageSources, SCRIPT_SUFFIX } from './compiler.js';
@@ -29,9 +30,11 @@ export class CustomScripts {
     try {
       const snapshot = await this.storage('active');
       this.handle = snapshot && 'folder' in snapshot ? snapshot.folder : await this.storage('folder');
+      this.publish({ folder: this.handle?.name || '' });
       await this.restore();
       const permission = await this.handle?.queryPermission({ mode: 'read' }) || 'prompt';
       this.publish({ folder: this.handle?.name || '', permission });
+      if (this.handle && permission !== 'granted') this.report('Folder permission denied or expired. Refresh folder or Relink Folder to restore access; last-good scripts remain active.');
       if (this.role === 'control' && this.handle && permission === 'granted') await this.listFiles();
     } catch (e) { this.report(`Storage/reconnect: ${e.message}. Unlink and Link Folder again.`); }
   }
@@ -71,6 +74,7 @@ export class CustomScripts {
   }
   async restore() {
     const snapshot = await this.storage('active');
+    assertFolderReference('scripts', snapshot?.folder || this.handle);
     // Older snapshots autoloaded the whole folder. Require explicit selection now.
     if (this.closed || !snapshot?.selectionVersion || snapshot.revision <= this.active.revision) return;
     const sameFolder = this.active.folder && snapshot.folder && await this.active.folder.isSameEntry(snapshot.folder);
@@ -92,6 +96,7 @@ export class CustomScripts {
   async permission(request = false) {
     this.assertControl();
     if (!this.handle) throw new Error('Link a scripts folder first.');
+    assertFolderReference('scripts', this.handle);
     let permission = await folderPermission(this.handle);
     if (permission !== 'granted' && request) permission = await this.handle.requestPermission({ mode: 'read' });
     this.publish({ permission });
@@ -102,15 +107,18 @@ export class CustomScripts {
     this.assertControl();
     if (supportError()) throw new Error(supportError());
     const handle = await chooseFolder({ id: 'viz2-custom-scripts', mode: 'read', label: 'Custom Scripts' });
+    assertFolderReference('scripts', handle, true);
     return this.enqueue(async () => {
       const files = await this.listFiles(handle, false);
       await this.commit([], handle, [], files);
-      this.publish({ permission: 'granted' });
+      confirmFolderReference('scripts');
+      this.publish({ permission: 'granted', errors: missingFolderFiles('scripts', files) });
     });
   }
   async reconnect() {
     this.assertControl();
     if (!this.handle) return this.choose();
+    assertFolderReference('scripts', this.handle);
     // requestPermission must be invoked while activation is available.
     const permission = await this.handle.requestPermission({ mode: 'read' });
     this.publish({ permission });
@@ -120,13 +128,14 @@ export class CustomScripts {
     this.assertControl();
     if (!folder) throw new Error('Link a scripts folder first.');
     const files = (await scanFolder(folder, { accepts: name => name.endsWith(SCRIPT_SUFFIX), limit: 100 })).map(entry => entry.name);
-    if (publish) this.publish({ files });
+    if (publish) this.publish({ files, errors: missingFolderFiles('scripts', files) });
     return files;
   }
   async create(name) {
     this.assertControl();
     if (typeof name !== 'string' || name.length > 128 || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*\.viz\.js$/.test(name)) throw new Error('Use a filename ending in .viz.js (letters, numbers, dots, hyphens, underscores).');
     const folder = this.handle;
+    assertFolderReference('scripts', folder);
     await requireFolderPermission(folder, 'readwrite', true);
     return this.enqueue(async () => {
       if (this.handle !== folder) throw new Error('Linked folder changed. Retry in the current folder.');
@@ -174,6 +183,7 @@ export class CustomScripts {
         // A file removed externally retires its patterns. Unopened files are never read.
       }
       await this.commit(sources, this.handle, changed, files);
+      this.publish({ errors: missingFolderFiles('scripts', files) });
     });
   }
   remove(name) {
@@ -183,6 +193,7 @@ export class CustomScripts {
       // Like media Remove: forget the loaded item, never touch its physical source.
       // Empty changed list also avoids re-evaluating unrelated last-good scripts.
       await this.commit(this.active.sources.filter((s) => s.name !== name), this.handle, []);
+      forgetFolderFile('scripts', name);
     });
   }
   unlink() {

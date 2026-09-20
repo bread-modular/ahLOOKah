@@ -18,7 +18,11 @@
 .nodes-palette input,.nodes-palette select { width:100%; }
 .nodes-palette > * { flex-shrink:0; }
 .nodes-palette > .btn:last-child { margin-top:8px; }
-.nodes-pattern-list { overflow:auto; flex:1; min-height:150px; margin-top:12px; }
+.nodes-pattern-list {
+  overflow:auto; flex:1; min-height:150px; margin-top:12px;
+  padding-inline-end:8px; scrollbar-gutter:stable;
+  scrollbar-width:thin; scrollbar-color:var(--border-gray) var(--panel-bg);
+}
 .nodes-pattern-list .btn { text-align:left; display:block; width:100%; margin-bottom:6px; white-space:normal; text-transform:none; letter-spacing:normal; font-weight:500; color:var(--text-main); }
 .nodes-pattern-list small { display:block; color:var(--text-dim); font-size:10px; margin-top:4px; }
 .nodes-inspector { border-left:1px solid var(--border-gray); }

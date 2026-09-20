@@ -179,12 +179,16 @@ export function createAppRuntime({
         let duplicate = false;
         for (const record of existing) {
           try {
-            if (record.handle && await record.handle.isSameEntry(source.handle)) { duplicate = true; break; }
+            if (record.handle && await record.handle.isSameEntry(source.handle)) {
+              if (source.folderName && record.folderName !== source.folderName) await putMediaRecord({ ...record, folderName: source.folderName });
+              duplicate = true; break;
+            }
           } catch { /* An unavailable old reference must not block new files. */ }
         }
         if (duplicate) continue;
-        if (loadMediaMeta().length >= 256) throw new Error('Media library: maximum 256 files');
-        const meta = { id: `m${crypto.randomUUID()}`, name: mediaDisplayName(source.name), kind: source.kind };
+        const restored = existing.find(record => !record.handle && record.folderName === source.folderName && record.fileName === source.name);
+        if (!restored && loadMediaMeta().length >= 256) throw new Error('Media library: maximum 256 files');
+        const meta = restored ? { id: restored.id, name: restored.name, kind: source.kind } : { id: `m${crypto.randomUUID()}`, name: mediaDisplayName(source.name), kind: source.kind };
         await putMediaRecord({ ...source, ...meta });
         existing.push({ ...source, ...meta });
         addMediaPattern(SKETCHES, meta);
@@ -3394,6 +3398,7 @@ export function createAppRuntime({
       if (summary.mediaRestored > 0) {
         details.push(`${summary.mediaRestored} media pattern${plural(summary.mediaRestored)} restored (files are not copied).`);
       }
+      if (summary.folderReferences) details.push('Relink each imported folder in its Linked details (or Relink Folder). Names are not directory identities. Open trusted scripts explicitly; files are never copied.');
       const unlinked = Array.isArray(summary.unlinkedMedia) ? summary.unlinkedMedia : [];
       // Cap the list so a large library cannot push the button off-screen.
       const shown = unlinked.slice(0, 8);

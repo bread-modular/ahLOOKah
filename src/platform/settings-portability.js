@@ -1,3 +1,5 @@
+import { collectFolderReferences, applyFolderReferences } from './folder-portability.js';
+import { sanitizeFolderReferences } from './folderReferences.js';
 // Settings export / import — move every persisted ahLOOKah setting from one
 // browser (or machine) to another as a single JSON file.
 //
@@ -67,6 +69,7 @@ function mediaEntryFromRecord(record) {
   if (!base) return null;
   return {
     ...base,
+    folderName: typeof record.folderName === 'string' && record.folderName.length <= 255 && !/[\\/\x00-\x1f]/.test(record.folderName) ? record.folderName : null,
     mime: typeof record.mime === 'string' ? record.mime.slice(0, 100) : '',
     size: Number.isFinite(record.size) ? record.size : null,
     addedAt: Number.isFinite(record.addedAt) ? record.addedAt : Date.now(),
@@ -76,8 +79,8 @@ function mediaEntryFromRecord(record) {
   };
 }
 
-// Snapshot everything the file should carry. Never throws: a storage failure
-// just yields a smaller export.
+// Snapshot persisted settings and portable library references. Folder storage
+// failures are reported rather than silently dropping recovery information.
 export async function collectSettings() {
   const storage = {};
   for (const key of SETTINGS_STORAGE_KEYS) {
@@ -101,6 +104,7 @@ export async function collectSettings() {
     exportedAt: new Date().toISOString(),
     storage,
     media,
+    folders: await collectFolderReferences(media),
   };
 }
 
@@ -169,7 +173,10 @@ export function parseSettingsFile(text) {
     media.push(clean);
   }
 
-  return { ok: true, payload: { storage, media } };
+  let folders;
+  try { folders = sanitizeFolderReferences(raw.folders); }
+  catch (error) { return { ok: false, error: error.message }; }
+  return { ok: true, payload: { storage, media, ...(folders ? { folders } : {}) } };
 }
 
 // Apply a validated payload. Replace semantics: the destination mirrors the
@@ -196,10 +203,11 @@ export async function applySettings(payload) {
     }
   }
 
+  await applyFolderReferences(payload.folders);
   await replaceMediaRecords(media);
   const unlinkedMedia = await listUnlinkedMedia();
 
-  return { storageWritten, storageRemoved, mediaRestored: media.length, unlinkedMedia };
+  return { storageWritten, storageRemoved, mediaRestored: media.length, unlinkedMedia, folderReferences: payload.folders || null };
 }
 
 // Media patterns whose file this browser cannot reach (no handle, no legacy

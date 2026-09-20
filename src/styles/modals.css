@@ -143,7 +143,7 @@
   color: var(--text-dim);
 }
 
-.device-setup-modal-field select {
+.device-setup-modal-field select:not(.control-select) {
   width: 100%;
   padding: 9px 12px;
   border: 1px solid var(--border-gray);

@@ -41,3 +41,10 @@ export async function scanFolder(handle, { accepts, limit = 256, onLimit } = {})
   }
   return entries.sort((a, b) => a.name.localeCompare(b.name));
 }
+
+// Resolve only a supported direct child; never accept paths from a UI/export.
+export async function linkedFile(handle, name, accepts) {
+  if (typeof name !== 'string' || !name || /[\\/]/.test(name) || !accepts(name)) throw new Error('Choose a supported file inside the linked folder.');
+  try { return await handle.getFileHandle(name); }
+  catch (error) { throw new Error(`${name}: ${error.message}. Refresh folder or Relink Folder.`); }
+}

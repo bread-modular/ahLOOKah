@@ -1,3 +1,4 @@
+import { folderReference } from '../../platform/folderReferences.js';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -17,7 +18,7 @@ export function useFolderAction() {
   return { busy, message, run, setMessage };
 }
 
-function FolderDetails({ label, folder, permission, note, busy, run, refresh, unlink, onClose, opener }) {
+function FolderDetails({ label, folder, permission, note, busy, run, link, refresh, unlink, onClose, opener }) {
   const dialog = useRef(null);
   const [error, setError] = useState('');
   useEffect(() => {
@@ -33,27 +34,30 @@ function FolderDetails({ label, folder, permission, note, busy, run, refresh, un
     <button className="device-setup-modal-close" aria-label="Close folder details" onClick={onClose}>×</button>
     <h2>{label}</h2>
     <p className="folder-details-name">{folder}</p>
-    <button className="btn btn--md" aria-label={`Copy folder name: ${folder}`} onClick={() => action(() => navigator.clipboard.writeText(folder))}>Copy folder name</button>
-    <p className="device-setup-modal-desc">Local folder · {permission || 'Access checked on refresh'}. The browser does not expose its full path.</p>
-    <p>{note}</p>
+    <p className="device-setup-modal-desc">Local folder · {permission || 'Read from disk'}</p>
+    <p className="device-setup-modal-desc">{note}</p>
+    <p className="device-setup-modal-desc">Full paths are private. Same-name folders must be verified by you.</p>
     {error && <p role="alert">{error}</p>}
     <div className="device-setup-modal-actions">
-      <button className="btn btn--md" disabled={busy} onClick={() => action(refresh)}>Refresh folder</button>
-      <button className="btn btn--md btn--danger" disabled={busy} onClick={() => action(async () => { await unlink(); onClose(); })}>Unlink folder</button>
+      <button className="btn btn--md" aria-label="Refresh folder" disabled={busy} onClick={() => action(refresh)}>Refresh</button>
+      <button className="btn btn--md" aria-label="Relink Folder" disabled={busy} onClick={() => action(link)}>Relink</button>
+      <button className="btn btn--md btn--danger" aria-label="Unlink folder" disabled={busy} onClick={() => action(async () => { await unlink(); onClose(); })}>Unlink</button>
     </div>
   </dialog>, document.body);
 }
 
 export function FolderControls({ label, folder, permission, note, busy, run, link, refresh, unlink, children }) {
+  const section = { 'Custom Scripts': 'scripts', 'Node Patterns': 'nodes', Media: 'media' }[label];
+  const expected = folderReference(section)?.folderName;
   const [details, setDetails] = useState(false);
   const opener = useRef(null);
   useEffect(() => { if (!folder) setDetails(false); }, [folder]);
   return <>
     {folder && <button ref={opener} className="btn folder-linked" aria-label={`${label}: Linked`} aria-haspopup="dialog" onClick={() => setDetails(true)}>Linked</button>}
     <span className="folder-actions">
-      {!folder && <button ref={opener} className="btn folder-link" disabled={busy} onClick={() => run(link)}>Link Folder</button>}
+      {!folder && <button ref={opener} className="btn folder-link" disabled={busy} onClick={() => run(link)}>{expected ? 'Relink Folder' : 'Link Folder'}</button>}
       {children}
     </span>
-    {details && folder && <FolderDetails {...{ label, folder, permission, note, busy, run, refresh, unlink, opener }} onClose={() => setDetails(false)} />}
+    {details && folder && <FolderDetails {...{ label, folder, permission, note, busy, run, link, refresh, unlink, opener }} onClose={() => setDetails(false)} />}
   </>;
 }

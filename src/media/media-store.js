@@ -1,3 +1,4 @@
+import { forgetFolderFile } from '../platform/folderReferences.js';
 // Persistence for user-supplied media patterns (images / videos).
 //
 // Design: NO file bytes are stored in IndexedDB. Only a tiny record is kept:
@@ -197,6 +198,7 @@ export async function putMediaRecord(record) {
     addedAt: record.addedAt || Date.now(),
     // Path-equivalent hint for settings export/relink: the file's name (the
     // File System Access API never exposes the full path).
+    folderName: record.folderName || null,
     fileName: record.fileName || record.handle?.name || record.file?.name || null,
     handle: record.handle || null,
     blob: record.file || null,
@@ -244,6 +246,7 @@ export async function deleteMediaRecord(id) {
   await withStore('readwrite', (store) => {
     store.delete(id);
   });
+  forgetFolderFile('media', id);
 }
 
 // Rename a persisted media record (display name only). Reads the stored
