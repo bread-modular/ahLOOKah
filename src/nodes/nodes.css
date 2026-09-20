@@ -1,6 +1,5 @@
 /* Graph-specific layout only; controls reuse .btn, Select, .control-input and
    .control-range from the main UI. Keep node/port geometry stable for wires. */
-.nodes-open { display:block; padding:10px; color:var(--accent); }
 .nodes-app { height:100vh; display:flex; flex-direction:column; background:var(--bg-dark); color:var(--text-main); font-size:13px; color-scheme:dark; }
 .nodes-app button { font-family:inherit; }
 .nodes-app :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }

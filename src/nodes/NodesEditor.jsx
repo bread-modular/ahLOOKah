@@ -1,3 +1,4 @@
+import { nodeEditorUrl } from './routes.js';
 import { Select } from '../components/control/Select.jsx';
 import { useEffect, useRef, useState } from 'react';
 import { SKETCHES } from '../sketch-registry.js';
@@ -6,7 +7,7 @@ import { PROJECTION_STORAGE_KEY, registerProjectionSketches } from '../projectio
 import { CustomScripts } from '../custom-scripts/service.js';
 import { MODES, newGraph, validateGraph, connect, deleteNode, inputs, DRAG_TYPE, readPatternDrag } from './model.js';
 import { GraphRuntime } from './runtime.js';
-import { listGraphs, nodePatterns, watchGraphs } from './repository.js';
+import { nodePatterns, watchGraphs } from './repository.js';
 import { manifestFor, sourceDiagnostics, serializeGraph } from './portability.js';
 import './nodes.css';
 
@@ -46,7 +47,9 @@ export function NodesEditor() {
   const { graph, dependencies } = draft;
   const [selected, setSelected] = useState('output'), [pending, setPending] = useState(null);
   const [query, setQuery] = useState(''), [message, setMessage] = useState('Draft only — live output is unchanged.');
-  const [library, setLibrary] = useState(listGraphs), [loadId, setLoadId] = useState(''), [revision, setRevision] = useState(0);
+  const [revision, setRevision] = useState(0);
+  const [routeId, setRouteId] = useState(() => new URLSearchParams(location.search).get('graph'));
+  const [loadState, setLoadState] = useState('loading');
   const drag = useRef(null);
   const [current, setCurrent] = useState(null), [busy, setBusy] = useState(false);
   const baseline = useRef(serializeGraph(newGraph(), []));
@@ -63,7 +66,7 @@ export function NodesEditor() {
   const label = n => n.type === 'pattern' ? SKETCHES.find(s => s.id === n.patternId)?.name || n.patternId : n.type === 'blend' ? 'Blend' : 'Output';
   useEffect(() => {
     const refresh = () => { setRevision(v => v + 1); };
-    const stop = watchGraphs(() => { setLibrary([...listGraphs()]); if (nodePatterns.errors.length) setMessage(nodePatterns.errors.join('; ')); });
+    const stop = watchGraphs(() => { if (nodePatterns.errors.length) setMessage(nodePatterns.errors.join('; ')); });
     const sync = event => {
       // Control/screen leases and LIVE parameter writes are NOT draft changes.
       if (event.key !== null && ![MEDIA_STORAGE_KEY, PROJECTION_STORAGE_KEY].includes(event.key)) return;
@@ -97,26 +100,48 @@ export function NodesEditor() {
   const remove = () => { if (!node || node.type === 'output') return; edit(deleteNode(graph, selected)); setSelected('output'); setPending(null); };
   function load(record) {
     const data = { graph: structuredClone(record.graph), dependencies: structuredClone(record.dependencies || []) };
-    setDraft(data); setCurrent(record); setLoadId(record.id); baseline.current = serializeGraph(data.graph, data.dependencies);
+    setDraft(data); setCurrent(record); baseline.current = serializeGraph(data.graph, data.dependencies);
     setSelected('output'); setPending(null); setMessage(`Opened ${record.fileName} from disk. Draft edits are not saved until Save.`);
+  }
+  // Resolve exactly this ID after restoring shared handles. Never fall back to
+  // another record (or an editable empty graph) if disk access fails.
+  async function resolveRoute(requestAccess = false) {
+    setLoadState('loading');
+    try {
+      if (requestAccess) await nodePatterns.reconnect();
+      else await nodePatterns.refresh();
+      if (routeId !== null) {
+        const record = nodePatterns.records.find(r => r.id === routeId);
+        if (!record) throw new Error(`Node pattern not found or unavailable. ${nodePatterns.errors.join('; ')} Return to Node Patterns in the main UI to link or open its file.`);
+        load(record);
+      }
+      setLoadState('ready');
+    } catch (e) { setMessage(e.message); setLoadState('error'); }
+  }
+  useEffect(() => { resolveRoute(); }, []);
+  function updateRoute(id) {
+    history.replaceState(null, '', nodeEditorUrl(id));
+    setRouteId(id ?? null);
   }
   useEffect(() => {
     const warn = e => { if (dirty()) { e.preventDefault(); e.returnValue = ''; } };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [draft]);
+  if (loadState !== 'ready') return <main className="nodes-app">
+    <header className="nodes-toolbar"><h1>Nodes</h1><a href="/" target="_blank" rel="noopener">Main pattern library ↗</a></header>
+    {loadState === 'loading' ? <p role="status">Loading selected node pattern from disk…</p> : <section role="alert"><p>{message}</p><button className="btn" onClick={() => resolveRoute(true)}>Retry loading</button></section>}
+  </main>;
   return <main className="nodes-app">
     <header className="nodes-toolbar"><h1>Nodes <small>Pattern compositor</small></h1>
       <input className="control-input" aria-label="Graph name" disabled={busy} value={graph.name} maxLength={80} onChange={e => setDraft({ ...draft, graph: { ...graph, name: e.target.value } })} />
-      <button className="btn" disabled={busy} onClick={() => { if (!discard()) return; const next = { graph: newGraph(), dependencies: [] }; setDraft(next); baseline.current = serializeGraph(next.graph, []); setCurrent(null); setSelected('output'); setPending(null); setMessage('New unsaved draft.'); }}>New draft</button>
-      <button className="btn" disabled={busy} onClick={() => diskAction(async () => { await nodePatterns.link(); setMessage(`Linked ${nodePatterns.state.folder.handle.name}. ${nodePatterns.errors.join('; ')}`); })}>Link Folder</button>
+      <button className="btn" disabled={busy} onClick={() => { if (!discard()) return; const next = { graph: newGraph(), dependencies: [] }; setDraft(next); baseline.current = serializeGraph(next.graph, []); setCurrent(null); setSelected('output'); setPending(null); setMessage('New unsaved draft.'); updateRoute(); }}>New draft</button>
       <button className="btn btn--solid" disabled={busy} onClick={() => diskAction(async () => {
         const errors = sourceDiagnostics(graph, SKETCHES, dependencies); if (errors.length) throw new Error(errors.join('; '));
         const record = await nodePatterns.save(graph, dependencies, current);
-        setCurrent(record); setLoadId(record.id); baseline.current = serializeGraph(graph, dependencies);
+        setCurrent(record); baseline.current = serializeGraph(graph, dependencies); updateRoute(record.id);
         setMessage(`Saved ${graph.name} to ${record.fileName}. Select it in the main pattern library.`);
       })}>Save</button>
-      <button className="btn" disabled={busy} onClick={() => { if (discard()) diskAction(async () => load(await nodePatterns.open())); }}>Open pattern</button>
       <a href="/docs/nodes.html" target="_blank" rel="noopener">Help ↗</a>
     </header>
     <div className="nodes-status" role="status">{message}</div>
@@ -124,10 +149,10 @@ export function NodesEditor() {
       <aside className="nodes-palette"><h2>Pattern palette</h2><input className="control-input" aria-label="Search patterns" placeholder="Search patterns…" value={query} onChange={e => setQuery(e.target.value)} />
         <p>Drag into the workspace or click to add.</p><button className="btn" onClick={() => add()}>+ Blend</button>
         <div className="nodes-pattern-list">{SKETCHES.filter(s => !s.nodesGraph && `${s.name} ${s.group}`.toLowerCase().includes(query.toLowerCase())).map(s => <button className="btn" key={s.id} draggable onDragStart={e => { e.dataTransfer.effectAllowed = 'copy'; e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ version: 1, patternId: s.id })); }} onClick={() => add(s.id)}><span>{s.name}</span><small>{s.group}{s.camera ? ' · Output camera' : ''}</small></button>)}</div>
-        <h2>Folder library</h2><p>{nodePatterns.state.folder?.handle.name || 'No folder linked'} · {current?.fileName || 'Unsaved draft'}</p>
-        <Select aria-label="Saved graph" value={loadId} onChange={e => setLoadId(e.target.value)}><option value="">Choose pattern…</option>{library.map(r => <option key={r.id} value={r.id}>{r.graph.name} · {r.fileName}</option>)}</Select>
-        <button className="btn" disabled={busy || !loadId} onClick={() => { if (discard()) diskAction(async () => load(await nodePatterns.load(loadId))); }}>Load pattern</button>
-        <button className="btn" disabled={busy} onClick={() => diskAction(async () => { await nodePatterns.reconnect(); setMessage(nodePatterns.errors.join('; ') || 'Folder library refreshed from disk.'); })}>Refresh folder</button>
+        <p>{current?.fileName || 'Unsaved draft'}</p>
+        <p>Manage folders and files in Node Patterns in the main UI.</p>
+        <a href="/" target="_blank" rel="noopener">Main pattern library ↗</a>
+        {current && <button className="btn" disabled={busy} onClick={() => { if (discard()) diskAction(async () => { await nodePatterns.reconnect(); load(await nodePatterns.load(current.id)); }); }}>Reload from disk</button>}
       </aside>
       <section className="nodes-workspace" aria-label="Graph workspace" tabIndex={0} onKeyDown={e => {
         if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;

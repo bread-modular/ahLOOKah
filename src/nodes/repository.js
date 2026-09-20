@@ -130,7 +130,8 @@ export class NodePatterns {
     parseGraph(text);
     if (new TextEncoder().encode(text).length > MAX_BYTES) throw new Error('Pattern exceeds 200 KB');
     const folder = this.state.folder;
-    if (!folder) throw new Error('Link a node patterns folder first.');
+    if (!folder) throw new Error('Link a node patterns folder in the main UI first.');
+    if (current?.folderId && current.folderId !== folder.id) throw new Error('Linked folder changed. Reopen the pattern from the main library before saving; your draft is retained.');
     await permission(folder.handle, 'readwrite', true);
     const fileName = current?.folderId === folder.id ? current.fileName
       : (graph.name.replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-|-$/g, '').slice(0, 70) || 'pattern') + SUFFIX;

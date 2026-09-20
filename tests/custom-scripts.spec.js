@@ -269,7 +269,7 @@ test('Custom Scripts @core selection modal, parameter actions, path copy, unlink
   await expect(panel.getByRole('button')).toHaveCount(1);
   await expect(panel.getByRole('button', { name: 'Link Folder' })).toBeVisible();
   await panel.screenshot({ path: testInfo.outputPath('unlinked.png') });
-  await page.getByRole('button', { name: 'Link Folder', exact: true }).click();
+  await page.locator('#library-section-Custom-Scripts').getByRole('button', { name: 'Link Folder', exact: true }).click();
   await expect(page.locator('[data-id="custom-demo"]')).toHaveCount(0);
   await expect(page.getByRole('button', { name: /create script/i })).toHaveCount(0);
   await expect(panel.getByRole('button', { name: 'Copy folder name: scripts' })).toHaveAttribute('title', /Chrome does not expose the absolute native path/);
@@ -475,7 +475,7 @@ test('Custom Scripts @core unlink disposes live and preview in all windows and l
   await output.reload();
   await expect.poll(() => output.evaluate(async () => (await import('/src/sketch-registry.js')).SKETCHES.filter((s) => s.customScript).length)).toBe(0);
   await page.reload();
-  await expect(page.getByRole('button', { name: 'Link Folder' })).toBeVisible();
+  await expect(page.locator('#library-section-Custom-Scripts').getByRole('button', { name: 'Link Folder' })).toBeVisible();
 });
 
 test('Custom Scripts @core failed Open stays in modal, preserves selection and supports retry', async ({ page }) => {
@@ -518,11 +518,11 @@ test('Custom Scripts @core legacy autoload snapshots do not execute; long folder
   await expect(page.locator('[data-id="custom-demo"]')).toHaveCount(0);
   // Test the established narrow library content floor, without changing saved pane settings.
   await page.locator('.custom-scripts-panel').evaluate((el) => { el.style.width = '210px'; });
-  const box = await page.locator('.script-folder-row').boundingBox();
+  const box = await page.locator('#library-section-Custom-Scripts .script-folder-row').boundingBox();
   const close = await page.getByRole('button', { name: 'Unlink scripts folder' }).boundingBox();
   expect(close.x + close.width).toBeLessThanOrEqual(box.x + box.width + 1);
   expect(await folder.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
   await page.getByRole('button', { name: 'Unlink scripts folder' }).click();
   await page.reload();
-  await expect(page.getByRole('button', { name: 'Link Folder' })).toBeVisible();
+  await expect(page.locator('#library-section-Custom-Scripts').getByRole('button', { name: 'Link Folder' })).toBeVisible();
 });

@@ -7,7 +7,7 @@ import { test, expect } from '@playwright/test';
 // (`viz2_library_favourites`, alongside `viz2_library_collapsed`), so every test
 // starts from the empty profile Playwright gives each context. The library keeps
 // rendering all 71 patterns when nothing is favourited — only the Favourites
-// mirror adds rows — which keeps the existing "12 groups / 71 items" assertions
+// mirror adds rows — which keeps the existing "13 groups / 71 items" assertions
 // in control-panel.spec.js valid.
 
 const SCREEN_URL = '/?role=screen';
@@ -29,7 +29,7 @@ function search(control) {
 test.describe('pattern library search', () => {
   test('filters by name, reports the match count, and clearing restores every group', async ({ context }) => {
     const control = await openControl(context);
-    await expect(control.locator('.library-group')).toHaveCount(12);
+    await expect(control.locator('.library-group')).toHaveCount(13);
 
     await search(control).fill('membrane modes');
     await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(1);
@@ -58,7 +58,7 @@ test.describe('pattern library search', () => {
 
     await control.locator('#library-search-clear').click();
     await expect(search(control)).toHaveValue('');
-    await expect(control.locator('.library-group')).toHaveCount(12);
+    await expect(control.locator('.library-group')).toHaveCount(13);
     await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(71);
     await expect(control.locator('.library-search-status')).toHaveCount(0);
     await expect(control.locator('.library-empty')).toHaveCount(0);
@@ -154,7 +154,7 @@ test.describe('pattern library search', () => {
 
     await control.locator('.library-empty-clear').click();
     await expect(search(control)).toHaveValue('');
-    await expect(control.locator('.library-group')).toHaveCount(12);
+    await expect(control.locator('.library-group')).toHaveCount(13);
     await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(71);
   });
 
@@ -247,11 +247,11 @@ test.describe('pattern library favourites', () => {
     await expect(favouritesStar).toHaveText('★');
     // The pattern stays in its own group as well.
     await expect(control.locator('#library-section-Simple [data-id="circles"]')).toBeVisible();
-    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(92);
+    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(72);
     expect(await control.evaluate((key) => localStorage.getItem(key), FAVOURITES_KEY)).toBe('["circles"]');
 
     await control.reload();
-    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(92);
+    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(72);
     await expect(control.locator('.library-group').first().locator('.library-group-toggle')).toHaveText('Favourites');
     await expect(control.locator('#library-section-Favourites [data-id="circles"]')).toBeVisible();
 

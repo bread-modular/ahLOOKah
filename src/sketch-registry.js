@@ -1,3 +1,4 @@
+import { NODE_PATTERNS_GROUP } from './nodes/routes.js';
 // Shared registry of all visualization sketches.
 // Used by the screen window (to load sketches) and the control panel (to render buttons).
 //
@@ -1130,12 +1131,13 @@ export const GROUP_ORDER = [
   'Media',
   'Projection Mapping',
   'Custom Scripts',
+  NODE_PATTERNS_GROUP,
 ];
 
 // Group names present in SKETCHES, in GROUP_ORDER (unknown groups appended).
 // 'Media' is always present: it hosts the add-media control even before the
 // user has loaded any media patterns.
-const ALWAYS_PRESENT_GROUPS = new Set(['Media', 'Projection Mapping', 'Custom Scripts']);
+const ALWAYS_PRESENT_GROUPS = new Set(['Media', 'Projection Mapping', 'Custom Scripts', NODE_PATTERNS_GROUP]);
 
 export function getGroups() {
   const present = [];

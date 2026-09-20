@@ -1,3 +1,4 @@
+import { NodePatternEdit } from './NodePatternsPanel.jsx';
 import { useEffect, useRef, useState } from 'react';
 import { ScriptFileControls } from './CustomScriptsPanel.jsx';
 import { PerformanceBudget } from './PerformanceBudget.jsx';
@@ -129,6 +130,7 @@ function EffectParams({ currentPattern, currentPatternId, getValue, changeParam,
     <>
       <PerformanceBudget patternId={currentPatternId} scope={scope} />
       {rows}
+      <NodePatternEdit sketch={sketch} />
       {sketch?.customScript && <ScriptFileControls key={sketch.customScript} file={sketch.customScript} locked={locked} />}
       {sketch?.media && (
         <div className="media-manage-row">
@@ -236,6 +238,7 @@ function MergePatternParams({ patternId, slotLabel, name, getValue, changeParam,
 
   return (
     <section className="merge-pattern-params" data-pattern-id={patternId} aria-label={`${name} parameters`}>
+      <NodePatternEdit sketch={sketch} />
       <div className="merge-pattern-header">
         <span className="merge-pattern-slot">{slotLabel}</span>
         <span className="merge-pattern-name">{name}</span>

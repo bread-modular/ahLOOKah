@@ -372,11 +372,14 @@ Scripts are trusted JavaScript, **not a sandbox**. The complete tutorial is
 
 ## Node graph patterns
 
-Open **Open Nodes editor ↗** above the pattern library, or navigate to
+Choose **New Node Pattern ↗** in the main **Node Patterns** category, or navigate to
 `?role=nodes`. The dependency-free React/DOM + SVG editor composes source pixels
-through chained Blend nodes. **Link Folder**, **Save**, **Open pattern** and
-**Refresh folder** use disk-authoritative `.nodes.json` patterns, selectable as
-**Node Graphs** across same-origin tabs. Browser storage holds handles only;
+through chained Blend nodes. The main **Node Patterns** category owns **Link Folder**,
+**Open Pattern**, **Refresh folder**, and **New Node Pattern**. Select a graph, then
+use the sidebar’s **Edit Pattern** to open a separate tab at `/?role=nodes&graph=<id>`.
+The editor reads that exact disk graph via shared handles, reports unavailable files
+without a fallback, and focuses on editing, **Save**, and **Reload from disk**.
+Disk-authoritative `.nodes.json` patterns stay synchronized across same-origin tabs. Browser storage holds handles only;
 drafts stay in memory. Confirmed overwrites update selected patterns, while
 unsaved edits never change LIVE. See the [Nodes guide](public/docs/nodes.html) for connections,
 shortcuts, source support, JSON dependency manifests and resource limits.

@@ -57,16 +57,16 @@ test.describe('control panel window', () => {
     await expect(control.locator('#pattern-pad [data-index="0"]')).toHaveAttribute('data-id', 'circles');
     await expect(control.locator('#pattern-pad [data-index="9"]')).toHaveAttribute('data-id', 'laser-grid');
 
-    // Library: all 71 patterns grouped under 12 headers (including
+    // Library: all 71 patterns grouped under 13 headers (including
     // camera-input Video FX effects surfaced in the library; Media, Projection
-    // Mapping and Custom Scripts groups are always present and start empty).
+    // Mapping, Custom Scripts and Node Patterns groups are always present and start empty).
     const items = control.locator('#pattern-library .pattern-btn');
     await expect(items).toHaveCount(71);
     const headers = control.locator('.library-group-header');
-    await expect(headers).toHaveCount(12);
+    await expect(headers).toHaveCount(13);
     await expect(headers.locator('.library-group-toggle span')).toHaveText([
       'Simple', 'Rhythmic', '3D', 'Cinematic / Shaders', 'Neon / Lasers',
-      'Video FX', 'Glitch / Effects', 'Basics', 'Alphas', 'Media', 'Projection Mapping', 'Custom Scripts',
+      'Video FX', 'Glitch / Effects', 'Basics', 'Alphas', 'Media', 'Projection Mapping', 'Custom Scripts', 'Node Patterns',
     ]);
     await expect(control.locator('#library-section-Simple .pattern-name')).toHaveText([
       'Circles', 'Bars', 'Checkerboard', 'Truchet Relay',
@@ -80,7 +80,7 @@ test.describe('control panel window', () => {
     ]);
     // The Media group always renders its add-media control, even when empty.
     await expect(control.locator('.media-add-btn')).toHaveCount(1);
-    await expect(headers.last().locator('span')).toHaveText('Custom Scripts');
+    await expect(headers.last().locator('span')).toHaveText('Node Patterns');
     await expect(control.getByRole('button', { name: 'Add projection mapping pattern' })).toHaveCount(1);
 
     // The Video FX group lists all 12 camera effects (8 + 2 new + 2 restored),
@@ -331,7 +331,7 @@ test.describe('pattern pad + library interactions', () => {
     // The section stays mounted (hidden) so aria-controls keeps resolving
     await expect(control.locator('#pattern-library [data-id="echo-ripples"]')).toBeHidden();
     await expect(control.locator('#pattern-library [data-id="glitch-matrix"]')).toBeVisible();
-    await expect(control.locator('.library-group-toggle')).toHaveCount(12);
+    await expect(control.locator('.library-group-toggle')).toHaveCount(13);
 
     // The Media group header (toggle + Add media) stays usable alongside:
     // both keep positive, non-overlapping hit areas inside the header row.
@@ -373,7 +373,7 @@ test.describe('pattern pad + library interactions', () => {
     await control.reload();
 
     // Malformed data falls back to "everything expanded"
-    await expect(control.locator('.library-group-header')).toHaveCount(12);
+    await expect(control.locator('.library-group-header')).toHaveCount(13);
     await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(71);
     await expect(control.locator('.library-group-toggle').first()).toHaveAttribute('aria-expanded', 'true');
   });

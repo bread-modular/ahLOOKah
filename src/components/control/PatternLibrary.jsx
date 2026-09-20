@@ -1,3 +1,5 @@
+import { NodePatternsPanel } from './NodePatternsPanel.jsx';
+import { NODE_PATTERNS_GROUP } from '../../nodes/routes.js';
 import { CustomScriptsPanel } from './CustomScriptsPanel.jsx';
 import { PerformanceBudget } from './PerformanceBudget.jsx';
 import { useRef, useState } from 'react';
@@ -92,7 +94,7 @@ export function PatternLibrary() {
     const isMediaGroup = group === MEDIA_GROUP;
     // The Media group always renders so new files can be added even before
     // any media pattern exists.
-    if (sketchesInGroup.length === 0 && !isMediaGroup && !isProjectionGroup && group !== 'Custom Scripts') continue;
+    if (sketchesInGroup.length === 0 && !isMediaGroup && !isProjectionGroup && group !== 'Custom Scripts' && group !== NODE_PATTERNS_GROUP) continue;
     const sketches = filterSketches(sketchesInGroup, terms);
     if (searching && sketches.length === 0) continue;
     matchCount += sketches.length;
@@ -172,7 +174,6 @@ export function PatternLibrary() {
 
   return (
     <>
-      <a className="nodes-open" href="?role=nodes" target="_blank" rel="noopener">Open Nodes editor ↗</a>
       <LibrarySearch
         value={query}
         onChange={setQuery}
@@ -251,6 +252,7 @@ export function PatternLibrary() {
                 hidden={collapsed}
               >
                 {group === 'Custom Scripts' && <CustomScriptsPanel />}
+                {group === NODE_PATTERNS_GROUP && <NodePatternsPanel />}
                 {isMediaGroup && sketches.length === 0 && (
                   <div className="media-empty">No media loaded — add an image or video file.</div>
                 )}

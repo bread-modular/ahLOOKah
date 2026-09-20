@@ -20,7 +20,7 @@ const graph = () => ({ version: 1, name: 'Neon composite', nodes: [
   { id: 'mix', type: 'blend', x: 330, y: 170, mode: 'Screen', opacity: 1 },
   { id: 'output', type: 'output', x: 620, y: 170 },
 ], edges: [{ from: 'red', to: 'mix', port: 'base' }, { from: 'green', to: 'mix', port: 'layer' }, { from: 'mix', to: 'output', port: 'image' }] });
-async function openFixture(page, data = graph()) {
+async function seedFixture(page, data = graph()) {
   const file = await page.evaluate(async graph => {
     const { SKETCHES } = await import('/src/sketch-registry.js');
     const { manifestFor, serializeGraph } = await import('/src/nodes/portability.js');
@@ -33,9 +33,14 @@ async function openFixture(page, data = graph()) {
     window.showDirectoryPicker = async () => dir;
     window.showOpenFilePicker = async () => [handle];
   }, file);
-  await page.getByRole('button', { name: 'Link Folder', exact: true }).click();
-  await expect(page.locator('.nodes-status')).toContainText('Linked');
-  await page.getByRole('button', { name: 'Open pattern', exact: true }).click();
+}
+async function openFixture(page, data = graph()) {
+  await seedFixture(page, data);
+  const id = await page.evaluate(async () => {
+    const { nodePatterns } = await import('/src/nodes/repository.js');
+    await nodePatterns.link(); return (await nodePatterns.open()).id;
+  });
+  await page.goto(`/?role=nodes&graph=${encodeURIComponent(id)}`);
   await expect(page.getByLabel('Graph name')).toHaveValue(data.name);
 
 }
@@ -126,17 +131,13 @@ test('disk persistence, stable overwrite, reload and isolated drafts across tabs
   await expect(page.locator('.nodes-status')).toContainText('Saved Neon composite');
   const second = await context.newPage(); await second.goto('/?role=nodes');
   await expect(second.getByLabel('Graph name')).toHaveValue('Untitled graph');
-  await expect(second.getByLabel('Saved graph').locator('option')).toHaveCount(2);
+  await expect.poll(() => recordNames(second)).toHaveLength(1);
   await page.getByLabel('Graph name').fill('Disk update');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(second.getByLabel('Saved graph').locator('option')).toHaveCount(2);
-  await expect(second.getByLabel('Saved graph')).toContainText('Disk update');
+  await expect.poll(() => recordNames(second)).toHaveLength(1);
+  await expect.poll(() => recordNames(second)).toContain('Disk update');
+  await expect(second.getByLabel('Graph name')).toHaveValue('Untitled graph');
   await page.reload();
-  await expect(page.getByLabel('Graph name')).toHaveValue('Untitled graph');
-  await expect(page.getByLabel('Saved graph')).toContainText('Disk update');
-  const id = await page.getByLabel('Saved graph').locator('option').nth(1).getAttribute('value');
-  await page.getByLabel('Saved graph').selectOption(id);
-  await page.getByRole('button', { name: 'Load pattern', exact: true }).click();
   await expect(page.getByLabel('Graph name')).toHaveValue('Disk update');
   await expect.poll(() => pixel(page)).toEqual([255, 255, 0, 255]);
   expect(await page.evaluate(() => Object.keys(localStorage).some(k => k.startsWith('viz2_nodes_v1:')))).toBe(false);
@@ -147,7 +148,7 @@ test('main link opens isolated editor; saved graph is selectable on real output;
   test.setTimeout(60000);
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.goto('/');
-  const opened = context.waitForEvent('page'); await page.getByRole('link', { name: 'Open Nodes editor' }).click();
+  const opened = context.waitForEvent('page'); await page.getByRole('link', { name: 'New Node Pattern' }).click();
   const editor = await opened; await editor.waitForURL('**/?role=nodes');
   expect(await editor.evaluate(() => Boolean(window.__viz))).toBe(false);
   await openFixture(editor); await editor.getByRole('button', { name: 'Save' }).click();
@@ -178,7 +179,7 @@ test('main link opens isolated editor; saved graph is selectable on real output;
     const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('node-patterns');
     await dir.removeEntry('neon.nodes.json');
   });
-  await editor.getByRole('button', { name: 'Refresh folder', exact: true }).click();
+  await page.getByRole('region', { name: 'Node pattern files' }).getByRole('button', { name: 'Refresh folder' }).click();
   await expect(button).toHaveCount(0);
   await screen.waitForFunction(id => window.__viz.patternId !== id, id);
   expect(errors).toEqual([]);
@@ -321,7 +322,8 @@ test('editor shares main theme and control chrome without changing draft gesture
   await page.goto('/?role=nodes'); await openFixture(page);
   await expect.poll(() => pixel(page)).toEqual([255, 255, 0, 255]);
   await expect(page.getByRole('button', { name: 'Save' })).toHaveClass('btn btn--solid');
-  await expect(page.getByLabel('Saved graph')).toHaveClass('control-select');
+  await expect(page.getByLabel('Saved graph')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Link Folder|Open Pattern|Refresh folder/i })).toHaveCount(0);
   await expect(page.getByLabel('Search patterns')).toHaveClass('control-input');
   await page.getByRole('button', { name: 'Select Blend', exact: true }).click();
   await expect(page.getByRole('slider', { name: 'Opacity' })).toHaveClass('control-range');
@@ -389,7 +391,7 @@ test('new drafts save in linked folder, collision cancellation and failed writes
   await page.getByLabel('Graph name').fill('Fresh pattern');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.locator('.nodes-status')).toContainText('Fresh-pattern.nodes.json');
-  await expect(page.getByLabel('Saved graph').locator('option')).toHaveCount(3);
+  await expect.poll(() => recordNames(page)).toHaveLength(2);
   const saved = await page.evaluate(async () => {
     const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('node-patterns');
     return JSON.parse(await (await (await dir.getFileHandle('Fresh-pattern.nodes.json')).getFile()).text());
@@ -399,11 +401,7 @@ test('new drafts save in linked folder, collision cancellation and failed writes
 
 test('stale drafts cannot overwrite another tab; refresh retires deleted disk patterns', async ({ page, context }) => {
   await page.goto('/?role=nodes'); await openFixture(page);
-  const second = await context.newPage(); await second.goto('/?role=nodes');
-  await expect(second.getByLabel('Saved graph').locator('option')).toHaveCount(2);
-  const id = await second.getByLabel('Saved graph').locator('option').nth(1).getAttribute('value');
-  await second.getByLabel('Saved graph').selectOption(id);
-  await second.getByRole('button', { name: 'Load pattern', exact: true }).click();
+  const second = await context.newPage(); await second.goto(page.url());
   await expect(second.getByLabel('Graph name')).toHaveValue('Neon composite');
   await page.getByLabel('Graph name').fill('First writer');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
@@ -417,38 +415,32 @@ test('stale drafts cannot overwrite another tab; refresh retires deleted disk pa
     const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('node-patterns');
     await dir.removeEntry('neon.nodes.json');
   });
-  await page.getByRole('button', { name: 'Refresh folder', exact: true }).click();
-  await expect(page.getByLabel('Saved graph').locator('option')).toHaveCount(1);
-  await expect(second.getByLabel('Saved graph').locator('option')).toHaveCount(1);
-  await page.reload(); await expect(page.getByLabel('Saved graph').locator('option')).toHaveCount(1);
+  await page.evaluate(async () => (await import('/src/nodes/repository.js')).nodePatterns.reconnect());
+  await expect.poll(() => recordNames(page)).toHaveLength(0);
+  await expect.poll(() => recordNames(second)).toHaveLength(0);
+  await page.reload(); await expect.poll(() => recordNames(page)).toHaveLength(0);
 });
 
-test('denied and expired permissions require a gesture; cancellation and unsupported pickers retain draft', async ({ page }) => {
+test('denied save preserves draft; main pickers cancel or report unsupported', async ({ page, context }) => {
   await page.goto('/?role=nodes'); await openFixture(page);
   const before = await diskText(page);
   await page.evaluate(() => { window.__permission = 'denied'; window.__requestPermission = 'denied'; });
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.locator('.nodes-status')).toContainText('Permission denied');
   expect(await diskText(page)).toBe(before);
-  await page.getByRole('button', { name: 'Refresh folder', exact: true }).click();
-  await expect(page.getByLabel('Saved graph').locator('option')).toHaveCount(1);
-  await page.evaluate(() => { window.__permission = 'prompt'; window.__requestPermission = 'granted'; });
-  await page.getByRole('button', { name: 'Refresh folder', exact: true }).click();
-  await expect(page.getByLabel('Saved graph').locator('option')).toHaveCount(2);
-  expect(await page.evaluate(() => window.__permission)).toBe('granted');
-  await page.evaluate(() => {
-    window.showDirectoryPicker = window.showOpenFilePicker = async () => { throw new DOMException('Canceled', 'AbortError'); };
-  });
-  for (const name of ['Link Folder', 'Open pattern']) {
-    await page.getByRole('button', { name, exact: true }).click();
-    await expect(page.locator('.nodes-status')).toContainText('Canceled');
-    await expect(page.getByLabel('Graph name')).toHaveValue('Neon composite');
+  const main = await context.newPage(); await main.goto('/');
+  const panel = main.getByRole('region', { name: 'Node pattern files' });
+  await main.evaluate(() => { window.showDirectoryPicker = window.showOpenFilePicker = async () => { throw new DOMException('Canceled', 'AbortError'); }; });
+  for (const name of ['Link Folder', 'Open Pattern']) {
+    await panel.getByRole('button', { name, exact: true }).click();
+    await expect(panel).toContainText('Canceled');
   }
-  await page.evaluate(() => { window.showDirectoryPicker = undefined; window.showOpenFilePicker = undefined; });
-  for (const name of ['Link Folder', 'Open pattern']) {
-    await page.getByRole('button', { name, exact: true }).click();
-    await expect(page.locator('.nodes-status')).toContainText('desktop Chrome');
+  await main.evaluate(() => { window.showDirectoryPicker = undefined; window.showOpenFilePicker = undefined; });
+  for (const name of ['Link Folder', 'Open Pattern']) {
+    await panel.getByRole('button', { name, exact: true }).click();
+    await expect(panel).toContainText('desktop Chrome');
   }
+  await expect(page.getByLabel('Graph name')).toHaveValue('Neon composite');
 });
 
 test('outside picker files survive reload; invalid and oversized files never replace draft', async ({ page, context }) => {
@@ -462,15 +454,13 @@ test('outside picker files survive reload; invalid and oversized files never rep
     await writer.write(JSON.stringify(data)); await writer.close();
     window.showOpenFilePicker = async () => [handle];
   }, before);
-  await page.getByRole('button', { name: 'Open pattern', exact: true }).click();
+  const outsideId = await page.evaluate(async () => (await (await import('/src/nodes/repository.js')).nodePatterns.open()).id);
+  await page.goto(`/?role=nodes&graph=${outsideId}`);
   await expect(page.getByLabel('Graph name')).toHaveValue('Outside pattern');
   const main = await context.newPage(); await main.goto('/');
   await expect(main.locator('.library-btn').filter({ hasText: 'Outside pattern' })).toBeVisible();
   await page.reload();
-  await expect(page.getByLabel('Saved graph').locator('option')).toHaveCount(3);
-  const id = await page.getByLabel('Saved graph').locator('option').filter({ hasText: 'Outside pattern' }).getAttribute('value');
-  await page.getByLabel('Saved graph').selectOption(id);
-  await page.getByRole('button', { name: 'Load pattern', exact: true }).click();
+  await expect.poll(() => recordNames(page)).toHaveLength(2);
   await expect(page.getByLabel('Graph name')).toHaveValue('Outside pattern');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.locator('.nodes-status')).toContainText('Outside-pattern.nodes.json');
@@ -481,8 +471,8 @@ test('outside picker files survive reload; invalid and oversized files never rep
       const writer = await handle.createWritable(); await writer.write(text); await writer.close();
       window.showOpenFilePicker = async () => [handle];
     }, text);
-    await page.getByRole('button', { name: 'Open pattern', exact: true }).click();
-    await expect(page.locator('.nodes-status')).toContainText(message);
+    const error = await page.evaluate(async () => { try { await (await import('/src/nodes/repository.js')).nodePatterns.open(); } catch (e) { return e.message; } });
+    expect(error).toContain(message);
     await expect(page.getByLabel('Graph name')).toHaveValue('Outside pattern');
   }
 });
@@ -495,11 +485,11 @@ test('background reload never prompts; disk is reread rather than stale browser 
     FileSystemHandle.prototype.requestPermission = async () => { window.__requests++; window.__permission = 'granted'; return 'granted'; };
   });
   await page.reload();
-  await expect(page.locator('.nodes-status')).toContainText('Permission denied or expired');
-  await expect(page.getByLabel('Saved graph').locator('option')).toHaveCount(1);
+  await expect(page.getByRole('alert')).toContainText('Permission denied or expired');
+  await expect.poll(() => recordNames(page)).toHaveLength(0);
   expect(await page.evaluate(() => window.__requests)).toBe(0);
-  await page.getByRole('button', { name: 'Refresh folder', exact: true }).click();
-  await expect(page.getByLabel('Saved graph').locator('option')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Retry loading' }).click();
+  await expect.poll(() => recordNames(page)).toHaveLength(1);
   expect(await page.evaluate(() => window.__requests)).toBe(1);
   await page.evaluate(async () => {
     const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('node-patterns');
@@ -507,8 +497,8 @@ test('background reload never prompts; disk is reread rather than stale browser 
     const data = JSON.parse(await (await handle.getFile()).text()); data.graph.name = 'External edit';
     const writer = await handle.createWritable(); await writer.write(JSON.stringify(data)); await writer.close();
   });
-  await page.getByRole('button', { name: 'Refresh folder', exact: true }).click();
-  await expect(page.getByLabel('Saved graph')).toContainText('External edit');
+  await page.getByRole('button', { name: 'Reload from disk' }).click();
+  await expect(page.getByLabel('Graph name')).toHaveValue('External edit');
 });
 
 test('folder switch is atomic on storage failure and successful switch keeps files intact', async ({ page }) => {
@@ -522,13 +512,96 @@ test('folder switch is atomic on storage failure and successful switch keeps fil
     nodePatterns.store = async function (key, value) { if (arguments.length > 1) throw Error('Mock storage quota'); return store(key); };
     window.__restoreStore = () => { nodePatterns.store = store; };
   });
-  await page.getByRole('button', { name: 'Link Folder', exact: true }).click();
-  await expect(page.locator('.nodes-status')).toContainText('Mock storage quota');
-  await expect(page.getByLabel('Saved graph').locator('option')).toHaveCount(2);
+  expect(await page.evaluate(async () => { try { await (await import('/src/nodes/repository.js')).nodePatterns.link(); } catch (e) { return e.message; } })).toContain('Mock storage quota');
+  await expect.poll(() => recordNames(page)).toHaveLength(1);
   await page.evaluate(() => window.__restoreStore());
-  await page.getByRole('button', { name: 'Link Folder', exact: true }).click();
-  await expect(page.locator('.nodes-status')).toContainText('Linked other-folder');
-  await expect(page.getByLabel('Saved graph').locator('option')).toHaveCount(1);
+  await page.evaluate(async () => (await import('/src/nodes/repository.js')).nodePatterns.link());
+  await expect.poll(() => recordNames(page)).toHaveLength(0);
   expect(await diskText(page)).toBe(before);
   await expect(page.getByLabel('Graph name')).toHaveValue('Neon composite');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.locator('.nodes-status')).toContainText('Linked folder changed');
+});
+
+const recordNames = page => page.evaluate(async () => (await import('/src/nodes/repository.js')).nodePatterns.records.map(r => r.graph.name));
+
+
+test('Node Patterns category owns folder/open; sidebar opens the selected graph and saves propagate', async ({ page, context }, testInfo) => {
+  await page.setViewportSize({ width: 1536, height: 960 });
+  await page.goto('/');
+  const panel = page.getByRole('region', { name: 'Node pattern files' });
+  await expect(panel).toContainText('No folder linked');
+  await expect(panel.getByRole('link', { name: 'New Node Pattern' })).toHaveAttribute('target', '_blank');
+  await seedFixture(page);
+  // A second graph has the SAME display name. Routing must use the repository
+  // identity, not the title, array order, or whichever graph was last opened.
+  await page.evaluate(async () => {
+    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('node-patterns');
+    const first = await dir.getFileHandle('neon.nodes.json');
+    const data = JSON.parse(await (await first.getFile()).text());
+    data.graph.nodes.find(n => n.id === 'mix').mode = 'Multiply';
+    const second = await dir.getFileHandle('another.nodes.json', { create: true });
+    const writer = await second.createWritable(); await writer.write(JSON.stringify(data)); await writer.close();
+  });
+  await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
+  await expect(panel).toContainText('Linked node patterns folder');
+  const category = page.locator('#library-section-Node-Patterns');
+  await expect(category.locator('.library-btn')).toHaveCount(2);
+  await panel.getByRole('button', { name: 'Open Pattern', exact: true }).click();
+  await expect(panel).toContainText('Opened neon.nodes.json');
+  await expect(category.locator('.library-btn')).toHaveCount(2);
+  const id = await page.evaluate(async () => (await import('/src/nodes/repository.js')).nodePatterns.records.find(r => r.fileName === 'neon.nodes.json').id);
+  await category.locator(`[data-id="${id}"]`).click();
+  const edit = page.getByRole('link', { name: 'Edit Pattern' });
+  await expect(edit).toHaveAttribute('href', `/?role=nodes&graph=${id}`);
+  await expect(edit).toHaveClass('btn btn--md');
+  const popup = context.waitForEvent('page'); await edit.click();
+  const editor = await popup;
+  await expect(editor).toHaveURL(new RegExp(`graph=${id}$`));
+  await expect(editor.getByLabel('Graph name')).toHaveValue('Neon composite');
+  expect(await editor.evaluate(() => window.opener === null)).toBe(true);
+  await expect.poll(() => pixel(editor)).toEqual([255, 255, 0, 255]);
+  await expect(editor.getByRole('button', { name: /Link Folder|Open Pattern|Load pattern|Refresh folder/i })).toHaveCount(0);
+  await editor.getByLabel('Graph name').fill('Selected graph saved');
+  await editor.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(editor.locator('.nodes-status')).toContainText('Saved Selected graph saved');
+  await expect(category.locator(`[data-id="${id}"]`)).toContainText('Selected graph saved');
+  await expect(category.locator('.library-btn').filter({ hasText: 'Neon composite' })).toHaveCount(1);
+  await editor.reload();
+  await expect(editor.getByLabel('Graph name')).toHaveValue('Selected graph saved');
+  await category.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: '/tmp/node-patterns-main-review.png' });
+  await page.screenshot({ path: testInfo.outputPath('node-patterns-main.png') });
+  await editor.screenshot({ path: '/tmp/node-patterns-selected-editor.png' });
+  await page.locator('.library-group-toggle').filter({ hasText: 'Node Patterns' }).click();
+  await expect(category).toBeHidden();
+  await page.reload(); await expect(category).toBeHidden();
+  await page.locator('.library-group-toggle').filter({ hasText: 'Node Patterns' }).click();
+  await expect(category).toBeVisible();
+});
+
+test('missing, empty, deleted and invalid graph routes never show an editable fallback', async ({ page }) => {
+  await page.goto('/?role=nodes'); await openFixture(page);
+  const selectedUrl = page.url();
+  for (const id of ['nodes-does-not-exist', '', 'neon.nodes.json']) {
+    await page.goto(`/?role=nodes&graph=${encodeURIComponent(id)}`);
+    await expect(page.getByRole('alert')).toContainText('not found or unavailable');
+    await expect(page.getByLabel('Graph name')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
+  }
+  await page.evaluate(async () => {
+    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('node-patterns');
+    const file = await dir.getFileHandle('neon.nodes.json');
+    const writer = await file.createWritable(); await writer.write('{broken'); await writer.close();
+  });
+  await page.goto(selectedUrl);
+  await expect(page.getByRole('alert')).toContainText('not found or unavailable');
+  await expect(page.getByLabel('Graph name')).toHaveCount(0);
+  await page.evaluate(async () => {
+    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('node-patterns');
+    await dir.removeEntry('neon.nodes.json');
+  });
+  await page.getByRole('button', { name: 'Retry loading' }).click();
+  await expect(page.getByRole('alert')).toContainText('not found or unavailable');
+  await expect(page.getByLabel('Graph name')).toHaveCount(0);
 });

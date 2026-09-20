@@ -1,3 +1,4 @@
+import { NODE_PATTERNS_GROUP } from './routes.js';
 import { listGraphs } from './repository.js';
 import { graphFactory } from './runtime.js';
 export function registerNodeSketches(sketches) {
@@ -8,7 +9,7 @@ export function registerNodeSketches(sketches) {
     const old = previous.find(s => s.id === record.id && s.graphRecord.hash === record.hash);
     if (old) return old;
     changed.add(record.id);
-    return { id: record.id, name: record.graph.name, group: 'Node Graphs',
+    return { id: record.id, name: record.graph.name, group: NODE_PATTERNS_GROUP,
       nodesGraph: true, params: [], factory: graphFactory(record, sketches), graphRecord: record };
   });
   sketches.splice(0, sketches.length, ...sketches.filter(s => !s.nodesGraph), ...next);
