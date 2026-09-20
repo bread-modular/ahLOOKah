@@ -324,7 +324,7 @@ test('editor shares main theme and control chrome without changing draft gesture
   await page.setViewportSize({ width: 1536, height: 960 });
   await page.goto('/?role=nodes'); await openFixture(page);
   await expect.poll(() => pixel(page)).toEqual([255, 255, 0, 255]);
-  await expect(page.getByRole('button', { name: 'Save' })).toHaveClass('btn btn--solid nodes-save');
+  await expect(page.getByRole('button', { name: 'Save' })).toHaveClass('btn btn--solid btn--status-size nodes-save');
   await expect(page.getByLabel('Saved graph')).toHaveCount(0);
   await expect(page.getByRole('button', { name: /Link Folder|Open Pattern|Refresh folder/i })).toHaveCount(0);
   await expect(page.getByLabel('Search patterns')).toHaveClass('control-input');
@@ -773,4 +773,149 @@ test('touch pan and pinch plus trackpad pan stay local to the canvas', async ({ 
   const panned = await plane.getAttribute('style');
   await page.mouse.move(area.x + 400, area.y + 500); await page.mouse.wheel(100, 0);
   await expect(plane).not.toHaveAttribute('style', panned);
+});
+
+const nodeTitle = (page, id) => page.locator(`[data-node-id="${id}"] .nodes-node-title`);
+const selectedIds = page => page.locator('.nodes-node.is-selected').evaluateAll(nodes => nodes.map(n => n.dataset.nodeId));
+const positions = page => page.locator('.nodes-node').evaluateAll(nodes => Object.fromEntries(nodes.map(n => [n.dataset.nodeId, { x: parseFloat(n.style.left), y: parseFloat(n.style.top) }])));
+async function transformedCanvas(page) {
+  await page.getByRole('button', { name: 'Zoom out', exact: true }).click();
+  const area = await page.locator('.nodes-workspace').boundingBox();
+  await page.mouse.move(area.x + 400, area.y + 500);
+  await page.mouse.down({ button: 'middle' });
+  await page.mouse.move(area.x + 450, area.y + 535);
+  await page.mouse.up({ button: 'middle' });
+  const view = await page.locator('.nodes-plane').evaluate(el => { const m = new DOMMatrix(getComputedStyle(el).transform); return { x: m.e, y: m.f, zoom: m.a }; });
+  expect(view.zoom).toBeCloseTo(1 / 1.2, 4);
+  expect(view.x).not.toBe(0); expect(view.y).not.toBe(0);
+  return { view, point: (x, y) => ({ x: area.x + view.x + x * view.zoom, y: area.y + view.y + y * view.zoom }) };
+}
+async function marquee(page, start, end, modifier) {
+  if (modifier) await page.keyboard.down(modifier);
+  await page.mouse.move(start.x, start.y); await page.mouse.down();
+  await page.mouse.move(end.x, end.y, { steps: 5 });
+  await expect(page.locator('.nodes-selection-box')).toBeVisible();
+  await page.mouse.up();
+  if (modifier) await page.keyboard.up(modifier);
+  await expect(page.locator('.nodes-selection-box')).toHaveCount(0);
+}
+
+for (const modifier of ['Control', 'Meta']) {
+  test(`${modifier} selection toggles, keeps a primary, and never starts a node drag`, async ({ page }) => {
+    await page.setViewportSize({ width: 1536, height: 960 });
+    await page.goto('/?role=nodes'); await openFixture(page);
+    await nodeTitle(page, 'red').click();
+    await nodeTitle(page, 'mix').click({ modifiers: [modifier] });
+    expect(await selectedIds(page)).toEqual(['red', 'mix']);
+    await expect(page.locator('[data-node-id=mix]')).toHaveAttribute('data-primary', 'true');
+    await expect(page.getByLabel('Blend mode')).toBeVisible();
+    await nodeTitle(page, 'mix').click({ modifiers: [modifier] });
+    expect(await selectedIds(page)).toEqual(['red']);
+    await expect(page.getByRole('slider', { name: 'Brightness', exact: true })).toBeVisible();
+    const before = await positions(page), title = await nodeTitle(page, 'green').boundingBox();
+    await page.keyboard.down(modifier);
+    await page.mouse.move(title.x + 20, title.y + 10); await page.mouse.down();
+    await page.mouse.move(title.x + 55, title.y + 10); await page.mouse.up();
+    await page.keyboard.up(modifier);
+    expect(await positions(page)).toEqual(before);
+    expect(await selectedIds(page)).toEqual(['red', 'green']);
+    await nodeTitle(page, 'red').click(); // A plain click, without dragging, collapses the group.
+    expect(await selectedIds(page)).toEqual(['red']);
+    await nodeTitle(page, 'red').click({ modifiers: [modifier] });
+    expect(await selectedIds(page)).toEqual([]);
+    await expect(page.getByRole('button', { name: 'Delete node', exact: true })).toBeDisabled();
+  });
+}
+
+test('graph-space marquee replaces, adds, cancels and clears selection at zoom/pan', async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 960 });
+  await page.goto('/?role=nodes'); await openFixture(page);
+  const { point } = await transformedCanvas(page);
+  await marquee(page, point(240, 410), point(20, 40)); // Reverse-direction intersection selection.
+  expect(await selectedIds(page)).toEqual(['red', 'green']);
+  await expect(page.locator('[data-node-id=red]')).toHaveAttribute('data-primary', 'true');
+  await marquee(page, point(310, 150), point(520, 320), 'Control');
+  expect(await selectedIds(page)).toEqual(['red', 'green', 'mix']);
+  await marquee(page, point(600, 150), point(820, 290), 'Meta');
+  expect(await selectedIds(page)).toEqual(['red', 'green', 'mix', 'output']);
+  const start = point(20, 40), end = point(240, 200);
+  await page.mouse.move(start.x, start.y); await page.mouse.down(); await page.mouse.move(end.x, end.y);
+  await expect(page.locator('.nodes-selection-box')).toBeVisible();
+  await page.screenshot({ path: '/tmp/hello-nodes-selection-box.png' });
+  await page.keyboard.press('Escape'); await page.mouse.up();
+  expect(await selectedIds(page)).toEqual(['red', 'green', 'mix', 'output']);
+  await expect(page.locator('.nodes-selection-box')).toHaveCount(0);
+  await marquee(page, point(20, 40), point(45, 65)); // Partial overlap counts.
+  expect(await selectedIds(page)).toEqual(['red']);
+  await page.keyboard.down('Control');
+  await page.mouse.click(point(550, 480).x, point(550, 480).y);
+  await page.keyboard.up('Control');
+  expect(await selectedIds(page)).toEqual(['red']);
+  await page.mouse.click(point(550, 480).x, point(550, 480).y);
+  expect(await selectedIds(page)).toEqual([]);
+  // Touch and middle-button pan are covered separately; neither should marquee.
+  await expect(page.locator('.nodes-selection-box')).toHaveCount(0);
+});
+
+test('selected group moves rigidly at zoom/pan, clamps together and saves/reloads safely', async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 960 });
+  await page.goto('/?role=nodes'); await openFixture(page);
+  const { view, point } = await transformedCanvas(page);
+  await marquee(page, point(20, 40), point(240, 410));
+  const before = await positions(page);
+  const title = await nodeTitle(page, 'red').boundingBox();
+  await page.mouse.move(title.x + 20, title.y + 10); await page.mouse.down();
+  await page.mouse.move(title.x + 80, title.y + 40, { steps: 5 }); await page.mouse.up();
+  const after = await positions(page);
+  for (const id of ['red', 'green']) {
+    expect(after[id].x - before[id].x).toBeCloseTo(60 / view.zoom, 2);
+    expect(after[id].y - before[id].y).toBeCloseTo(30 / view.zoom, 2);
+  }
+  expect(after.mix).toEqual(before.mix); expect(after.output).toEqual(before.output);
+  expect(await selectedIds(page)).toEqual(['red', 'green']);
+  const wire = await page.locator('.nodes-wires path').first().getAttribute('d');
+  expect(Number(wire.split(' ')[1])).toBeCloseTo(after.red.x + 168, 2);
+  await page.screenshot({ path: '/tmp/hello-nodes-multiselect.png' });
+  // One delta clamped to the upper boundary retains the vertical separation.
+  const movedTitle = await nodeTitle(page, 'red').boundingBox();
+  await page.mouse.move(movedTitle.x + 20, movedTitle.y + 10); await page.mouse.down();
+  await page.mouse.move(movedTitle.x + 20, 10, { steps: 5 }); await page.mouse.up();
+  const clamped = await positions(page);
+  expect(clamped.red.y).toBe(0); expect(clamped.green.y).toBe(230);
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+  const saved = JSON.parse(await diskText(page));
+  expect(saved.graph.nodes.find(n => n.id === 'green').y).toBe(230);
+  expect(saved.graph).not.toHaveProperty('selection');
+  await nodeTitle(page, 'green').focus(); await page.keyboard.press('ArrowRight');
+  await page.getByRole('button', { name: 'Reload from Disk' }).click();
+  await expect.poll(() => positions(page)).toEqual(clamped);
+  expect(await selectedIds(page)).toEqual(['output']);
+});
+
+test('ports and canvas controls do not marquee; port connections retain inspector semantics', async ({ page }) => {
+  await page.goto('/?role=nodes'); await openFixture(page);
+  await nodeTitle(page, 'red').click(); await nodeTitle(page, 'green').click({ modifiers: ['Control'] });
+  await page.getByLabel('red output', { exact: true }).click();
+  await expect(page.locator('.nodes-selection-box')).toHaveCount(0);
+  expect(await selectedIds(page)).toEqual(['red']);
+  await page.getByLabel('mix input layer', { exact: true }).click();
+  expect(await selectedIds(page)).toEqual(['mix']);
+  await expect(page.getByLabel('Blend mode')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Disconnect Solid Color from Blend layer', exact: true })).toHaveCount(1);
+  await page.getByRole('button', { name: 'Zoom out', exact: true }).click();
+  expect(await selectedIds(page)).toEqual(['mix']);
+  await expect(page.locator('.nodes-selection-box')).toHaveCount(0);
+});
+
+test('Save and Reload reuse actual Open Screen compact dimensions', async ({ page, context }) => {
+  const main = await context.newPage(); await main.goto('/');
+  const metrics = locator => locator.evaluate(el => { const s = getComputedStyle(el); return { height: el.getBoundingClientRect().height, padding: s.padding, fontSize: s.fontSize, lineHeight: s.lineHeight, radius: s.borderRadius }; });
+  const open = await metrics(main.locator('#open-screen-btn'));
+  await page.goto('/?role=nodes'); await openFixture(page);
+  const save = await metrics(page.getByRole('button', { name: 'Save', exact: true }));
+  const reload = await metrics(page.getByRole('button', { name: 'Reload from Disk' }));
+  expect(save).toEqual(open);
+  expect(reload.height).toBe(open.height);
+  expect(open.height).toBe(26);
 });

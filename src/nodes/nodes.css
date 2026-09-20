@@ -55,3 +55,6 @@
 .nodes-zoom .btn { height:28px; }
 .nodes-inspector .param-head label { margin:0; }
 .nodes-inspector .param-row { margin-top:14px; }
+
+.nodes-workspace { user-select:none; }
+.nodes-selection-box { position:absolute; border:1px solid var(--accent); background:rgba(77,163,255,.14); pointer-events:none; z-index:2; }

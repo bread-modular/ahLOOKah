@@ -1,6 +1,7 @@
 import { IconControl } from '../components/control/IconControl.jsx';
 import { ParameterControl } from '../components/control/ParameterControl.jsx';
 import { useCanvasNavigation } from './useCanvasNavigation.js';
+import { useNodeSelection } from './useNodeSelection.js';
 import { nodeEditorUrl } from './routes.js';
 import { Select } from '../components/control/Select.jsx';
 import { useEffect, useRef, useState } from 'react';
@@ -48,13 +49,15 @@ function Preview({ graph, dependencies, selected, revision }) {
 export function NodesEditor() {
   const [draft, setDraft] = useState(() => ({ graph: newGraph(), dependencies: [] }));
   const { graph, dependencies } = draft;
-  const [selected, setSelected] = useState('output'), [pending, setPending] = useState(null);
+  const [pending, setPending] = useState(null);
   const [query, setQuery] = useState(''), [message, setMessage] = useState('');
   const [revision, setRevision] = useState(0);
   const [routeId, setRouteId] = useState(() => new URLSearchParams(location.search).get('graph'));
   const [loadState, setLoadState] = useState('loading');
-  const drag = useRef(null);
   const navigation = useCanvasNavigation(loadState === 'ready');
+  const selection = useNodeSelection(graph, setDraft, navigation);
+  const selected = selection.primary;
+  const setSelected = selection.reset;
   const [current, setCurrent] = useState(null), [busy, setBusy] = useState(false);
   const baseline = useRef(serializeGraph(newGraph(), []));
   const dirty = () => serializeGraph(graph, dependencies) !== baseline.current;
@@ -140,8 +143,8 @@ export function NodesEditor() {
     <header className="nodes-toolbar">
       <input className="control-input" aria-label="Graph name" title="Edit pattern name" disabled={busy} value={graph.name} maxLength={80} onChange={e => setDraft({ ...draft, graph: { ...graph, name: e.target.value } })} />
       <div className="nodes-toolbar-actions">
-        {current && <IconControl icon="reload" label="Reload from Disk" title="Discard edits and reload this pattern from disk" disabled={busy} onClick={() => { if (discard()) diskAction(async () => { await nodePatterns.reconnect(); load(await nodePatterns.load(current.id)); }); }} />}
-        <button className="btn btn--solid nodes-save" title="Save pattern to the linked folder" disabled={busy} onClick={() => diskAction(async () => {
+        {current && <IconControl className="btn--status-size" icon="reload" label="Reload from Disk" title="Discard edits and reload this pattern from disk" disabled={busy} onClick={() => { if (discard()) diskAction(async () => { await nodePatterns.reconnect(); load(await nodePatterns.load(current.id)); }); }} />}
+        <button className="btn btn--solid btn--status-size nodes-save" title="Save pattern to the linked folder" disabled={busy} onClick={() => diskAction(async () => {
           const errors = sourceDiagnostics(graph, SKETCHES, dependencies); if (errors.length) throw new Error(errors.join('; '));
           const record = await nodePatterns.save(graph, dependencies, current);
           setCurrent(record); baseline.current = serializeGraph(graph, dependencies); updateRoute(record.id);
@@ -154,9 +157,9 @@ export function NodesEditor() {
       <aside className="nodes-palette" aria-label="Pattern palette"><button className="btn" title="Add a Blend node" onClick={() => add()}>+ Blend</button><input className="control-input" aria-label="Search patterns" title="Filter available patterns" placeholder="Search patterns…" value={query} onChange={e => setQuery(e.target.value)} />
         <div className="nodes-pattern-list">{SKETCHES.filter(s => !s.nodesGraph && `${s.name} ${s.group}`.toLowerCase().includes(query.toLowerCase())).map(s => <button className="btn" key={s.id} title={`Add ${s.name}; drag to position on the canvas`} draggable onDragStart={e => { e.dataTransfer.effectAllowed = 'copy'; e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ version: 1, patternId: s.id })); }} onClick={() => add(s.id)}><span>{s.name}</span><small>{s.group}{s.camera ? ' · Output camera' : ''}</small></button>)}</div>
       </aside>
-      <section ref={navigation.workspace} {...navigation.handlers} className="nodes-workspace" aria-label="Graph workspace" tabIndex={0} onKeyDown={e => {
+      <section ref={navigation.workspace} {...selection.workspaceHandlers} className="nodes-workspace" aria-label="Graph workspace" tabIndex={0} onKeyDown={e => {
         if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
-        if (e.key === 'Escape') setPending(null);
+        if (e.key === 'Escape') { setPending(null); selection.cancel(); }
         if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); remove(); }
       }} onDragOver={e => { if (e.dataTransfer.types.includes(DRAG_TYPE)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }} onDrop={e => {
         e.preventDefault(); const id = readPatternDrag(e.dataTransfer, SKETCHES);
@@ -169,19 +172,13 @@ export function NodesEditor() {
             const x1 = a.x + 168, y1 = a.y + 49, x2 = b.x + 12, y2 = b.y + 49 + inputs(b).indexOf(e.port) * 32;
             return <path key={`${e.to}:${e.port}`} role="button" tabIndex={0} aria-label={`Disconnect ${label(a)} from ${label(b)} ${e.port}`} d={`M ${x1} ${y1} C ${x1 + 80} ${y1}, ${x2 - 80} ${y2}, ${x2} ${y2}`} onClick={() => edit({ ...graph, edges: graph.edges.filter(w => w !== e) })} onKeyDown={event => { if (event.key === 'Enter' || event.key === 'Delete') { event.stopPropagation(); edit({ ...graph, edges: graph.edges.filter(w => w !== e) }); } }} />;
           })}</svg>
-          {graph.nodes.map(n => <article key={n.id} className={`nodes-node ${selected === n.id ? 'is-selected' : ''}`} data-node-id={n.id} style={{ left: n.x, top: n.y }} onClick={() => setSelected(n.id)}>
-            <button className="nodes-node-title" title={`Select or drag ${label(n)}`} aria-label={`Select ${label(n)}`} onPointerDown={e => { if (e.button !== 0) return; setSelected(n.id); drag.current = { id: n.id, ...navigation.toGraph(e.clientX, e.clientY), ox: n.x, oy: n.y }; e.currentTarget.setPointerCapture(e.pointerId); }} onPointerMove={e => {
-              const d = drag.current; if (!d || d.id !== n.id) return;
-              const point = navigation.toGraph(e.clientX, e.clientY);
-              setDraft(prev => ({ ...prev, graph: { ...prev.graph, nodes: prev.graph.nodes.map(item => item.id === d.id ? { ...item, x: Math.max(0, Math.min(3800, d.ox + point.x - d.x)), y: Math.max(0, Math.min(3800, d.oy + point.y - d.y)) } : item) } }));
-            }} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }} onKeyDown={e => {
-              const delta = { ArrowLeft: [-10, 0], ArrowRight: [10, 0], ArrowUp: [0, -10], ArrowDown: [0, 10] }[e.key];
-              if (delta) { e.preventDefault(); attempt(() => edit({ ...graph, nodes: graph.nodes.map(item => item.id === n.id ? { ...item, x: Math.max(0, Math.min(3800, item.x + delta[0])), y: Math.max(0, Math.min(3800, item.y + delta[1])) } : item) })); }
-            }}>{label(n)}</button>
+          {graph.nodes.map(n => <article key={n.id} className={`nodes-node ${selection.ids.includes(n.id) ? 'is-selected' : ''}`} data-node-id={n.id} data-primary={selected === n.id || undefined} style={{ left: n.x, top: n.y }} onClick={e => selection.nodeClick(n.id, e)}>
+            <button className="nodes-node-title" title={`Select or drag ${label(n)}`} aria-label={`Select ${label(n)}`} aria-pressed={selection.ids.includes(n.id)} {...selection.titleHandlers(n)}>{label(n)}</button>
             <div className="nodes-ports">{inputs(n).map(name => <button key={name} className="nodes-input" title={`Connect to ${label(n)} ${name} input`} aria-label={`${n.id} input ${name}`} onClick={() => port(n.id, name)}>● {name}</button>)}
               {n.type !== 'output' && <button className={`nodes-output ${pending === n.id ? 'active' : ''}`} title={`Connect from ${label(n)} output`} aria-label={`${n.id} output`} onClick={() => { setPending(n.id); setMessage(''); }}>out ●</button>}
             </div><small className="nodes-node-detail">{n.type === 'blend' ? `${n.mode} · ${Math.round(n.opacity * 100)}%` : n.type === 'output' ? 'Final image' : n.patternId}</small>
           </article>)}
+          {selection.box && <div className="nodes-selection-box" aria-hidden="true" style={{ left: selection.box.x, top: selection.box.y, width: selection.box.width, height: selection.box.height }} />}
         </div>
         <div className="nodes-zoom" role="toolbar" aria-label="Canvas zoom">
           <IconControl icon="zoomOut" label="Zoom out" disabled={navigation.view.zoom <= .25} onClick={() => navigation.zoomAt(1 / 1.2)} />
