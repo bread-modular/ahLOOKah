@@ -3,6 +3,7 @@
 // reads accepted snapshots from the per-window store; components invoke the
 // `commands` surface below and never touch BroadcastChannel or the rendering
 // core directly.
+import { CustomScripts } from '../custom-scripts/service.js';
 import VizCore from '../core/index.js';
 import {
   getOrderedSketches,
@@ -159,6 +160,12 @@ export function createAppRuntime({
     getSketchById: (id) => SKETCHES.find((sketch) => sketch.id === id) || null,
   });
   const cameraSource = new SharedCameraSource();
+  let customScriptsBooted = false;
+  const customScripts = new CustomScripts({
+    role,
+    onStatus: (status) => store.setState({ customScripts: status }),
+    onChange: applyCustomScriptRevision,
+  });
 
   const knownAudioConsumers = new Set();
   let patternAudioPlanRevision = 0;
@@ -2696,6 +2703,7 @@ export function createAppRuntime({
   // Teardown
   // ---------------------------------------------------------------------------
   function disposeViz() {
+    customScripts.close();
     cancelAnimationFrame(performanceRaf);
     clearTimeout(performanceExpiry);
     renderPerformance = null;
@@ -2734,6 +2742,8 @@ export function createAppRuntime({
       return false;
     }
     singleton.startHeartbeat();
+    await customScripts.start();
+    customScriptsBooted = true;
 
     const bootBands = getParams(BANDS_ID);
     setBandSplit(bootBands);
@@ -2881,8 +2891,55 @@ export function createAppRuntime({
 
   // ---------------------------------------------------------------------------
   // ---------------------------------------------------------------------------
-  // User media patterns (local images / videos)
+  // Custom scripts and user media (local files)
   // ---------------------------------------------------------------------------
+  function applyCustomScriptRevision(changedIds) {
+    // A registry generation is a transport boundary: no queued TAKE or old
+    // renderer may promote after it. Registration failures never reach here.
+    directGeneration += 1;
+    if (role === 'screen') cancelCueSession('CUE CANCELED — CUSTOM SCRIPTS RELOADED');
+    else if (cueSession) applyReceivedCueState(null, 'CUE CANCELED — CUSTOM SCRIPTS RELOADED');
+    cueEntryPending = null;
+    clearCueMutationQueue();
+    const selected = currentLiveSelection();
+    const projections = SKETCHES.filter((s) => s.projection);
+    for (const mapping of projections) {
+      if (mapping.surfaces.some((surface) => changedIds.has(surface.patternId))) changedIds.add(mapping.id);
+    }
+    registerProjectionSketches(SKETCHES, projections);
+    const affected = selected.ids.some((id) => changedIds.has(id)
+      || SKETCHES.find((s) => s.id === id)?.surfaces?.some((surface) => changedIds.has(surface.patternId)));
+    const ids = selected.ids.filter((id) => SKETCHES.some((s) => s.id === id));
+    const selection = ids.length ? { ids, merge: selected.merge && ids.length > 1 } : singleSelection(SKETCHES[0].id);
+    // Stop pending programs even if the operator changed selection while the
+    // folder was being read. Deletion is immediate, not a fade/retirement.
+    disposeRuntime(incomingRuntime); incomingRuntime = null;
+    disposeRuntime(retiringRuntime); retiringRuntime = null;
+    if (role === 'screen' && affected) removeCurrentP5();
+    clearPreview();
+    patternAudioEngine.disposeControllers();
+    for (const id of changedIds) {
+      const sketch = SKETCHES.find((s) => s.id === id);
+      if (!sketch) continue;
+      const bank = getParams(id);
+      if (!customScriptsBooted) {
+        try { Object.assign(bank, params.sanitizeParamEntry(id, JSON.parse(localStorage.getItem(STORAGE.params))?.[id]) || {}); } catch { /* corrupt saved values */ }
+      }
+      const next = Object.fromEntries((sketch.params || []).map((def) => [def.key,
+        Number.isFinite(bank[def.key]) ? Math.max(def.min, Math.min(def.max, bank[def.key])) : def.default]));
+      for (const key of Object.keys(bank)) delete bank[key];
+      Object.assign(bank, next);
+    }
+    liveProgram = selection;
+    syncLegacyLiveProjection();
+    refreshProjectionUI();
+    setPreviewSelection(selection);
+    if (role === 'screen' && affected) prepareThenPromoteLive(selection, { force: true });
+    queuePatternAudioPlanPublish();
+    syncUI('CUSTOM SCRIPTS RELOADED');
+    if (role === 'screen') broadcastLiveState();
+  }
+
   function refreshMediaPadOrder() {
     // Extend/trim padOrder for media add/remove while preserving the user's
     // existing order for everything else.
@@ -3379,6 +3436,7 @@ export function createAppRuntime({
     bootControl,
     dispose: disposeViz,
     commands,
+    customScripts,
     eqSink,
     registerPreviewHost,
     getEditingParams,

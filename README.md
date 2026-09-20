@@ -361,3 +361,11 @@ docs/               Design docs (CUE mode, audio control plan, refactor)
 ## 📄 License
 
 [MIT](LICENSE) © Arunoda Susiripal
+
+### Custom Scripts (desktop Chrome)
+
+Choose a real local directory under **Custom Scripts**, create `.viz.js` files,
+edit them with an external editor/agent, and click **Reload** to activate changes.
+Scripts are trusted JavaScript, **not a sandbox**. The complete tutorial is
+[Custom Scripts](public/docs/custom-scripts.html); the agent-facing contract is
+[API v1](public/docs/custom-scripts-api.md), with runnable examples alongside it.

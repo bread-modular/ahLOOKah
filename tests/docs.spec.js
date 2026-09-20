@@ -58,8 +58,9 @@ const GUIDE = [
   ['/docs/', 'Introduction', null, null],
   ['/docs/getting-started.html', 'Getting Started', '/docs/', '/docs/interface.html'],
   ['/docs/interface.html', 'The Interface', '/docs/getting-started.html', '/docs/patterns.html'],
-  ['/docs/patterns.html', 'Patterns & Parameters', '/docs/interface.html', '/docs/media.html'],
-  ['/docs/media.html', 'Media Patterns', '/docs/patterns.html', '/docs/slots.html'],
+  ['/docs/patterns.html', 'Patterns & Parameters', '/docs/interface.html', '/docs/custom-scripts.html'],
+  ['/docs/custom-scripts.html', 'Custom Scripts', '/docs/patterns.html', '/docs/media.html'],
+  ['/docs/media.html', 'Media Patterns', '/docs/custom-scripts.html', '/docs/slots.html'],
   ['/docs/slots.html', 'Slots & Shortcuts', '/docs/media.html', '/docs/blending.html'],
   ['/docs/blending.html', 'Blending Two Patterns', '/docs/slots.html', '/docs/post-processing.html'],
   ['/docs/post-processing.html', 'Post-processing', '/docs/blending.html', '/docs/eq-noise.html'],
@@ -84,6 +85,8 @@ test.describe('docs guide navigation', () => {
       await expect(page.locator('.sidebar__nav a')).toHaveCount(GUIDE.length);
       await expect(page.locator('.sidebar__nav a.is-active')).toHaveAttribute('href', url);
       await expect(page.locator('.sidebar__nav a.is-active')).toHaveAttribute('aria-current', 'page');
+
+      for (const [target] of GUIDE) await expect(page.locator(`.sidebar__nav a[href="${target}"]`)).toHaveCount(1);
 
       const pager = page.locator('.pager');
       if (next) {

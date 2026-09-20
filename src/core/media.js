@@ -195,6 +195,10 @@ export class VizMediaElement {
   remove() {
     if (this._removed) return;
     this._removed = true;
+    // Only streams opened by VizCore.createCapture are owned here. Shared
+    // camera consumers attach srcObject but release via their manager lease.
+    try { this._stream?.getTracks().forEach((track) => track.stop()); } catch { /* stopped */ }
+    this._stream = null;
     try { this.elt.pause?.(); } catch { /* noop */ }
     try { this.elt.srcObject = null; } catch { /* noop */ }
     try { this.elt.removeAttribute?.('src'); } catch { /* noop */ }

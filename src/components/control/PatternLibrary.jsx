@@ -1,3 +1,4 @@
+import { CustomScriptsPanel } from './CustomScriptsPanel.jsx';
 import { PerformanceBudget } from './PerformanceBudget.jsx';
 import { useRef, useState } from 'react';
 import { SKETCHES, getGroups, getSketchesByGroup, getOrderedSketches } from '../../sketch-registry.js';
@@ -91,7 +92,7 @@ export function PatternLibrary() {
     const isMediaGroup = group === MEDIA_GROUP;
     // The Media group always renders so new files can be added even before
     // any media pattern exists.
-    if (sketchesInGroup.length === 0 && !isMediaGroup && !isProjectionGroup) continue;
+    if (sketchesInGroup.length === 0 && !isMediaGroup && !isProjectionGroup && group !== 'Custom Scripts') continue;
     const sketches = filterSketches(sketchesInGroup, terms);
     if (searching && sketches.length === 0) continue;
     matchCount += sketches.length;
@@ -248,6 +249,7 @@ export function PatternLibrary() {
                 id={groupSectionId(group)}
                 hidden={collapsed}
               >
+                {group === 'Custom Scripts' && <CustomScriptsPanel />}
                 {isMediaGroup && sketches.length === 0 && (
                   <div className="media-empty">No media loaded — add an image or video file.</div>
                 )}
