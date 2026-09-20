@@ -1260,3 +1260,6 @@ registerMediaSketches(SKETCHES);
 
 import { registerProjectionSketches } from './projection/projection-registry.js';
 registerProjectionSketches(SKETCHES);
+
+import { registerNodeSketches } from './nodes/registry.js';
+registerNodeSketches(SKETCHES);

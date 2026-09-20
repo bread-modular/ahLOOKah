@@ -1,0 +1,50 @@
+/* Graph-specific layout only; controls reuse .btn, Select, .control-input and
+   .control-range from the main UI. Keep node/port geometry stable for wires. */
+.nodes-open { display:block; padding:10px; color:var(--accent); }
+.nodes-app { height:100vh; display:flex; flex-direction:column; background:var(--bg-dark); color:var(--text-main); font-size:13px; color-scheme:dark; }
+.nodes-app button { font-family:inherit; }
+.nodes-app :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.nodes-app a { color:var(--accent); }
+.nodes-app h2 { font-size:.75rem; font-weight:600; text-transform:uppercase; letter-spacing:.05rem; color:var(--text-dim); margin:18px 0 12px; }
+.nodes-app p { color:var(--text-dim); font-size:.72rem; line-height:1.5; }
+.nodes-toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; padding:14px 18px; background:var(--panel-bg); border-bottom:1px solid var(--border-gray); }
+.nodes-toolbar h1 { font-size:20px; font-weight:600; margin:0 15px 0 0; }
+.nodes-toolbar h1 small { display:block; font-size:11px; color:var(--text-dim); font-weight:400; margin-top:3px; }
+.nodes-toolbar input { width:175px; }
+.nodes-toolbar a { margin-left:auto; font-size:.75rem; }
+.nodes-status { padding:9px 18px; background:var(--panel-bg); border-bottom:1px solid var(--border-gray); min-height:35px; color:var(--text-dim); font-size:.72rem; }
+.nodes-layout { display:grid; grid-template-columns:215px minmax(250px,1fr) 280px; min-height:0; flex:1; }
+.nodes-palette,.nodes-inspector { min-width:0; overflow:auto; padding:0 14px 20px; background:var(--panel-bg); }
+.nodes-palette { border-right:1px solid var(--border-gray); display:flex; flex-direction:column; }
+.nodes-palette input,.nodes-palette select { width:100%; }
+.nodes-palette > * { flex-shrink:0; }
+.nodes-palette > .btn:last-child { margin-top:8px; }
+.nodes-pattern-list { overflow:auto; flex:1; min-height:150px; margin-top:12px; }
+.nodes-pattern-list .btn { text-align:left; display:block; width:100%; margin-bottom:6px; white-space:normal; text-transform:none; letter-spacing:normal; font-weight:500; color:var(--text-main); }
+.nodes-pattern-list small { display:block; color:var(--text-dim); font-size:10px; margin-top:4px; }
+.nodes-inspector { border-left:1px solid var(--border-gray); }
+.nodes-inspector canvas { width:100%; background:var(--bg-dark); border:1px solid var(--border-gray); border-radius:4px; }
+.nodes-inspector label { display:block; margin:14px 0; font-size:.78rem; }
+.nodes-inspector label input,.nodes-inspector label select { display:block; width:100%; margin-top:6px; }
+.nodes-inspector output { float:right; }
+.nodes-inspector > .btn { margin:5px 5px 5px 0; }
+.nodes-inspector details { margin-top:20px; padding-top:16px; border-top:1px solid var(--border-gray); }
+.nodes-inspector summary { cursor:pointer; color:var(--text-dim); font-size:.75rem; }
+.nodes-diagnostics p { color:#ff6b6b; }
+.nodes-workspace { overflow:auto; position:relative; background-color:var(--bg-dark); background-image:radial-gradient(var(--border-gray) 1px,transparent 1px); background-size:20px 20px; }
+.nodes-plane { position:relative; }
+.nodes-wires { position:absolute; width:100%; height:100%; pointer-events:none; overflow:visible; }
+.nodes-wires path { fill:none; stroke:var(--accent); stroke-width:4px; pointer-events:stroke; cursor:pointer; }
+.nodes-wires path:hover,.nodes-wires path:focus { stroke:var(--text-main); stroke-width:7px; }
+.nodes-node { position:absolute; width:200px; min-height:137px; background:#161616; border:1px solid var(--border-gray); border-radius:4px; box-shadow:0 8px 25px #0006; }
+.nodes-node.is-selected { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent),0 8px 25px #0006; }
+.nodes-node .nodes-node-title { width:100%; text-align:left; border:0; border-bottom:1px solid var(--border-gray); border-radius:4px 4px 0 0; color:var(--text-main); background:#202020; padding:7px 12px; font-size:13px; cursor:grab; touch-action:none; }
+.nodes-node-title small { display:block; font-size:9px; color:var(--text-dim); letter-spacing:1px; margin-bottom:2px; }
+.nodes-node.is-selected .nodes-node-title small { color:var(--accent); }
+.nodes-ports { position:relative; min-height:65px; padding:2px 0; }
+.nodes-node .nodes-input { display:block; height:32px; border:0; background:transparent; font-size:11px; padding:3px 6px; color:var(--accent); cursor:pointer; }
+.nodes-node .nodes-output { position:absolute; right:0; top:2px; height:32px; border:0; background:transparent; font-size:11px; padding:3px 6px; color:var(--accent); cursor:pointer; }
+.nodes-node .nodes-output.active { background:var(--accent); color:var(--bg-dark); border-radius:4px; }
+.nodes-node .nodes-input:hover,.nodes-node .nodes-output:hover { color:var(--text-main); }
+.nodes-node-detail { display:block; padding:0 10px 9px; font-size:10px; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+@media(max-width:1000px) { .nodes-layout { grid-template-columns:175px minmax(250px,1fr) 225px; } }

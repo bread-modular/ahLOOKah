@@ -172,6 +172,7 @@ export function PatternLibrary() {
 
   return (
     <>
+      <a className="nodes-open" href="?role=nodes" target="_blank" rel="noopener">Open Nodes editor ↗</a>
       <LibrarySearch
         value={query}
         onChange={setQuery}

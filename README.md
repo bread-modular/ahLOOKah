@@ -369,3 +369,20 @@ edit them with an external editor/agent, and click **Reload** to activate change
 Scripts are trusted JavaScript, **not a sandbox**. The complete tutorial is
 [Custom Scripts](public/docs/custom-scripts.html); the agent-facing contract is
 [API v1](public/docs/custom-scripts-api.md), with runnable examples alongside it.
+
+## Node graph patterns
+
+Open **Open Nodes editor ↗** above the pattern library, or navigate to
+`?role=nodes`. The dependency-free React/DOM + SVG editor composes source pixels
+through chained Blend nodes and publishes immutable, selectable **Node Graphs**
+revisions to the same-origin pattern library. Drafts remain per-tab and never
+edit LIVE. See the [Nodes guide](public/docs/nodes.html) for connections,
+shortcuts, source support, JSON dependency manifests and resource limits.
+
+```sh
+PLAYWRIGHT_PORT=5186 npx playwright test tests/nodes.spec.js --no-deps
+```
+
+The graph tests cover blend pixels, chained DAGs, real 2D/WebGL/projection/media/
+custom sources, editor gestures, persistence/import/export, cross-tab library
+updates, LIVE/CUE isolation, independent audio slots, resize and disposal.

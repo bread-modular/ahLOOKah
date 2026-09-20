@@ -1,9 +1,10 @@
-// Role parsing and per-window identity. Only `?role=screen` selects the screen;
-// every other URL (including `/` and `/?role=control`) is a control window.
+// Role parsing and per-window identity. Nodes is an independent editor role;
+// only screen/control roles enter the main application runtime and leases.
 import { TAB_ID_KEY } from './constants.js';
 
 export function resolveRole(search = window.location.search) {
-  return new URLSearchParams(search).get('role') === 'screen' ? 'screen' : 'control';
+  const role = new URLSearchParams(search).get('role');
+  return role === 'nodes' || role === 'screen' ? role : 'control';
 }
 
 export function createWindowIdentity(search = window.location.search) {

@@ -1,3 +1,5 @@
+import { registerNodeSketches } from '../nodes/registry.js';
+import { watchGraphs } from '../nodes/repository.js';
 // Window runtime coordinator. Owns all long-lived browser resources and the
 // screen-authoritative LIVE/CUE state machine. React only renders the shell and
 // reads accepted snapshots from the per-window store; components invoke the
@@ -1867,7 +1869,7 @@ export function createAppRuntime({
       return;
     }
 
-    if (sketches.some((sketch) => sketch.projection)) {
+    if (sketches.some((sketch) => sketch.projection || sketch.nodesGraph)) {
       previewStage.classList.add('projection-runtime-preview');
       projectionPreview = new ProgramRuntime({
         coreConstructor: VizCore, selection: previewSelection, sketches: SKETCHES,
@@ -3450,6 +3452,11 @@ export function createAppRuntime({
       singleton.writeLease();
     }
   });
+  const stopWatchingGraphs = watchGraphs(() => {
+    registerNodeSketches(SKETCHES);
+    store.setState(s => ({ mediaRevision: s.mediaRevision + 1 }));
+  });
+  lifecycle.track(stopWatchingGraphs);
   lifecycle.trackListener(window, 'storage', (e) => {
     if (singletonBlocked) return;
     if (singleton.isOwner && e.key === singleton.key && e.newValue) {

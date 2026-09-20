@@ -487,6 +487,7 @@
   position: relative;
 }
 
+.control-input,
 #config-panel .library-search-input {
   width: 100%;
   box-sizing: border-box;
@@ -501,10 +502,13 @@
   transition: border-color 0.15s ease;
 }
 
+.control-input::placeholder,
 #config-panel .library-search-input::placeholder {
   color: var(--text-dim);
 }
 
+.control-input:focus,
+.control-input:focus-visible,
 #config-panel .library-search-input:focus,
 #config-panel .library-search-input:focus-visible {
   border-color: var(--accent);

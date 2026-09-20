@@ -115,6 +115,7 @@
   cursor: pointer;
 }
 
+.control-range,
 #params-list input[type="range"],
 #post-fx-list input[type="range"],
 .projection-editor input[type="range"],
@@ -132,6 +133,7 @@
   cursor: pointer;
 }
 
+.control-range::-webkit-slider-runnable-track,
 #params-list input[type="range"]::-webkit-slider-runnable-track,
 #post-fx-list input[type="range"]::-webkit-slider-runnable-track,
 .projection-editor input[type="range"]::-webkit-slider-runnable-track,
@@ -141,6 +143,7 @@
   background: #2a2a2a;
 }
 
+.control-range::-webkit-slider-thumb,
 #params-list input[type="range"]::-webkit-slider-thumb,
 #post-fx-list input[type="range"]::-webkit-slider-thumb,
 .projection-editor input[type="range"]::-webkit-slider-thumb,
@@ -158,6 +161,7 @@
   transition: transform var(--transition-speed) ease-out;
 }
 
+.control-range::-webkit-slider-thumb:hover,
 #params-list input[type="range"]::-webkit-slider-thumb:hover,
 #post-fx-list input[type="range"]::-webkit-slider-thumb:hover,
 .projection-editor input[type="range"]::-webkit-slider-thumb:hover,
@@ -165,6 +169,7 @@
   transform: scale(1.15);
 }
 
+.control-range::-moz-range-track,
 #params-list input[type="range"]::-moz-range-track,
 #post-fx-list input[type="range"]::-moz-range-track,
 .projection-editor input[type="range"]::-moz-range-track,
@@ -174,6 +179,7 @@
   background: #2a2a2a;
 }
 
+.control-range::-moz-range-thumb,
 #params-list input[type="range"]::-moz-range-thumb,
 #post-fx-list input[type="range"]::-moz-range-thumb,
 .projection-editor input[type="range"]::-moz-range-thumb,

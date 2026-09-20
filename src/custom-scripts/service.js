@@ -59,6 +59,7 @@ export class CustomScripts {
     const next = entries.map((entry) => unchanged.has(entry.definition.id)
       ? previous.find((s) => s.id === entry.definition.id)
       : adaptPattern(entry, this.report, (name) => this.asset(name, snapshot.folder)));
+    for (const entry of next) entry.nodesSourceText = snapshot.sources.find(s => s.name === entry.customScript)?.text || '';
     SKETCHES.splice(0, SKETCHES.length, ...SKETCHES.filter((s) => !s.customScript), ...next);
     this.entries = entries;
     this.active = snapshot;
