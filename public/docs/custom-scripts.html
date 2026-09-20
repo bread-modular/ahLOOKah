@@ -55,7 +55,7 @@
 
     <main class="content"><article class="article">
       <h1>Custom Scripts</h1>
-<nav aria-label="On this page" class="script-doc-toc"><strong>On this page</strong><ul><li><a href="#folder">Link Folder</a></li><li><a href="#open">Open Script</a></li><li><a href="#edit">Edit and reload</a></li><li><a href="#validation">Validation and rollback</a></li><li><a href="#lifecycle">Lifecycle</a></li><li><a href="#api-custom-scripts-api-v1-agent-reference">Custom Scripts API v1 — agent reference</a></li><li><a href="#api-files-and-activation-contract">Files and activation contract</a></li><li><a href="#api-synchronous-registration-api">Synchronous registration API</a></li><li><a href="#api-definition-schema">Definition schema</a></li><li><a href="#api-renderer-context-and-cleanup">Renderer context and cleanup</a></li><li><a href="#api-existing-vizcore-capabilities-not-full-p5">Existing VizCore capabilities (not full p5)</a></li><li><a href="#api-audio-controllers">Audio controllers</a></li><li><a href="#api-examples-and-normal-host-features">Examples and normal host features</a></li><li><a href="#api-reload-delete-and-unlink">Reload, Delete and unlink</a></li><li><a href="#api-troubleshooting-and-agent-handoff-checklist">Troubleshooting and agent handoff checklist</a></li><li><a href="#api-developer-verification">Developer verification</a></li><li><a href="#api-complete-examples">Complete examples</a></li><li><a href="#api-audio-viz-js">audio.viz.js</a></li><li><a href="#api-camera-viz-js">camera.viz.js</a></li><li><a href="#api-crud-lifecycle-viz-js">crud-lifecycle.viz.js</a></li><li><a href="#api-drawing-viz-js">drawing.viz.js</a></li><li><a href="#api-image-viz-js">image.viz.js</a></li><li><a href="#api-mesh-viz-js">mesh.viz.js</a></li><li><a href="#api-shader-viz-js">shader.viz.js</a></li><li><a href="#api-video-viz-js">video.viz.js</a></li></ul></nav>
+<nav aria-label="On this page" class="script-doc-toc"><strong>On this page</strong><ul><li><a href="#folder">Link Folder</a></li><li><a href="#open">Open Script</a></li><li><a href="#edit">Edit and reload</a></li><li><a href="#validation">Validation and rollback</a></li><li><a href="#lifecycle">Lifecycle</a></li><li><a href="#api-custom-scripts-api-v1-agent-reference">Custom Scripts API v1 — agent reference</a></li><li><a href="#api-files-and-activation-contract">Files and activation contract</a></li><li><a href="#api-synchronous-registration-api">Synchronous registration API</a></li><li><a href="#api-definition-schema">Definition schema</a></li><li><a href="#api-renderer-context-and-cleanup">Renderer context and cleanup</a></li><li><a href="#api-existing-vizcore-capabilities-not-full-p5">Existing VizCore capabilities (not full p5)</a></li><li><a href="#api-preferred-reactive-mapping-default">Preferred reactive mapping (default)</a></li><li><a href="#api-existing-pipeline-and-provenance">Existing pipeline and provenance</a></li><li><a href="#api-lifecycle-silence-and-compatibility">Lifecycle, silence and compatibility</a></li><li><a href="#api-audio-controllers">Audio controllers</a></li><li><a href="#api-examples-and-normal-host-features">Examples and normal host features</a></li><li><a href="#api-reload-delete-and-unlink">Reload, Delete and unlink</a></li><li><a href="#api-troubleshooting-and-agent-handoff-checklist">Troubleshooting and agent handoff checklist</a></li><li><a href="#api-developer-verification">Developer verification</a></li><li><a href="#api-complete-examples">Complete examples</a></li><li><a href="#api-audio-viz-js">audio.viz.js</a></li><li><a href="#api-audio-advanced-viz-js">audio-advanced.viz.js</a></li><li><a href="#api-camera-viz-js">camera.viz.js</a></li><li><a href="#api-crud-lifecycle-viz-js">crud-lifecycle.viz.js</a></li><li><a href="#api-drawing-viz-js">drawing.viz.js</a></li><li><a href="#api-image-viz-js">image.viz.js</a></li><li><a href="#api-mesh-viz-js">mesh.viz.js</a></li><li><a href="#api-shader-viz-js">shader.viz.js</a></li><li><a href="#api-video-viz-js">video.viz.js</a></li></ul></nav>
       <p class="lead">Build your own visuals in a real local folder. Edit with your favorite editor or coding agent, then explicitly reload them into ahLOOKah.</p>
       <h2 id="trust">Before you begin: trusted code</h2>
       <p><strong>JavaScript runs with the application's privileges. This is NOT a security sandbox.</strong> Only choose folders containing code you trust. Syntax checks catch mistakes, not malicious behavior or infinite loops. Back up your folder.</p>
@@ -111,7 +111,8 @@ api.delete(&#x27;custom-copy&#x27;); // unregister staged pattern; DOES NOT dele
 <p><code>create</code> rejects duplicates even within the same file. <code>update(id, patch)</code> is a shallow merge followed by complete validation (replace an entire params/audio array/object); IDs cannot change. <code>get</code>, <code>update</code>, <code>delete</code> reject IDs not created by this file in the <strong>current evaluation</strong>, including built-ins, media, projection and other scripts. All mutations are staged, not live until evaluation completes. API methods become closed after synchronous registration; never call from hooks, timers or promises. To update across reloads, rewrite the declaration (each reload starts an empty custom staging registry). To stop loading a file, use Delete in Parameters. To permanently remove a definition from its source, edit the file externally. <code>api.list</code> is not the global pattern library.</p>
 <h4 id="api-definition-schema">Definition schema</h4>
 <p>Unknown fields are errors (including <code>factory</code>, <code>group</code>, <code>media</code>, <code>projection</code>, misspelled hooks). Required: <code>id</code>, <code>name</code>, <code>draw</code>.</p>
-<table><thead><tr><th>Field</th><th>Contract</th></tr></thead><tbody>
+<table>
+<tr><th>Field</th><th>Contract</th></tr>
 <tr><td><code>id</code></td><td><code>custom-</code> + lowercase letter/digit followed by up to 55 lowercase letters/digits/hyphens; max 63 total. Globally unique.</td></tr>
 <tr><td><code>name</code></td><td>Nonblank string, max 80 characters.</td></tr>
 <tr><td><code>renderer</code></td><td>Optional <code>&#x27;2d&#x27;</code> (default) or <code>&#x27;webgl&#x27;</code>.</td></tr>
@@ -122,16 +123,18 @@ api.delete(&#x27;custom-copy&#x27;); // unregister staged pattern; DOES NOT dele
 <tr><td><code>draw(ctx)</code></td><td>Required synchronous function, called per frame.</td></tr>
 <tr><td><code>resize(ctx)</code></td><td>Optional synchronous hook after automatic resizing.</td></tr>
 <tr><td><code>dispose(ctx)</code></td><td>Optional synchronous hook, once per renderer instance before core removal.</td></tr>
-<tr><td><code>audio</code></td><td>Optional capture-owner controller definition: <code>{schema, update(frame,state), dispose(state)?}</code>.</td></tr>
-</tbody></table>
+<tr><td><code>audio</code></td><td>Optional custom capture-owner controller: <code>{schema, update(frame,state), dispose(state)?}</code>. Omit for the built-in reactive default.</td></tr>
+</table>
 <p>Generators are unsupported. Drawing/disposal/audio hooks must not be async. A synchronous hook returning a Promise is also inappropriate except preload/setup; async work must honor cancellation and explicitly handle rejection.</p>
 <pre><code>params: [{ key: &#x27;speed&#x27;, label: &#x27;Speed&#x27;, min: 0, max: 4, step: 0.1, default: 1 }]</code></pre>
 <p>All six fields required. <code>key</code>: starts with ASCII letter, then letters/digits/underscore/hyphen, max 64; no <code>constructor</code>/<code>prototype</code>/<code>__proto__</code>. <code>label</code>: nonblank max 80. All numbers finite with absolute value &lt;= 1,000,000; min &lt;= max, step &gt; 0, default inside range. Read <code>ctx.params.speed</code> on every draw; do not copy once during setup. The host maintains mutable parameter banks across live edits, cue/take, preview and output. Do not write directly to them to change UI state.</p>
 <h3 id="api-renderer-context-and-cleanup">Renderer context and cleanup</h3>
-<table><thead><tr><th>Member</th><th>Meaning</th></tr></thead><tbody>
+<table>
+<tr><th>Member</th><th>Meaning</th></tr>
 <tr><td><code>p</code></td><td>Actual VizCore instance, full existing rendering API, no proxy/security membrane.</td></tr>
 <tr><td><code>params</code></td><td>Current host-owned parameter object.</td></tr>
 <tr><td><code>state</code></td><td>Fresh mutable object for this renderer instance; separate for each output, CUE, preview and projection child.</td></tr>
+<tr><td><code>reactive</code>, <code>response</code>, <code>accent</code></td><td>Preferred built-in channels and normalization helpers; see Preferred reactive mapping.</td></tr>
 <tr><td><code>controls</code></td><td>Compact audio binding. <code>read()</code> returns continuous/arrays and freshness; <code>consumeEvents()</code> drains fresh events once.</td></tr>
 <tr><td><code>onCleanup(fn)</code></td><td>Register synchronous cleanup, reverse order, once. If already disposed, runs immediately.</td></tr>
 <tr><td><code>signal</code></td><td>AbortSignal aborted before dispose/cleanup. Async work must check it before using p/state/resources.</td></tr>
@@ -139,8 +142,8 @@ api.delete(&#x27;custom-copy&#x27;); // unregister staged pattern; DOES NOT dele
 <tr><td><code>createCapture(constraints, callback?)</code></td><td>Output&#x27;s shared camera factory (selected camera device), fallback to VizCore capture outside ProgramRuntime. Use instead of opening your own stream.</td></tr>
 <tr><td><code>videoDeviceId</code></td><td>Selected output device ID, null in control preview.</td></tr>
 <tr><td><code>runtime</code></td><td>Existing integration callbacks: <code>audioSlot</code>, <code>audioControls</code>, <code>createCapture(p, constraints, callback)</code>, <code>isPaused()</code>, <code>addPlaybackLifecycle({pause,resume})</code>, <code>reportMediaReady()</code>, <code>reportMediaSettled()</code>, <code>addCleanup(fn)</code> where supplied. Some are absent in embedded preview; use optional chaining. Prefer <code>ctx.onCleanup</code> for portable teardown.</td></tr>
-<tr><td><code>audio</code></td><td>Existing legacy audio object, not a guaranteed raw capture stream in remote windows. For reliable audio use controller <code>shared</code> and renderer <code>controls</code>.</td></tr>
-</tbody></table>
+<tr><td><code>audio</code></td><td>Existing legacy audio object, not a guaranteed raw capture stream in remote windows. Prefer <code>reactive</code> for new scripts; advanced controllers retain <code>frame</code>/<code>shared</code> and renderer <code>controls</code>.</td></tr>
+</table>
 <p>The adapter handles canvas sizing, graphics mode, lifecycle error reporting, loop stop on draw failure and exactly-once cleanup. VizCore removal stops rAF, removes canvas/media/listeners and releases GL. You <strong>must</strong> clean up timers, external listeners, fetched resources, workers, offscreen Graphics, raw GL resources and manually owned MediaStreams. Do not remove the host canvas, replace the host draw loop or use page reload as cleanup. Do not allocate on every frame. Disposal also happens on ordinary pattern switches, not just script reload.</p>
 <pre><code>setup({state, onCleanup, signal}) {
   state.count = 0;
@@ -165,10 +168,28 @@ api.delete(&#x27;custom-copy&#x27;); // unregister staged pattern; DOES NOT dele
 <li><code>p.mouseX/mouseY</code> and canvas mouse hooks are available; set needed handlers in setup. Raw Canvas2D/WebGL access remains trusted and your cleanup responsibility.</li>
 <li><code>setAttributes</code>, <code>smooth</code>, <code>noSmooth</code>, <code>describe</code> are compatibility no-ops, <strong>not</strong> full p5 features. No p5.sound, DOM plugin suite, arbitrary WebGL offscreen buffers or unsupported p5 addons. Use the tested examples as starting points.</li>
 </ul>
+<h3 id="api-preferred-reactive-mapping-default">Preferred reactive mapping (default)</h3>
+<p>For new audio-reactive scripts, omit <code>audio</code> and use <code>draw({p, reactive, response, accent})</code>. The host installs the existing <code>createFeatureController()</code> and <code>FEATURE_SCHEMA</code> from <code>src/sketches/feature-controls.js</code>; there is no new smoothing algorithm or raw-loudness substitute. Scripts that ignore audio still work. No parameters are inserted into existing scripts.</p>
+<ul>
+<li><code>reactive.bass</code>, <code>reactive.mid</code>, <code>reactive.high</code>, <code>reactive.energy</code>: 0..3.2. Use <code>response(value)</code> to clamp/normalize to 0..1 (divide by 3.2).</li>
+<li><code>reactive.kick</code>, <code>reactive.snare</code>, <code>reactive.hat</code>, <code>reactive.beat</code>: 0..1.4. Use <code>accent(value)</code> to clamp/normalize to 0..1 (divide by 1.4). These are decaying continuous envelopes, not one-shot events or a tempo clock.</li>
+<li><code>response</code> and <code>accent</code> are the actual existing helpers, available in renderer context and custom <code>audio.update</code> context. Non-finite/missing values normalize to zero. Do not normalize twice.</li>
+<li>Optional declared parameters named <code>bass</code>, <code>mid</code>, <code>high</code> act as responsiveness gains: default 1 when absent/non-finite, bounded 0..2, applied after shaping. Zero removes that range and its associated percussion: bass gates kick/beat, mid gates snare, high gates hat. Do not multiply these gains again in draw. Energy is the gated blend: 0.42 bass + 0.38 mid + 0.20 high. No automatic punch/accents parameter is added.</li>
+</ul>
+<p>Give ranges separate jobs: bass expands geometry, mid changes color/shape, high changes detail, and kick/hat provide selective short accents. Keep a base size/brightness so silence has a deliberate visual design. Use the inline <code>audio.viz.js</code> as the starting point; reserve raw bins for spectrum/waveform displays or genuinely custom analysis.</p>
+<h4 id="api-existing-pipeline-and-provenance">Existing pipeline and provenance</h4>
+<p>Circles and Techno 3D use capture-side byte-band controllers with independent band-to-geometry mappings, constant structural motion and bounded events (Circles integrates hat spawn rates; Techno integrates rotation with elapsed time). They do not themselves use the newer adaptive feature controller. Ion Tempest maps canonical sustained features and distinct percussion envelopes. The replacement/expansion patterns combine those mapping semantics in the shared feature controller that scripts now reuse; Ion Tempest&#x27;s fabricated idle beats are deliberately not copied.</p>
+<p>The capture owner supplies one cleaned analysis frame and a lazy <code>SharedAudioAnalysisView</code> per tick. <code>makeAudioFeatures()</code> mixes stereo power, uses Hz ranges, slow level compensation, attack/release followers and positive spectral flux with adaptive thresholds. Kick/snare/hat decay constants are 0.16/0.12/0.075 seconds; beat has a 0.115-second refractory period and 0.21-second decay. Shared feature extraction and integrated band support are cached per tick, not rescanned in each renderer.</p>
+<p><code>createFeatureController()</code> combines canonical levels with cleaned integrated band power, then adds positive within-band dB changes and deviation above an adaptive baseline to a bounded sustained component. The baseline chases rises in 1.2 seconds and falls in 3.5 seconds; the dB flux accent decays in 0.12 seconds. Constant passages relax rather than permanently pinning the geometry. This is not simply raw loudness or a new generic smoother. Levels follow the host&#x27;s current band-split EQ (defaults 180/2800 Hz, outer range 30..16000 Hz). Percussion retains fixed musical ranges: kick 35..180, snare 180..4200, hat 4500..16000 Hz.</p>
+<h4 id="api-lifecycle-silence-and-compatibility">Lifecycle, silence and compatibility</h4>
+<p>Adaptive state belongs to each capture-owner runtime controller, never a module-global script object or draw frame. Parameter edits keep the existing baseline. Slot retirement, script reload and capture stream restart dispose it; new slots start fresh. Missing/empty analysis frames reset the script helper to eight zeros. Real silent frames retain the existing short envelope/flux release tails and settle to zero; no idle beats are invented. Render bindings retain their existing interpolation and stale-to-neutral decay. Before the first draw, with no binding, or after disposal, renderer <code>reactive</code> is zero. Standalone renderers do not open an analyser as a fallback.</p>
+<p><code>reactive</code> is a per-draw snapshot of the default transport, refreshed before <code>draw</code>; read it each frame rather than caching it in setup. <code>controls.read()</code> remains available for the original transport values and freshness. <code>response</code>/<code>accent</code> only normalize; they do not advance state or apply extra gain.</p>
+<p>An explicit <code>audio: {schema, update, dispose?}</code> still owns its exact schema, values, arrays and events. No reserved keys are injected or overwritten, even if its custom schema uses <code>bass</code>. Its renderer <code>reactive</code> stays zero: read your own mapped values from <code>controls</code>. Inside its <code>audio.update</code> context, <code>reactive</code> lazily supplies the same eight built-in channels, computed at most once per update; return the channels you need under your declared schema. Raw-only scripts do not trigger this extra analysis. The inline <code>audio-advanced.viz.js</code> demonstrates reactive geometry plus raw spectrum and a threshold-crossing event from the existing beat envelope. No existing script must migrate, and API version remains 1.</p>
 <h3 id="api-audio-controllers">Audio controllers</h3>
 <p>Audio interpretation happens on the capture owner, once per runtime slot. The renderer receives compact validated controls, avoiding separate audio analysis in output/preview windows.</p>
-<p><code>audio.update({frame, shared, params, deltaSeconds, captureTime, sequence}, state)</code> returns <code>{continuous?, arrays?, events?}</code>. Missing containers default empty. State is per controller, with seeded <code>state.rng()</code> supplied by the engine. Use <code>deltaSeconds</code>, not an assumed cadence. Dispose is called when retired/reloaded. All numeric values must match schema; errors are reported and neutral output is substituted.</p>
+<p><code>audio.update({frame, shared, params, deltaSeconds, captureTime, sequence, reactive, response, accent}, state)</code> returns <code>{continuous?, arrays?, events?}</code>. Missing containers default empty. State is per controller, with seeded <code>state.rng()</code> supplied by the engine. Use <code>deltaSeconds</code>, not an assumed cadence. Dispose is called when retired/reloaded. All numeric values must match schema; errors are reported and neutral output is substituted.</p>
 <ul>
+<li><code>frame</code>: original cleaned capture analysis frame (or null), with full float dB <code>left</code>/<code>right</code>, float <code>waveformLeft</code>/<code>waveformRight</code>, <code>sampleRate</code>, <code>fftSize</code> and optional <code>rms</code>. This is pre-feature data, not pre-noise-cleaning microphone data. Treat frame/shared arrays as read-only; full raw access remains capture-side, not broadcast to remote renderers.</li>
 <li><code>shared.getByteFrequencies()</code> → <code>{left,right}</code> byte-frequency arrays (0..255).</li>
 <li><code>shared.getByteWaveforms()</code> → <code>{left,right}</code> byte-waveform arrays.</li>
 <li><code>shared.getFeatures()</code> → existing shared feature snapshot; inspect <code>src/sketches/audio-features.js</code> and <code>src/pattern-audio-engine.js</code> for detailed feature contract. Do not mutate shared arrays.</li>
@@ -178,19 +199,21 @@ api.delete(&#x27;custom-copy&#x27;); // unregister staged pattern; DOES NOT dele
 <li><code>schema.neutral</code> may supply <code>{continuous,arrays}</code> overrides, validated against the schema. Arrays use typed arrays.</li>
 <li>Keys start with an ASCII letter then letters/digits/underscore/hyphen (max 64). Unknown schema fields, invalid ranges, hook types and neutral values fail registration. All values finite within absolute 1,000,000. Runtime payload validation is also enforced by the existing protocol.</li>
 </ul>
-<p>See the inline <code>audio.viz.js</code> example below for a working parameterized spectrum + continuous level + one-shot pulse implementation.</p>
+<p>Start with <code>audio.viz.js</code> for preferred reactive mapping; <code>audio-advanced.viz.js</code> adds custom transport, raw spectrum and one-shot events. Raw FFT averaging is useful for measurement, but it misses the within-range dynamics and transient semantics of the preferred helper.</p>
 <h3 id="api-examples-and-normal-host-features">Examples and normal host features</h3>
 <p>Save any complete example below as its named file in your linked folder, then explicitly Open Script. Optional downloadable copies are also in <code>public/docs/custom-script-examples/</code>; navigation is not required. Files can coexist (unique IDs).</p>
-<table><thead><tr><th>File</th><th>Capability</th></tr></thead><tbody>
+<table>
+<tr><th>File</th><th>Capability</th></tr>
 <tr><td><code>drawing.viz.js</code></td><td>2D shapes, text, transforms, HSB, parameters, image pixels, offscreen buffer and cleanup</td></tr>
 <tr><td><code>mesh.viz.js</code></td><td>WebGL meshes, rotations, lighting</td></tr>
 <tr><td><code>shader.viz.js</code></td><td>GLSL, fullscreen quad, animated uniforms, offscreen texture</td></tr>
-<tr><td><code>audio.viz.js</code></td><td>Capture-owner controls, frequency arrays, events, parameters</td></tr>
+<tr><td><code>audio.viz.js</code></td><td>Preferred built-in reactivity, independent geometry/color/detail and kick accent</td></tr>
+<tr><td><code>audio-advanced.viz.js</code></td><td>Custom controller using reactive helpers plus raw spectrum and events</td></tr>
 <tr><td><code>image.viz.js</code></td><td>Async local asset load, image tint, additive compositing; add <code>photo.png</code></td></tr>
 <tr><td><code>video.viz.js</code></td><td>Async video readiness, muted playback, CUE pause/resume, cancellation; add <code>clip.mp4</code></td></tr>
 <tr><td><code>camera.viz.js</code></td><td>Shared output camera and mirrored image; choose/allow camera</td></tr>
 <tr><td><code>crud-lifecycle.viz.js</code></td><td>Create/read/update/delete registrations, timers/listener cleanup</td></tr>
-</tbody></table>
+</table>
 <p>Custom entries are normal registry patterns: click LIVE, Shift-click CUE, Enter TAKE; drag to a pad slot, blend two patterns, use post-processing/screen mapping, and choose as children in Projection Mapping. No separate script-owned preview/output window API is necessary. The host owns these windows, readiness gates and disposals. Scripts cannot use registration API to modify built-in definitions or create special media/projection registry records, but can render media and participate as projection children. Create mappings with the normal mapping editor.</p>
 <h3 id="api-reload-delete-and-unlink">Reload, Delete and unlink</h3>
 <ul>
@@ -222,7 +245,30 @@ api.delete(&#x27;custom-copy&#x27;); // unregister staged pattern; DOES NOT dele
 <h4 id="api-audio-viz-js">audio.viz.js</h4>
 <pre><code>api.requireVersion(1);
 api.create({
-  id: &#x27;custom-audio&#x27;, name: &#x27;Audio controls / spectrum / events&#x27;,
+  id: &#x27;custom-audio&#x27;, name: &#x27;Reactive rings (recommended)&#x27;,
+  params: [&#x27;bass&#x27;, &#x27;mid&#x27;, &#x27;high&#x27;].map(key =&gt; ({
+    key, label: `${key} responsiveness`, min: 0, max: 2, step: 0.05, default: 1,
+  })),
+  // Omit audio: the host supplies the existing eight-channel feature controller.
+  draw({ p, reactive, response, accent }) {
+    const bass = response(reactive.bass);
+    const mid = response(reactive.mid);
+    const high = response(reactive.high);
+    const kick = accent(reactive.kick);
+    p.background(8); p.noFill();
+    // Structure remains visible in silence; independent ranges have distinct roles.
+    p.stroke(80 + mid * 175, 160, 255);
+    p.strokeWeight(1 + high * 6);
+    p.circle(p.width / 2, p.height / 2, Math.min(p.width, p.height) * (0.2 + bass * 0.5));
+    // Selective transient accent, not a second gain or invented beat detector.
+    p.stroke(255, 100, 180, kick * 255);
+    p.circle(p.width / 2, p.height / 2, Math.min(p.width, p.height) * (0.24 + kick * 0.55));
+  },
+});</code></pre>
+<h4 id="api-audio-advanced-viz-js">audio-advanced.viz.js</h4>
+<pre><code>api.requireVersion(1);
+api.create({
+  id: &#x27;custom-audio-advanced&#x27;, name: &#x27;Advanced reactive controls / raw spectrum / events&#x27;,
   params: [{ key: &#x27;gain&#x27;, label: &#x27;Gain&#x27;, min: 0, max: 4, step: 0.1, default: 1 }],
   audio: {
     schema: {
@@ -230,17 +276,19 @@ api.create({
       arrays: { spectrum: { min: 0, max: 1, minLength: 32, maxLength: 32 } },
       events: { pulse: { fields: { strength: { min: 0, max: 1, required: true } } } },
     },
-    update({ shared, params, deltaSeconds }, state) {
+    update({ shared, params, reactive, response, accent }, state) {
       const freqs = shared?.getByteFrequencies?.().left || [];
       const spectrum = new Float32Array(32);
       for (let i = 0; i &lt; 32; i++) spectrum[i] = Math.min(1, ((freqs[i * 4] || 0) / 255) * params.gain);
-      const level = spectrum.reduce((sum, x) =&gt; sum + x, 0) / 32;
-      state.elapsed = (state.elapsed || 0) + deltaSeconds;
+      // Raw bins are only for the spectrum display. Geometry uses built-in dynamics.
+      const level = response(reactive.bass);
+      const beat = accent(reactive.beat);
       const events = [];
-      if (level &gt; 0.3 &amp;&amp; state.elapsed &gt; 0.2) {
-        state.elapsed = 0; state.count = (state.count || 0) + 1;
-        events.push({ id: `pulse-${state.count}`, type: &#x27;pulse&#x27;, strength: level });
+      if (beat &gt; 0.3 &amp;&amp; (state.previousBeat || 0) &lt;= 0.3) {
+        state.count = (state.count || 0) + 1;
+        events.push({ id: `pulse-${state.count}`, type: &#x27;pulse&#x27;, strength: beat });
       }
+      state.previousBeat = beat;
       return { continuous: { level }, arrays: { spectrum }, events };
     },
   },

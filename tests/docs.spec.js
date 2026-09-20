@@ -115,12 +115,16 @@ test('Custom Scripts reference and every complete example are inline with valid 
   await expect(article).toContainText('Delete in Parameters');
   await expect(article).not.toContainText('Click Create script');
   await expect(article).not.toContainText('Delete file…');
-  for (const heading of ['Synchronous registration API', 'Definition schema', 'Renderer context and cleanup', 'Audio controllers', 'Reload, Delete and unlink']) {
+  for (const heading of ['Synchronous registration API', 'Definition schema', 'Renderer context and cleanup', 'Audio controllers', 'Preferred reactive mapping (default)', 'Lifecycle, silence and compatibility', 'Reload, Delete and unlink']) {
     await expect(article.getByRole('heading', { name: heading, exact: true })).toHaveCount(1);
   }
   const blocks = await article.locator('pre code').allTextContents();
   const markdown = await (await request.get('/docs/custom-scripts-api.md')).text();
-  for (const name of ['drawing', 'mesh', 'shader', 'audio', 'image', 'video', 'camera', 'crud-lifecycle']) {
+  for (const contract of ['createFeatureController()', 'response(value)', 'accent(value)', 'shared.getFeatures()', 'frame', 'within-band dB', 'No existing script must migrate']) {
+    await expect(article).toContainText(contract);
+    expect(markdown).toContain(contract);
+  }
+  for (const name of ['drawing', 'mesh', 'shader', 'audio', 'audio-advanced', 'image', 'video', 'camera', 'crud-lifecycle']) {
     const code = (await (await request.get(`/docs/custom-script-examples/${name}.viz.js`)).text()).trim();
     expect(blocks.map((text) => text.trim())).toContain(code);
     expect(markdown).toContain(code);

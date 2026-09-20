@@ -45,7 +45,7 @@ Unknown fields are errors (including `factory`, `group`, `media`, `projection`, 
 | `draw(ctx)` | Required synchronous function, called per frame. |
 | `resize(ctx)` | Optional synchronous hook after automatic resizing. |
 | `dispose(ctx)` | Optional synchronous hook, once per renderer instance before core removal. |
-| `audio` | Optional capture-owner controller definition: `{schema, update(frame,state), dispose(state)?}`. |
+| `audio` | Optional custom capture-owner controller: `{schema, update(frame,state), dispose(state)?}`. Omit for the built-in reactive default. |
 
 Generators are unsupported. Drawing/disposal/audio hooks must not be async. A synchronous hook returning a Promise is also inappropriate except preload/setup; async work must honor cancellation and explicitly handle rejection.
 
@@ -62,6 +62,7 @@ All six fields required. `key`: starts with ASCII letter, then letters/digits/un
 | `p` | Actual VizCore instance, full existing rendering API, no proxy/security membrane. |
 | `params` | Current host-owned parameter object. |
 | `state` | Fresh mutable object for this renderer instance; separate for each output, CUE, preview and projection child. |
+| `reactive`, `response`, `accent` | Preferred built-in channels and normalization helpers; see Preferred reactive mapping. |
 | `controls` | Compact audio binding. `read()` returns continuous/arrays and freshness; `consumeEvents()` drains fresh events once. |
 | `onCleanup(fn)` | Register synchronous cleanup, reverse order, once. If already disposed, runs immediately. |
 | `signal` | AbortSignal aborted before dispose/cleanup. Async work must check it before using p/state/resources. |
@@ -69,7 +70,7 @@ All six fields required. `key`: starts with ASCII letter, then letters/digits/un
 | `createCapture(constraints, callback?)` | Output's shared camera factory (selected camera device), fallback to VizCore capture outside ProgramRuntime. Use instead of opening your own stream. |
 | `videoDeviceId` | Selected output device ID, null in control preview. |
 | `runtime` | Existing integration callbacks: `audioSlot`, `audioControls`, `createCapture(p, constraints, callback)`, `isPaused()`, `addPlaybackLifecycle({pause,resume})`, `reportMediaReady()`, `reportMediaSettled()`, `addCleanup(fn)` where supplied. Some are absent in embedded preview; use optional chaining. Prefer `ctx.onCleanup` for portable teardown. |
-| `audio` | Existing legacy audio object, not a guaranteed raw capture stream in remote windows. For reliable audio use controller `shared` and renderer `controls`. |
+| `audio` | Existing legacy audio object, not a guaranteed raw capture stream in remote windows. Prefer `reactive` for new scripts; advanced controllers retain `frame`/`shared` and renderer `controls`. |
 
 The adapter handles canvas sizing, graphics mode, lifecycle error reporting, loop stop on draw failure and exactly-once cleanup. VizCore removal stops rAF, removes canvas/media/listeners and releases GL. You **must** clean up timers, external listeners, fetched resources, workers, offscreen Graphics, raw GL resources and manually owned MediaStreams. Do not remove the host canvas, replace the host draw loop or use page reload as cleanup. Do not allocate on every frame. Disposal also happens on ordinary pattern switches, not just script reload.
 
@@ -100,12 +101,40 @@ The custom adapter does not reduce `p`. Current source of truth: `src/core/api.j
 - `p.mouseX/mouseY` and canvas mouse hooks are available; set needed handlers in setup. Raw Canvas2D/WebGL access remains trusted and your cleanup responsibility.
 - `setAttributes`, `smooth`, `noSmooth`, `describe` are compatibility no-ops, **not** full p5 features. No p5.sound, DOM plugin suite, arbitrary WebGL offscreen buffers or unsupported p5 addons. Use the tested examples as starting points.
 
+## Preferred reactive mapping (default)
+
+For new audio-reactive scripts, omit `audio` and use `draw({p, reactive, response, accent})`. The host installs the existing `createFeatureController()` and `FEATURE_SCHEMA` from `src/sketches/feature-controls.js`; there is no new smoothing algorithm or raw-loudness substitute. Scripts that ignore audio still work. No parameters are inserted into existing scripts.
+
+- `reactive.bass`, `reactive.mid`, `reactive.high`, `reactive.energy`: 0..3.2. Use `response(value)` to clamp/normalize to 0..1 (divide by 3.2).
+- `reactive.kick`, `reactive.snare`, `reactive.hat`, `reactive.beat`: 0..1.4. Use `accent(value)` to clamp/normalize to 0..1 (divide by 1.4). These are decaying continuous envelopes, not one-shot events or a tempo clock.
+- `response` and `accent` are the actual existing helpers, available in renderer context and custom `audio.update` context. Non-finite/missing values normalize to zero. Do not normalize twice.
+- Optional declared parameters named `bass`, `mid`, `high` act as responsiveness gains: default 1 when absent/non-finite, bounded 0..2, applied after shaping. Zero removes that range and its associated percussion: bass gates kick/beat, mid gates snare, high gates hat. Do not multiply these gains again in draw. Energy is the gated blend: 0.42 bass + 0.38 mid + 0.20 high. No automatic punch/accents parameter is added.
+
+Give ranges separate jobs: bass expands geometry, mid changes color/shape, high changes detail, and kick/hat provide selective short accents. Keep a base size/brightness so silence has a deliberate visual design. Use the inline `audio.viz.js` as the starting point; reserve raw bins for spectrum/waveform displays or genuinely custom analysis.
+
+### Existing pipeline and provenance
+
+Circles and Techno 3D use capture-side byte-band controllers with independent band-to-geometry mappings, constant structural motion and bounded events (Circles integrates hat spawn rates; Techno integrates rotation with elapsed time). They do not themselves use the newer adaptive feature controller. Ion Tempest maps canonical sustained features and distinct percussion envelopes. The replacement/expansion patterns combine those mapping semantics in the shared feature controller that scripts now reuse; Ion Tempest's fabricated idle beats are deliberately not copied.
+
+The capture owner supplies one cleaned analysis frame and a lazy `SharedAudioAnalysisView` per tick. `makeAudioFeatures()` mixes stereo power, uses Hz ranges, slow level compensation, attack/release followers and positive spectral flux with adaptive thresholds. Kick/snare/hat decay constants are 0.16/0.12/0.075 seconds; beat has a 0.115-second refractory period and 0.21-second decay. Shared feature extraction and integrated band support are cached per tick, not rescanned in each renderer.
+
+`createFeatureController()` combines canonical levels with cleaned integrated band power, then adds positive within-band dB changes and deviation above an adaptive baseline to a bounded sustained component. The baseline chases rises in 1.2 seconds and falls in 3.5 seconds; the dB flux accent decays in 0.12 seconds. Constant passages relax rather than permanently pinning the geometry. This is not simply raw loudness or a new generic smoother. Levels follow the host's current band-split EQ (defaults 180/2800 Hz, outer range 30..16000 Hz). Percussion retains fixed musical ranges: kick 35..180, snare 180..4200, hat 4500..16000 Hz.
+
+### Lifecycle, silence and compatibility
+
+Adaptive state belongs to each capture-owner runtime controller, never a module-global script object or draw frame. Parameter edits keep the existing baseline. Slot retirement, script reload and capture stream restart dispose it; new slots start fresh. Missing/empty analysis frames reset the script helper to eight zeros. Real silent frames retain the existing short envelope/flux release tails and settle to zero; no idle beats are invented. Render bindings retain their existing interpolation and stale-to-neutral decay. Before the first draw, with no binding, or after disposal, renderer `reactive` is zero. Standalone renderers do not open an analyser as a fallback.
+
+`reactive` is a per-draw snapshot of the default transport, refreshed before `draw`; read it each frame rather than caching it in setup. `controls.read()` remains available for the original transport values and freshness. `response`/`accent` only normalize; they do not advance state or apply extra gain.
+
+An explicit `audio: {schema, update, dispose?}` still owns its exact schema, values, arrays and events. No reserved keys are injected or overwritten, even if its custom schema uses `bass`. Its renderer `reactive` stays zero: read your own mapped values from `controls`. Inside its `audio.update` context, `reactive` lazily supplies the same eight built-in channels, computed at most once per update; return the channels you need under your declared schema. Raw-only scripts do not trigger this extra analysis. The inline `audio-advanced.viz.js` demonstrates reactive geometry plus raw spectrum and a threshold-crossing event from the existing beat envelope. No existing script must migrate, and API version remains 1.
+
 ## Audio controllers
 
 Audio interpretation happens on the capture owner, once per runtime slot. The renderer receives compact validated controls, avoiding separate audio analysis in output/preview windows.
 
-`audio.update({frame, shared, params, deltaSeconds, captureTime, sequence}, state)` returns `{continuous?, arrays?, events?}`. Missing containers default empty. State is per controller, with seeded `state.rng()` supplied by the engine. Use `deltaSeconds`, not an assumed cadence. Dispose is called when retired/reloaded. All numeric values must match schema; errors are reported and neutral output is substituted.
+`audio.update({frame, shared, params, deltaSeconds, captureTime, sequence, reactive, response, accent}, state)` returns `{continuous?, arrays?, events?}`. Missing containers default empty. State is per controller, with seeded `state.rng()` supplied by the engine. Use `deltaSeconds`, not an assumed cadence. Dispose is called when retired/reloaded. All numeric values must match schema; errors are reported and neutral output is substituted.
 
+- `frame`: original cleaned capture analysis frame (or null), with full float dB `left`/`right`, float `waveformLeft`/`waveformRight`, `sampleRate`, `fftSize` and optional `rms`. This is pre-feature data, not pre-noise-cleaning microphone data. Treat frame/shared arrays as read-only; full raw access remains capture-side, not broadcast to remote renderers.
 - `shared.getByteFrequencies()` → `{left,right}` byte-frequency arrays (0..255).
 - `shared.getByteWaveforms()` → `{left,right}` byte-waveform arrays.
 - `shared.getFeatures()` → existing shared feature snapshot; inspect `src/sketches/audio-features.js` and `src/pattern-audio-engine.js` for detailed feature contract. Do not mutate shared arrays.
@@ -115,7 +144,7 @@ Audio interpretation happens on the capture owner, once per runtime slot. The re
 - `schema.neutral` may supply `{continuous,arrays}` overrides, validated against the schema. Arrays use typed arrays.
 - Keys start with an ASCII letter then letters/digits/underscore/hyphen (max 64). Unknown schema fields, invalid ranges, hook types and neutral values fail registration. All values finite within absolute 1,000,000. Runtime payload validation is also enforced by the existing protocol.
 
-See the inline `audio.viz.js` example below for a working parameterized spectrum + continuous level + one-shot pulse implementation.
+Start with `audio.viz.js` for preferred reactive mapping; `audio-advanced.viz.js` adds custom transport, raw spectrum and one-shot events. Raw FFT averaging is useful for measurement, but it misses the within-range dynamics and transient semantics of the preferred helper.
 
 ## Examples and normal host features
 
@@ -126,7 +155,8 @@ Save any complete example below as its named file in your linked folder, then ex
 | `drawing.viz.js` | 2D shapes, text, transforms, HSB, parameters, image pixels, offscreen buffer and cleanup |
 | `mesh.viz.js` | WebGL meshes, rotations, lighting |
 | `shader.viz.js` | GLSL, fullscreen quad, animated uniforms, offscreen texture |
-| `audio.viz.js` | Capture-owner controls, frequency arrays, events, parameters |
+| `audio.viz.js` | Preferred built-in reactivity, independent geometry/color/detail and kick accent |
+| `audio-advanced.viz.js` | Custom controller using reactive helpers plus raw spectrum and events |
 | `image.viz.js` | Async local asset load, image tint, additive compositing; add `photo.png` |
 | `video.viz.js` | Async video readiness, muted playback, CUE pause/resume, cancellation; add `clip.mp4` |
 | `camera.viz.js` | Shared output camera and mirrored image; choose/allow camera |
@@ -170,7 +200,34 @@ Tests use real browser filesystem handles backed by OPFS to automate filesystem 
 ```js
 api.requireVersion(1);
 api.create({
-  id: 'custom-audio', name: 'Audio controls / spectrum / events',
+  id: 'custom-audio', name: 'Reactive rings (recommended)',
+  params: ['bass', 'mid', 'high'].map(key => ({
+    key, label: `${key} responsiveness`, min: 0, max: 2, step: 0.05, default: 1,
+  })),
+  // Omit audio: the host supplies the existing eight-channel feature controller.
+  draw({ p, reactive, response, accent }) {
+    const bass = response(reactive.bass);
+    const mid = response(reactive.mid);
+    const high = response(reactive.high);
+    const kick = accent(reactive.kick);
+    p.background(8); p.noFill();
+    // Structure remains visible in silence; independent ranges have distinct roles.
+    p.stroke(80 + mid * 175, 160, 255);
+    p.strokeWeight(1 + high * 6);
+    p.circle(p.width / 2, p.height / 2, Math.min(p.width, p.height) * (0.2 + bass * 0.5));
+    // Selective transient accent, not a second gain or invented beat detector.
+    p.stroke(255, 100, 180, kick * 255);
+    p.circle(p.width / 2, p.height / 2, Math.min(p.width, p.height) * (0.24 + kick * 0.55));
+  },
+});
+```
+
+### audio-advanced.viz.js
+
+```js
+api.requireVersion(1);
+api.create({
+  id: 'custom-audio-advanced', name: 'Advanced reactive controls / raw spectrum / events',
   params: [{ key: 'gain', label: 'Gain', min: 0, max: 4, step: 0.1, default: 1 }],
   audio: {
     schema: {
@@ -178,17 +235,19 @@ api.create({
       arrays: { spectrum: { min: 0, max: 1, minLength: 32, maxLength: 32 } },
       events: { pulse: { fields: { strength: { min: 0, max: 1, required: true } } } },
     },
-    update({ shared, params, deltaSeconds }, state) {
+    update({ shared, params, reactive, response, accent }, state) {
       const freqs = shared?.getByteFrequencies?.().left || [];
       const spectrum = new Float32Array(32);
       for (let i = 0; i < 32; i++) spectrum[i] = Math.min(1, ((freqs[i * 4] || 0) / 255) * params.gain);
-      const level = spectrum.reduce((sum, x) => sum + x, 0) / 32;
-      state.elapsed = (state.elapsed || 0) + deltaSeconds;
+      // Raw bins are only for the spectrum display. Geometry uses built-in dynamics.
+      const level = response(reactive.bass);
+      const beat = accent(reactive.beat);
       const events = [];
-      if (level > 0.3 && state.elapsed > 0.2) {
-        state.elapsed = 0; state.count = (state.count || 0) + 1;
-        events.push({ id: `pulse-${state.count}`, type: 'pulse', strength: level });
+      if (beat > 0.3 && (state.previousBeat || 0) <= 0.3) {
+        state.count = (state.count || 0) + 1;
+        events.push({ id: `pulse-${state.count}`, type: 'pulse', strength: beat });
       }
+      state.previousBeat = beat;
       return { continuous: { level }, arrays: { spectrum }, events };
     },
   },
