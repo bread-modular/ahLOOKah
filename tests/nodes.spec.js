@@ -132,8 +132,14 @@ test('searchable palette accepts validated cross-tab drag payload, rejects forei
   await page.getByLabel('Graph workspace').evaluate((el, text) => { const dataTransfer = new DataTransfer(); dataTransfer.setData('application/x-viz-pattern+json', text); el.dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer, clientX: 350, clientY: 300 })); }, payload);
   await expect(page.locator('[data-node-id]')).toHaveCount(3);
   await page.getByLabel('Graph workspace').evaluate(el => { const dataTransfer = new DataTransfer(); dataTransfer.setData('application/x-viz-pattern+json', '{"version":1,"patternId":"not-real"}'); el.dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer })); });
-  await expect(page.locator('.nodes-workspace')).toHaveAttribute('data-status', 'Invalid pattern drag payload');
+  await expect(page.locator('.nodes-workspace')).toHaveAttribute('data-status', 'Invalid palette drag payload');
   await expect(page.locator('[data-node-id]')).toHaveCount(3);
+  // Structural nodes are drag-only: clicking a palette button never creates one.
+  await page.getByRole('button', { name: '+ Blend', exact: true }).click();
+  await expect(page.locator('[data-node-id]')).toHaveCount(3);
+  await page.getByRole('button', { name: '+ Blend', exact: true }).dragTo(page.getByLabel('Graph workspace'), { targetPosition: { x: 60, y: 60 } });
+  await expect(page.locator('[data-node-id]')).toHaveCount(4);
+  await expect(page.locator('.nodes-node').filter({ hasText: 'Blend' })).toHaveCount(1);
 });
 
 test('disk persistence, stable overwrite, reload and isolated drafts across tabs', async ({ page, context }) => {

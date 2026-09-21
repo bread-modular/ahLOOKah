@@ -200,12 +200,18 @@ export function removeConnection(graph, ref) {
   return validateGraph(next);
 }
 export const DRAG_TYPE = 'application/x-viz-pattern+json';
-export function readPatternDrag(transfer, sketches) {
+// Every palette drag shares this one versioned payload type: either a structural
+// node kind from the fixed create allowlist (never math/output) or a validated
+// non-recursive Pattern source id.
+const CREATE_TYPES = Object.freeze(['blend', 'color', 'script', 'audio']);
+export function readPaletteDrag(transfer, sketches) {
   try {
     const text = transfer.getData(DRAG_TYPE);
     if (!text || text.length > 512) return null;
     const data = JSON.parse(text);
-    return data.version === 1 && sketches.some(s => s.id === data.patternId && !s.nodesGraph) ? data.patternId : null;
+    if (data.version !== 1) return null;
+    if (CREATE_TYPES.includes(data.nodeType)) return { nodeType: data.nodeType };
+    return sketches.some(s => s.id === data.patternId && !s.nodesGraph) ? { patternId: data.patternId } : null;
   } catch { return null; }
 }
 

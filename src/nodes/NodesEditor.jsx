@@ -17,7 +17,7 @@ import { SKETCHES } from '../sketch-registry.js';
 import { MEDIA_STORAGE_KEY, registerMediaSketches } from '../media/media-registry.js';
 import { PROJECTION_STORAGE_KEY, registerProjectionSketches } from '../projection/projection-registry.js';
 import { CustomScripts } from '../custom-scripts/service.js';
-import { MODES, newGraph, validateGraph, connect, deleteNodes, connectionRef, findConnection, removeConnection, DRAG_TYPE, readPatternDrag, connectSignal, connectSignalEdge, mapSignal, mapSignalInput } from './model.js';
+import { MODES, newGraph, validateGraph, connect, deleteNodes, connectionRef, findConnection, removeConnection, DRAG_TYPE, readPaletteDrag, connectSignal, connectSignalEdge, mapSignal, mapSignalInput } from './model.js';
 import { GraphRuntime } from './runtime.js';
 import { nodePatterns, watchGraphs } from './repository.js';
 import { manifestFor, sourceDiagnostics, serializeGraph } from './portability.js';
@@ -51,6 +51,14 @@ export function describeConnection(graph, ref, link) {
   return `${name(link.from)} → ${name(link.to)} ${link.param || 'unmapped'} (modulation)`;
 }
 const sameConnection = (a, b) => !!a && !!b && a.kind === b.kind && a.key === b.key;
+// Structural palette items are drag-only, exactly like Pattern sources: dropping
+// one on the workspace creates the node at the drop point. There is no click-to-add.
+const CREATE_NODES = [
+  { type: 'blend', label: '+ Blend', title: 'Drag Blend onto the canvas to create a node' },
+  { type: 'color', label: '+ Color', title: 'Drag Color onto the canvas to create a node (saturation, brightness, contrast, hue shift)' },
+  { type: 'script', label: '+ Script', title: 'Drag Script onto the canvas to create a node (restricted scalar expression and compiled body)' },
+  { type: 'audio', label: '+ Audio', title: 'Drag Audio onto the canvas to create a node (bass, mid or high activity)' },
+];
 // Every wire — image, scalar and modulation — is drawn from the same geometry and
 // is activated the same way: activating selects only the connection, it never
 // deletes a wire and never selects its endpoint nodes.
@@ -74,7 +82,7 @@ function SignalReadout({ runtime, nodeId }) {
   }, [runtime, nodeId]);
   return <output className="nodes-signal-readout" data-testid="node-signal-readout" aria-label="Signal output value">{Number.isFinite(value) ? `Output ${value.toFixed(3)}` : 'Output —'}</output>;
 }
-function Preview({ graph, dependencies, selected, revision, current, sharedRuntime }) {
+function Preview({ graph, dependencies, selected, revision, current, sharedRuntime, visible = true }) {
   const canvas = useRef(null), target = useRef(selected);
   const [messages, setMessages] = useState([]);
   target.current = selected;
@@ -95,8 +103,12 @@ function Preview({ graph, dependencies, selected, revision, current, sharedRunti
       current.current = runtime;
       const render = () => {
         const image = runtime.render(target.current || undefined);
-        const ctx = canvas.current.getContext('2d'); ctx.clearRect(0, 0, 480, 270);
-        if (image) ctx.drawImage(image, 0, 0, 480, 270);
+        // The canvas is unmounted for scalar selections (audio/script), but the
+        // runtime must keep ticking so signal readouts and mappings stay live.
+        if (canvas.current) {
+          const ctx = canvas.current.getContext('2d'); ctx.clearRect(0, 0, 480, 270);
+          if (image) ctx.drawImage(image, 0, 0, 480, 270);
+        }
         const diagnostics = runtime.getDiagnostics(); const text = diagnostics.join('\n');
         if (text !== oldMessage) { oldMessage = text; setMessages(diagnostics); }
         frame = requestAnimationFrame(render);
@@ -105,6 +117,9 @@ function Preview({ graph, dependencies, selected, revision, current, sharedRunti
     } catch (e) { setMessages([e.message]); }
     return () => { cancelAnimationFrame(frame); runtime?.dispose(); audioProvider.setChildren([]); current.current = null; };
   }, [content, manifest, revision]);
+  // Audio and Script are scalar sources with no image to show, so their
+  // inspector omits the preview window entirely; the runtime stays mounted.
+  if (!visible) return null;
   return <><canvas ref={canvas} width="480" height="270" aria-label="Selected node live preview" data-testid="node-preview" /><div role="status" className="nodes-diagnostics">{messages.map((m, i) => <p key={i}>{m}</p>)}</div></>;
 }
 export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }) {
@@ -371,13 +386,14 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
     {/* No status strip: guidance and error text never render as a bar. The text
         stays on the workspace's data-status attribute for diagnostics and tests. */}
     <div className="nodes-layout" inert={busy}>
-      <aside className="nodes-palette" aria-label="Pattern palette"><button className="btn" title="Add a Blend node" onClick={() => create('blend')}>+ Blend</button><button className="btn" title="Add a Color node (saturation, brightness, contrast, hue shift)" onClick={() => create('color')}>+ Color</button><button className="btn" title="Add a Script node (restricted scalar expression and compiled body)" onClick={() => create('script')}>+ Script</button><button className="btn" title="Add an Audio node (bass, mid or high activity)" onClick={() => create('audio')}>+ Audio</button><input className="control-input" aria-label="Search patterns" title="Filter available patterns" placeholder="Search patterns…" value={query} onChange={e => setQuery(e.target.value)} />
+      <aside className="nodes-palette" aria-label="Pattern palette">{CREATE_NODES.map(n => <button className="btn" key={n.type} title={n.title} draggable onDragStart={e => { e.dataTransfer.effectAllowed = 'copy'; e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ version: 1, nodeType: n.type })); }}>{n.label}</button>)}<input className="control-input" aria-label="Search patterns" title="Filter available patterns" placeholder="Search patterns…" value={query} onChange={e => setQuery(e.target.value)} />
         <div className="nodes-pattern-list">{SKETCHES.filter(s => !s.nodesGraph && `${s.name} ${s.group}`.toLowerCase().includes(query.toLowerCase())).map(s => <button className="btn" key={s.id} title={`Drag ${s.name} onto the canvas to create a node`} draggable onDragStart={e => { e.dataTransfer.effectAllowed = 'copy'; e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ version: 1, patternId: s.id })); }}><span>{s.name}</span><small>{s.group}{s.camera ? ' · Output camera' : ''}</small></button>)}</div>
       </aside>
       <section ref={navigation.workspace} {...selection.workspaceHandlers} className="nodes-workspace" aria-label="Graph workspace" tabIndex={0} data-status={message || undefined} onDragOver={e => { if (e.dataTransfer.types.includes(DRAG_TYPE)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }} onDrop={e => {
-        e.preventDefault(); const id = readPatternDrag(e.dataTransfer, SKETCHES);
-        if (!id) { setMessage('Invalid pattern drag payload'); return; }
-        const point = navigation.toGraph(e.clientX, e.clientY); add(id, point.x, point.y);
+        e.preventDefault(); const drag = readPaletteDrag(e.dataTransfer, SKETCHES);
+        if (!drag) { setMessage('Invalid palette drag payload'); return; }
+        const point = navigation.toGraph(e.clientX, e.clientY);
+        if (drag.nodeType) create(drag.nodeType, point.x, point.y); else add(drag.patternId, point.x, point.y);
       }}>
         <div className="nodes-plane" style={{ transform: `translate(${navigation.view.x}px, ${navigation.view.y}px) scale(${navigation.view.zoom})`, width: Math.max(1000, ...graph.nodes.map(n => n.x + 220)), height: Math.max(850, ...graph.nodes.map(n => n.y + 180)) }}>
           <svg className="nodes-wires" aria-label="Connections">{graph.edges.map(e => {
@@ -417,7 +433,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
           <IconControl icon="zoomIn" label="Zoom in" disabled={navigation.view.zoom >= 2.5} onClick={() => navigation.zoomAt(1.2)} />
         </div>
       </section>
-      <aside className="nodes-inspector"><h2>{node ? label(node) : selectedLink ? 'Connection' : 'Preview'}</h2><Preview graph={graph} dependencies={dependencies} selected={selected} revision={revision} current={previewRuntime} sharedRuntime={sharedRuntime} />
+      <aside className="nodes-inspector"><h2>{node ? label(node) : selectedLink ? 'Connection' : 'Preview'}</h2><Preview graph={graph} dependencies={dependencies} selected={selected} revision={revision} current={previewRuntime} sharedRuntime={sharedRuntime} visible={!(node?.type === 'audio' || node?.type === 'script')} />
         {selectedLink && <section className="nodes-connections" aria-label="Selected connection">
           <output className="nodes-connection-name" data-testid="selected-connection">{describeConnection(graph, selection.wire, selectedLink)}</output>
           <button className="btn btn--danger" title="Remove only this wire; both endpoint nodes stay" onClick={remove}>Delete connection</button>

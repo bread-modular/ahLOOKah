@@ -528,6 +528,8 @@ test('a disk-loaded script source must be reviewed in this browser before it run
   await expect(page.getByTestId('script-status')).toContainText('review required');
   await page.getByRole('button', { name: 'Apply script' }).click();
   await expect(page.getByTestId('script-status')).toContainText('Applied and approved');
-  await expect(page.locator('.nodes-diagnostics')).not.toContainText('not approved');
+  // The script node's inspector has no preview window, so the cleared approval
+  // diagnostic is proven by the approval check below.
+  await expect(page.locator('.nodes-diagnostics')).toHaveCount(0);
   expect(await page.evaluate(async () => (await import('/src/nodes/script-approval.js')).isScriptApproved('expression', 'x / 2 + y * 0'))).toBe(true);
 });
