@@ -1,5 +1,6 @@
 import { mappingDiagnostics } from './modulation.js';
 import { validateGraph, MAX_BYTES, MAX_SOURCES } from './model.js';
+import { validateExpression } from './script.js';
 // Manifests deliberately do NOT execute imported scripts or claim that local
 // file handles are portable. Dynamic dependencies must already match locally.
 function fingerprint(text = '') {
@@ -44,6 +45,11 @@ export function sourceDiagnostics(graph, sketches, manifest = []) {
     }
   }
   if (leaves > MAX_SOURCES) messages.push('Graph exceeds 8 leaf renderers (including projection surfaces)');
+  // A broken expression is repairable in the editor but must never be saved.
+  for (const n of graph.nodes.filter(n => n.type === 'script')) {
+    const result = validateExpression(n.source);
+    if (!result.ok) messages.push(`Invalid script expression on ${n.id}: ${result.error}`);
+  }
   for (const dep of manifest) {
     const s = sketches.find(s => s.id === dep.id);
     if (!s) messages.push(`Missing dependency: ${dep.name || dep.id}`);

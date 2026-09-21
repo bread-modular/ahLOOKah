@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ParameterControl } from '../components/control/ParameterControl.jsx';
 import { numeric, clampStep, mappedValue, SIGNAL_DRAG } from './modulation.js';
 
-export function ModulatedParameter({ node, def, value, onChange, mapping, readEffective, onMap, onRange, onRemove }) {
+export function ModulatedParameter({ node, def, value, onChange, mapping, readEffective, onMap, onRange, onInputRange, onRemove }) {
   const gesture = useRef(null);
   const eligible = numeric(def);
   const read = useRef(readEffective); read.current = readEffective;
@@ -21,6 +21,9 @@ export function ModulatedParameter({ node, def, value, onChange, mapping, readEf
   const effective = live ?? (mapping && eligible ? mappedValue(mapping, 0, def) : value);
   const percent = v => 100 * (v - def.min) / (def.max - def.min);
   const min = mapping ? clampStep(mapping.min, def) : 0, max = mapping ? clampStep(mapping.max, def) : 0;
+  // Signal input range: legacy mappings (and new ones) default to 0…1.
+  const inputMin = Number.isFinite(mapping?.inputMin) ? mapping.inputMin : 0;
+  const inputMax = Number.isFinite(mapping?.inputMax) ? mapping.inputMax : 1;
   const begin = (e, part) => {
     if (e.button !== 0) return;
     e.preventDefault(); e.stopPropagation();
@@ -48,8 +51,9 @@ export function ModulatedParameter({ node, def, value, onChange, mapping, readEf
     {!eligible && <small>Audio mapping unsupported: enum, bool and text are not numeric sliders.</small>}
     {mapping && eligible && <div className="nodes-mapping-fields">
       <output className="nodes-mapping-value" aria-label={`${def.label} LIVE mapped value`}>LIVE {effective}</output>
-      <small>Base: {value} · signal 0 → {min}; 1 → {max}{min > max ? ' (reversed)' : ''}</small>
+      <small>Base: {value} · signal {inputMin} → {min}; {inputMax} → {max}{min > max ? ' (reversed)' : ''}</small>
       <div>{[['min', 'Mapping min (signal 0)', min], ['max', 'Mapping max (signal 1)', max]].map(([key, label, v]) => <label key={key}>{label}<input className="control-input" type="number" aria-label={`${def.label} ${label}`} min={def.min} max={def.max} step={def.step} value={v} onChange={e => { const next = e.target.valueAsNumber; if (Number.isFinite(next)) onRange(key === 'min' ? clampStep(next, def) : min, key === 'max' ? clampStep(next, def) : max); }} /></label>)}</div>
+      {onInputRange && <div>{[['inputMin', 'Signal in min', inputMin], ['inputMax', 'Signal in max', inputMax]].map(([key, label, v]) => <label key={key}>{label}<input className="control-input" type="number" step="any" aria-label={`${def.label} ${label}`} value={v} onChange={e => { const next = e.target.valueAsNumber; if (Number.isFinite(next)) onInputRange(key === 'inputMin' ? next : inputMin, key === 'inputMax' ? next : inputMax); }} /></label>)}</div>}
       <button className="btn btn--sm" onClick={() => onRange(max, min)}>Reverse range</button>
       <button className="btn btn--sm" onClick={() => onRange(clampStep(value, def), max)}>Start at base</button>
       <button className="btn btn--sm" onClick={onRemove}>Remove mapping</button>

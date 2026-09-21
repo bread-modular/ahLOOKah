@@ -85,3 +85,9 @@
 .nodes-modulated-param.is-mapped input[type=range]::-moz-range-thumb { opacity:0; }
 .nodes-mapping-live { position:absolute; top:-5px; bottom:-5px; width:3px; transform:translateX(-50%); background:#fff5a8; box-shadow:0 0 0 1px #252214; pointer-events:none; }
 .nodes-mapping-value { display:block; color:#fff5a8; font-weight:700; margin-bottom:5px; font-variant-numeric:tabular-nums; }
+
+/* Scalar (Math/Script) inspector: value readout, validation status and errors. */
+.nodes-inspector output.nodes-signal-readout { float:none; display:block; margin:6px 0 2px; padding:6px 8px; background:var(--bg-dark); border:1px solid var(--border-gray); border-radius:4px; color:#fff5a8; font-weight:700; font-variant-numeric:tabular-nums; }
+.nodes-script-status { color:#cdb6ed !important; }
+.nodes-script-error { color:#ff6b6b !important; }
+.nodes-inspector input[type="number"] { font-variant-numeric:tabular-nums; }
