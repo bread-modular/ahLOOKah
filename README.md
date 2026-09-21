@@ -374,7 +374,8 @@ Scripts are trusted JavaScript, **not a sandbox**. The complete tutorial is
 
 Choose **ADD** (New Node Pattern) in the main **Node Patterns** category. The
 dependency-free React/DOM + SVG editor composes source pixels through chained Blend
-nodes. The main **Node Patterns** category owns **Link Folder**, **Open Pattern**,
+nodes and Color filters, and wires scalar Math/Script nodes into any numeric parameter.
+The main **Node Patterns** category owns **Link Folder**, **Open Pattern**,
 **Refresh folder**, and **New Node Pattern**. Select a graph, then use the sidebar’s
 **Edit Pattern** to open it in the editor. One graph is edited at a time and the editor
 replaces the main view in the same window — no popup, no tab rail, no draft list; its
@@ -389,10 +390,12 @@ unsaved edits never change LIVE. See the [Nodes guide](public/docs/nodes.html) f
 shortcuts, source support, JSON dependency manifests and resource limits.
 
 ```sh
-PLAYWRIGHT_PORT=5186 npx playwright test tests/nodes.spec.js --no-deps
+PLAYWRIGHT_PORT=5186 npx playwright test tests/nodes.spec.js tests/nodes-scalar.spec.js --no-deps
 ```
 
-The graph tests cover blend pixels, chained DAGs, real 2D/WebGL/projection/media/
+The graph tests cover blend pixels, Color filter pixels (identity/alpha/chaining),
+chained DAGs, scalar Math/Script wiring with per-frame fanout and safe fallbacks,
+real 2D/WebGL/projection/media/
 custom sources, editor gestures, disk save/open/reload, permissions and overwrite safety, cross-tab library
 updates, LIVE/CUE isolation, independent audio slots, resize and disposal.
 

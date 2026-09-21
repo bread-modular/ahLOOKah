@@ -1,10 +1,13 @@
-import { parameterView } from './modulation.js';
+import { parameterView, signalValue } from './modulation.js';
 import { createSignalConsumer } from './audio-provider.js';
 import VizCore from '../core/index.js';
 import { ProgramRuntime } from '../program-runtime.js';
 import { PreviewAudio } from '../preview-audio.js';
 import { MODES, validateGraph } from './model.js';
 import { sourceDiagnostics } from './portability.js';
+import { isVisualType } from './definitions.js';
+import { mathValue, mathIssue, scriptValue } from './scalar.js';
+import { isExpressionApproved, SCRIPT_APPROVAL_MESSAGE } from './script-approval.js';
 
 export function composite(ctx, base, layer, mode, opacity) {
   const { width, height } = ctx.canvas;
@@ -14,6 +17,30 @@ export function composite(ctx, base, layer, mode, opacity) {
   if (base) ctx.drawImage(base, 0, 0, width, height);
   ctx.globalAlpha = opacity; ctx.globalCompositeOperation = MODES[mode];
   if (layer) ctx.drawImage(layer, 0, 0, width, height);
+  ctx.restore();
+}
+const colorParam = (params, key, fallback) => Number.isFinite(params?.[key]) ? params[key] : fallback;
+// Filter order is fixed (saturate → brightness → contrast → hue) and identity
+// defaults return 'none', so an untouched Color node is a pixel-exact copy.
+export function colorFilter(params = {}) {
+  const saturation = Math.max(0, colorParam(params, 'saturation', 1));
+  const brightness = Math.max(0, colorParam(params, 'brightness', 1));
+  const contrast = Math.max(0, colorParam(params, 'contrast', 1));
+  const hue = colorParam(params, 'hue', 0);
+  if (saturation === 1 && brightness === 1 && contrast === 1 && hue === 0) return 'none';
+  return `saturate(${saturation}) brightness(${brightness}) contrast(${contrast}) hue-rotate(${hue}deg)`;
+}
+export function applyColor(ctx, source, params = {}) {
+  const { width, height } = ctx.canvas;
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  ctx.filter = 'none'; ctx.clearRect(0, 0, width, height);
+  if (source) {
+    const filter = colorFilter(params);
+    if (filter !== 'none') ctx.filter = filter;
+    // drawImage preserves the source alpha channel; the filter only maps color.
+    ctx.drawImage(source, 0, 0, width, height);
+  }
   ctx.restore();
 }
 const sizeFor = (width, height) => {
@@ -26,12 +53,20 @@ export class GraphRuntime {
     this.signal = this.graph.nodes.some(n => n.type === 'audio') ? createSignalConsumer(context.audioControlStore, context.audioRole) : null;
     if (this.signal) context.registerChildRuntime?.(this.signal);
     this.readContinuous = context.readAudioSignals || this.signal?.read || (() => ({}));
-    this.params = new Map(this.graph.nodes.filter(n => ['pattern', 'blend'].includes(n.type)).map(n => [n.id, parameterView(this.graph, n, sketches, this.readContinuous)]));
+    this.frame = 0;
+    this.frameSignals = new Map();
+    this.scriptCache = new Map();
+    this.startedAt = performance.now();
+    this.params = new Map(this.graph.nodes.filter(n => ['pattern', 'blend', 'color'].includes(n.type))
+      .map(n => [n.id, parameterView(this.graph, n, sketches, this.readContinuous, id => this.signalValue(id))]));
     this.size = sizeFor(width, height);
     this.disposed = false;
     this.sources = new Map(); this.buffers = new Map(); this.messages = new Map();
     this.diagnostics = sourceDiagnostics(this.graph, sketches, dependencies);
-    this.graph.nodes.filter(n => n.type !== 'audio').forEach(n => { const canvas = document.createElement('canvas'); [canvas.width, canvas.height] = this.size; this.buffers.set(n.id, canvas); });
+    this.graph.nodes.filter(n => isVisualType(n)).forEach(n => { const canvas = document.createElement('canvas'); [canvas.width, canvas.height] = this.size; this.buffers.set(n.id, canvas); });
+    // A disk-loaded Script source never carries trust with it: evaluation only
+    // happens after this browser approved that exact text.
+    for (const node of this.graph.nodes.filter(n => n.type === 'script')) if (!isExpressionApproved(node.source)) this.messages.set(node.id, SCRIPT_APPROVAL_MESSAGE);
     if (this.diagnostics.length) { this.ready = Promise.resolve(); return; }
     const waits = [];
     for (const node of this.graph.nodes.filter(n => n.type === 'pattern')) {
@@ -74,21 +109,67 @@ export class GraphRuntime {
     }
     this.ready = Promise.all(waits);
   }
+  elapsed() { return (performance.now() - this.startedAt) / 1000; }
+  // One shared memo per frame: fanout reads the same value however many
+  // parameters/nodes consume it, and cycles fall back to 0 instead of hanging.
+  signalValue(id) { return this.computeSignal(id, new Set()); }
+  computeSignal(id, visiting) {
+    if (this.frameSignals.has(id)) return this.frameSignals.get(id);
+    const node = this.graph.nodes.find(n => n.id === id);
+    if (node?.type === 'audio') { const value = signalValue(this.readContinuous(), node.band); this.frameSignals.set(id, value); return value; }
+    if (!node || (node.type !== 'math' && node.type !== 'script')) return 0;
+    if (visiting.has(id)) { this.messages.set(id, 'Signal loop detected → 0.'); return 0; }
+    visiting.add(id);
+    const readInput = port => {
+      const edge = (this.graph.signalEdges || []).find(e => e.to === id && e.port === port);
+      return edge ? this.computeSignal(edge.from, visiting) : null;
+    };
+    let value = 0;
+    try {
+      if (node.type === 'math') {
+        const issue = mathIssue(node, readInput);
+        value = mathValue(node, readInput);
+        if (issue) this.messages.set(id, issue); else this.messages.delete(id);
+      } else if (!isExpressionApproved(node.source)) {
+        this.messages.set(id, SCRIPT_APPROVAL_MESSAGE);
+        value = 0;
+      } else {
+        const result = scriptValue(node, { time: this.elapsed(), readInput }, this.scriptCache);
+        value = result.value;
+        if (result.error) this.messages.set(id, result.error); else this.messages.delete(id);
+      }
+    } catch (error) {
+      this.messages.set(id, `Signal node failed: ${error.message} → 0.`);
+      value = 0;
+    } finally { visiting.delete(id); }
+    if (!Number.isFinite(value)) {
+      this.messages.set(id, 'Signal node produced a non-finite number → 0.');
+      value = 0;
+    }
+    this.frameSignals.set(id, value);
+    return value;
+  }
   render(targetId = this.graph.nodes.find(n => n.type === 'output').id) {
     const done = new Set();
+    // Scalar values are computed once per rendered frame and shared by every
+    // consumer (sidebar readout, preview, LIVE and CUE runtimes).
+    this.frame++; this.frameSignals.clear();
     const visit = id => {
       if (done.has(id)) return this.buffers.get(id);
       done.add(id);
       const node = this.graph.nodes.find(n => n.id === id), canvas = this.buffers.get(id);
-      if (!node || node.type === 'audio') return null;
+      if (!node || !canvas) return null;
       const source = port => { const edge = this.graph.edges.find(e => e.to === id && e.port === port); return edge ? visit(edge.from) : null; };
-      if (node.type !== 'pattern') composite(canvas.getContext('2d'), source(node.type === 'blend' ? 'base' : 'image'), node.type === 'blend' ? source('layer') : null, node.mode || 'Normal', this.params.get(id)?.opacity ?? 1);
+      if (node.type === 'color') applyColor(canvas.getContext('2d'), source('image'), this.params.get(id) || {});
+      else if (node.type !== 'pattern') composite(canvas.getContext('2d'), source(node.type === 'blend' ? 'base' : 'image'), node.type === 'blend' ? source('layer') : null, node.mode || 'Normal', this.params.get(id)?.opacity ?? 1);
       const runtime = this.sources.get(id);
       const message = this.diagnostics[0] || this.messages.get(id) || runtime?.error?.message;
       if (message) {
-        const ctx = canvas.getContext('2d'); ctx.fillStyle = '#291722'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        const ctx = canvas.getContext('2d'); ctx.save(); ctx.filter = 'none'; ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.fillStyle = '#291722'; ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = '#ffb7cb'; ctx.font = '14px sans-serif';
         ctx.fillText(message.slice(0, 80), 12, 30);
+        ctx.restore();
       }
       return canvas;
     };
@@ -103,7 +184,7 @@ export class GraphRuntime {
   }
   pause() { this.sources.forEach(s => s.pause()); }
   resume() { this.sources.forEach(s => s.resume()); }
-  dispose() { if (this.disposed) return; this.disposed = true; this.signal?.dispose(); this.sources.forEach(s => s.dispose()); this.sources.clear(); this.buffers.forEach(c => { c.width = c.height = 1; }); this.buffers.clear(); }
+  dispose() { if (this.disposed) return; this.disposed = true; this.signal?.dispose(); this.sources.forEach(s => s.dispose()); this.sources.clear(); this.buffers.forEach(c => { c.width = c.height = 1; }); this.buffers.clear(); this.frameSignals.clear(); }
 }
 export function graphFactory(record, sketches) {
   // Closed-over disk snapshot; registry changes replace the factory and runtime.

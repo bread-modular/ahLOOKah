@@ -1,12 +1,26 @@
 // Versioned, JSON-only graph contract. Missing sources are diagnostics, not
 // structurally invalid graphs: imported files must remain editable/repairable.
+//
+// Three independent link kinds (never conflated):
+//   edges       — image pixels between visual nodes
+//   signalEdges — scalar values into Math/Script input ports
+//   modulations — terminal scalar mappings onto a numeric parameter
+import {
+  TYPES, COLOR_PARAMS, MATH_OPS, MATH_LITERALS, SCRIPT_LITERALS,
+  inputs, isSignalSource, isScalarConsumer, isModulationTarget,
+} from './definitions.js';
+import { MAX_EXPRESSION } from './script.js';
+
 export const VERSION = 1;
 export const MAX_NODES = 24;
 export const MAX_SOURCES = 8;
+export const MAX_SIGNAL_EDGES = 48;
 export const MAX_BYTES = 200000;
 export const MODES = { Normal: 'source-over', Multiply: 'multiply', Screen: 'screen', Overlay: 'overlay', Difference: 'difference', Add: 'lighter' };
-export const inputs = (node) => node.type === 'blend' ? ['base', 'layer'] : node.type === 'output' ? ['image'] : [];
+export { inputs };
 const idOK = (id) => typeof id === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(id);
+const reserved = (key) => ['__proto__', 'constructor', 'prototype'].includes(key);
+const number = (value) => Number.isFinite(value) && Math.abs(value) <= 1000000;
 const fail = (message) => { throw new Error(message); };
 export function validateGraph(raw, { complete = false } = {}) {
   if (!raw || raw.version !== VERSION) fail('Unsupported graph version');
@@ -16,19 +30,49 @@ export function validateGraph(raw, { complete = false } = {}) {
   if (!Array.isArray(raw.edges) || raw.edges.length > MAX_NODES * 2) fail('Too many wires');
   const ids = new Map();
   const nodes = raw.nodes.map(n => {
-    if (!n || !idOK(n.id) || ids.has(n.id) || !['pattern', 'blend', 'output', 'audio'].includes(n.type)) fail('Invalid or duplicate node');
+    if (!n || !idOK(n.id) || ids.has(n.id) || !TYPES.includes(n.type)) fail('Invalid or duplicate node');
     // Signed graph coordinates are independent of the visible pan/zoom viewport.
     if (![n.x, n.y].every(Number.isFinite)) fail('Invalid node position');
     const node = { id: n.id, type: n.type, x: n.x, y: n.y };
     if (n.type === 'pattern') {
       if (!idOK(n.patternId) || n.patternId.startsWith('nodes-')) fail('Graph sources cannot recursively reference graphs; use ordinary patterns');
       if (!n.params || typeof n.params !== 'object' || Array.isArray(n.params) || Object.keys(n.params).length > 256) fail('Invalid pattern parameters');
-      for (const [k, v] of Object.entries(n.params)) if (k.length > 80 || ['__proto__', 'constructor', 'prototype'].includes(k) || !Number.isFinite(v) || Math.abs(v) > 1000000) fail('Invalid parameter value');
+      for (const [k, v] of Object.entries(n.params)) if (k.length > 80 || reserved(k) || !number(v)) fail('Invalid parameter value');
       Object.assign(node, { patternId: n.patternId, params: { ...n.params } });
+    }
+    if (n.type === 'color') {
+      if (!n.params || typeof n.params !== 'object' || Array.isArray(n.params)) fail('Invalid color parameters');
+      // Only the documented Color controls exist, inside their own ranges;
+      // omitted fields fall back to the documented identity defaults.
+      const params = Object.fromEntries(COLOR_PARAMS.map(p => [p.key, p.default]));
+      for (const [k, v] of Object.entries(n.params)) {
+        const def = COLOR_PARAMS.find(p => p.key === k);
+        if (!def || !number(v) || v < def.min || v > def.max) fail(`Invalid color parameter: ${k}`);
+        params[k] = v;
+      }
+      node.params = params;
     }
     if (n.type === 'audio') {
       if (!['bass', 'mid', 'high'].includes(n.band)) fail('Invalid audio band');
       node.band = n.band;
+    }
+    if (n.type === 'math') {
+      if (!MATH_OPS.includes(n.op)) fail('Invalid math operation');
+      for (const key of ['a', 'b', 'c']) {
+        const value = n[key] === undefined ? MATH_LITERALS[key] : n[key];
+        if (!number(value)) fail('Invalid math literal');
+        node[key] = value;
+      }
+      node.op = n.op;
+    }
+    if (n.type === 'script') {
+      if (typeof n.source !== 'string' || n.source.length > MAX_EXPRESSION) fail(`Script source must be text of at most ${MAX_EXPRESSION} characters`);
+      for (const key of ['inputX', 'inputY']) {
+        const value = n[key] === undefined ? SCRIPT_LITERALS[key] : n[key];
+        if (!number(value)) fail('Invalid script literal');
+        node[key] = value;
+      }
+      node.source = n.source;
     }
     if (n.type === 'blend') {
       if (!Object.hasOwn(MODES, n.mode) || !Number.isFinite(n.opacity) || n.opacity < 0 || n.opacity > 1) fail('Invalid blend mode or opacity');
@@ -43,22 +87,37 @@ export function validateGraph(raw, { complete = false } = {}) {
   const edges = raw.edges.map(e => {
     const from = ids.get(e?.from), to = ids.get(e?.to);
     const key = `${e?.to}:${e?.port}`;
-    if (!from || !to || !['pattern', 'blend'].includes(from.type) || !inputs(to).includes(e.port) || occupied.has(key)) fail('Invalid reference, port, or duplicate input wire');
+    // Image wires only ever reach image ports of visual nodes; scalar inputs
+    // (Math/Script) are wired exclusively by signalEdges.
+    if (!from || !to || !['pattern', 'blend', 'color'].includes(from.type) || !['blend', 'color', 'output'].includes(to.type) || !inputs(to).includes(e.port) || occupied.has(key)) fail('Invalid reference, port, or duplicate input wire');
     occupied.add(key);
+    return { from: e.from, to: e.to, port: e.port };
+  });
+  if (raw.signalEdges !== undefined && (!Array.isArray(raw.signalEdges) || raw.signalEdges.length > MAX_SIGNAL_EDGES)) fail('Too many signal wires');
+  const signalOccupied = new Set();
+  const signalEdges = (raw.signalEdges || []).map(e => {
+    const from = ids.get(e?.from), to = ids.get(e?.to);
+    const key = `${e?.to}:${e?.port}`;
+    if (!from || !to || !isSignalSource(from) || !isScalarConsumer(to) || !inputs(to).includes(e.port) || signalOccupied.has(key)) fail('Invalid signal reference, port, or duplicate input wire');
+    signalOccupied.add(key);
     return { from: e.from, to: e.to, port: e.port };
   });
   if (raw.modulations !== undefined && (!Array.isArray(raw.modulations) || raw.modulations.length > 256)) fail('Invalid modulation links');
   const mapped = new Set(), links = new Set();
   const modulations = (raw.modulations || []).map(m => {
     const from = ids.get(m?.from), to = ids.get(m?.to);
-    if (from?.type !== 'audio' || !['pattern', 'blend'].includes(to?.type)) fail('Invalid modulation reference or target');
+    if (!isSignalSource(from) || !isModulationTarget(to)) fail('Invalid modulation reference or target');
     const param = m.param ?? null;
-    if (param !== null && (!idOK(param) || ['__proto__', 'constructor', 'prototype'].includes(param) || (to.type === 'blend' && param !== 'opacity'))) fail('Invalid modulation parameter');
+    if (param !== null && (!idOK(param) || reserved(param) || (to.type === 'blend' && param !== 'opacity'))) fail('Invalid modulation parameter');
     const key = `${m.to}:${param}`, link = `${m.from}:${key}`;
     if (links.has(link) || (param && mapped.has(key))) fail('Duplicate modulation; explicitly replace the existing mapping');
     links.add(link); if (param) mapped.add(key);
-    if (param && (![m.min, m.max].every(Number.isFinite) || Math.max(Math.abs(m.min), Math.abs(m.max)) > 1000000)) fail('Invalid modulation range');
-    return { from: m.from, to: m.to, param, ...(param ? { min: m.min, max: m.max } : {}) };
+    if (param && (!number(m.min) || !number(m.max))) fail('Invalid modulation range');
+    // Signal-range conversion. Omitted fields keep the legacy 0…1 behavior, so
+    // existing version-1 graphs and their saved mappings are unchanged.
+    const ranged = m.inputMin !== undefined || m.inputMax !== undefined;
+    if (ranged && (!number(m.inputMin) || !number(m.inputMax) || m.inputMax <= m.inputMin)) fail('Invalid modulation input range');
+    return { from: m.from, to: m.to, param, ...(param ? { min: m.min, max: m.max } : {}), ...(param && ranged ? { inputMin: m.inputMin, inputMax: m.inputMax } : {}) };
   });
   const visited = new Set(), visiting = new Set();
   function visit(id) {
@@ -66,6 +125,7 @@ export function validateGraph(raw, { complete = false } = {}) {
     if (visited.has(id)) return;
     visiting.add(id);
     edges.filter(e => e.to === id).forEach(e => visit(e.from));
+    signalEdges.filter(e => e.to === id).forEach(e => visit(e.from));
     visiting.delete(id); visited.add(id);
   }
   nodes.forEach(n => visit(n.id));
@@ -75,13 +135,18 @@ export function validateGraph(raw, { complete = false } = {}) {
     walk(nodes.find(n => n.type === 'output').id);
     for (const id of required) for (const port of inputs(ids.get(id))) if (!occupied.has(`${id}:${port}`)) fail(`Connect ${id} ${port} before saving`);
   }
-  return { version: VERSION, name: raw.name.trim(), nodes, edges, ...(modulations.length ? { modulations } : {}) };
+  return { version: VERSION, name: raw.name.trim(), nodes, edges,
+    ...(signalEdges.length ? { signalEdges } : {}), ...(modulations.length ? { modulations } : {}) };
 }
 export function newGraph() {
   return { version: VERSION, name: 'Untitled graph', nodes: [{ id: 'output', type: 'output', x: 650, y: 220 }], edges: [] };
 }
 export function connect(graph, from, to, port) {
   return validateGraph({ ...graph, edges: [...graph.edges.filter(e => e.to !== to || e.port !== port), { from, to, port }] });
+}
+// Scalar input port wiring (Math/Script). One wire per input; new wires replace.
+export function connectSignalEdge(graph, from, to, port) {
+  return validateGraph({ ...graph, signalEdges: [...(graph.signalEdges || []).filter(e => e.to !== to || e.port !== port), { from, to, port }] });
 }
 // Output is structural: selecting it never removes it, but does not veto
 // deletion of other selected nodes. Remove all incident links atomically.
@@ -91,6 +156,7 @@ export function deleteNodes(graph, ids) {
   if (!removed.size) return graph;
   const keepLink = e => !removed.has(e.from) && !removed.has(e.to);
   return { ...graph, nodes: graph.nodes.filter(n => !removed.has(n.id)), edges: graph.edges.filter(keepLink),
+    ...(graph.signalEdges ? { signalEdges: graph.signalEdges.filter(keepLink) } : {}),
     ...(graph.modulations ? { modulations: graph.modulations.filter(keepLink) } : {}) };
 }
 export function deleteNode(graph, id) { return deleteNodes(graph, [id]); }
@@ -108,8 +174,17 @@ export function connectSignal(graph, from, to) {
   if ((graph.modulations || []).some(m => m.from === from && m.to === to)) return graph;
   return validateGraph({ ...graph, modulations: [...(graph.modulations || []), { from, to, param: null }] });
 }
-export function mapSignal(graph, from, to, param, min, max, replace = false) {
+export function mapSignal(graph, from, to, param, min, max, replace = false, range = null) {
   const existing = (graph.modulations || []).find(m => m.to === to && m.param === param);
   if (existing && existing.from !== from && !replace) throw new Error('Parameter already mapped; explicitly replace it');
-  return validateGraph({ ...graph, modulations: [...(graph.modulations || []).filter(m => !(m.to === to && (m.param === param || (m.from === from && m.param === null)))), { from, to, param, min, max }] });
+  // Preserve an existing signal input range when only the output range moves.
+  const previous = existing || (graph.modulations || []).find(m => m.from === from && m.to === to && m.param === null);
+  const bounds = range ? { inputMin: range.inputMin, inputMax: range.inputMax }
+    : previous && number(previous.inputMin) && number(previous.inputMax) ? { inputMin: previous.inputMin, inputMax: previous.inputMax } : null;
+  return validateGraph({ ...graph, modulations: [...(graph.modulations || []).filter(m => !(m.to === to && (m.param === param || (m.from === from && m.param === null)))), { from, to, param, min, max, ...(bounds || {}) }] });
+}
+export function mapSignalInput(graph, from, to, param, inputMin, inputMax) {
+  const existing = (graph.modulations || []).find(m => m.to === to && m.param === param);
+  if (!existing) throw new Error('Map this parameter before setting its signal input range');
+  return mapSignal(graph, from, to, param, existing.min, existing.max, true, { inputMin, inputMax });
 }

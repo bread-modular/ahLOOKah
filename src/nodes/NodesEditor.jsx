@@ -2,6 +2,9 @@ import { RuntimeContext } from '../app/RuntimeContext.jsx';
 import { IconControl } from '../components/control/IconControl.jsx';
 import { ModulatedParameter } from './ModulatedParameter.jsx';
 import { BANDS, definitions, numeric, clampStep, SIGNAL_DRAG } from './modulation.js';
+import { MATH_OPS, MATH_LABELS, MATH_INPUTS, MATH_PORT_LABELS, SCRIPT_INPUTS, SCRIPT_PORT_LABELS, SCRIPT_LITERAL_FIELDS, defaultNode, isSignalSource, isVisualSource, isScalarConsumer, isModulationTarget } from './definitions.js';
+import { MAX_EXPRESSION, SCRIPT_HELP, SCRIPT_VARIABLES, validateExpression } from './script.js';
+import { approveExpression, isExpressionApproved } from './script-approval.js';
 import { createEditorAudio } from './audio-provider.js';
 import { useCanvasNavigation } from './useCanvasNavigation.js';
 import { useNodeSelection } from './useNodeSelection.js';
@@ -12,7 +15,7 @@ import { SKETCHES } from '../sketch-registry.js';
 import { MEDIA_STORAGE_KEY, registerMediaSketches } from '../media/media-registry.js';
 import { PROJECTION_STORAGE_KEY, registerProjectionSketches } from '../projection/projection-registry.js';
 import { CustomScripts } from '../custom-scripts/service.js';
-import { MODES, newGraph, validateGraph, connect, deleteNodes, inputs, DRAG_TYPE, readPatternDrag, connectSignal, mapSignal } from './model.js';
+import { MODES, newGraph, validateGraph, connect, deleteNodes, inputs, DRAG_TYPE, readPatternDrag, connectSignal, connectSignalEdge, mapSignal, mapSignalInput } from './model.js';
 import { GraphRuntime } from './runtime.js';
 import { nodePatterns, watchGraphs } from './repository.js';
 import { manifestFor, sourceDiagnostics, serializeGraph } from './portability.js';
@@ -31,6 +34,18 @@ function initialParams(sketch) {
   let bank = {};
   try { bank = JSON.parse(localStorage.getItem('viz2_params') || '{}')?.[sketch.id] || {}; } catch {}
   return Object.fromEntries((sketch.params || []).map(p => [p.key, Number.isFinite(bank[p.key]) && bank[p.key] >= p.min && bank[p.key] <= p.max ? bank[p.key] : p.default]));
+}
+// Live once-per-frame scalar value of the selected Math/Script node. Reads the
+// same memoized frame values the renderers consume.
+function SignalReadout({ runtime, nodeId }) {
+  const [value, setValue] = useState(null);
+  useEffect(() => {
+    let frame;
+    const update = () => { setValue(runtime.current?.signalValue(nodeId)); frame = requestAnimationFrame(update); };
+    update();
+    return () => cancelAnimationFrame(frame);
+  }, [runtime, nodeId]);
+  return <output className="nodes-signal-readout" data-testid="node-signal-readout" aria-label="Signal output value">{Number.isFinite(value) ? `Output ${value.toFixed(3)}` : 'Output —'}</output>;
 }
 function Preview({ graph, dependencies, selected, revision, current, sharedRuntime }) {
   const canvas = useRef(null), target = useRef(selected);
@@ -75,6 +90,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   const [targetParam, setTargetParam] = useState('');
   const [query, setQuery] = useState(''), [message, setMessage] = useState('');
   const [revision, setRevision] = useState(0);
+  const [scriptDraft, setScriptDraft] = useState({ id: null, text: '' });
   const [routeId, setRouteId] = useState(() => graphId !== undefined ? graphId : new URLSearchParams(location.search).get('graph'));
   const [loadState, setLoadState] = useState('loading');
   const navigation = useCanvasNavigation(loadState === 'ready');
@@ -95,7 +111,13 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   };
   const node = graph.nodes.find(n => n.id === selected);
   const sketch = SKETCHES.find(s => s.id === node?.patternId);
-  const label = n => n.type === 'pattern' ? SKETCHES.find(s => s.id === n.patternId)?.name || n.patternId : n.type === 'blend' ? 'Blend' : n.type === 'audio' ? `Audio · ${n.band}` : 'Output';
+  const label = n => n.type === 'pattern' ? SKETCHES.find(s => s.id === n.patternId)?.name || n.patternId : n.type === 'blend' ? 'Blend' : n.type === 'audio' ? `Audio · ${n.band}` : n.type === 'color' ? 'Color' : n.type === 'math' ? `Math · ${n.op || 'add'}` : n.type === 'script' ? 'Script' : 'Output';
+  // Script sources are edited as a draft and only enter the graph through Apply,
+  // which also approves that exact text for this browser.
+  const scriptNode = node?.type === 'script' ? node : null;
+  const scriptText = scriptNode ? (scriptDraft.id === scriptNode.id ? scriptDraft.text : scriptNode.source) : '';
+  const scriptCheck = scriptNode ? validateExpression(scriptText) : null;
+  const scriptApplied = !!scriptNode && scriptText === scriptNode.source;
   useEffect(() => {
     const refresh = () => { setRevision(v => v + 1); };
     const stop = watchGraphs(() => { if (nodePatterns.errors.length) setMessage(nodePatterns.errors.join('; ')); });
@@ -118,6 +140,18 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   const attempt = fn => { try { fn(); } catch (e) { setMessage(e.message); } };
   const edit = next => { const clean = validateGraph(next); setDraft(d => ({ ...d, graph: clean })); };
   const patch = values => attempt(() => edit({ ...graph, nodes: graph.nodes.map(n => n.id === selected ? { ...n, ...values } : n) }));
+  // Structural scalar/visual nodes share one creator so defaults and validation
+  // always come from the shared definitions module. Audio keeps its established
+  // column (x=300) so new nodes never cover an existing source row.
+  const CREATE_X = { audio: 300 };
+  function create(type, x = CREATE_X[type] ?? 70, y = 60 + graph.nodes.length * 35) {
+    attempt(() => {
+      const n = defaultNode(type, x, y);
+      if (type === 'script') approveExpression(n.source);
+      edit({ ...graph, nodes: [...graph.nodes, n] });
+      setSelected(n.id); setMessage('');
+    });
+  }
   function add(patternId = null, x = 70, y = 60 + graph.nodes.length * 35) {
     attempt(() => {
       const s = SKETCHES.find(s => s.id === patternId);
@@ -132,8 +166,9 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
     });
   }
   const selectSignal = (from, to) => { setSelected(to); setSignalEndpoint({ from, to }); setTargetParam(''); };
-  function audioPort(to) {
-    if (graph.nodes.find(n => n.id === pending)?.type !== 'audio') { setMessage('Choose an Audio output first, then a signal endpoint.'); return; }
+  // Scalar targets (Pattern numeric sliders, Blend opacity, Color parameters).
+  function signalPort(to) {
+    if (!isSignalSource(graph.nodes.find(n => n.id === pending))) { setMessage('Choose an Audio, Math or Script output first, then a signal endpoint.'); return; }
     attempt(() => { edit(connectSignal(graph, pending, to)); selectSignal(pending, to); setPending(null); setMessage('Choose a numeric target below, or drag its signal onto a slider.'); });
   }
   function assignSignal(from, def) {
@@ -146,8 +181,20 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   }
   function port(to, name) {
     if (!pending) { setMessage('Choose an output port first, then an input port.'); return; }
-    attempt(() => { edit(connect(graph, pending, to, name)); setPending(null); setMessage(''); });
+    const from = graph.nodes.find(n => n.id === pending), target = graph.nodes.find(n => n.id === to);
+    if (isSignalSource(from) && !isScalarConsumer(target)) { setMessage('Scalar outputs connect to Math/Script inputs or a signal endpoint, not image inputs.'); return; }
+    if (isVisualSource(from) && isScalarConsumer(target)) { setMessage('Image outputs connect to image inputs (Blend/Color/Output), not scalar ports.'); return; }
+    attempt(() => { edit(isSignalSource(from) ? connectSignalEdge(graph, pending, to, name) : connect(graph, pending, to, name)); setPending(null); setMessage(''); });
   }
+  const applyExpression = () => {
+    if (node?.type !== 'script') return;
+    const text = scriptDraft.id === node.id ? scriptDraft.text : node.source;
+    const check = validateExpression(text);
+    if (!check.ok) { setMessage(`Script: ${check.error}`); return; }
+    approveExpression(text);
+    patch({ source: text });
+    setMessage('Restricted expression applied and approved for this exact source.');
+  };
   const removable = graph.nodes.filter(n => n.type !== 'output' && selection.ids.includes(n.id));
   const remove = () => {
     const protectsOutput = graph.nodes.some(n => n.type === 'output' && selection.ids.includes(n.id));
@@ -214,10 +261,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
     </header>
     {message && <div className="nodes-status" role="status">{message}</div>}
     <div className="nodes-layout" inert={busy}>
-      <aside className="nodes-palette" aria-label="Pattern palette"><button className="btn" title="Add a Blend node" onClick={() => add()}>+ Blend</button><button className="btn" onClick={() => attempt(() => {
-        const n = { id: `n${crypto.randomUUID().slice(0, 8)}`, type: 'audio', band: 'bass', x: 300, y: 60 + graph.nodes.length * 35 };
-        edit({ ...graph, nodes: [...graph.nodes, n] }); setSelected(n.id);
-      })}>+ Audio</button><input className="control-input" aria-label="Search patterns" title="Filter available patterns" placeholder="Search patterns…" value={query} onChange={e => setQuery(e.target.value)} />
+      <aside className="nodes-palette" aria-label="Pattern palette"><button className="btn" title="Add a Blend node" onClick={() => create('blend')}>+ Blend</button><button className="btn" title="Add a Color node (saturation, brightness, contrast, hue shift)" onClick={() => create('color')}>+ Color</button><button className="btn" title="Add a Math node (scalar arithmetic)" onClick={() => create('math')}>+ Math</button><button className="btn" title="Add a Script node (restricted scalar expression)" onClick={() => create('script')}>+ Script</button><button className="btn" title="Add an Audio node (bass, mid or high activity)" onClick={() => create('audio')}>+ Audio</button><input className="control-input" aria-label="Search patterns" title="Filter available patterns" placeholder="Search patterns…" value={query} onChange={e => setQuery(e.target.value)} />
         <div className="nodes-pattern-list">{SKETCHES.filter(s => !s.nodesGraph && `${s.name} ${s.group}`.toLowerCase().includes(query.toLowerCase())).map(s => <button className="btn" key={s.id} title={`Drag ${s.name} onto the canvas to create a node`} draggable onDragStart={e => { e.dataTransfer.effectAllowed = 'copy'; e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ version: 1, patternId: s.id })); }}><span>{s.name}</span><small>{s.group}{s.camera ? ' · Output camera' : ''}</small></button>)}</div>
       </aside>
       <section ref={navigation.workspace} {...selection.workspaceHandlers} className="nodes-workspace" aria-label="Graph workspace" tabIndex={0} onDragOver={e => { if (e.dataTransfer.types.includes(DRAG_TYPE)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }} onDrop={e => {
@@ -230,20 +274,24 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
             const a = graph.nodes.find(n => n.id === e.from), b = graph.nodes.find(n => n.id === e.to);
             const x1 = a.x + 168, y1 = a.y + 49, x2 = b.x + 12, y2 = b.y + 49 + inputs(b).indexOf(e.port) * 32;
             return <path key={`${e.to}:${e.port}`} role="button" tabIndex={0} aria-label={`Disconnect ${label(a)} from ${label(b)} ${e.port}`} d={`M ${x1} ${y1} C ${x1 + 80} ${y1}, ${x2 - 80} ${y2}, ${x2} ${y2}`} onClick={() => edit({ ...graph, edges: graph.edges.filter(w => w !== e) })} onKeyDown={event => { if (event.key === 'Enter' || event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); event.stopPropagation(); edit({ ...graph, edges: graph.edges.filter(w => w !== e) }); } }} />;
+          })}{(graph.signalEdges || []).map(e => {
+            const a = graph.nodes.find(n => n.id === e.from), b = graph.nodes.find(n => n.id === e.to);
+            const x1 = a.x + 168, y1 = a.y + 49, x2 = b.x + 12, y2 = b.y + 49 + inputs(b).indexOf(e.port) * 32;
+            return <path key={`wire-${e.to}:${e.port}`} className="nodes-signal-wire" role="button" tabIndex={0} aria-label={`Disconnect signal ${label(a)} from ${label(b)} ${e.port}`} d={`M ${x1} ${y1} C ${x1 + 80} ${y1}, ${x2 - 80} ${y2}, ${x2} ${y2}`} onClick={() => edit({ ...graph, signalEdges: graph.signalEdges.filter(w => w !== e) })} onKeyDown={event => { if (event.key === 'Enter' || event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); event.stopPropagation(); edit({ ...graph, signalEdges: graph.signalEdges.filter(w => w !== e) }); } }} />;
           })}{(graph.modulations || []).map((m, i) => {
             const a = graph.nodes.find(n => n.id === m.from), b = graph.nodes.find(n => n.id === m.to);
-            const x = b.x + 12, y = b.y + (b.type === 'blend' ? 131 : 99);
+            const x = b.x + 12, y = b.y + 99 + (inputs(b).length ? 32 : 0);
             return <g key={`signal-${i}`}><path className="nodes-signal-wire" role="button" tabIndex={0} aria-label={`Select signal ${a.band} to ${label(b)} ${m.param || 'unassigned'}`} d={`M ${a.x + 168} ${a.y + 49} C ${a.x + 240} ${a.y + 49}, ${x - 70} ${y}, ${x} ${y}`} onClick={() => selectSignal(m.from, m.to)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectSignal(m.from, m.to); } }} /></g>;
           })}</svg>
           {graph.nodes.map(n => <article key={n.id} className={`nodes-node ${selection.ids.includes(n.id) ? 'is-selected' : ''}`} data-node-id={n.id} data-primary={selected === n.id || undefined} style={{ left: n.x, top: n.y }} onClick={e => selection.nodeClick(n.id, e)}>
             <button className="nodes-node-title" title={`Select or drag ${label(n)}`} aria-label={`Select ${label(n)}`} aria-pressed={selection.ids.includes(n.id)} {...selection.titleHandlers(n)}>{label(n)}</button>
             <div className="nodes-ports">{inputs(n).map(name => <button key={name} className="nodes-input" title={`Connect to ${label(n)} ${name} input`} aria-label={`${n.id} input ${name}`} onClick={() => port(n.id, name)}>● {name}</button>)}
-              {n.type !== 'output' && <button className={`nodes-output ${pending === n.id ? 'active' : ''}`} title={`Connect from ${label(n)} output`} aria-label={`${n.id} output`} onClick={() => { setPending(n.id); setMessage(''); }}>out ●</button>}
-            </div><small className="nodes-node-detail">{n.type === 'blend' ? `${n.mode} · ${Math.round(n.opacity * 100)}%` : n.type === 'output' ? 'Final image' : n.type === 'audio' ? `${n.band} activity · 0…1` : n.patternId}</small>
-            {['pattern', 'blend'].includes(n.type) && <button className="nodes-signal-endpoint" aria-label={`${n.id} signal endpoint`} onClick={e => {
+              {n.type !== 'output' && <button className={`nodes-output ${pending === n.id ? 'active' : ''}`} title={`Connect from ${label(n)} output`} aria-label={`${n.id} output`} onClick={() => { setPending(n.id); setMessage(isSignalSource(n) ? 'Scalar output selected: click a Math/Script input port or a ◇ signal endpoint.' : ''); }}>out ●</button>}
+            </div><small className="nodes-node-detail">{n.type === 'blend' ? `${n.mode} · ${Math.round(n.opacity * 100)}%` : n.type === 'output' ? 'Final image' : n.type === 'audio' ? `${n.band} activity · 0…1` : n.type === 'color' ? 'image → filtered image' : n.type === 'math' ? `${n.op} · scalar out` : n.type === 'script' ? (validateExpression(n.source).ok ? 'restricted expression' : 'expression error') : n.patternId}</small>
+            {isModulationTarget(n) && <button className="nodes-signal-endpoint" aria-label={`${n.id} signal endpoint`} onClick={e => {
               e.stopPropagation();
-              if (pending) audioPort(n.id);
-              else { const m = (graph.modulations || []).find(m => m.to === n.id); if (m) selectSignal(m.from, n.id); else { setSelected(n.id); setMessage('Choose an Audio output first.'); } }
+              if (pending) signalPort(n.id);
+              else { const m = (graph.modulations || []).find(m => m.to === n.id); if (m) selectSignal(m.from, n.id); else { setSelected(n.id); setMessage('Choose an Audio, Math or Script output first.'); } }
             }}>◇ signal {(graph.modulations || []).filter(m => m.to === n.id).length || ''}</button>}
           </article>)}
           {selection.box && <div className="nodes-selection-box" aria-hidden="true" style={{ left: selection.box.x, top: selection.box.y, width: selection.box.width, height: selection.box.height }} />}
@@ -256,7 +304,19 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
       </section>
       <aside className="nodes-inspector"><h2>{node ? label(node) : 'Preview'}</h2><Preview graph={graph} dependencies={dependencies} selected={selected} revision={revision} current={previewRuntime} sharedRuntime={sharedRuntime} />
         {node?.type === 'audio' && <><label>Audio band<Select aria-label="Audio band" value={node.band} onChange={e => patch({ band: e.target.value })}>{BANDS.map(b => <option key={b}>{b}</option>)}</Select></label><p>Normalized custom-script activity (0…1). Uses the main window’s shared audio input; no input means zero. Connect out to one or many ◇ signal endpoints.</p></>}
-        {node?.type === 'output' && <p>Output has no numeric controls. Audio mapping is not supported here.</p>}
+        {node?.type === 'output' && <p>Output has no numeric controls. Image mapping is not supported here.</p>}
+        {node?.type === 'color' && <p>Color filters its image input in place: saturation → brightness → contrast → hue-rotate. Identity defaults (1 / 1 / 1 / 0) copy the input pixels unchanged; every numeric slider maps like Pattern and Blend. Image input is required before saving.</p>}
+        {node?.type === 'math' && <><label>Operation<Select aria-label="Math operation" title="Choose the scalar operation" value={node.op} onChange={e => patch({ op: e.target.value })}>{MATH_OPS.map(op => <option key={op} value={op}>{MATH_LABELS[op]}</option>)}</Select></label>
+          {MATH_INPUTS.map(port => <label key={port}>{MATH_PORT_LABELS[port]} literal<input className="control-input" type="number" step="0.01" aria-label={`Math ${port} literal`} title={`Literal used when ${port} has no wire`} value={node[port]} onChange={e => { const next = e.target.valueAsNumber; if (Number.isFinite(next)) patch({ [port]: next }); }} /></label>)}
+          <SignalReadout runtime={previewRuntime} nodeId={node.id} />
+          <p>Scalar inputs stay signed floats — nothing is normalized here. Each port takes a wire from an Audio/Math/Script output, otherwise its literal applies. {node.op === 'clamp' ? 'Clamp keeps a between the sorted b/c bounds. ' : ''}Wires carry values, not pictures.</p></>}
+        {node?.type === 'script' && <><label>Expression<input className="control-input" aria-label="Script expression" title={SCRIPT_HELP} maxLength={MAX_EXPRESSION} value={scriptText} onChange={e => setScriptDraft({ id: node.id, text: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyExpression(); } }} /></label>
+          <button className="btn" aria-label="Apply expression" title="Validate, store and approve this exact expression" disabled={!scriptCheck?.ok} onClick={applyExpression}>Apply</button>
+          {!scriptCheck?.ok && <p className="nodes-script-error" role="alert">Script: {scriptCheck?.error}</p>}
+          <p className="nodes-script-status" role="status" data-testid="script-status">{!scriptCheck?.ok ? 'Not applied' : `${scriptApplied ? (isExpressionApproved(node.source) ? 'Applied and approved' : 'Applied · review required to run') : 'Not applied'} · uses ${SCRIPT_VARIABLES.filter(name => scriptCheck.uses?.[name]).join(', ') || 'no inputs'}`}</p>
+          {SCRIPT_INPUTS.map(port => <label key={port}>{SCRIPT_PORT_LABELS[port]} literal<input className="control-input" type="number" step="0.01" aria-label={`Script ${port} literal`} title={`Literal used when ${port} has no wire`} value={node[SCRIPT_LITERAL_FIELDS[port]]} onChange={e => { const next = e.target.valueAsNumber; if (Number.isFinite(next)) patch({ [SCRIPT_LITERAL_FIELDS[port]]: next }); }} /></label>)}
+          <SignalReadout runtime={previewRuntime} nodeId={node.id} />
+          <p>{SCRIPT_HELP} Press Enter or Apply to store it; a disk-loaded expression must be reviewed and applied in this browser before it runs. Unwired x/y use their literals and time is seconds.</p></>}
         {node?.type === 'blend' && <label>Blend mode<Select aria-label="Blend mode" title="Choose pixel blend mode" value={node.mode} onChange={e => patch({ mode: e.target.value })}>{Object.keys(MODES).map(mode => <option key={mode}>{mode}</option>)}</Select></label>}
         {node?.type === 'pattern' && !sketch && <p>Missing pattern. Delete and replace this node, or restore its dependency.</p>}
         {node && (graph.modulations || []).some(m => m.to === node.id) && <section className="nodes-signals" aria-label="Connected signals"><h2>Connected signals</h2>
@@ -266,13 +326,14 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
             <button className="btn" disabled={!targetParam} onClick={() => assignSignal(signalEndpoint.from, definitions(node, SKETCHES).find(d => d.key === targetParam))}>Map / replace parameter</button>
             <button className="btn btn--sm" onClick={() => edit({ ...graph, modulations: graph.modulations.filter(m => m.from !== signalEndpoint.from || m.to !== node.id) })}>Disconnect signal</button>
           </>}
-          <p>Numeric sliders only; enums, bool and text are unsupported. Base stays unchanged. Mapping min = signal 0, max = signal 1; reversed ranges are allowed.</p>
+          <p>Numeric sliders only; enums, bool and text are unsupported. Base stays unchanged. By default mapping min = signal 0 and max = signal 1; a mapped parameter can convert a different signal input range (for example a Math output) instead. Reversed ranges are allowed.</p>
         </section>}
         {node && definitions(node, SKETCHES).map(def => {
           const mapping = (graph.modulations || []).find(m => m.to === node.id && m.param === def.key);
           return <ModulatedParameter key={`${node.id}:${def.key}`} node={node} def={def} value={node.type === 'blend' ? node.opacity : node.params[def.key] ?? def.default}
             onChange={value => node.type === 'blend' ? patch({ opacity: value }) : patch({ params: { ...node.params, [def.key]: value } })}
             readEffective={() => previewRuntime.current?.params.get(node.id)?.[def.key]} mapping={mapping} onMap={assignSignal} onRange={(min, max) => edit(mapSignal(graph, mapping.from, node.id, def.key, min, max, true))}
+            onInputRange={(inputMin, inputMax) => { if (inputMax <= inputMin) { setMessage('Signal input range needs a max greater than its min.'); return; } edit(mapSignalInput(graph, mapping.from, node.id, def.key, inputMin, inputMax)); }}
             onRemove={() => edit({ ...graph, modulations: graph.modulations.filter(m => m !== mapping) })} />;
         })}
         {node && graph.edges.filter(e => e.to === node.id).map(e => <button className="btn btn--sm" title={`Disconnect ${e.port} input`} key={e.port} onClick={() => edit({ ...graph, edges: graph.edges.filter(w => w !== e) })}>Disconnect {e.port}</button>)}
