@@ -73,6 +73,9 @@ export function createSignalConsumers(store, role = 'preview', audioNodes = []) 
   return {
     read(nodeId = null) {
       if (disposed) return {};
+      // Unknown node ids never fall through to another node's route; only a
+      // legacy no-argument read resolves to the default route.
+      if (nodeId != null && !nodeRoutes.has(nodeId)) return {};
       const entry = entryFor(nodeId) || defaultEntry;
       return entry?.binding?.read()?.continuous || {};
     },

@@ -2,6 +2,10 @@ import { test, expect } from '@playwright/test';
 import { validateGraph } from '../src/nodes/model.js';
 import { parseGraph, serializeGraph } from '../src/nodes/portability.js';
 import { defaultNode } from '../src/nodes/definitions.js';
+import { createSignalConsumer, createSignalConsumers } from '../src/nodes/audio-provider.js';
+import { GraphRuntime } from '../src/nodes/runtime.js';
+import { PatternAudioControlStore } from '../src/pattern-audio-controls.js';
+import { FEATURE_SCHEMA } from '../src/sketches/feature-controls.js';
 import {
   DEFAULT_AUDIO_INPUT, AUDIO_CHANNELS, MAX_AUDIO_DEVICE_ID_LENGTH,
   normalizeAudioRoute, isValidAudioDeviceId, sameAudioRoute, isDefaultAudioRoute,
@@ -131,4 +135,138 @@ test('@core physical mono mirrors every selection onto the same effective route'
   // More than two exposed channels still analyses only the first two.
   expect(effectiveAudioChannel('right', 8)).toBe('right');
   expect(AUDIO_CHANNELS).toEqual(['left', 'right', 'mono']);
+});
+
+
+// ---------------------------------------------------------------------------
+// Grouped route consumers (one slot per distinct requested route per runtime).
+// These run inside the browser page: the consumer and runtime touch the store
+// and document-bound runtime services, matching the repo's existing spec style.
+// ---------------------------------------------------------------------------
+
+test('@core Audio nodes sharing a route share one slot; different routes never collapse', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const { PatternAudioControlStore } = await import('/src/pattern-audio-controls.js');
+    const { createSignalConsumer, createSignalConsumers } = await import('/src/nodes/audio-provider.js');
+    const { DEFAULT_AUDIO_INPUT } = await import('/src/audio-routing.js');
+    const node = (id, deviceId, channel, band = 'bass') => ({ id, type: 'audio', band, deviceId, channel });
+    const store = new PatternAudioControlStore({ consumerSessionId: 'graph' });
+    const consumer = createSignalConsumers(store, 'preview', [
+      node('a1', null, 'mono', 'bass'),
+      node('a2', null, 'mono', 'high'), // same route, different band
+      node('b', 'input-B', 'right', 'bass'),
+      node('c', null, 'left', 'mid'),
+    ]);
+    const descriptors = consumer.getAudioSlotDescriptors();
+    const routes = descriptors.map(d => d.audioInput);
+    const unique = new Set(descriptors.map(d => d.runtimeId)).size;
+    const legacy = createSignalConsumer(store, 'cue');
+    const legacyDescriptors = legacy.getAudioSlotDescriptors();
+    const legacyOk = legacyDescriptors.length === 1 && legacyDescriptors[0].audioInput.deviceId === null
+      && legacyDescriptors[0].audioInput.channel === 'mono' && legacyDescriptors[0].role === 'cue'
+      && legacy.getNodeStatus('__default__') !== null;
+    consumer.dispose();
+    legacy.dispose();
+    const afterDispose = consumer.getAudioSlotDescriptors().length + store.slots.size;
+    consumer.dispose(); // idempotent
+    return { routes, unique, afterDispose, legacyDescriptors: legacyDescriptors.length, legacyOk, DEFAULT: DEFAULT_AUDIO_INPUT };
+  });
+  expect(result.routes).toEqual([
+    { deviceId: null, channel: 'mono' },
+    { deviceId: 'input-B', channel: 'right' },
+    { deviceId: null, channel: 'left' },
+  ]);
+  expect(result.unique).toBe(3);
+  expect(result.afterDispose).toBe(0);
+  expect(result.legacyDescriptors).toBe(1);
+  expect(result.legacyOk).toBe(true);
+});
+
+test('@core read(nodeId) and getNodeStatus resolve each node to its own binding', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const { PatternAudioControlStore } = await import('/src/pattern-audio-controls.js');
+    const { createSignalConsumers } = await import('/src/nodes/audio-provider.js');
+    const { response } = await import('/src/sketches/feature-controls.js');
+    const node = (id, deviceId, channel) => ({ id, type: 'audio', band: 'bass', deviceId, channel });
+    const store = new PatternAudioControlStore({ consumerSessionId: 'graph' });
+    const consumer = createSignalConsumers(store, 'preview', [node('a', null, 'mono'), node('b', 'input-B', 'right')]);
+    const descriptors = consumer.getAudioSlotDescriptors();
+    store.setPlan({ consumerSessionId: 'graph', planRevision: 1, version: 2, slots: descriptors });
+    const frames = [{ bass: 1.6 }, { bass: 3.2 }];
+    const sources = ['primary', 'extra:input-B'];
+    store.acceptPacket({
+      type: 'pattern-audio-controls', version: 2, consumerSessionId: 'graph', planRevision: 1,
+      audioOwnerId: 'owner', streamGeneration: 'g1', sequence: 1, captureTime: 0, audioActive: true,
+      slots: descriptors.map((d, i) => ({
+        runtimeId: d.runtimeId, paramsRevision: 1, continuous: frames[i], arrays: {}, events: [],
+        audioInput: d.audioInput,
+        source: { id: sources[i], generation: 1, activeDeviceId: null, channels: 2, status: 'running', fallback: false, calibration: 'none' },
+      })),
+    });
+    const statusB = consumer.getNodeStatus('b');
+    const info = {
+      a: response(consumer.read('a').bass),
+      b: response(consumer.read('b').bass),
+      missing: consumer.read('missing'),
+      statusB: { audioInput: statusB.audioInput, isFresh: statusB.isFresh, sourceId: statusB.source.id, status: statusB.source.status },
+    };
+    consumer.dispose();
+    return info;
+  });
+  expect(result.a).toBeCloseTo(1.6 / 3.2, 12);
+  expect(result.b).toBe(1);
+  expect(result.missing).toEqual({});
+});
+
+test('@core both scalar read paths use the node-specific route binding', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const { GraphRuntime } = await import('/src/nodes/runtime.js');
+    const { signalValue } = await import('/src/nodes/modulation.js');
+    const { audioRouteKey } = await import('/src/audio-routing.js');
+    const { PatternAudioControlStore } = await import('/src/pattern-audio-controls.js');
+    const graph = { version: 1, name: 'paths', nodes: [
+      { id: 'colorA', type: 'pattern', patternId: 'solid-color', params: { hue: 0, saturation: 1, brightness: .2, pulse: 0 }, x: 0, y: 0 },
+      { id: 'colorB', type: 'pattern', patternId: 'solid-color', params: { hue: 0, saturation: 1, brightness: .2, pulse: 0 }, x: 200, y: 0 },
+      { id: 'sum', type: 'math', op: 'add', a: 0, b: 0, c: 1, x: 0, y: 200 },
+      { id: 'ga', type: 'audio', band: 'bass', deviceId: null, channel: 'mono', x: 0, y: 300 },
+      { id: 'gb', type: 'audio', band: 'bass', deviceId: 'input-B', channel: 'right', x: 100, y: 300 },
+      { id: 'output', type: 'output', x: 400, y: 0 },
+    ], edges: [{ from: 'colorA', to: 'output', port: 'image' }],
+    signalEdges: [{ from: 'ga', to: 'sum', port: 'a' }, { from: 'gb', to: 'sum', port: 'b' }],
+    modulations: [
+      { from: 'ga', to: 'colorA', param: 'brightness', min: .2, max: .8 },
+      { from: 'gb', to: 'colorB', param: 'brightness', min: .2, max: .8 },
+    ] };
+    const frames = { [audioRouteKey({ deviceId: null, channel: 'mono' })]: { bass: 1.6 }, [audioRouteKey({ deviceId: 'input-B', channel: 'right' })]: { bass: 3.2 } };
+    const registry = new Map();
+    const realStore = new PatternAudioControlStore({ consumerSessionId: 'graph' });
+    const store = {
+      upsertSlot: d => registry.set(d.runtimeId, d),
+      retireSlots: ids => ids.forEach(id => registry.delete(id)),
+      createBinding: (runtimeId) => ({ read: () => ({ continuous: frames[audioRouteKey(registry.get(runtimeId).audioInput)] || {} }) }),
+    };
+    void realStore;
+    const runtime = new GraphRuntime({ graph, sketches: [{ id: 'solid-color', params: [{ key: 'brightness', label: 'Brightness', min: 0, max: 1, step: .01, default: .2 }] }], context: { audioControlStore: store } });
+    const views = [...runtime.params.values()];
+    const info = {
+      brightnessA: views[0].brightness,
+      brightnessB: views[1].brightness,
+      ga: runtime.signalValue('ga'),
+      gb: runtime.signalValue('gb'),
+      sum: runtime.signalValue('sum'),
+    };
+    info.mathMatchesBindings = Math.abs(info.sum - (info.ga + info.gb)) < 1e-9;
+    info.directMatchesBindings = Math.abs(info.brightnessB - (.2 + .6 * info.gb)) < 1e-9
+      && Math.abs(info.brightnessA - (.2 + .6 * info.ga)) < 1e-9;
+    runtime.dispose();
+    return info;
+  });
+  expect(result.ga).toBeCloseTo(0.5, 6);
+  expect(result.gb).toBe(1);
+  expect(result.mathMatchesBindings).toBe(true);
+  expect(result.directMatchesBindings).toBe(true);
+  expect(result.brightnessB).toBeGreaterThan(result.brightnessA);
 });

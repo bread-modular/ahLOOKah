@@ -1,8 +1,30 @@
 # Per-Node Audio Device and Channel Routing — Design Handoff
 
-**Status:** Proposed; planning only, not implemented or hardware-validated
+**Status:** Implemented (core feature, this build); see the implementation note below. Hardware soak from section 13.2 remains open.
 **Scope of this document:** Capture ownership, channel semantics, compact transport, graph compatibility, editor UI, runtime integration, implementation sequence, and acceptance tests.
 **Repository baseline:** Inspected at `4c2e846`. This document is the only task-authored file change.
+
+> **Implementation status (updated with evidence).** Shipped: graph route fields
+> with old-file migration (`deviceId`/`channel`, Global+Mono defaults, strict
+> validation); compact protocol v2 accepting v1|2 with routing echoes, bounded
+> per-slot source metadata and admission ceilings; owner input pool (shared
+> context, one capture per resolved endpoint, four-source budget, release grace,
+> pin/primary sharing, no-fallback pins, resource-limit admission, retries on
+> confirmed device changes); channel-scoped analysis (raw seam, mono power-mix
+> parity, Left/Right projection with per-channel RMS, uncalibrated-channel/device
+> states); grouped route consumers (one slot per requested route per runtime) and
+> both scalar read paths; catalog request/`audio-inputs` transport with the two
+> inspector selects, resolved-status line, scalar readout and tile details;
+> primary-status isolation and `ownerStopping` semantics. Verified with
+> `tests/nodes-audio-routing.spec.js`, `tests/pattern-audio-routing.spec.js`,
+> `tests/audio-input-pool.spec.js`, `tests/nodes-audio-device-channel.spec.js`
+> and the real-analyser `tests/nodes-audio-routing-e2e.spec.js`, plus the
+> existing audio/node/CUE regressions and `npm test` (@core) at parity with its
+> pre-change baseline. Not yet done: real multi-USB hardware soak (section 13.2),
+> single-input mode switch (section 13.3), additive per-channel Settings
+> calibration capture (the plumbing/validation ships, production still writes the
+> mixed profile), and the aggregate byte-ceiling enforcement on control packets
+> (plan-side ceiling ships).
 
 ## 1. Decision summary
 
