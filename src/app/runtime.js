@@ -1,3 +1,4 @@
+import { createAudioClock } from '../platform/audio-clock.js';
 import { NODE_AUDIO_SOURCE } from '../nodes/audio-source.js';
 import { MediaFolder } from '../media/folderService.js';
 import { listMediaRecords } from '../media/media-store.js';
@@ -292,7 +293,7 @@ export function createAppRuntime({
 
 
   // Audio broadcast loop.
-  let audioBroadcastRaf = 0;
+  const audioBroadcastClock = createAudioClock(audioBroadcastLoop);
   let lastAnalysisAt = 0;
   let lastSpectrumAt = 0;
   let audioFrameSequence = 0;
@@ -2164,7 +2165,6 @@ export function createAppRuntime({
   }
 
   function audioBroadcastLoop(now) {
-    audioBroadcastRaf = 0;
     if (!isAudioOwner) return;
 
     if (now - lastAnalysisAt >= 33) {
@@ -2215,17 +2215,14 @@ export function createAppRuntime({
         });
       }
     }
-
-    audioBroadcastRaf = requestAnimationFrame(audioBroadcastLoop);
   }
 
   function startAudioBroadcast() {
-    if (!audioBroadcastRaf) audioBroadcastRaf = requestAnimationFrame(audioBroadcastLoop);
+    audioBroadcastClock.start();
   }
 
   function stopAudioBroadcast() {
-    if (audioBroadcastRaf) cancelAnimationFrame(audioBroadcastRaf);
-    audioBroadcastRaf = 0;
+    audioBroadcastClock.stop();
     lastAnalysisAt = 0;
     lastSpectrumAt = 0;
     lastPatternControlAt = 0;
@@ -2766,7 +2763,7 @@ export function createAppRuntime({
     clearTimeout(performanceExpiry);
     renderPerformance = null;
     stopScreenMappingRenderer();
-    try { if (audioBroadcastRaf) cancelAnimationFrame(audioBroadcastRaf); } catch { /* noop */ }
+    stopAudioBroadcast();
     try { if (cueStageRaf) cancelAnimationFrame(cueStageRaf); } catch { /* noop */ }
     try { if (cueMutationRaf) cancelAnimationFrame(cueMutationRaf); } catch { /* noop */ }
     try { if (previewRenderRaf) cancelAnimationFrame(previewRenderRaf); } catch { /* noop */ }
