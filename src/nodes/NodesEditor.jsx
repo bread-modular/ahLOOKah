@@ -1,3 +1,4 @@
+import { RuntimeContext } from '../app/RuntimeContext.jsx';
 import { IconControl } from '../components/control/IconControl.jsx';
 import { ModulatedParameter } from './ModulatedParameter.jsx';
 import { BANDS, definitions, numeric, clampStep, SIGNAL_DRAG } from './modulation.js';
@@ -6,7 +7,7 @@ import { useCanvasNavigation } from './useCanvasNavigation.js';
 import { useNodeSelection } from './useNodeSelection.js';
 import { nodeEditorUrl } from './routes.js';
 import { Select } from '../components/control/Select.jsx';
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import { SKETCHES } from '../sketch-registry.js';
 import { MEDIA_STORAGE_KEY, registerMediaSketches } from '../media/media-registry.js';
 import { PROJECTION_STORAGE_KEY, registerProjectionSketches } from '../projection/projection-registry.js';
@@ -22,7 +23,7 @@ function initialParams(sketch) {
   try { bank = JSON.parse(localStorage.getItem('viz2_params') || '{}')?.[sketch.id] || {}; } catch {}
   return Object.fromEntries((sketch.params || []).map(p => [p.key, Number.isFinite(bank[p.key]) && bank[p.key] >= p.min && bank[p.key] <= p.max ? bank[p.key] : p.default]));
 }
-function Preview({ graph, dependencies, selected, revision, current }) {
+function Preview({ graph, dependencies, selected, revision, current, sharedRuntime, active }) {
   const canvas = useRef(null), target = useRef(selected);
   const [messages, setMessages] = useState([]);
   target.current = selected;
@@ -30,7 +31,7 @@ function Preview({ graph, dependencies, selected, revision, current }) {
   const content = JSON.stringify({ ...graph, name: 'preview', nodes: graph.nodes.map(({ x, y, ...n }) => ({ ...n, x: 0, y: 0 })) });
   const manifest = JSON.stringify(dependencies);
   const provider = useRef(null);
-  useEffect(() => { provider.current = createEditorAudio(); return () => { provider.current.dispose(); provider.current = null; }; }, []);
+  useEffect(() => { provider.current = sharedRuntime ? sharedRuntime.createEditorAudio() : createEditorAudio(); return () => { provider.current.dispose(); provider.current = null; }; }, []);
   useEffect(() => {
     const audioProvider = provider.current;
     let runtime, frame, oldMessage = '';
@@ -53,9 +54,14 @@ function Preview({ graph, dependencies, selected, revision, current }) {
     } catch (e) { setMessages([e.message]); }
     return () => { cancelAnimationFrame(frame); runtime?.dispose(); audioProvider.setChildren([]); current.current = null; };
   }, [content, manifest, revision]);
+  useEffect(() => {
+    if (active) current.current?.resume();
+    else current.current?.pause();
+  }, [active, content, manifest, revision]);
   return <><canvas ref={canvas} width="480" height="270" aria-label="Selected node live preview" data-testid="node-preview" /><div role="status" className="nodes-diagnostics">{messages.map((m, i) => <p key={i}>{m}</p>)}</div></>;
 }
-export function NodesEditor() {
+export function NodesEditor({ graphId, sharedRuntime, active = true, onState, onSaved, beforeSave }) {
+  const mainContext = useContext(RuntimeContext);
   const [draft, setDraft] = useState(() => ({ graph: newGraph(), dependencies: [] }));
   const { graph, dependencies } = draft;
   const previewRuntime = useRef(null);
@@ -64,7 +70,7 @@ export function NodesEditor() {
   const [targetParam, setTargetParam] = useState('');
   const [query, setQuery] = useState(''), [message, setMessage] = useState('');
   const [revision, setRevision] = useState(0);
-  const [routeId, setRouteId] = useState(() => new URLSearchParams(location.search).get('graph'));
+  const [routeId, setRouteId] = useState(() => graphId !== undefined ? graphId : new URLSearchParams(location.search).get('graph'));
   const [loadState, setLoadState] = useState('loading');
   const navigation = useCanvasNavigation(loadState === 'ready');
   const selection = useNodeSelection(graph, setDraft, navigation);
@@ -92,6 +98,12 @@ export function NodesEditor() {
       registerMediaSketches(SKETCHES); registerProjectionSketches(SKETCHES); refresh();
     };
     window.addEventListener('storage', sync);
+    if (sharedRuntime) {
+      const unsubscribe = mainContext.store.subscribe((state, previous) => {
+        if (state.mediaRevision !== previous.mediaRevision || state.projectionRevision !== previous.projectionRevision || state.customScripts !== previous.customScripts) refresh();
+      });
+      return () => { stop(); unsubscribe(); window.removeEventListener('storage', sync); };
+    }
     const scripts = new CustomScripts({ role: 'nodes', onChange: refresh, onStatus: status => { if (status.errors.length) setMessage(status.errors.join('; ')); } });
     scripts.start();
     return () => { stop(); window.removeEventListener('storage', sync); scripts.close(); };
@@ -161,7 +173,8 @@ export function NodesEditor() {
   }
   useEffect(() => { resolveRoute(); }, []);
   function updateRoute(id) {
-    history.replaceState(null, '', nodeEditorUrl(id));
+    if (!sharedRuntime) history.replaceState(null, '', nodeEditorUrl(id));
+    onSaved?.(id);
     setRouteId(id ?? null);
   }
   useEffect(() => {
@@ -169,6 +182,7 @@ export function NodesEditor() {
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [draft]);
+  useEffect(() => { onState?.({ name: graph.name, dirty: dirty(), busy }); }, [draft, busy, current]);
   if (loadState !== 'ready') return <main className="nodes-app">
     <header className="nodes-toolbar"><h1>Pattern editor</h1><a href="/" target="_blank" rel="noopener">Main pattern library ↗</a></header>
     {loadState === 'loading' ? <p role="status">Loading selected node pattern from disk…</p> : <section role="alert"><p>{message}</p><button className="btn" onClick={() => resolveRoute(true)}>Retry loading</button></section>}
@@ -184,6 +198,7 @@ export function NodesEditor() {
         {current && <IconControl className="btn--status-size" icon="reload" label="Reload from Disk" title="Discard edits and reload this pattern from disk" disabled={busy} onClick={() => { if (discard()) diskAction(async () => { await nodePatterns.reconnect(); load(await nodePatterns.load(current.id)); }); }} />}
         <button className="btn btn--solid btn--status-size nodes-save" title="Save pattern to the linked folder" disabled={busy} onClick={() => diskAction(async () => {
           const errors = sourceDiagnostics(graph, SKETCHES, dependencies); if (errors.length) throw new Error(errors.join('; '));
+          beforeSave?.(graph, current);
           const record = await nodePatterns.save(graph, dependencies, current);
           setCurrent(record); baseline.current = serializeGraph(graph, dependencies); updateRoute(record.id);
           setMessage('');
@@ -232,7 +247,7 @@ export function NodesEditor() {
           <IconControl icon="zoomIn" label="Zoom in" disabled={navigation.view.zoom >= 2.5} onClick={() => navigation.zoomAt(1.2)} />
         </div>
       </section>
-      <aside className="nodes-inspector"><h2>{node ? label(node) : 'Preview'}</h2><Preview graph={graph} dependencies={dependencies} selected={selected} revision={revision} current={previewRuntime} />
+      <aside className="nodes-inspector"><h2>{node ? label(node) : 'Preview'}</h2><Preview graph={graph} dependencies={dependencies} selected={selected} revision={revision} current={previewRuntime} sharedRuntime={sharedRuntime} active={active} />
         {node?.type === 'audio' && <><label>Audio band<Select aria-label="Audio band" value={node.band} onChange={e => patch({ band: e.target.value })}>{BANDS.map(b => <option key={b}>{b}</option>)}</Select></label><p>Normalized custom-script activity (0…1). Uses the main window’s shared audio input; no input means zero. Connect out to one or many ◇ signal endpoints.</p></>}
         {node?.type === 'output' && <p>Output has no numeric controls. Audio mapping is not supported here.</p>}
         {node?.type === 'blend' && <label>Blend mode<Select aria-label="Blend mode" title="Choose pixel blend mode" value={node.mode} onChange={e => patch({ mode: e.target.value })}>{Object.keys(MODES).map(mode => <option key={mode}>{mode}</option>)}</Select></label>}

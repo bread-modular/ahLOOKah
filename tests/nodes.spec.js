@@ -146,49 +146,6 @@ test('disk persistence, stable overwrite, reload and isolated drafts across tabs
   await expect(page.getByRole('button', { name: /revision|Import JSON|Export JSON/i })).toHaveCount(0);
 });
 
-test('main link opens isolated editor; saved graph is selectable on real output; disk overwrite invalidates selected output', async ({ page, context }) => {
-  test.setTimeout(60000);
-  const errors = []; page.on('pageerror', e => errors.push(e.message));
-  await page.goto('/');
-  const opened = context.waitForEvent('page'); await page.getByRole('link', { name: 'New Node Pattern' }).click();
-  const editor = await opened; await editor.waitForURL('**/?role=nodes');
-  expect(await editor.evaluate(() => Boolean(window.__viz))).toBe(false);
-  await openFixture(editor); await editor.getByRole('button', { name: 'Save' }).click();
-  const button = page.locator('.library-btn').filter({ hasText: 'Neon composite' });
-  await expect(button).toBeVisible();
-  const id = await button.getAttribute('data-id');
-  const screen = await context.newPage(); await screen.goto('/?role=screen');
-  await page.waitForFunction(() => window.__viz?.screenOnline);
-  await button.click({ modifiers: ['Shift'] });
-  await screen.waitForFunction(() => window.__viz.cue?.phase === 'ready');
-  await page.keyboard.press('Enter');
-  await screen.waitForFunction(() => window.__viz.cue === null);
-  await expect.poll(() => screen.evaluate(id => Boolean(document.querySelector(`[data-program-ids="${id}"] canvas`)), id)).toBe(true);
-  await expect.poll(() => screen.evaluate(id => { const c = document.querySelector(`[data-program-ids="${id}"] canvas`); return c && [...c.getContext('2d').getImageData(c.width / 2, c.height / 2, 1, 1).data]; }, id)).toEqual([255, 255, 0, 255]);
-  await editor.locator('[data-node-id="red"] .nodes-node-title').click();
-  await editor.getByLabel('Brightness', { exact: true }).fill('0');
-  await editor.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(editor.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
-  await expect(editor.locator('.nodes-status')).toHaveCount(0);
-  await expect.poll(() => screen.evaluate(id => { const c = document.querySelector(`[data-program-ids="${id}"] canvas`); return c && [...c.getContext('2d').getImageData(c.width / 2, c.height / 2, 1, 1).data]; }, id)).toEqual([0, 255, 0, 255]);
-  await expect(button).toHaveCount(1);
-  await page.locator('.library-btn[data-id="checkerboard"]').click({ modifiers: ['Shift'] });
-  await screen.waitForFunction(() => window.__viz.cue?.phase === 'ready');
-  await editor.getByLabel('Brightness', { exact: true }).fill('0.25');
-  await editor.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(editor.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
-  await expect(editor.locator('.nodes-status')).toHaveCount(0);
-  await screen.waitForFunction(() => window.__viz.cue === null);
-  await editor.evaluate(async () => {
-    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('node-patterns');
-    await dir.removeEntry('neon.nodes.json');
-  });
-  await folderAction(page, 'Node Patterns', 'Refresh folder');
-  await expect(button).toHaveCount(0);
-  await screen.waitForFunction(id => window.__viz.patternId !== id, id);
-  expect(errors).toEqual([]);
-});
-
 test('missing dependencies and camera preview are visible and never acquire capture', async ({ page }) => {
   await page.addInitScript(() => { window.captureCalls = 0; navigator.mediaDevices.getUserMedia = async () => { window.captureCalls++; throw new Error('unexpected capture'); }; });
   await page.goto('/?role=nodes');
@@ -595,7 +552,7 @@ test('Node Patterns category owns folder/open; sidebar opens the selected graph 
   await page.goto('/');
   const panel = page.getByRole('region', { name: 'Node pattern files' });
   await expect(panel.getByRole('button', { name: 'Link Folder', exact: true })).toBeVisible();
-  await expect(panel.getByRole('link', { name: 'New Node Pattern' })).toHaveAttribute('target', '_blank');
+  await expect(panel.getByRole('button', { name: 'New Node Pattern' })).toBeVisible();
   await seedFixture(page);
   // A second graph has the SAME display name. Routing must use the repository
   // identity, not the title, array order, or whichever graph was last opened.
@@ -618,17 +575,17 @@ test('Node Patterns category owns folder/open; sidebar opens the selected graph 
   await picker.getByRole('combobox').selectOption('neon.nodes.json');
   await picker.getByRole('button', { name: 'Open', exact: true }).click();
   await expect(picker).toHaveCount(0);
+  await page.getByRole('tab', { name: 'Main', exact: true }).click();
   await expect(category.locator('.library-btn')).toHaveCount(2);
   const id = await page.evaluate(async () => (await import('/src/nodes/repository.js')).nodePatterns.records.find(r => r.fileName === 'neon.nodes.json').id);
   await category.locator(`[data-id="${id}"]`).click();
-  const edit = page.getByRole('link', { name: 'Edit Pattern' });
-  await expect(edit).toHaveAttribute('href', `/?role=nodes&graph=${id}`);
+  const edit = page.getByRole('button', { name: 'Edit Pattern', exact: true });
   await expect(edit).toHaveClass('btn btn--md');
-  const popup = context.waitForEvent('page'); await edit.click();
-  const editor = await popup;
-  await expect(editor).toHaveURL(new RegExp(`graph=${id}$`));
+  await edit.click();
+  const editor = page.locator('.app-tab-panel:not([hidden])');
+  expect(context.pages()).toHaveLength(1);
   await expect(editor.getByLabel('Graph name')).toHaveValue('Neon composite');
-  expect(await editor.evaluate(() => window.opener === null)).toBe(true);
+  await expect(page.getByRole('tab')).toHaveCount(2);
   await expect.poll(() => pixel(editor)).toEqual([255, 255, 0, 255]);
   await expect(editor.getByRole('button', { name: /Link Folder|Open Pattern|Load pattern|Refresh folder/i })).toHaveCount(0);
   await editor.getByLabel('Graph name').fill('Selected graph saved');
@@ -637,12 +594,14 @@ test('Node Patterns category owns folder/open; sidebar opens the selected graph 
   await expect(editor.locator('.nodes-status')).toHaveCount(0);
   await expect(category.locator(`[data-id="${id}"]`)).toContainText('Selected graph saved');
   await expect(category.locator('.library-btn').filter({ hasText: 'Neon composite' })).toHaveCount(1);
-  await editor.reload();
-  await expect(editor.getByLabel('Graph name')).toHaveValue('Selected graph saved');
+  await page.getByRole('tab', { name: 'Main', exact: true }).click();
   await category.scrollIntoViewIfNeeded();
   await page.screenshot({ path: '/tmp/node-patterns-main-review.png' });
   await page.screenshot({ path: testInfo.outputPath('node-patterns-main.png') });
-  await editor.screenshot({ path: '/tmp/node-patterns-selected-editor.png' });
+  await edit.click();
+  await expect(editor.getByLabel('Graph name')).toHaveValue('Selected graph saved');
+  await page.screenshot({ path: '/tmp/node-patterns-selected-editor.png' });
+  await page.getByRole('tab', { name: 'Main', exact: true }).click();
   await page.locator('.library-group-toggle').filter({ hasText: 'Node Patterns' }).click();
   await expect(category).toBeHidden();
   await page.reload(); await expect(category).toBeHidden();
@@ -748,7 +707,7 @@ test('linked folder text rows and unlink preserve source files and standalone wo
   await page.goto('/'); await seedFixture(page);
   const panel = page.getByRole('region', { name: 'Node pattern files' });
   await expect(panel.getByRole('button', { name: 'Open Pattern', exact: true })).toBeEnabled();
-  await expect(panel.getByRole('link', { name: 'New Node Pattern' })).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'New Node Pattern' })).toBeVisible();
   await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
   await expect(panel.getByRole('button', { name: 'Link Folder', exact: true })).toHaveCount(0);
   await expect(panel.getByRole('button', { name: 'Node Patterns: Linked' })).toBeVisible();

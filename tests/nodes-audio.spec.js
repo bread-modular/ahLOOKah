@@ -202,7 +202,7 @@ test('palette uses edge scrollbar, equal row/search widths, overflow only, and d
 
 test('Node Patterns ADD matches shared Custom Scripts and Projection action typography', async ({ page }) => {
   await page.setViewportSize({ width: 1536, height: 1050 }); await page.goto('/');
-  const add = page.getByRole('link', { name: 'New Node Pattern', exact: true }); await expect(add).toBeVisible();
+  const add = page.getByRole('button', { name: 'New Node Pattern', exact: true }); await expect(add).toBeVisible();
   const style = el => { const s = getComputedStyle(el); return Object.fromEntries(['fontFamily', 'fontWeight', 'fontSize', 'letterSpacing', 'lineHeight', 'padding', 'borderRadius'].map(k => [k, s[k]])); };
   expect(await add.evaluate(style)).toEqual(await page.getByRole('button', { name: 'New Script', exact: true }).evaluate(style));
   const projection = page.locator('.library-group').filter({ has: page.locator('.library-group-toggle', { hasText: 'Projection Mapping' }) }).locator('.library-add-btn');
@@ -468,12 +468,11 @@ test('marquee batch deletion and contenteditable keyboard guard use the actual c
   await page.reload(); await expect(page.locator('.nodes-node')).toHaveCount(2);
 });
 
-test('main-launched editor keeps ordinary pulse reactive through mapping edits, audio-node removal and reload', async ({ page, context }) => {
+test('legacy editor keeps ordinary pulse reactive through mapping edits, audio-node removal and reload', async ({ page, context }) => {
   test.setTimeout(60000);
   await page.goto('/'); await page.waitForFunction(() => window.__viz?.audioOwner);
-  const opened = context.waitForEvent('page');
-  await page.getByRole('link', { name: 'New Node Pattern', exact: true }).click();
-  const editor = await opened; await editor.waitForURL('**/?role=nodes');
+  const editor = await context.newPage();
+  await editor.goto('/?role=nodes');
   await forbidEditorCapture(editor);
   const g = graph(); g.nodes = g.nodes.filter(n => !['mix', 'audio2'].includes(n.id)); g.nodes[0].params.pulse = 1;
   await openFixture(editor, mapSignal(g, 'audio', 'color', 'saturation', .2, .8));
