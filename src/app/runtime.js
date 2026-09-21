@@ -268,6 +268,7 @@ export function createAppRuntime({
   let previewP5 = [];
   let projectionPreview = null;
   let previewAudioSlots = [];
+  const editorAudioChildren = new Map();
   let previewSelection = { ids: [], merge: false };
   let lastPreviewKey = null;
   let previewResizeObserver = null;
@@ -1674,6 +1675,9 @@ export function createAppRuntime({
       appendRuntime(retiringRuntime, 'retiring');
     } else {
       appendRuntime(projectionPreview, 'preview');
+      for (const children of editorAudioChildren.values()) {
+        for (const child of children) appendRuntime(child, 'preview');
+      }
       for (const descriptor of previewAudioSlots || []) {
         refreshPreviewAudioSlot(descriptor);
         slots.push({ ...descriptor, params: { ...descriptor.params } });
@@ -3514,6 +3518,18 @@ export function createAppRuntime({
     mediaFolder,
     eqSink,
     registerPreviewHost,
+    // Same-document editors borrow the main capture, control store and engine.
+    // They never create a channel, AudioContext, capture, or program host.
+    createEditorAudio() {
+      const key = Symbol('editor');
+      editorAudioChildren.set(key, []);
+      return {
+        audio, store: patternAudioStore,
+        refresh: queuePatternAudioPlanPublish,
+        setChildren(children) { editorAudioChildren.set(key, children); queuePatternAudioPlanPublish(); },
+        dispose() { editorAudioChildren.delete(key); queuePatternAudioPlanPublish(); },
+      };
+    },
     getEditingParams,
     getParams,
     getCueParams,

@@ -444,3 +444,34 @@ PLAYWRIGHT_PORT=5188 npx playwright test tests/linked-library.spec.js tests/fold
 PLAYWRIGHT_PORT=5188 npx playwright test tests/nodes.spec.js --project=chromium --workers=2 --grep 'disk persistence|new drafts save|stale drafts|denied save|outside picker|background reload|folder switch|category owns|linked folder text'
 npm run build
 ```
+
+### Internal node editor workspaces
+
+Node Patterns **ADD**, **OPEN**, and **Edit Pattern** now open internal tabs on
+ the right of the main app. Opening a repository ID again focuses its existing
+editor. New drafts get their own tab; switching retains graph edits, selection,
+and canvas navigation. Closing a dirty tab asks before discarding; closing during
+a save is disabled. Save adopts the repository ID and updates the main library
+and external output using the existing repository notifications. Unsaved drafts
+are in memory, not crash/reload recovery storage.
+
+Internal editors reuse `NodesEditor` and borrow the main runtime's AudioManager,
+PatternAudioControlStore, and existing audio engine/clock. They do not create an
+audio channel, capture, ownership handoff, or program canvas host. Main stays
+mounted at the same dimensions, and external screen/output communication remains
+unchanged. Inactive editor source runtimes are paused, not destroyed.
+
+Media uses the existing same-document media store/cache and per-renderer playback
+lifecycle; switching tabs retains the editor's video element. Independent graph
+renderers still have independent video playback elements. Camera preview remains
+an explicit placeholder: `SharedCameraSource` is owned by the separate output
+screen and cannot be borrowed directly by the main document. Editors never open
+a second camera capture. Legacy `?role=nodes&graph=…` URLs remain supported as the
+standalone compatibility path; main app actions no longer launch them.
+
+Focused validation (isolated dev-server port):
+
+```sh
+PLAYWRIGHT_PORT=5184 npx playwright test tests/nodes-internal.spec.js tests/nodes.spec.js tests/nodes-audio.spec.js tests/nodes-audio-background.spec.js tests/audio-input.spec.js tests/media-pattern.spec.js tests/control-panel.spec.js --workers=2
+npm run build
+```
