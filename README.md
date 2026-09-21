@@ -375,6 +375,12 @@ Scripts are trusted JavaScript, **not a sandbox**. The complete tutorial is
 Choose **ADD** (New Node Pattern) in the main **Node Patterns** category. The
 dependency-free React/DOM + SVG editor composes source pixels through chained Blend
 nodes and Color filters, and wires scalar Math/Script nodes into any numeric parameter.
+Script nodes offer two languages: the new **body** language (`return`, `let`/`const`
+locals with lexical block scope, `if`/`else`, comparisons, short-circuit `&&`/`||` and
+`?:`, compiled once by Acorn-checked bytecode — no `eval`/`Function`, no loops, no
+globals) and the legacy single-value **expression** language that graphs saved before it
+still use unchanged. Sources are approved per exact text *and* language in this browser,
+so an imported file can never carry trust with it.
 The main **Node Patterns** category owns **Link Folder**, **Open Pattern**,
 **Refresh folder**, and **New Node Pattern**. Select a graph, then use the sidebar’s
 **Edit Pattern** to open it in the editor. One graph is edited at a time and the editor
@@ -390,11 +396,13 @@ unsaved edits never change LIVE. See the [Nodes guide](public/docs/nodes.html) f
 shortcuts, source support, JSON dependency manifests and resource limits.
 
 ```sh
-PLAYWRIGHT_PORT=5186 npx playwright test tests/nodes.spec.js tests/nodes-scalar.spec.js --no-deps
+PLAYWRIGHT_PORT=5186 npx playwright test tests/nodes.spec.js tests/nodes-scalar.spec.js tests/nodes-script-body.spec.js --no-deps
 ```
 
 The graph tests cover blend pixels, Color filter pixels (identity/alpha/chaining),
 chained DAGs, scalar Math/Script wiring with per-frame fanout and safe fallbacks,
+Script body language safety/budgets/scope/short-circuits, save/reload approval binding,
+live audio → body script → mapping pixels,
 real 2D/WebGL/projection/media/
 custom sources, editor gestures, disk save/open/reload, permissions and overwrite safety, cross-tab library
 updates, LIVE/CUE isolation, independent audio slots, resize and disposal.

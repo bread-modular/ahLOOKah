@@ -4,8 +4,9 @@ import { ModulatedParameter } from './ModulatedParameter.jsx';
 import { BANDS, definitions, numeric, clampStep, SIGNAL_DRAG } from './modulation.js';
 import { MATH_OPS, MATH_LABELS, MATH_INPUTS, MATH_PORT_LABELS, SCRIPT_INPUTS, SCRIPT_PORT_LABELS, SCRIPT_LITERAL_FIELDS, defaultNode, isSignalSource, isVisualSource, isScalarConsumer, isModulationTarget, activeInputs, mathPorts } from './definitions.js';
 import { inputAnchor, outputAnchor, signalAnchor, wirePath, BUNDLE_BOW } from './geometry.js';
-import { MAX_EXPRESSION, SCRIPT_HELP, SCRIPT_VARIABLES, validateExpression } from './script.js';
-import { approveExpression, isExpressionApproved } from './script-approval.js';
+import { SCRIPT_VARIABLES, compileScript, helpForLanguage, limitForLanguage, scriptLanguageLabel } from './script.js';
+import { approveScript, isScriptApproved } from './script-approval.js';
+import { scriptLanguageOf as scriptNodeLanguage } from './scalar.js';
 import { createEditorAudio } from './audio-provider.js';
 import { useCanvasNavigation } from './useCanvasNavigation.js';
 import { useNodeSelection } from './useNodeSelection.js';
@@ -115,7 +116,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   const [signalEndpoint, setSignalEndpoint] = useState(null);
   const [query, setQuery] = useState(''), [message, setMessage] = useState('');
   const [revision, setRevision] = useState(0);
-  const [scriptDraft, setScriptDraft] = useState({ id: null, text: '' });
+  const [scriptDraft, setScriptDraft] = useState({ id: null, language: null, text: '' });
   const [routeId, setRouteId] = useState(() => graphId !== undefined ? graphId : new URLSearchParams(location.search).get('graph'));
   const [loadState, setLoadState] = useState('loading');
   const navigation = useCanvasNavigation(loadState === 'ready');
@@ -125,7 +126,10 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   const [current, setCurrent] = useState(null), [busy, setBusy] = useState(false);
   const baseline = useRef(serializeGraph(newGraph(), []));
   const dirty = () => serializeGraph(graph, dependencies) !== baseline.current;
-  const discard = () => !dirty() || confirmDiscard();
+  // Both guards are consulted by every abandon path (Back to Main, Reload from
+  // Disk): unapplied script text is invisible to `dirty`, so it needs its own
+  // confirmation instead of being dropped silently.
+  const discard = () => (!unappliedScript() || window.confirm('Discard unapplied script text?')) && (!dirty() || confirmDiscard());
   // Shared guard: Back to Main and Reload from Disk abandon the same draft.
   const leave = () => { if (discard()) onBack?.(); };
   const diskAction = async fn => {
@@ -141,12 +145,25 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   // itself stays unselected, so its signal chips and mapping settings remain
   // reachable without making the node a Delete target.
   const signalNode = node || (selection.wire?.kind === 'modulation' && signalEndpoint ? graph.nodes.find(n => n.id === signalEndpoint.to) : null) || null;
-  // Script sources are edited as a draft and only enter the graph through Apply,
-  // which also approves that exact text for this browser.
+  // Script sources are edited as a draft (text + language) and only enter the
+  // graph through Apply, which also approves that exact source for this browser.
   const scriptNode = node?.type === 'script' ? node : null;
-  const scriptText = scriptNode ? (scriptDraft.id === scriptNode.id ? scriptDraft.text : scriptNode.source) : '';
-  const scriptCheck = scriptNode ? validateExpression(scriptText) : null;
-  const scriptApplied = !!scriptNode && scriptText === scriptNode.source;
+  const nodeLanguage = scriptNode ? scriptNodeLanguage(scriptNode) : 'expression';
+  const drafting = !!scriptNode && scriptDraft.id === scriptNode.id;
+  const scriptLanguage = drafting && scriptDraft.language ? scriptDraft.language : nodeLanguage;
+  const scriptText = scriptNode ? (drafting ? scriptDraft.text : scriptNode.source) : '';
+  const scriptCheck = scriptNode ? compileScript(scriptText, scriptLanguage) : null;
+  const scriptApplied = !!scriptNode && scriptText === scriptNode.source && scriptLanguage === nodeLanguage;
+  // The draft of ANY script node that is not in the graph yet (not only the
+  // selected one), so Save and Back to Main can warn before it is discarded.
+  // Switching nodes preserves the draft instead of dropping it.
+  const unappliedScript = () => {
+    if (!scriptDraft.id) return null;
+    const target = graph.nodes.find(n => n.id === scriptDraft.id);
+    if (!target || target.type !== 'script') return null;
+    const language = scriptDraft.language || scriptNodeLanguage(target);
+    return scriptDraft.text !== target.source || language !== scriptNodeLanguage(target) ? target : null;
+  };
   useEffect(() => {
     const refresh = () => { setRevision(v => v + 1); };
     const stop = watchGraphs(() => { if (nodePatterns.errors.length) setMessage(nodePatterns.errors.join('; ')); });
@@ -176,7 +193,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   function create(type, x = CREATE_X[type] ?? 70, y = 60 + graph.nodes.length * 35) {
     attempt(() => {
       const n = defaultNode(type, x, y);
-      if (type === 'script') approveExpression(n.source);
+      if (type === 'script') approveScript(n.language, n.source);
       edit({ ...graph, nodes: [...graph.nodes, n] });
       setSelected(n.id); setMessage('');
     });
@@ -224,14 +241,22 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
     if (isVisualSource(from) && isScalarConsumer(target)) { setMessage('Image outputs connect to image inputs (Blend/Color/Output), not scalar ports.'); return; }
     attempt(() => { edit(isSignalSource(from) ? connectSignalEdge(graph, pending, to, name) : connect(graph, pending, to, name)); setPending(null); setMessage(''); });
   }
-  const applyExpression = () => {
+  const applyScript = () => {
     if (node?.type !== 'script') return;
-    const text = scriptDraft.id === node.id ? scriptDraft.text : node.source;
-    const check = validateExpression(text);
+    const drafting = scriptDraft.id === node.id;
+    const text = drafting ? scriptDraft.text : node.source;
+    const language = drafting && scriptDraft.language ? scriptDraft.language : scriptNodeLanguage(node);
+    const check = compileScript(text, language);
+    // Nothing reaches the graph (or the approval store) unless the source both
+    // validates and is stored: a failed Apply leaves the last applied code
+    // running untouched.
     if (!check.ok) { setMessage(`Script: ${check.error}`); return; }
-    approveExpression(text);
-    patch({ source: text });
-    setMessage('Restricted expression applied and approved for this exact source.');
+    approveScript(language, text);
+    patch({ source: text, language });
+    setScriptDraft({ id: null, language: null, text: '' });
+    setMessage(language === 'body'
+      ? 'Script body applied and approved for this exact source.'
+      : 'Restricted expression applied and approved for this exact source.');
   };
   // Math Value C only exists while the operation needs it (clamp). Switching to
   // any other operation removes that one scalar wire — model.js does the same for
@@ -276,6 +301,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
     const protectsOutput = graph.nodes.some(n => n.type === 'output' && selection.ids.includes(n.id));
     if (removable.length) {
       setDraft(d => ({ ...d, graph: deleteNodes(d.graph, selection.ids) }));
+      if (scriptDraft.id && selection.ids.includes(scriptDraft.id)) setScriptDraft({ id: null, language: null, text: '' });
       setSelected(graph.nodes.find(n => n.type === 'output').id);
       setPending(null); setSignalEndpoint(null);
     }
@@ -284,6 +310,8 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   function load(record) {
     const data = { graph: structuredClone(record.graph), dependencies: structuredClone(record.dependencies || []) };
     setDraft(data); setCurrent(record); baseline.current = serializeGraph(data.graph, data.dependencies);
+    // A reload shows disk state only: stale script drafts are dropped.
+    setScriptDraft({ id: null, language: null, text: '' });
     setSelected('output'); setPending(null); setMessage('');
   }
   // Resolve exactly this ID after restoring shared handles. Never fall back to
@@ -308,10 +336,10 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
     setRouteId(id ?? null);
   }
   useEffect(() => {
-    const warn = e => { if (dirty()) { e.preventDefault(); e.returnValue = ''; } };
+    const warn = e => { if (dirty() || unappliedScript()) { e.preventDefault(); e.returnValue = ''; } };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
-  }, [draft]);
+  }, [draft, scriptDraft]);
   useEffect(() => { onState?.({ name: graph.name, dirty: dirty(), busy }); }, [draft, busy, current]);
   if (loadState !== 'ready') return <main className="nodes-app">
     <header className="nodes-toolbar"><h1>Pattern editor</h1><BackToMain onBack={onBack} /></header>
@@ -328,6 +356,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
       <div className="nodes-toolbar-actions">
         {current && <IconControl className="btn--status-size" icon="reload" label="Reload from Disk" title="Discard edits and reload this pattern from disk" disabled={busy} onClick={() => { if (discard()) diskAction(async () => { await nodePatterns.reconnect(); load(await nodePatterns.load(current.id)); }); }} />}
         <button className="btn btn--solid btn--status-size nodes-save" title="Save pattern to the linked folder" disabled={busy} onClick={() => diskAction(async () => {
+          if (unappliedScript() && !window.confirm('Script text has not been applied. Save without it?')) throw new DOMException('Canceled', 'AbortError');
           const errors = sourceDiagnostics(graph, SKETCHES, dependencies); if (errors.length) throw new Error(errors.join('; '));
           const record = await nodePatterns.save(graph, dependencies, current);
           setCurrent(record); baseline.current = serializeGraph(graph, dependencies); updateRoute(record.id);
@@ -363,7 +392,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
             <button className="nodes-node-title" title={`Select or drag ${label(n)}`} aria-label={`Select ${label(n)}`} aria-pressed={selection.ids.includes(n.id)} {...selection.titleHandlers(n)}>{label(n)}</button>
             <div className="nodes-ports">{activeInputs(n).map(name => <button key={name} className="nodes-input" title={`Connect to ${label(n)} ${name} input`} aria-label={`${n.id} input ${name}`} onClick={() => port(n.id, name)}>● {name}</button>)}
               {n.type !== 'output' && <button className={`nodes-output ${pending === n.id ? 'active' : ''}`} title={`Connect from ${label(n)} output`} aria-label={`${n.id} output`} onClick={() => { setPending(n.id); setMessage(isSignalSource(n) ? 'Scalar output selected: click a Math/Script input port or a ◇ signal endpoint.' : ''); }}>out ●</button>}
-            </div><small className="nodes-node-detail">{n.type === 'blend' ? `${n.mode} · ${Math.round(n.opacity * 100)}%` : n.type === 'output' ? 'Final image' : n.type === 'audio' ? `${n.band} activity · 0…1` : n.type === 'color' ? 'image → filtered image' : n.type === 'math' ? `${n.op} · scalar out` : n.type === 'script' ? (validateExpression(n.source).ok ? 'restricted expression' : 'expression error') : n.patternId}</small>
+            </div><small className="nodes-node-detail">{n.type === 'blend' ? `${n.mode} · ${Math.round(n.opacity * 100)}%` : n.type === 'output' ? 'Final image' : n.type === 'audio' ? `${n.band} activity · 0…1` : n.type === 'color' ? 'image → filtered image' : n.type === 'math' ? `${n.op} · scalar out` : n.type === 'script' ? (compileScript(n.source, scriptNodeLanguage(n)).ok ? (scriptNodeLanguage(n) === 'body' ? 'script body' : 'restricted expression') : 'script error') : n.patternId}</small>
             {isModulationTarget(n) && <button className="nodes-signal-endpoint" aria-label={`${n.id} signal endpoint`} onClick={e => {
               e.stopPropagation();
               if (pending) signalPort(n.id);
@@ -401,13 +430,16 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
           })}
           <SignalReadout runtime={previewRuntime} nodeId={node.id} />
           <p>Scalar inputs stay signed floats — nothing is normalized here. Each port takes a wire from an Audio/Math/Script output, otherwise its literal applies. {node.op === 'clamp' ? 'Clamp keeps a between the sorted b/c bounds. ' : 'Value C and its wire exist only for clamp. '}Wires carry values, not pictures.</p></>}
-        {node?.type === 'script' && <><label>Expression<input className="control-input" aria-label="Script expression" title={SCRIPT_HELP} maxLength={MAX_EXPRESSION} value={scriptText} onChange={e => setScriptDraft({ id: node.id, text: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyExpression(); } }} /></label>
-          <button className="btn" aria-label="Apply expression" title="Validate, store and approve this exact expression" disabled={!scriptCheck?.ok} onClick={applyExpression}>Apply</button>
+        {node?.type === 'script' && <><label>Language<Select aria-label="Script language" title="Expression is the original single-value language; Body is a compiled statement list with return" value={scriptLanguage} onChange={e => setScriptDraft({ id: node.id, language: e.target.value, text: scriptText })}>
+          {['body', 'expression'].map(value => <option key={value} value={value}>{scriptLanguageLabel(value)}</option>)}
+        </Select></label>
+          <label>Script source<textarea className="control-input nodes-script-source" aria-label="Script source" title={helpForLanguage(scriptLanguage)} maxLength={limitForLanguage(scriptLanguage)} rows={scriptLanguage === 'body' ? 6 : 2} spellCheck={false} value={scriptText} onChange={e => setScriptDraft({ id: node.id, language: scriptLanguage, text: e.target.value })} onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); applyScript(); } }} /></label>
+          <button className="btn" aria-label="Apply script" title="Validate, store and approve this exact source" disabled={!scriptCheck?.ok} onClick={applyScript}>Apply</button>
           {!scriptCheck?.ok && <p className="nodes-script-error" role="alert">Script: {scriptCheck?.error}</p>}
-          <p className="nodes-script-status" role="status" data-testid="script-status">{!scriptCheck?.ok ? 'Not applied' : `${scriptApplied ? (isExpressionApproved(node.source) ? 'Applied and approved' : 'Applied · review required to run') : 'Not applied'} · uses ${SCRIPT_VARIABLES.filter(name => scriptCheck.uses?.[name]).join(', ') || 'no inputs'}`}</p>
+          <p className="nodes-script-status" role="status" data-testid="script-status">{!scriptCheck?.ok ? 'Not applied' : `${scriptApplied ? (isScriptApproved(nodeLanguage, node.source) ? 'Applied and approved' : 'Applied · review required to run') : 'Not applied'} · ${scriptLanguage} · uses ${SCRIPT_VARIABLES.filter(name => scriptCheck.uses?.[name]).join(', ') || 'no inputs'}`}</p>
           {SCRIPT_INPUTS.map(port => <label key={port}>{SCRIPT_PORT_LABELS[port]} literal<input className="control-input" type="number" step="0.01" aria-label={`Script ${port} literal`} title={`Literal used when ${port} has no wire`} value={node[SCRIPT_LITERAL_FIELDS[port]]} onChange={e => { const next = e.target.valueAsNumber; if (Number.isFinite(next)) patch({ [SCRIPT_LITERAL_FIELDS[port]]: next }); }} /></label>)}
           <SignalReadout runtime={previewRuntime} nodeId={node.id} />
-          <p>{SCRIPT_HELP} Press Enter or Apply to store it; a disk-loaded expression must be reviewed and applied in this browser before it runs. Unwired x/y use their literals and time is seconds.</p></>}
+          <p>{helpForLanguage(scriptLanguage)} Ctrl+Enter or Apply stores and approves it; plain Enter adds a line. A disk-loaded source must be reviewed and applied in this browser before it runs. Unwired x/y use their literals and time is seconds.</p></>}
         {node?.type === 'blend' && <label>Blend mode<Select aria-label="Blend mode" title="Choose pixel blend mode" value={node.mode} onChange={e => patch({ mode: e.target.value })}>{Object.keys(MODES).map(mode => <option key={mode}>{mode}</option>)}</Select></label>}
         {node?.type === 'pattern' && !sketch && <p>Missing pattern. Delete and replace this node, or restore its dependency.</p>}
         {signalNode && (graph.modulations || []).some(m => m.to === signalNode.id) && <section className="nodes-signals" aria-label="Connected signals"><h2>Connected signals</h2>

@@ -9,15 +9,16 @@ import {
   TYPES, COLOR_PARAMS, MATH_OPS, MATH_LITERALS, SCRIPT_LITERALS,
   inputs, isSignalSource, isScalarConsumer, isModulationTarget, inactiveMathPort,
 } from './definitions.js';
-import { MAX_EXPRESSION } from './script.js';
+import { MAX_EXPRESSION, MAX_BODY, LANGUAGES } from './script.js';
 
 export const VERSION = 1;
 // Graph size is not budgeted here. Node count, Pattern source count and wire
 // counts are limited only by the machine that edits and renders them, because a
 // fixed node/source cap cannot know the hardware. What stays enforced is
 // structural and safety validation: ports, references, uniqueness, cycles,
-// finite numbers, the restricted script expression (MAX_EXPRESSION) and the JSON
-// payload size (MAX_BYTES) that keeps one pattern file loadable.
+// finite numbers, the restricted script source (MAX_EXPRESSION for the legacy
+// expression language, MAX_BODY for the body language) and the JSON payload size
+// (MAX_BYTES) that keeps one pattern file loadable.
 export const MAX_BYTES = 200000;
 export const MODES = { Normal: 'source-over', Multiply: 'multiply', Screen: 'screen', Overlay: 'overlay', Difference: 'difference', Add: 'lighter' };
 export { inputs };
@@ -69,13 +70,20 @@ export function validateGraph(raw, { complete = false } = {}) {
       node.op = n.op;
     }
     if (n.type === 'script') {
-      if (typeof n.source !== 'string' || n.source.length > MAX_EXPRESSION) fail(`Script source must be text of at most ${MAX_EXPRESSION} characters`);
+      // A missing language is the legacy expression language; an explicit value
+      // must be known, so a typo can never silently downgrade a saved script.
+      const language = n.language === undefined ? 'expression' : n.language;
+      if (!LANGUAGES.includes(language)) fail('Invalid script language');
+      const limit = language === 'body' ? MAX_BODY : MAX_EXPRESSION;
+      if (typeof n.source !== 'string' || n.source.length > limit) fail(`Script source must be text of at most ${limit} characters`);
       for (const key of ['inputX', 'inputY']) {
         const value = n[key] === undefined ? SCRIPT_LITERALS[key] : n[key];
         if (!number(value)) fail('Invalid script literal');
         node[key] = value;
       }
       node.source = n.source;
+      // Written only when the file declared it, so legacy graphs round-trip exactly.
+      if (n.language !== undefined) node.language = language;
     }
     if (n.type === 'blend') {
       if (!Object.hasOwn(MODES, n.mode) || !Number.isFinite(n.opacity) || n.opacity < 0 || n.opacity > 1) fail('Invalid blend mode or opacity');

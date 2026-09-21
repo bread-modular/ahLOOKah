@@ -103,4 +103,7 @@
 .nodes-inspector output.nodes-signal-readout { float:none; display:block; margin:6px 0 2px; padding:6px 8px; background:var(--bg-dark); border:1px solid var(--border-gray); border-radius:4px; color:#fff5a8; font-weight:700; font-variant-numeric:tabular-nums; }
 .nodes-script-status { color:#cdb6ed !important; }
 .nodes-script-error { color:#ff6b6b !important; }
+/* Script source is multi-line: monospace, resizable vertically, and it never
+   forces the inspector wider than the panel. */
+.nodes-inspector textarea.nodes-script-source { width:100%; min-height:52px; max-height:280px; resize:vertical; margin:4px 0 0; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:11px; line-height:1.45; white-space:pre; overflow:auto; tab-size:2; }
 .nodes-inspector input[type="number"] { font-variant-numeric:tabular-nums; }

@@ -6,8 +6,8 @@ import { PreviewAudio } from '../preview-audio.js';
 import { MODES, validateGraph } from './model.js';
 import { sourceDiagnostics } from './portability.js';
 import { isVisualType } from './definitions.js';
-import { mathValue, mathIssue, scriptValue } from './scalar.js';
-import { isExpressionApproved, SCRIPT_APPROVAL_MESSAGE } from './script-approval.js';
+import { mathValue, mathIssue, scriptValue, scriptProgram, scriptLanguageOf, scriptSource } from './scalar.js';
+import { isScriptApproved, SCRIPT_APPROVAL_MESSAGE } from './script-approval.js';
 
 export function composite(ctx, base, layer, mode, opacity) {
   const { width, height } = ctx.canvas;
@@ -55,7 +55,11 @@ export class GraphRuntime {
     this.readContinuous = context.readAudioSignals || this.signal?.read || (() => ({}));
     this.frame = 0;
     this.frameSignals = new Map();
+    // Compilation happens once per node here, never inside a frame: this cache
+    // retains one compiled program per language + exact source for the runtime's
+    // whole life and cannot evict a live program.
     this.scriptCache = new Map();
+    this.scriptPrograms = new Map();
     this.startedAt = performance.now();
     this.params = new Map(this.graph.nodes.filter(n => ['pattern', 'blend', 'color'].includes(n.type))
       .map(n => [n.id, parameterView(this.graph, n, sketches, this.readContinuous, id => this.signalValue(id))]));
@@ -65,8 +69,11 @@ export class GraphRuntime {
     this.diagnostics = sourceDiagnostics(this.graph, sketches, dependencies);
     this.graph.nodes.filter(n => isVisualType(n)).forEach(n => { const canvas = document.createElement('canvas'); [canvas.width, canvas.height] = this.size; this.buffers.set(n.id, canvas); });
     // A disk-loaded Script source never carries trust with it: evaluation only
-    // happens after this browser approved that exact text.
-    for (const node of this.graph.nodes.filter(n => n.type === 'script')) if (!isExpressionApproved(node.source)) this.messages.set(node.id, SCRIPT_APPROVAL_MESSAGE);
+    // happens after this browser approved that exact text in that language.
+    for (const node of this.graph.nodes.filter(n => n.type === 'script')) {
+      this.scriptPrograms.set(node.id, scriptProgram(node, this.scriptCache));
+      if (!isScriptApproved(scriptLanguageOf(node), scriptSource(node))) this.messages.set(node.id, SCRIPT_APPROVAL_MESSAGE);
+    }
     if (this.diagnostics.length) { this.ready = Promise.resolve(); return; }
     const waits = [];
     for (const node of this.graph.nodes.filter(n => n.type === 'pattern')) {
@@ -130,11 +137,15 @@ export class GraphRuntime {
         const issue = mathIssue(node, readInput);
         value = mathValue(node, readInput);
         if (issue) this.messages.set(id, issue); else this.messages.delete(id);
-      } else if (!isExpressionApproved(node.source)) {
+      } else if (!isScriptApproved(scriptLanguageOf(node), scriptSource(node))) {
         this.messages.set(id, SCRIPT_APPROVAL_MESSAGE);
         value = 0;
       } else {
-        const result = scriptValue(node, { time: this.elapsed(), readInput }, this.scriptCache);
+        let program = this.scriptPrograms.get(id);
+        // Defensive refresh only if the id was not present at construction; the
+        // per-frame path never compiles.
+        if (!program) { program = scriptProgram(node, this.scriptCache); this.scriptPrograms.set(id, program); }
+        const result = scriptValue(node, { time: this.elapsed(), readInput, program }, this.scriptCache);
         value = result.value;
         if (result.error) this.messages.set(id, result.error); else this.messages.delete(id);
       }
@@ -184,7 +195,7 @@ export class GraphRuntime {
   }
   pause() { this.sources.forEach(s => s.pause()); }
   resume() { this.sources.forEach(s => s.resume()); }
-  dispose() { if (this.disposed) return; this.disposed = true; this.signal?.dispose(); this.sources.forEach(s => s.dispose()); this.sources.clear(); this.buffers.forEach(c => { c.width = c.height = 1; }); this.buffers.clear(); this.frameSignals.clear(); }
+  dispose() { if (this.disposed) return; this.disposed = true; this.signal?.dispose(); this.sources.forEach(s => s.dispose()); this.sources.clear(); this.buffers.forEach(c => { c.width = c.height = 1; }); this.buffers.clear(); this.frameSignals.clear(); this.scriptPrograms.clear(); }
 }
 export function graphFactory(record, sketches) {
   // Closed-over disk snapshot; registry changes replace the factory and runtime.

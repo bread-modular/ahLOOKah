@@ -212,7 +212,7 @@ test('script values fall back safely and report errors instead of NaN', () => {
   const cache = new Map();
   approveExpression('x / 2');
   const node = { type: 'script', source: 'x / 2', inputX: 0, inputY: 0 };
-  expect(scriptValue(node, { readInput: port => port === 'x' ? 3 : null }, cache)).toEqual({ value: 1.5, error: null, uses: { x: true, y: false, time: false } });
+  expect(scriptValue(node, { readInput: port => port === 'x' ? 3 : null }, cache)).toEqual({ value: 1.5, error: null, uses: { x: true, y: false, time: false }, language: 'expression' });
   expect(scriptValue(node, {}, cache).value).toBe(0); // unwired x uses its literal
   expect(scriptValue({ ...node, source: 'sqrt(x)' }, { readInput: () => -4 }, cache)).toMatchObject({ value: 0 });
   expect(scriptValue({ ...node, source: 'window.x' }, {}, cache)).toMatchObject({ value: 0 });
@@ -220,13 +220,13 @@ test('script values fall back safely and report errors instead of NaN', () => {
   // A zero divisor zeroes the whole node output and reports it.
   approveExpression('1 + x / 0');
   expect(scriptValue({ type: 'script', source: '1 + x / 0', inputX: 0, inputY: 0 }, { readInput: () => 4 }, cache))
-    .toEqual({ value: 0, error: 'Script: division by zero → 0.', uses: { x: true, y: false, time: false } });
+    .toEqual({ value: 0, error: 'Script: division by zero → 0.', uses: { x: true, y: false, time: false }, language: 'expression' });
   approveExpression('x % 0');
   expect(scriptValue({ type: 'script', source: 'x % 0', inputX: 2, inputY: 0 }, {}, cache)).toMatchObject({ value: 0, error: 'Script: modulo by zero → 0.' });
   // Recovery: a repaired expression reports nothing.
   approveExpression('x + 1');
   expect(scriptValue({ type: 'script', source: 'x + 1', inputX: 0, inputY: 0 }, { readInput: () => 4 }, cache))
-    .toEqual({ value: 5, error: null, uses: { x: true, y: false, time: false } });
+    .toEqual({ value: 5, error: null, uses: { x: true, y: false, time: false }, language: 'expression' });
 });
 
 test('terminal mappings convert a custom signal input range and keep the legacy 0..1 default', () => {
@@ -263,7 +263,7 @@ test('serialization keeps legacy graphs identical and rejects unknown versions',
   expect(parsed.modulations[1]).toEqual({ from: 'shape', to: 'tint', param: 'saturation', min: .2, max: .8 });
   expect(defaultNode('color').params).toEqual({ saturation: 1, brightness: 1, contrast: 1, hue: 0 });
   expect(defaultNode('math')).toMatchObject({ op: 'add', a: 0, b: 0, c: 1 });
-  expect(defaultNode('script')).toMatchObject({ source: 'x', inputX: 0, inputY: 0 });
+  expect(defaultNode('script')).toMatchObject({ language: 'body', source: 'return x;', inputX: 0, inputY: 0 });
 });
 
 const useGraph = async (page, data) => page.evaluate(async graph => {
@@ -271,8 +271,8 @@ const useGraph = async (page, data) => page.evaluate(async graph => {
   FileSystemHandle.prototype.requestPermission = async () => 'granted';
   const { SKETCHES } = await import('/src/sketch-registry.js');
   const { manifestFor, serializeGraph } = await import('/src/nodes/portability.js');
-  const { approveExpression } = await import('/src/nodes/script-approval.js');
-  for (const n of graph.nodes) if (n.type === 'script') approveExpression(n.source);
+  const { approveScript } = await import('/src/nodes/script-approval.js');
+  for (const n of graph.nodes) if (n.type === 'script') approveScript(n.language ?? 'expression', n.source);
   const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('scalar-tests', { create: true });
   const file = await dir.getFileHandle('scalar.nodes.json', { create: true });
   const writer = await file.createWritable(); await writer.write(serializeGraph(graph, manifestFor(graph, SKETCHES))); await writer.close();
@@ -458,12 +458,13 @@ test('editor creates, wires, maps, saves and reloads Color, Math and Script node
   await expect(page.getByTestId('node-signal-readout')).toContainText('Output');
   // Script node: invalid expressions are reported and cannot be applied.
   await page.getByRole('button', { name: 'Select Script', exact: true }).click();
-  await page.getByLabel('Script expression').fill('window.location');
+  await expect(page.getByLabel('Script language')).toHaveValue('expression');
+  await page.getByLabel('Script source').fill('window.location');
   await expect(page.getByTestId('script-status')).toHaveText('Not applied');
   await expect(page.getByRole('alert')).toContainText('Property access is not allowed');
-  await expect(page.getByRole('button', { name: 'Apply expression' })).toBeDisabled();
-  await page.getByLabel('Script expression').fill('x / 2 + y * 0');
-  await page.getByRole('button', { name: 'Apply expression' }).click();
+  await expect(page.getByRole('button', { name: 'Apply script' })).toBeDisabled();
+  await page.getByLabel('Script source').fill('x / 2 + y * 0');
+  await page.getByRole('button', { name: 'Apply script' }).click();
   await expect(page.getByTestId('script-status')).toContainText('Applied and approved');
   await expect(page.getByTestId('script-status')).toContainText('x, y');
   // Map the scalar output by dragging its connected-signal chip onto the slider,
@@ -525,8 +526,8 @@ test('a disk-loaded script source must be reviewed in this browser before it run
   await expect(page.locator('.nodes-diagnostics')).toContainText('not approved');
   await page.getByRole('button', { name: 'Select Script', exact: true }).click();
   await expect(page.getByTestId('script-status')).toContainText('review required');
-  await page.getByRole('button', { name: 'Apply expression' }).click();
+  await page.getByRole('button', { name: 'Apply script' }).click();
   await expect(page.getByTestId('script-status')).toContainText('Applied and approved');
   await expect(page.locator('.nodes-diagnostics')).not.toContainText('not approved');
-  expect(await page.evaluate(async () => (await import('/src/nodes/script-approval.js')).isExpressionApproved('x / 2 + y * 0'))).toBe(true);
+  expect(await page.evaluate(async () => (await import('/src/nodes/script-approval.js')).isScriptApproved('expression', 'x / 2 + y * 0'))).toBe(true);
 });
