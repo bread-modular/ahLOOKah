@@ -108,6 +108,9 @@ for (const mode of ['native tab visibility', 'main visual rAF paused']) {
     expect(after.time).toBeGreaterThan(ticks.time);
     await main.evaluate(() => { window.toneGain.gain.value = 0; });
     await expect.poll(() => previewRed(page)).toBe(51);
+    // The LIVE caption lives inside the disclosed mapping details.
+    await expect(page.getByLabel('Brightness LIVE mapped value')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Brightness mapping settings' }).click();
     await expect(page.getByLabel('Brightness LIVE mapped value')).toHaveText('LIVE 0.2');
     await main.bringToFront();
     await main.evaluate(() => window.resumeVisuals());

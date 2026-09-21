@@ -370,7 +370,9 @@ test('mapping controls belong to the overlay: no Mapping settings button, click/
   const toggle = page.getByRole('button', { name: 'Brightness mapping settings' });
   await expect(fields).toHaveCount(0);
   await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-  await expect(page.getByLabel('Brightness LIVE mapped value')).toBeVisible();
+  // The LIVE caption is part of the disclosed details: collapsed mapping shows
+  // only the overlay box/handles/marker on the track, no caption underneath.
+  await expect(page.getByLabel('Brightness LIVE mapped value')).toHaveCount(0);
   // The old named heading/button is gone: the overlay is the only affordance and
   // no visible "Mapping settings" text remains anywhere.
   await expect(toggle).toHaveClass(/nodes-mapping-overlay/);
@@ -383,15 +385,18 @@ test('mapping controls belong to the overlay: no Mapping settings button, click/
   await expect(fields).toBeVisible();
   await expect(toggle).toHaveAttribute('aria-expanded', 'true');
   await expect(fields).toHaveValue('0.2');
+  await expect(page.getByLabel('Brightness LIVE mapped value')).toBeVisible();
   await page.keyboard.press('Space');
   await expect(fields).toHaveCount(0);
   await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByLabel('Brightness LIVE mapped value')).toHaveCount(0);
 
   // Empty track of the overlay: a real click target that toggles too.
   const track = await overlay.boundingBox();
   await page.mouse.click(track.x + 4, track.y + track.height / 2);
   await expect(fields).toBeVisible();
   await expect(overlay).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByLabel('Brightness LIVE mapped value')).toBeVisible();
 
   // Dragging the box rescales the range, collapses the controls and never
   // reopens them on release.

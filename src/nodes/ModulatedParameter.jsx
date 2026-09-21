@@ -101,7 +101,7 @@ export function ModulatedParameter({ node, def, value, onChange, mapping, readEf
       labelExtra={mapping && eligible && sourceLabel ? <span className="nodes-mapping-source" data-testid={`mapping-source-${def.key}`} title={`Signal source: ${sourceLabel}`}>{sourceLabel}</span> : null} />
     {!eligible && <small>Audio mapping unsupported: enum, bool and text are not numeric sliders.</small>}
     {mapping && eligible && <>
-      <output className="nodes-mapping-value" aria-label={`${def.label} LIVE mapped value`}>LIVE {effective}</output>
+      {showFields && <output className="nodes-mapping-value" aria-label={`${def.label} LIVE mapped value`}>LIVE {effective}</output>}
       {showFields && <div className="nodes-mapping-fields" id={fieldsId}>
       <p className="nodes-mapping-inline"><small>Base: {value} · signal {inputMin} → {min}; {inputMax} → {max}{min > max ? ' (reversed)' : ''}</small></p>
       <div>{[['min', 'Mapping min', min], ['max', 'Mapping max', max]].map(([key, label, v]) => <MappingNumberField key={key} ariaLabel={`${def.label} ${label}`} label={label} value={v}
