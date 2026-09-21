@@ -4,7 +4,7 @@ const modified = e => e.ctrlKey || e.metaKey;
 const rectangle = (a, b) => ({ x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(a.x - b.x), height: Math.abs(a.y - b.y) });
 
 // Selection is transient UI state, never part of the disk draft. The inspector
-// and delete action operate on primary only, not implicitly on the whole group.
+// uses primary; deletion operates on the entire selected group.
 export function useNodeSelection(graph, setDraft, navigation) {
   const [selection, setSelection] = useState({ ids: ['output'], primary: 'output' });
   const [box, setBox] = useState(null);

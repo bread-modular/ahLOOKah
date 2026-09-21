@@ -278,3 +278,244 @@ test('Audio creation supports multiple nodes and refuses enum mapping in the ins
   await expect(page.getByRole('button', { name: 'Select Audio · bass', exact: true })).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Select Audio · high', exact: true })).toHaveCount(1);
 });
+
+const previewRed = page => page.getByTestId('node-preview').evaluate(c => c.getContext('2d').getImageData(10, 10, 1, 1).data[0]);
+async function sharedInput(main, active) {
+  await main.evaluate(active => {
+    window.__viz.captureAudio.isStarted = true;
+    window.__viz.captureAudio.getAnalysisFrame = () => ({ left: new Float32Array(1024).fill(active ? -30 : -120), right: new Float32Array(1024).fill(active ? -30 : -120), sampleRate: 48000, fftSize: 2048, rms: active ? .2 : 0, time: performance.now() / 1000 });
+  }, active);
+}
+test('ordinary editor audio reacts to changing main shared capture across tabs without Audio nodes', async ({ page, context }) => {
+  await forbidEditorCapture(page);
+  const main = await context.newPage(); await main.goto('/');
+  await main.waitForFunction(() => window.__viz?.audioOwner);
+  await sharedInput(main, false);
+  const g = graph(); g.nodes = g.nodes.filter(n => n.type !== 'audio'); g.nodes[0].params.pulse = 1;
+  await openFixture(page, g);
+  await expect.poll(() => previewRed(page)).toBe(51);
+  await sharedInput(main, true);
+  await expect.poll(() => previewRed(page)).toBeGreaterThan(110);
+  await sharedInput(main, false);
+  await expect.poll(() => previewRed(page)).toBeLessThan(55);
+  await page.locator('[data-node-id=color] .nodes-node-title').click();
+  await page.getByLabel('Brightness', { exact: true }).fill('0.3');
+  await sharedInput(main, true);
+  await expect.poll(() => previewRed(page)).toBeGreaterThan(140);
+  expect(await page.evaluate(() => window.editorCaptureCalls)).toBe(0);
+});
+
+test('mapped editor preview follows main input before and after graph edits', async ({ page, context }) => {
+  const main = await context.newPage(); await main.goto('/'); await main.waitForFunction(() => window.__viz?.audioOwner);
+  await sharedInput(main, false);
+  await openFixture(page, mapSignal(graph(), 'audio', 'color', 'brightness', .2, .8));
+  await expect.poll(() => previewRed(page)).toBe(51);
+  await sharedInput(main, true);
+  await expect.poll(() => previewRed(page)).toBeGreaterThan(80);
+  await page.locator('[data-node-id=color] .nodes-node-title').click();
+  await page.getByLabel('Brightness Mapping min (signal 0)', { exact: true }).fill('0.4');
+  await expect.poll(() => previewRed(page)).toBeGreaterThan(105);
+  await sharedInput(main, false);
+  await expect.poll(() => previewRed(page)).toBe(102);
+});
+
+// Inspect real rendered thumb pixels, not just a CSS class or disabled flag.
+async function blueThumbPixels(page, locator) {
+  const image = (await locator.screenshot()).toString('base64');
+  return page.evaluate(async image => {
+    const img = new Image(); img.src = `data:image/png;base64,${image}`; await img.decode();
+    const canvas = document.createElement('canvas'); canvas.width = img.width; canvas.height = img.height;
+    const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0);
+    const pixels = ctx.getImageData(0, 0, img.width, img.height).data;
+    let count = 0;
+    for (let i = 0; i < pixels.length; i += 4) {
+      const [r, g, b] = pixels.slice(i, i + 3);
+      if (b > 80 && b > r * 1.5 && b > g * 1.2) count++;
+    }
+    return count;
+  }, image);
+}
+async function forbidEditorCapture(page) {
+  await page.addInitScript(() => {
+    window.editorCaptureCalls = 0;
+    navigator.mediaDevices.getUserMedia = async () => { window.editorCaptureCalls++; throw new Error('Editor must not capture'); };
+  });
+}
+async function saveAndRead(page) {
+  page.once('dialog', d => d.accept());
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+  await expect(page.locator('.nodes-status')).toHaveCount(0);
+  return page.evaluate(async () => {
+    const { nodePatterns } = await import('/src/nodes/repository.js');
+    return (await nodePatterns.load(new URLSearchParams(location.search).get('graph'))).graph;
+  });
+}
+
+test('LIVE indicator follows actual selected preview across owner restart, reverse, remove and reload', async ({ page, context }, testInfo) => {
+  test.setTimeout(60000);
+  await page.setViewportSize({ width: 1536, height: 1050 });
+  await forbidEditorCapture(page);
+  const g = graph(); g.nodes = g.nodes.filter(n => !['mix', 'audio2'].includes(n.id));
+  await openFixture(page, mapSignal(g, 'audio', 'color', 'brightness', .2, .8));
+  await page.locator('[data-node-id=color] .nodes-node-title').click();
+  const live = page.getByLabel('Brightness LIVE mapped value');
+  const marker = page.getByTestId('mapping-live-brightness');
+  const base = page.getByLabel('Brightness', { exact: true });
+  await expect(base).toBeDisabled();
+  expect(await blueThumbPixels(page, base)).toBe(0);
+  await expect(page.locator('[data-param-target=brightness]')).toHaveClass(/is-mapped/);
+  await expect(live).toHaveText('LIVE 0.2');
+  await expect(marker).toHaveCSS('left', /.+/);
+  expect(await marker.evaluate(el => el.style.left)).toBe('20%');
+  let main = await context.newPage(); await main.goto('/'); await main.waitForFunction(() => window.__viz?.audioOwner);
+  await sharedInput(main, true);
+  await expect.poll(async () => Number((await live.textContent()).replace('LIVE ', ''))).toBeGreaterThan(.3);
+  // Compare independent rendered pixels against the displayed stepped value,
+  // allowing one frame of movement while the capture envelope settles.
+  await expect.poll(async () => Math.abs((await previewRed(page)) / 255 - Number((await live.textContent()).replace('LIVE ', '')))).toBeLessThan(.025);
+  expect(await base.inputValue()).toBe('0.2');
+  await page.screenshot({ path: testInfo.outputPath('live-mapping.png') });
+  await main.close();
+  await expect(live).toHaveText('LIVE 0.2');
+  await expect.poll(() => previewRed(page)).toBe(51);
+  main = await context.newPage(); await main.goto('/'); await main.waitForFunction(() => window.__viz?.audioOwner); await sharedInput(main, true);
+  await expect.poll(async () => Number((await live.textContent()).replace('LIVE ', ''))).toBeGreaterThan(.3);
+  await page.getByRole('button', { name: 'Reverse range', exact: true }).click();
+  await sharedInput(main, false);
+  await expect(live).toHaveText('LIVE 0.8');
+  await expect.poll(() => previewRed(page)).toBe(204);
+  await expect.poll(() => marker.evaluate(el => el.style.left)).toBe('80%');
+  await page.getByRole('button', { name: 'Remove mapping', exact: true }).click();
+  await expect(marker).toHaveCount(0); await expect(base).toBeEnabled(); await expect(base).toHaveValue('0.2');
+  expect(await blueThumbPixels(page, base)).toBeGreaterThan(20);
+  await expect(page.locator('[data-param-target=brightness]')).not.toHaveClass(/is-mapped/);
+  await expect.poll(() => previewRed(page)).toBe(51);
+  expect(await page.evaluate(() => window.editorCaptureCalls)).toBe(0);
+  const saved = await saveAndRead(page);
+  expect(saved.nodes.find(n => n.id === 'color').params.brightness).toBe(.2);
+  expect(saved.modulations || []).toEqual([]);
+  await page.reload(); await page.locator('[data-node-id=color] .nodes-node-title').click();
+  await expect(base).toBeEnabled(); await expect(base).toHaveValue('0.2');
+  expect(await page.evaluate(() => window.editorCaptureCalls)).toBe(0);
+});
+
+for (const action of ['Delete', 'Backspace', 'sidebar']) {
+  test(`mixed multi-selection ${action} cleans incident links at zoom and persists with Output protected`, async ({ page }) => {
+    await page.setViewportSize({ width: 1536, height: 1050 });
+    let g = graph();
+    g.nodes.push({ id: 'keep', type: 'pattern', patternId: 'solid-color', params: { hue: .5, saturation: 1, brightness: .4, pulse: 0 }, x: 560, y: 330 });
+    g.edges = [{ from: 'color', to: 'mix', port: 'base' }, { from: 'keep', to: 'mix', port: 'layer' }, { from: 'keep', to: 'output', port: 'image' }];
+    g = mapSignal(g, 'audio', 'color', 'brightness', .1, .9);
+    g = mapSignal(g, 'audio', 'keep', 'hue', .1, .9);
+    g = connectSignal(g, 'audio2', 'mix');
+    g = mapSignal(g, 'audio2', 'keep', 'brightness', .2, .6);
+    await openFixture(page, g);
+    await page.getByRole('button', { name: 'Zoom out', exact: true }).click();
+    const workspace = page.getByLabel('Graph workspace');
+    const area = await workspace.boundingBox();
+    await page.mouse.move(area.x + 400, area.y + 500); await page.mouse.down({ button: 'middle' });
+    await page.mouse.move(area.x + 430, area.y + 520); await page.mouse.up({ button: 'middle' });
+    const title = id => page.locator(`[data-node-id=${id}] .nodes-node-title`);
+    await title('color').click();
+    for (const id of ['mix', 'audio', 'output']) await title(id).click({ modifiers: ['Control'] });
+    await expect(page.locator('.nodes-node.is-selected')).toHaveCount(4);
+    await expect(page.locator('[data-node-id=output]')).toHaveAttribute('data-primary', 'true');
+    const remove = page.getByRole('button', { name: 'Delete node', exact: true });
+    await expect(remove).toBeEnabled(); // Output primary must not veto the group.
+    // Editing inputs cannot accidentally delete the selected group.
+    await page.getByLabel('Graph name').focus(); await page.keyboard.press('Backspace');
+    await page.getByLabel('Search patterns').focus(); await page.keyboard.press('Delete');
+    await expect(page.locator('.nodes-node')).toHaveCount(6);
+    if (action === 'sidebar') await remove.click();
+    else { await workspace.focus(); await page.keyboard.press(action); }
+    await expect(page.locator('.nodes-node')).toHaveCount(3);
+    await expect(page.locator('.nodes-status')).toContainText('Output is required and was kept');
+    await expect(page.locator('.nodes-wires path')).toHaveCount(2);
+    await expect(remove).toBeDisabled();
+    const saved = await saveAndRead(page);
+    expect(saved.nodes.map(n => n.id).sort()).toEqual(['audio2', 'keep', 'output']);
+    expect(saved.edges).toEqual([{ from: 'keep', to: 'output', port: 'image' }]);
+    expect(saved.modulations).toEqual([{ from: 'audio2', to: 'keep', param: 'brightness', min: .2, max: .6 }]);
+    await page.reload(); await expect(page.locator('.nodes-node')).toHaveCount(3);
+    await expect(page.locator('.nodes-wires path')).toHaveCount(2);
+    await title('keep').click(); await expect(page.getByTestId('mapping-live-brightness')).toBeVisible();
+    await title('output').click(); await workspace.focus(); await page.keyboard.press('Delete');
+    await expect(page.locator('.nodes-node')).toHaveCount(3);
+  });
+}
+
+test('marquee batch deletion and contenteditable keyboard guard use the actual canvas selection', async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 1050 });
+  const g = graph();
+  g.nodes.push({ ...g.nodes[0], id: 'keep', x: 560, y: 330 });
+  g.edges = [{ from: 'keep', to: 'output', port: 'image' }];
+  await openFixture(page, mapSignal(g, 'audio', 'color', 'brightness', .2, .8));
+  await page.getByRole('button', { name: 'Zoom out', exact: true }).click();
+  const workspace = page.getByLabel('Graph workspace'), area = await workspace.boundingBox();
+  const view = await page.locator('.nodes-plane').evaluate(el => { const m = new DOMMatrix(getComputedStyle(el).transform); return { x: m.e, y: m.f, z: m.a }; });
+  const point = (x, y) => ({ x: area.x + view.x + x * view.z, y: area.y + view.y + y * view.z });
+  const a = point(20, 20), b = point(525, 425);
+  await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.move(b.x, b.y, { steps: 8 }); await page.mouse.up();
+  await expect(page.locator('.nodes-node.is-selected')).toHaveCount(4);
+  // No current editable node title, so insert a DOM-only editable descendant to
+  // exercise bubbling protection for future inline fields, not selection state.
+  await workspace.evaluate(el => { const e = document.createElement('div'); e.contentEditable = 'true'; e.textContent = 'edit'; el.append(e); e.focus(); });
+  await page.keyboard.press('Backspace'); await expect(page.locator('.nodes-node')).toHaveCount(6);
+  await workspace.focus(); await page.keyboard.press('Delete');
+  await expect(page.locator('.nodes-node')).toHaveCount(2);
+  expect((await saveAndRead(page)).modulations || []).toEqual([]);
+  await page.reload(); await expect(page.locator('.nodes-node')).toHaveCount(2);
+});
+
+test('main-launched editor keeps ordinary pulse reactive through mapping edits, audio-node removal and reload', async ({ page, context }) => {
+  test.setTimeout(60000);
+  await page.goto('/'); await page.waitForFunction(() => window.__viz?.audioOwner);
+  const opened = context.waitForEvent('page');
+  await page.getByRole('link', { name: 'New Node Pattern', exact: true }).click();
+  const editor = await opened; await editor.waitForURL('**/?role=nodes');
+  await forbidEditorCapture(editor);
+  const g = graph(); g.nodes = g.nodes.filter(n => !['mix', 'audio2'].includes(n.id)); g.nodes[0].params.pulse = 1;
+  await openFixture(editor, mapSignal(g, 'audio', 'color', 'saturation', .2, .8));
+  await editor.locator('[data-node-id=color] .nodes-node-title').click();
+  await sharedInput(page, false); await expect.poll(() => previewRed(editor)).toBe(51);
+  await sharedInput(page, true); await expect.poll(() => previewRed(editor)).toBeGreaterThan(110);
+  await editor.getByLabel('Saturation Mapping min (signal 0)', { exact: true }).fill('0.4');
+  await expect.poll(() => previewRed(editor)).toBeGreaterThan(110);
+  await editor.getByRole('button', { name: 'Remove mapping', exact: true }).click();
+  await editor.locator('[data-node-id=audio] .nodes-node-title').click();
+  await editor.getByRole('button', { name: 'Delete node', exact: true }).click();
+  await editor.locator('[data-node-id=color] .nodes-node-title').click();
+  await expect.poll(() => previewRed(editor)).toBeGreaterThan(110);
+  await sharedInput(page, false); await expect.poll(() => previewRed(editor)).toBeLessThan(55);
+  const saved = await saveAndRead(editor); expect(saved.nodes.some(n => n.type === 'audio')).toBe(false);
+  expect(await editor.evaluate(() => window.editorCaptureCalls)).toBe(0);
+  await editor.reload(); await editor.locator('[data-node-id=color] .nodes-node-title').click();
+  await sharedInput(page, true); await expect.poll(() => previewRed(editor)).toBeGreaterThan(110);
+  expect(await editor.evaluate(() => window.editorCaptureCalls)).toBe(0);
+});
+
+test('editor provider coalesces refreshes, preserves heartbeat authority and retires pending work on dispose', async ({ page }) => {
+  await page.goto('/?role=nodes');
+  const result = await page.evaluate(async () => {
+    const { createEditorAudio, createSignalConsumer } = await import('/src/nodes/audio-provider.js');
+    const provider = createEditorAudio(), signal = createSignalConsumer(provider.store);
+    const observer = new BroadcastChannel('viz2_channel'), plans = [];
+    const id = provider.store.consumerSessionId;
+    observer.onmessage = ({ data }) => { if (data.type === 'pattern-audio-plan' && data.consumerSessionId === id) plans.push(data); };
+    provider.setChildren([signal]);
+    const initial = provider.store.planRevision;
+    for (let i = 0; i < 8; i++) provider.refresh();
+    await new Promise(r => setTimeout(r, 1150));
+    const stable = plans.every(p => p.planRevision === initial && p.slots.length === 1);
+    provider.refresh(); provider.dispose(); provider.dispose(); provider.setChildren([signal]);
+    await new Promise(r => setTimeout(r, 50));
+    const final = plans.at(-1), count = plans.length;
+    await new Promise(r => setTimeout(r, 1100));
+    signal.dispose(); observer.close();
+    return { stable, count, final, after: plans.length, slots: provider.store.slots.size, active: provider.audio.isStarted };
+  });
+  expect(result.stable).toBe(true); expect(result.final.slots).toEqual([]);
+  expect(result.final.planRevision).toBeGreaterThan(1);
+  expect(result.after).toBe(result.count); expect(result.slots).toBe(0); expect(result.active).toBe(false);
+});

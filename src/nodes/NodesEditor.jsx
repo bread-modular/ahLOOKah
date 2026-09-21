@@ -11,7 +11,7 @@ import { SKETCHES } from '../sketch-registry.js';
 import { MEDIA_STORAGE_KEY, registerMediaSketches } from '../media/media-registry.js';
 import { PROJECTION_STORAGE_KEY, registerProjectionSketches } from '../projection/projection-registry.js';
 import { CustomScripts } from '../custom-scripts/service.js';
-import { MODES, newGraph, validateGraph, connect, deleteNode, inputs, DRAG_TYPE, readPatternDrag, connectSignal, mapSignal } from './model.js';
+import { MODES, newGraph, validateGraph, connect, deleteNodes, inputs, DRAG_TYPE, readPatternDrag, connectSignal, mapSignal } from './model.js';
 import { GraphRuntime } from './runtime.js';
 import { nodePatterns, watchGraphs } from './repository.js';
 import { manifestFor, sourceDiagnostics, serializeGraph } from './portability.js';
@@ -22,8 +22,8 @@ function initialParams(sketch) {
   try { bank = JSON.parse(localStorage.getItem('viz2_params') || '{}')?.[sketch.id] || {}; } catch {}
   return Object.fromEntries((sketch.params || []).map(p => [p.key, Number.isFinite(bank[p.key]) && bank[p.key] >= p.min && bank[p.key] <= p.max ? bank[p.key] : p.default]));
 }
-function Preview({ graph, dependencies, selected, revision }) {
-  const canvas = useRef(null), current = useRef(null), target = useRef(selected);
+function Preview({ graph, dependencies, selected, revision, current }) {
+  const canvas = useRef(null), target = useRef(selected);
   const [messages, setMessages] = useState([]);
   target.current = selected;
   // Moving nodes/renaming does not destroy GPU sources or restart videos.
@@ -32,12 +32,14 @@ function Preview({ graph, dependencies, selected, revision }) {
   const provider = useRef(null);
   useEffect(() => { provider.current = createEditorAudio(); return () => { provider.current.dispose(); provider.current = null; }; }, []);
   useEffect(() => {
+    const audioProvider = provider.current;
     let runtime, frame, oldMessage = '';
     try {
       const children = [];
       runtime = new GraphRuntime({ graph: JSON.parse(content), dependencies: JSON.parse(manifest), sketches: SKETCHES,
-        context: { audioControlStore: provider.current.store, registerChildRuntime: child => children.push(child) } });
-      provider.current.setChildren(children);
+        audio: audioProvider.audio,
+        context: { audioControlStore: audioProvider.store, onAudioSlotsChanged: audioProvider.refresh, registerChildRuntime: child => children.push(child) } });
+      audioProvider.setChildren(children);
       current.current = runtime;
       const render = () => {
         const image = runtime.render(target.current || undefined);
@@ -49,13 +51,14 @@ function Preview({ graph, dependencies, selected, revision }) {
       };
       setMessages([]); render();
     } catch (e) { setMessages([e.message]); }
-    return () => { cancelAnimationFrame(frame); runtime?.dispose(); provider.current?.setChildren([]); current.current = null; };
+    return () => { cancelAnimationFrame(frame); runtime?.dispose(); audioProvider.setChildren([]); current.current = null; };
   }, [content, manifest, revision]);
   return <><canvas ref={canvas} width="480" height="270" aria-label="Selected node live preview" data-testid="node-preview" /><div role="status" className="nodes-diagnostics">{messages.map((m, i) => <p key={i}>{m}</p>)}</div></>;
 }
 export function NodesEditor() {
   const [draft, setDraft] = useState(() => ({ graph: newGraph(), dependencies: [] }));
   const { graph, dependencies } = draft;
+  const previewRuntime = useRef(null);
   const [pending, setPending] = useState(null);
   const [signalEndpoint, setSignalEndpoint] = useState(null);
   const [targetParam, setTargetParam] = useState('');
@@ -126,7 +129,16 @@ export function NodesEditor() {
     if (!pending) { setMessage('Choose an output port first, then an input port.'); return; }
     attempt(() => { edit(connect(graph, pending, to, name)); setPending(null); setMessage(''); });
   }
-  const remove = () => { if (!node || node.type === 'output') return; edit(deleteNode(graph, selected)); setSelected('output'); setPending(null); };
+  const removable = graph.nodes.filter(n => n.type !== 'output' && selection.ids.includes(n.id));
+  const remove = () => {
+    const protectsOutput = graph.nodes.some(n => n.type === 'output' && selection.ids.includes(n.id));
+    if (removable.length) {
+      setDraft(d => ({ ...d, graph: deleteNodes(d.graph, selection.ids) }));
+      setSelected(graph.nodes.find(n => n.type === 'output').id);
+      setPending(null); setSignalEndpoint(null); setTargetParam('');
+    }
+    setMessage(protectsOutput ? (removable.length ? 'Output is required and was kept. Other selected nodes and their connections were deleted.' : 'Output is required and cannot be deleted.') : '');
+  };
   function load(record) {
     const data = { graph: structuredClone(record.graph), dependencies: structuredClone(record.dependencies || []) };
     setDraft(data); setCurrent(record); baseline.current = serializeGraph(data.graph, data.dependencies);
@@ -161,7 +173,11 @@ export function NodesEditor() {
     <header className="nodes-toolbar"><h1>Pattern editor</h1><a href="/" target="_blank" rel="noopener">Main pattern library ↗</a></header>
     {loadState === 'loading' ? <p role="status">Loading selected node pattern from disk…</p> : <section role="alert"><p>{message}</p><button className="btn" onClick={() => resolveRoute(true)}>Retry loading</button></section>}
   </main>;
-  return <main className="nodes-app">
+  return <main className="nodes-app" onKeyDown={e => {
+    if (busy || e.target.closest('input,select,textarea,[contenteditable]:not([contenteditable="false"]),[role="textbox"]')) return;
+    if (e.key === 'Escape') { setPending(null); selection.cancel(); }
+    if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); remove(); }
+  }}>
     <header className="nodes-toolbar">
       <input className="control-input" aria-label="Graph name" title="Edit pattern name" disabled={busy} value={graph.name} maxLength={80} onChange={e => setDraft({ ...draft, graph: { ...graph, name: e.target.value } })} />
       <div className="nodes-toolbar-actions">
@@ -182,11 +198,7 @@ export function NodesEditor() {
       })}>+ Audio</button><input className="control-input" aria-label="Search patterns" title="Filter available patterns" placeholder="Search patterns…" value={query} onChange={e => setQuery(e.target.value)} />
         <div className="nodes-pattern-list">{SKETCHES.filter(s => !s.nodesGraph && `${s.name} ${s.group}`.toLowerCase().includes(query.toLowerCase())).map(s => <button className="btn" key={s.id} title={`Drag ${s.name} onto the canvas to create a node`} draggable onDragStart={e => { e.dataTransfer.effectAllowed = 'copy'; e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ version: 1, patternId: s.id })); }}><span>{s.name}</span><small>{s.group}{s.camera ? ' · Output camera' : ''}</small></button>)}</div>
       </aside>
-      <section ref={navigation.workspace} {...selection.workspaceHandlers} className="nodes-workspace" aria-label="Graph workspace" tabIndex={0} onKeyDown={e => {
-        if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
-        if (e.key === 'Escape') { setPending(null); selection.cancel(); }
-        if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); remove(); }
-      }} onDragOver={e => { if (e.dataTransfer.types.includes(DRAG_TYPE)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }} onDrop={e => {
+      <section ref={navigation.workspace} {...selection.workspaceHandlers} className="nodes-workspace" aria-label="Graph workspace" tabIndex={0} onDragOver={e => { if (e.dataTransfer.types.includes(DRAG_TYPE)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }} onDrop={e => {
         e.preventDefault(); const id = readPatternDrag(e.dataTransfer, SKETCHES);
         if (!id) { setMessage('Invalid pattern drag payload'); return; }
         const point = navigation.toGraph(e.clientX, e.clientY); add(id, point.x, point.y);
@@ -195,7 +207,7 @@ export function NodesEditor() {
           <svg className="nodes-wires" aria-label="Connections">{graph.edges.map(e => {
             const a = graph.nodes.find(n => n.id === e.from), b = graph.nodes.find(n => n.id === e.to);
             const x1 = a.x + 168, y1 = a.y + 49, x2 = b.x + 12, y2 = b.y + 49 + inputs(b).indexOf(e.port) * 32;
-            return <path key={`${e.to}:${e.port}`} role="button" tabIndex={0} aria-label={`Disconnect ${label(a)} from ${label(b)} ${e.port}`} d={`M ${x1} ${y1} C ${x1 + 80} ${y1}, ${x2 - 80} ${y2}, ${x2} ${y2}`} onClick={() => edit({ ...graph, edges: graph.edges.filter(w => w !== e) })} onKeyDown={event => { if (event.key === 'Enter' || event.key === 'Delete') { event.stopPropagation(); edit({ ...graph, edges: graph.edges.filter(w => w !== e) }); } }} />;
+            return <path key={`${e.to}:${e.port}`} role="button" tabIndex={0} aria-label={`Disconnect ${label(a)} from ${label(b)} ${e.port}`} d={`M ${x1} ${y1} C ${x1 + 80} ${y1}, ${x2 - 80} ${y2}, ${x2} ${y2}`} onClick={() => edit({ ...graph, edges: graph.edges.filter(w => w !== e) })} onKeyDown={event => { if (event.key === 'Enter' || event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); event.stopPropagation(); edit({ ...graph, edges: graph.edges.filter(w => w !== e) }); } }} />;
           })}{(graph.modulations || []).map((m, i) => {
             const a = graph.nodes.find(n => n.id === m.from), b = graph.nodes.find(n => n.id === m.to);
             const x = b.x + 12, y = b.y + (b.type === 'blend' ? 131 : 99);
@@ -220,7 +232,7 @@ export function NodesEditor() {
           <IconControl icon="zoomIn" label="Zoom in" disabled={navigation.view.zoom >= 2.5} onClick={() => navigation.zoomAt(1.2)} />
         </div>
       </section>
-      <aside className="nodes-inspector"><h2>{node ? label(node) : 'Preview'}</h2><Preview graph={graph} dependencies={dependencies} selected={selected} revision={revision} />
+      <aside className="nodes-inspector"><h2>{node ? label(node) : 'Preview'}</h2><Preview graph={graph} dependencies={dependencies} selected={selected} revision={revision} current={previewRuntime} />
         {node?.type === 'audio' && <><label>Audio band<Select aria-label="Audio band" value={node.band} onChange={e => patch({ band: e.target.value })}>{BANDS.map(b => <option key={b}>{b}</option>)}</Select></label><p>Normalized custom-script activity (0…1). Uses the main window’s shared audio input; no input means zero. Connect out to one or many ◇ signal endpoints.</p></>}
         {node?.type === 'output' && <p>Output has no numeric controls. Audio mapping is not supported here.</p>}
         {node?.type === 'blend' && <label>Blend mode<Select aria-label="Blend mode" title="Choose pixel blend mode" value={node.mode} onChange={e => patch({ mode: e.target.value })}>{Object.keys(MODES).map(mode => <option key={mode}>{mode}</option>)}</Select></label>}
@@ -238,11 +250,11 @@ export function NodesEditor() {
           const mapping = (graph.modulations || []).find(m => m.to === node.id && m.param === def.key);
           return <ModulatedParameter key={`${node.id}:${def.key}`} node={node} def={def} value={node.type === 'blend' ? node.opacity : node.params[def.key] ?? def.default}
             onChange={value => node.type === 'blend' ? patch({ opacity: value }) : patch({ params: { ...node.params, [def.key]: value } })}
-            mapping={mapping} onMap={assignSignal} onRange={(min, max) => edit(mapSignal(graph, mapping.from, node.id, def.key, min, max, true))}
+            readEffective={() => previewRuntime.current?.params.get(node.id)?.[def.key]} mapping={mapping} onMap={assignSignal} onRange={(min, max) => edit(mapSignal(graph, mapping.from, node.id, def.key, min, max, true))}
             onRemove={() => edit({ ...graph, modulations: graph.modulations.filter(m => m !== mapping) })} />;
         })}
         {node && graph.edges.filter(e => e.to === node.id).map(e => <button className="btn btn--sm" title={`Disconnect ${e.port} input`} key={e.port} onClick={() => edit({ ...graph, edges: graph.edges.filter(w => w !== e) })}>Disconnect {e.port}</button>)}
-        <button className="btn btn--danger" title="Delete selected node and its wires" disabled={!node || node.type === 'output'} onClick={remove}>Delete node</button>
+        <button className="btn btn--danger" title="Delete all selected nodes and their connections; required Output is kept" disabled={!removable.length} onClick={remove}>Delete node</button>
         <details><summary>Dependencies & limits</summary><p>24 nodes, 8 leaf renderers, 1280×720 internal image. No recursive graphs. Camera capture stays on output. Local files and custom assets are not embedded.</p>{dependencies.map(d => <p key={d.id}>{d.name || d.id} · {d.kind}</p>)}<button className="btn" title="Refresh dependency fingerprints from available patterns" onClick={() => attempt(() => { setDraft({ ...draft, dependencies: manifestFor(graph, SKETCHES) }); setMessage('Dependency manifest refreshed explicitly. Save when ready.'); })}>Refresh dependencies</button></details>
       </aside>
     </div>
