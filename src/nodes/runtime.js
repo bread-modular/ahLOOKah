@@ -127,6 +127,9 @@ export class GraphRuntime {
   // One shared memo per frame: fanout reads the same value however many
   // parameters/nodes consume it, and cycles fall back to 0 instead of hanging.
   signalValue(id) { return this.computeSignal(id, new Set()); }
+  // Inspector diagnostics: this node's route binding status (source health,
+  // calibration, freshness) — the same data renderers consume.
+  getNodeStatus(id) { return this.signal?.getNodeStatus?.(id) || null; }
   computeSignal(id, visiting) {
     if (this.frameSignals.has(id)) return this.frameSignals.get(id);
     const node = this.graph.nodes.find(n => n.id === id);

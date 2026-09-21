@@ -27,7 +27,7 @@ function fakeManager(name) {
     },
     stop() { this.started = false; this.stoppedCount += 1; },
     getAnalysisFrame() { if (!this.started) return null; this.reads += 1; return { name, tick: this.reads }; },
-    getRawAnalysisFrame() { return this.started ? { channels: 2 } : null; },
+    getRawAnalysisFrame() { return this.started ? { channels: 2, left: [10], right: [20], waveformLeft: [0], waveformRight: [0] } : null; },
   };
 }
 
@@ -195,4 +195,25 @@ test('dispose stops every extra source and clears demand state', async () => {
   expect(managers.every(manager => manager.stoppedCount === 1)).toBe(true);
   expect(pool.sources.size).toBe(0);
   expect(pool.resolveInput({ deviceId: 'A' }).status).toBe('missing');
+});
+
+test('a Left/Right pin that shares the primary capture isolates its channel', async () => {
+  const primary = fakeManager('primary');
+  primary.started = true;
+  primary.activeDeviceId = 'dev-A';
+  primary.lastRawFrame = { channels: 2, left: [10], right: [20] };
+  primary.lastStatus = { status: 'running', activeDeviceId: 'dev-A' };
+  const pool = makePool({ primary });
+  pool.setGlobalDeviceId('dev-A');
+  pool.sample();
+  const left = pool.resolveRouteInput({ deviceId: 'dev-A', channel: 'left' });
+  const right = pool.resolveRouteInput({ deviceId: 'dev-A', channel: 'right' });
+  expect(left.frame.waveformRight).toBeUndefined();
+  // Each projection isolates its own channel of the primary raw copy, exposed
+  // under the canonical single-channel keys (left/waveformLeft).
+  expect(left.frame.left).toEqual([10]);
+  expect(left.frame.waveformLeft).toEqual([0]);
+  expect(right.frame.left).toEqual([20]);
+  expect(right.frame.waveformLeft).toEqual([0]);
+  pool.dispose();
 });

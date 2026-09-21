@@ -375,12 +375,18 @@ export class AudioInputPool {
     const info = this.resolveInput(route);
     if (info.status !== 'running') return { frame: null, source: info };
     if (info.id === 'primary') {
-      // A pin sharing the primary capture gets a mixed-pipeline copy of the raw
-      // frame (the primary's own cleaned frame stays exclusive to global slots).
+      // A pin sharing the primary capture is projected from the primary's raw
+      // frame with the SAME channel policy as any other route: the primary's
+      // own cleaned frame stays exclusive to global/default slots, and a
+      // Left/Right pin on the primary's device isolates its channel.
       const raw = this.tickPrimary?.raw || this.primaryManager?.getRawAnalysisFrame?.();
       const cleaned = this.tickPrimary?.frame || null;
-      const { frame, calibration } = buildChannelFrame(raw, 'mono');
-      return { frame: cleaned || frame, source: { ...info, calibration } };
+      const effective = effectiveAudioChannel(route.channel, raw?.channels ?? info.channels);
+      if (effective === 'mono') {
+        return { frame: cleaned || (raw ? buildChannelFrame(raw, 'mono').frame : null), source: { ...info, calibration: this._primaryCalibration() } };
+      }
+      const { frame, calibration } = buildChannelFrame(raw, effective);
+      return { frame, source: { ...info, calibration } };
     }
     let cached = this.tickCache.get(route.deviceId);
     if (!cached) {
