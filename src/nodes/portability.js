@@ -1,5 +1,5 @@
 import { mappingDiagnostics } from './modulation.js';
-import { validateGraph, MAX_BYTES, MAX_SOURCES } from './model.js';
+import { validateGraph, MAX_BYTES } from './model.js';
 import { validateExpression } from './script.js';
 // Manifests deliberately do NOT execute imported scripts or claim that local
 // file handles are portable. Dynamic dependencies must already match locally.
@@ -28,11 +28,9 @@ export function manifestFor(graph, sketches) {
 }
 export function sourceDiagnostics(graph, sketches, manifest = []) {
   const messages = mappingDiagnostics(graph, sketches);
-  let leaves = 0;
   for (const n of graph.nodes.filter(n => n.type === 'pattern')) {
     const s = sketches.find(s => s.id === n.patternId);
     if (!s) { messages.push(`Missing pattern: ${n.patternId}`); continue; }
-    leaves += s.projection ? s.surfaces.length : 1;
     for (const surface of s.surfaces || []) {
       const child = sketches.find(x => x.id === surface.patternId);
       if (!child) messages.push(`Missing projection source: ${surface.patternId}`);
@@ -44,7 +42,8 @@ export function sourceDiagnostics(graph, sketches, manifest = []) {
       if (!def || value < def.min || value > def.max) messages.push(`Invalid ${s.name} parameter: ${key}`);
     }
   }
-  if (leaves > MAX_SOURCES) messages.push('Graph exceeds 8 leaf renderers (including projection surfaces)');
+  // No leaf-renderer budget: the number of Pattern sources is a hardware
+  // question, not a validation rule. Structural and dependency checks stay.
   // A broken expression is repairable in the editor but must never be saved.
   for (const n of graph.nodes.filter(n => n.type === 'script')) {
     const result = validateExpression(n.source);

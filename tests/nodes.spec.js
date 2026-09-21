@@ -47,7 +47,7 @@ async function openFixture(page, data = graph()) {
 }
 const pixel = page => page.getByTestId('node-preview').evaluate(c => Array.from(c.getContext('2d').getImageData(240, 135, 1, 1).data));
 
-test('graph validation rejects cycles, malformed ports, duplicates, limits and recursive references', () => {
+test('graph validation rejects cycles, malformed ports, duplicates and recursive references without size limits', () => {
   expect(validateGraph(graph(), { complete: true }).edges).toHaveLength(3);
   expect(() => connect(graph(), 'mix', 'mix', 'base')).toThrow(/cycle/);
   expect(() => connect(graph(), 'output', 'mix', 'base')).toThrow(/port/);
@@ -59,7 +59,13 @@ test('graph validation rejects cycles, malformed ports, duplicates, limits and r
   expect(() => validateGraph({ ...graph(), edges: [] }, { complete: true })).toThrow(/Connect/);
   expect(deleteNode(graph(), 'red').edges).toHaveLength(2);
   expect(deleteNode(graph(), 'output')).toEqual(graph());
-  expect(() => validateGraph({ ...graph(), nodes: Array.from({ length: 25 }, (_, i) => ({ ...graph().nodes[0], id: `n${i}` })) })).toThrow(/24/);
+  // No node or Pattern-source budget: node count, source count and wire count are
+  // hardware questions, not validation rules.
+  const wide = { version: 1, name: 'wide', nodes: [
+    ...Array.from({ length: 25 }, (_, i) => ({ id: `p${i}`, type: 'pattern', patternId: 'solid-color', x: i * 10, y: 0, params: { hue: 0, saturation: 1, brightness: 1, pulse: 0 } })),
+    { id: 'output', type: 'output', x: 0, y: 0 },
+  ], edges: [{ from: 'p0', to: 'output', port: 'image' }] };
+  expect(validateGraph(wide).nodes).toHaveLength(26);
 });
 
 test('all blend modes and opacity use pixel compositing', async ({ page }) => {
@@ -877,7 +883,7 @@ test('ports and canvas controls do not marquee; port connections retain inspecto
   await page.getByLabel('mix input layer', { exact: true }).click();
   expect(await selectedIds(page)).toEqual(['mix']);
   await expect(page.getByLabel('Blend mode')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Disconnect Solid Color from Blend layer', exact: true })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Select connection Solid Color → Blend layer (image)', exact: true })).toHaveCount(1);
   await page.getByRole('button', { name: 'Zoom out', exact: true }).click();
   expect(await selectedIds(page)).toEqual(['mix']);
   await expect(page.locator('.nodes-selection-box')).toHaveCount(0);

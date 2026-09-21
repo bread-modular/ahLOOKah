@@ -1,7 +1,7 @@
 // Scalar (signal) node semantics: Math arithmetic and restricted Script
 // evaluation. Both are total functions with safe fallbacks — they return finite
 // numbers and report a message instead of producing NaN/Infinity.
-import { MATH_OPS, MATH_LITERALS, SCRIPT_LITERALS, SCRIPT_LITERAL_FIELDS, DEFAULT_EXPRESSION } from './definitions.js';
+import { MATH_OPS, MATH_LITERALS, SCRIPT_LITERALS, SCRIPT_LITERAL_FIELDS, DEFAULT_EXPRESSION, mathPorts } from './definitions.js';
 import { compileExpression, evaluateExpression } from './script.js';
 
 export const finiteOr = (value, fallback = 0) => Number.isFinite(value) ? value : fallback;
@@ -9,8 +9,12 @@ export const mathOperation = (node) => MATH_OPS.includes(node?.op) ? node.op : '
 const literal = (node, port) => Number.isFinite(node?.[port]) ? node[port] : finiteOr(MATH_LITERALS[port], 0);
 // A disconnected input falls back to the node's own literal (signed floats are
 // preserved; nothing is normalized here — only terminal mappings normalize).
+// Ports the selected operation does not consume are never read: an inactive
+// input is not a runtime dependency, so it cannot be traversed or reported.
 export function mathInputs(node, readInput = null) {
+  const active = mathPorts(node?.op);
   const read = port => {
+    if (!active.includes(port)) return literal(node, port);
     const wired = readInput ? readInput(port) : null;
     return Number.isFinite(wired) ? wired : literal(node, port);
   };

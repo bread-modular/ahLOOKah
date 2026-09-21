@@ -64,7 +64,14 @@ test('scalar wiring rejects wrong kinds, duplicate inputs, cycles, bad literals 
   expect(() => validateGraph({ ...g, signalEdges: [...g.signalEdges, { from: 'source', to: 'output', port: 'a' }] })).toThrow(/signal/);
   expect(() => validateGraph({ ...g, signalEdges: [...g.signalEdges, { from: 'source', to: 'scale', port: 'z' }] })).toThrow(/signal/);
   expect(() => validateGraph({ ...g, signalEdges: [...g.signalEdges, { from: 'source', to: 'scale', port: 'b' }] })).not.toThrow();
-  expect(() => validateGraph({ ...g, signalEdges: new Array(49).fill({ from: 'source', to: 'scale', port: 'a' }) })).toThrow(/signal wires/);
+  // Signal wires are limited by distinct ports and references, not by a count
+  // budget: a long scalar chain validates without a node or wire cap.
+  const chain = { version: 1, name: 'chain', nodes: [
+    ...Array.from({ length: 30 }, (_, i) => ({ id: `m${i}`, type: 'math', op: 'add', a: 0, b: 1, c: 1, x: 0, y: 0 })),
+    { id: 'output', type: 'output', x: 0, y: 0 },
+  ], edges: [], signalEdges: Array.from({ length: 29 }, (_, i) => ({ from: `m${i}`, to: `m${i + 1}`, port: 'a' })) };
+  expect(validateGraph(chain).signalEdges).toHaveLength(29);
+  expect(validateGraph(chain).nodes).toHaveLength(31);
   expect(() => validateGraph({ ...g, nodes: g.nodes.map(n => n.id === 'scale' ? { ...n, op: 'pow' } : n) })).toThrow(/math operation/);
   expect(() => validateGraph({ ...g, nodes: g.nodes.map(n => n.id === 'scale' ? { ...n, b: Infinity } : n) })).toThrow(/literal/);
   expect(() => validateGraph({ ...g, nodes: g.nodes.map(n => n.id === 'shape' ? { ...n, source: 7 } : n) })).toThrow(/Script source/);
@@ -459,11 +466,17 @@ test('editor creates, wires, maps, saves and reloads Color, Math and Script node
   await page.getByRole('button', { name: 'Apply expression' }).click();
   await expect(page.getByTestId('script-status')).toContainText('Applied and approved');
   await expect(page.getByTestId('script-status')).toContainText('x, y');
-  // Map the scalar output with a custom signal input range.
+  // Map the scalar output by dragging its connected-signal chip onto the slider,
+  // then edit the custom signal input range inside the collapsed settings.
   await page.getByLabel('shape output', { exact: true }).click();
   await page.getByLabel('tint signal endpoint', { exact: true }).click();
-  await page.getByLabel('Target parameter').selectOption('brightness');
-  await page.getByRole('button', { name: 'Map / replace parameter' }).click();
+  await expect(page.locator('.nodes-signal-chip')).toHaveCount(1);
+  await page.locator('.nodes-signal-chip').dragTo(page.getByRole('slider', { name: 'Brightness', exact: true }));
+  const settings = page.getByRole('button', { name: 'Brightness mapping settings' });
+  await expect(settings).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByLabel('Brightness Signal in min', { exact: true })).toHaveCount(0);
+  await settings.click();
+  await expect(settings).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByLabel('Brightness Signal in min', { exact: true })).toHaveValue('0');
   await page.getByLabel('Brightness Signal in max', { exact: true }).fill('3');
   await expect(page.getByTestId('mapping-live-brightness')).toBeVisible();
