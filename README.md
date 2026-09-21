@@ -374,7 +374,8 @@ Scripts are trusted JavaScript, **not a sandbox**. The complete tutorial is
 
 Choose **ADD** (New Node Pattern) in the main **Node Patterns** category. The
 dependency-free React/DOM + SVG editor composes source pixels through chained Blend
-nodes and Color filters, and wires scalar Math/Script nodes into any numeric parameter.
+nodes and Color filters, and wires scalar Script nodes into any numeric parameter
+(existing files that contain legacy Math nodes keep loading, rendering and saving).
 Script nodes offer two languages: the new **body** language (`return`, `let`/`const`
 locals with lexical block scope, `if`/`else`, comparisons, short-circuit `&&`/`||` and
 `?:`, compiled once by Acorn-checked bytecode — no `eval`/`Function`, no loops, no
@@ -400,7 +401,8 @@ PLAYWRIGHT_PORT=5186 npx playwright test tests/nodes.spec.js tests/nodes-scalar.
 ```
 
 The graph tests cover blend pixels, Color filter pixels (identity/alpha/chaining),
-chained DAGs, scalar Math/Script wiring with per-frame fanout and safe fallbacks,
+chained DAGs, scalar Script wiring with per-frame fanout and safe fallbacks, legacy
+Math graphs (including clamp's third input) still loading/rendering/saving,
 Script body language safety/budgets/scope/short-circuits, save/reload approval binding,
 live audio → body script → mapping pixels,
 real 2D/WebGL/projection/media/

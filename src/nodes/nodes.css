@@ -2,7 +2,16 @@
    .control-range from the main UI. Keep node/port geometry stable for wires. */
 .nodes-app { height:100vh; display:flex; flex-direction:column; background:var(--bg-dark); color:var(--text-main); font-size:13px; color-scheme:dark; }
 .nodes-app button { font-family:inherit; }
+/* Editor-scoped focus language. Text/number fields and dropdowns change their
+   existing border to a soft white instead of drawing the shared accent ring, and
+   the wire paths drop their outline below. Everything else in the editor (node
+   headers, port buttons, toolbar buttons and links) keeps the shared
+   `:focus-visible` ring, so this is a scoped refinement rather than a global
+   removal of keyboard focus feedback. */
 .nodes-app :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.nodes-app :is(input,select,textarea):focus-visible { outline:none; }
+.nodes-app .control-input:focus,.nodes-app .control-input:focus-visible,
+.nodes-app select:focus-visible { border-color:#e6ecf5; }
 .nodes-app a { color:var(--accent); }
 .nodes-app h2 { font-size:.75rem; font-weight:600; text-transform:uppercase; letter-spacing:.05rem; color:var(--text-dim); margin:18px 0 12px; }
 .nodes-app p { color:var(--text-dim); font-size:.72rem; line-height:1.5; }
@@ -39,6 +48,10 @@
 .nodes-plane { position:absolute; transform-origin:0 0; }
 .nodes-wires { position:absolute; width:100%; height:100%; pointer-events:none; overflow:visible; }
 .nodes-wires path { fill:none; stroke:var(--accent); stroke-width:4px; pointer-events:stroke; cursor:pointer; }
+/* A focused wire is an SVG path: the shared ring would paint a huge rectangle
+   around the whole curve. The stroke itself is the focus cue instead (hover and
+   focus share it), so keyboard users still see exactly which wire is active. */
+.nodes-wires path:focus,.nodes-wires path:focus-visible { outline:none; }
 .nodes-wires path:hover,.nodes-wires path:focus { stroke:var(--text-main); stroke-width:7px; }
 .nodes-node { position:absolute; width:180px; min-height:80px; background:var(--panel-bg); border:1px solid var(--border-gray); border-radius:4px; box-shadow:0 8px 25px #0006; }
 .nodes-node.is-selected { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent),0 8px 25px #0006; }
@@ -80,17 +93,26 @@
 .nodes-inspector label[hidden] { display:none; }
 .nodes-connections output.nodes-connection-name { display:block; margin:10px 0 4px; padding:6px 8px; background:var(--bg-dark); border:1px solid var(--border-gray); border-radius:4px; color:#e6d6ff; font-size:11px; overflow-wrap:anywhere; }
 .nodes-connections .btn { margin:4px 0 0; }
-/* Mapping fields are opt-in: one collapsed toggle per mapped slider. */
-.nodes-mapping-toggle { display:block; width:100%; text-align:left; margin:6px 0 0; }
-.nodes-mapping-overlay { position:absolute; inset:0 7px; pointer-events:none; }
+/* Mapping controls are opt-in and have no heading or wrapper box: the overlay is
+   the disclosure toggle (click / Enter / Space) and the compact fields render
+   directly under the parameter. The overlay owns the whole track so it is a real
+   click target, while the box and its handles keep their own drag gestures. */
+.nodes-mapping-overlay { position:absolute; inset:0 7px; pointer-events:auto; cursor:pointer; border-radius:3px; }
+.nodes-mapping-overlay:focus-visible { outline:2px solid #e6ecf5; outline-offset:2px; }
 .nodes-mapping-box { position:absolute; top:0; bottom:0; min-width:2px; background:#b586ff40; border:1px solid #c29aff; border-radius:3px; cursor:grab; pointer-events:auto; touch-action:none; }
 .nodes-mapping-handle { position:absolute; top:-2px; bottom:-2px; width:7px; transform:translateX(-50%); background:#c29aff; border:1px solid #241936; cursor:ew-resize; pointer-events:auto; touch-action:none; }
-.nodes-mapping-fields { font-size:11px; color:#cdb6ed; padding:8px 0; }
+.nodes-mapping-fields { font-size:11px; color:#cdb6ed; padding:6px 0 0; }
 .nodes-mapping-fields > div { display:flex; gap:8px; }
+.nodes-mapping-inline { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0; }
+.nodes-mapping-inline small { color:var(--text-dim); }
+/* The connected signal's name, resolved from the graph, as one compact pill. */
+.nodes-mapping-source { display:inline-block; max-width:100%; padding:1px 8px; border:1px solid #3b2c55; border-radius:999px; background:#241936; color:#c9aaff; font-size:10px; line-height:1.6; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .nodes-mapping-fields label { flex:1; min-width:0; margin:8px 0; font-size:10px; }
 .nodes-mapping-fields .btn { margin:3px 4px 0 0; }
 .nodes-modulated-param > small { color:var(--text-dim); }
-.nodes-app .param-row input[type="range"]:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+/* A range control has no border to restyle, so its focus cue is the same soft
+   white as the text fields instead of the shared accent ring. */
+.nodes-app .param-row input[type="range"]:focus-visible { outline:2px solid #e6ecf5; outline-offset:2px; }
 
 /* Only the saved-base thumb disappears. Keep the neutral track and mapping
    handles, with a separate non-interactive effective-value marker above them. */

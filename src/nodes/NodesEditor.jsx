@@ -141,6 +141,10 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   const node = graph.nodes.find(n => n.id === selected);
   const sketch = SKETCHES.find(s => s.id === node?.patternId);
   const label = labelFor;
+  // A mapping's source badge is resolved live from the graph on every render, so
+  // a band change, a remap or any other node edit is reflected immediately and no
+  // stale label is ever stored on the mapping itself.
+  const signalSourceName = id => { const source = graph.nodes.find(n => n.id === id); return source ? labelFor(source) : `Missing ${id}`; };
   // The sidebar describes the selected connection's target even though the node
   // itself stays unselected, so its signal chips and mapping settings remain
   // reachable without making the node a Delete target.
@@ -366,7 +370,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
     </header>
     {message && <div className="nodes-status" role="status">{message}</div>}
     <div className="nodes-layout" inert={busy}>
-      <aside className="nodes-palette" aria-label="Pattern palette"><button className="btn" title="Add a Blend node" onClick={() => create('blend')}>+ Blend</button><button className="btn" title="Add a Color node (saturation, brightness, contrast, hue shift)" onClick={() => create('color')}>+ Color</button><button className="btn" title="Add a Math node (scalar arithmetic)" onClick={() => create('math')}>+ Math</button><button className="btn" title="Add a Script node (restricted scalar expression)" onClick={() => create('script')}>+ Script</button><button className="btn" title="Add an Audio node (bass, mid or high activity)" onClick={() => create('audio')}>+ Audio</button><input className="control-input" aria-label="Search patterns" title="Filter available patterns" placeholder="Search patterns…" value={query} onChange={e => setQuery(e.target.value)} />
+      <aside className="nodes-palette" aria-label="Pattern palette"><button className="btn" title="Add a Blend node" onClick={() => create('blend')}>+ Blend</button><button className="btn" title="Add a Color node (saturation, brightness, contrast, hue shift)" onClick={() => create('color')}>+ Color</button><button className="btn" title="Add a Script node (restricted scalar expression and compiled body)" onClick={() => create('script')}>+ Script</button><button className="btn" title="Add an Audio node (bass, mid or high activity)" onClick={() => create('audio')}>+ Audio</button><input className="control-input" aria-label="Search patterns" title="Filter available patterns" placeholder="Search patterns…" value={query} onChange={e => setQuery(e.target.value)} />
         <div className="nodes-pattern-list">{SKETCHES.filter(s => !s.nodesGraph && `${s.name} ${s.group}`.toLowerCase().includes(query.toLowerCase())).map(s => <button className="btn" key={s.id} title={`Drag ${s.name} onto the canvas to create a node`} draggable onDragStart={e => { e.dataTransfer.effectAllowed = 'copy'; e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ version: 1, patternId: s.id })); }}><span>{s.name}</span><small>{s.group}{s.camera ? ' · Output camera' : ''}</small></button>)}</div>
       </aside>
       <section ref={navigation.workspace} {...selection.workspaceHandlers} className="nodes-workspace" aria-label="Graph workspace" tabIndex={0} onDragOver={e => { if (e.dataTransfer.types.includes(DRAG_TYPE)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }} onDrop={e => {
@@ -450,6 +454,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
           return <ModulatedParameter key={`${node.id}:${def.key}`} node={node} def={def} value={node.type === 'blend' ? node.opacity : node.params[def.key] ?? def.default}
             onChange={value => node.type === 'blend' ? patch({ opacity: value }) : patch({ params: { ...node.params, [def.key]: value } })}
             readEffective={() => previewRuntime.current?.params.get(node.id)?.[def.key]} mapping={mapping} onMap={assignSignal} onRange={(min, max) => edit(mapSignal(graph, mapping.from, node.id, def.key, min, max, true))}
+            sourceLabel={mapping ? signalSourceName(mapping.from) : null}
             onInputRange={(inputMin, inputMax) => { if (inputMax <= inputMin) { setMessage('Signal input range needs a max greater than its min.'); return; } edit(mapSignalInput(graph, mapping.from, node.id, def.key, inputMin, inputMax)); }}
             onRemove={() => edit({ ...graph, modulations: graph.modulations.filter(m => m !== mapping) })} />;
         })}
