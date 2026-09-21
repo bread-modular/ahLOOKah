@@ -386,6 +386,10 @@ test('LIVE indicator follows actual selected preview across owner restart, rever
   await expect(base).toBeDisabled();
   expect(await blueThumbPixels(page, base)).toBe(0);
   await expect(page.locator('[data-param-target=brightness]')).toHaveClass(/is-mapped/);
+  // The LIVE caption is disclosed with the mapping details, not always visible.
+  await expect(live).toHaveCount(0);
+  await expect(marker).toBeVisible();
+  await page.getByRole('button', { name: 'Brightness mapping settings' }).click();
   await expect(live).toHaveText('LIVE 0.2');
   await expect(marker).toHaveCSS('left', /.+/);
   expect(await marker.evaluate(el => el.style.left)).toBe('20%');
