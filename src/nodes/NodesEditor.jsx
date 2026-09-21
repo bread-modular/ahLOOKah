@@ -28,8 +28,9 @@ import './nodes.css';
 // legacy standalone `?role=nodes` route. Both return to the main app view in the
 // same browser window; no new window, tab rail or draft list is involved.
 function BackToMain({ onBack, busy }) {
-  if (onBack) return <button className="btn btn--status-size nodes-back" type="button" title="Return to the main app view" disabled={busy} onClick={onBack}>Back to Main</button>;
-  return <a className="btn btn--status-size nodes-back" href="/" title="Return to the main app view">Back to Main</a>;
+  const label = <><span aria-hidden="true">← </span>Back to Main</>;
+  if (onBack) return <button className="btn btn--status-size nodes-back" type="button" title="Return to the main app view" disabled={busy} onClick={onBack}>{label}</button>;
+  return <a className="btn btn--status-size nodes-back" href="/" title="Return to the main app view">{label}</a>;
 }
 
 function initialParams(sketch) {
