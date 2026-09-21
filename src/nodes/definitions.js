@@ -32,6 +32,10 @@ export const SCRIPT_PORT_LABELS = Object.freeze({ x: 'Input x', y: 'Input y' });
 export const SCRIPT_LITERAL_FIELDS = Object.freeze({ x: 'inputX', y: 'inputY' });
 export const SCRIPT_LITERALS = Object.freeze({ inputX: 0, inputY: 0 });
 export const DEFAULT_EXPRESSION = 'x';
+// New Script nodes start in the body language; graphs saved before it existed
+// carry no `language` field and keep running as expressions.
+export const DEFAULT_LANGUAGE = 'body';
+export const DEFAULT_BODY = 'return x;';
 
 const ports = {
   blend: ['base', 'layer'],
@@ -69,7 +73,7 @@ export function defaultNode(type, x = 0, y = 0, id = newId()) {
   if (type === 'audio') return { ...base, band: 'bass' };
   if (type === 'color') return { ...base, params: Object.fromEntries(COLOR_PARAMS.map(p => [p.key, p.default])) };
   if (type === 'math') return { ...base, op: 'add', ...MATH_LITERALS };
-  if (type === 'script') return { ...base, source: DEFAULT_EXPRESSION, ...SCRIPT_LITERALS };
+  if (type === 'script') return { ...base, language: DEFAULT_LANGUAGE, source: DEFAULT_BODY, ...SCRIPT_LITERALS };
   if (type === 'output') return base;
   throw new Error(`Cannot create a ${type} node without a pattern`);
 }

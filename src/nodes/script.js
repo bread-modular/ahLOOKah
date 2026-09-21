@@ -1,27 +1,29 @@
-// Restricted, stateless expression language for Script nodes.
+// Script-node languages. Two front ends share one approval/cache contract:
 //
-// This is deliberately NOT the custom-script compiler: that one hands the file
-// text to `new Function` and is explicitly not a sandbox. Here the source is
-// parsed with Acorn, every AST node must pass an allowlist, and evaluation is
-// performed by this file's own interpreter — no eval, no Function, no property
-// access, no assignment, no statements, no loops, no imports, no globals.
+//   expression — the original restricted single expression, parsed with Acorn,
+//                every AST node allowlisted and evaluated by this file's own
+//                interpreter (no eval, no Function, no property access, no
+//                assignment, no statements, no loops, no imports, no globals).
+//   body       — a restricted JavaScript *function body* with `return`, parsed
+//                and compiled once into bounded bytecode by script-body.js and
+//                run by its instruction interpreter.
+//
+// Neither language is the custom-script compiler: that one hands the file text
+// to `new Function` and is explicitly not a sandbox.
 import { parse } from 'acorn';
+import {
+  MAX_ARGS, MAX_BODY, MAX_DEPTH, MAX_EXPRESSION, MAX_NODES, SCRIPT_CONSTANTS, SCRIPT_FUNCTIONS, SCRIPT_HELP,
+  compileKey, scriptCompileStats, scriptLanguageOf,
+} from './script-core.js';
+import { compileBody, evaluateBody } from './script-body.js';
 
-export const MAX_EXPRESSION = 256;
-export const MAX_NODES = 64;
-export const MAX_DEPTH = 12;
-export const MAX_ARGS = 3;
-export const SCRIPT_CONSTANTS = Object.freeze({ pi: Math.PI, e: Math.E, tau: Math.PI * 2 });
-export const SCRIPT_FUNCTIONS = Object.freeze({
-  sin: Math.sin, cos: Math.cos, tan: Math.tan, asin: Math.asin, acos: Math.acos, atan: Math.atan, atan2: Math.atan2,
-  abs: Math.abs, min: Math.min, max: Math.max, floor: Math.floor, ceil: Math.ceil, round: Math.round,
-  sqrt: Math.sqrt, pow: Math.pow, exp: Math.exp, log: Math.log, sign: Math.sign, hypot: Math.hypot,
-  clamp: (v, min, max) => Math.min(max, Math.max(min, v)),
-  lerp: (a, b, t) => a + (b - a) * t,
-});
-// Available in every expression (inputs x/y are the node's own ports).
-export const SCRIPT_VARIABLES = Object.freeze(['x', 'y', 'time']);
-export const SCRIPT_HELP = 'Restricted expression: numbers, x, y, time, pi, e, + − × ÷ %, parentheses and the listed math functions.';
+export {
+  LANGUAGES, MAX_ARGS, MAX_BODY, MAX_BODY_DEPTH, MAX_BODY_INSTRUCTIONS, MAX_BODY_LOCALS, MAX_BODY_STATEMENTS, MAX_BODY_STEPS,
+  MAX_DEPTH, MAX_EXPRESSION, MAX_NODES, MAX_SOURCE, SCRIPT_BODY_HELP, SCRIPT_CONSTANTS, SCRIPT_FUNCTIONS, SCRIPT_HELP,
+  SCRIPT_INPUT_NAMES, SCRIPT_VARIABLES, helpForLanguage, isScriptConstant, isScriptFunction, limitForLanguage,
+  scriptCompileStats, scriptLanguageLabel, scriptLanguageOf,
+} from './script-core.js';
+
 const ALLOWED_BINARY = ['+', '-', '*', '/', '%'];
 const ALLOWED_UNARY = ['-', '+'];
 
@@ -70,35 +72,57 @@ function validateAst(ast) {
   walk(body[0].expression, 1);
   return uses;
 }
-// Pure function of the source text; the small cache only avoids re-parsing the
-// same expression every frame. It never caches across different sources.
-const compiled = new Map();
-export function compileExpression(text) {
-  const source = typeof text === 'string' ? text : '';
-  const key = source.length > MAX_EXPRESSION ? source.slice(0, MAX_EXPRESSION + 1) : source;
-  if (compiled.has(key)) return compiled.get(key);
-  let result;
+
+// The legacy expression front end. Pure function of the source text; the small
+// cache only avoids re-parsing the same expression, and it never caches across
+// different sources or languages.
+function compileExpressionSource(source) {
   try {
     const trimmed = source.trim();
-    if (!trimmed) result = { ok: false, error: 'Expression is empty' };
-    else if (source.length > MAX_EXPRESSION) result = { ok: false, error: `Expression exceeds ${MAX_EXPRESSION} characters` };
-    else {
-      let ast;
-      try { ast = parse(trimmed, { ecmaVersion: 'latest', sourceType: 'script' }); }
-      catch (error) { throw new Error(`Syntax error: ${error.message}`); }
-      result = { ok: true, ast: ast.body[0].expression, uses: validateAst(ast) };
-    }
-  } catch (error) { result = { ok: false, error: error.message }; }
-  if (compiled.size >= 64) compiled.clear();
+    if (!trimmed) return { ok: false, language: 'expression', error: 'Expression is empty' };
+    if (source.length > MAX_EXPRESSION) return { ok: false, language: 'expression', error: `Expression exceeds ${MAX_EXPRESSION} characters` };
+    let ast;
+    try { ast = parse(trimmed, { ecmaVersion: 'latest', sourceType: 'script' }); }
+    catch (error) { throw new Error(`Syntax error: ${error.message}`); }
+    return { ok: true, language: 'expression', ast: ast.body[0].expression, uses: validateAst(ast) };
+  } catch (error) { return { ok: false, language: 'expression', error: error.message }; }
+}
+
+// Language-aware compile entry point. The key is language + exact source, so an
+// edited character or a switch between languages always re-validates. Callers
+// that evaluate per frame (GraphRuntime) retain the returned object instead of
+// recompiling, which is what keeps steady-state frames free of parsing.
+const compiled = new Map();
+const CACHE_LIMIT = 64;
+export function compileScript(text, language = 'expression') {
+  const mode = scriptLanguageOf(language);
+  const source = typeof text === 'string' ? text : '';
+  const limit = mode === 'body' ? MAX_BODY : MAX_EXPRESSION;
+  const key = compileKey(mode, source.length > limit ? source.slice(0, limit + 1) : source);
+  const cached = compiled.get(key);
+  if (cached) { scriptCompileStats.hits++; return cached; }
+  scriptCompileStats.parses++;
+  const result = mode === 'body' ? compileBody(source) : compileExpressionSource(source);
+  if (compiled.size >= CACHE_LIMIT) compiled.clear();
   compiled.set(key, result);
   return result;
 }
+export const validateScript = compileScript;
+export const compileExpression = text => compileScript(text, 'expression');
 export const validateExpression = compileExpression;
-// Interpreter. Only node kinds accepted by validateAst are handled; anything
-// else throws instead of silently falling through. Recoverable arithmetic
-// issues (division/modulo by zero) are pushed to `issues` and still return the
-// documented 0 fallback, so callers can surface a diagnostic.
+
+// Interpreter entry point for a compiled result of either language.
+export function evaluateScript(result, vars = {}, issues = []) {
+  if (result.language === 'body') return evaluateBody(result.program, vars, issues);
+  return evaluateExpression(result.ast, vars, issues);
+}
+
+// Expression interpreter. Only node kinds accepted by validateAst are handled;
+// anything else throws instead of silently falling through. Recoverable
+// arithmetic issues (division/modulo by zero) are pushed to `issues` and still
+// return the documented 0 fallback, so callers can surface a diagnostic.
 export function evaluateExpression(ast, vars = {}, issues = []) {
+  scriptCompileStats.evaluations++;
   const run = (node, depth) => {
     if (depth > MAX_DEPTH + 2) throw new Error('Expression is too deep to evaluate');
     switch (node.type) {

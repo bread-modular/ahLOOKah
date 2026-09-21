@@ -1,6 +1,7 @@
 import { mappingDiagnostics } from './modulation.js';
 import { validateGraph, MAX_BYTES } from './model.js';
-import { validateExpression } from './script.js';
+import { validateScript } from './script.js';
+import { scriptLanguageOf } from './scalar.js';
 // Manifests deliberately do NOT execute imported scripts or claim that local
 // file handles are portable. Dynamic dependencies must already match locally.
 function fingerprint(text = '') {
@@ -44,10 +45,13 @@ export function sourceDiagnostics(graph, sketches, manifest = []) {
   }
   // No leaf-renderer budget: the number of Pattern sources is a hardware
   // question, not a validation rule. Structural and dependency checks stay.
-  // A broken expression is repairable in the editor but must never be saved.
+  // A broken script (either language) is repairable in the editor but must never
+  // be saved.
   for (const n of graph.nodes.filter(n => n.type === 'script')) {
-    const result = validateExpression(n.source);
-    if (!result.ok) messages.push(`Invalid script expression on ${n.id}: ${result.error}`);
+    // Validate the stored text itself (an empty source is repairable but not
+    // savable), not the runtime's default fallback.
+    const result = validateScript(n.source, scriptLanguageOf(n));
+    if (!result.ok) messages.push(`Invalid script on ${n.id}: ${result.error}`);
   }
   for (const dep of manifest) {
     const s = sketches.find(s => s.id === dep.id);

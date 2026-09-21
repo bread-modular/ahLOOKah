@@ -1,8 +1,9 @@
-// Scalar (signal) node semantics: Math arithmetic and restricted Script
-// evaluation. Both are total functions with safe fallbacks — they return finite
-// numbers and report a message instead of producing NaN/Infinity.
-import { MATH_OPS, MATH_LITERALS, SCRIPT_LITERALS, SCRIPT_LITERAL_FIELDS, DEFAULT_EXPRESSION, mathPorts } from './definitions.js';
-import { compileExpression, evaluateExpression } from './script.js';
+// Scalar (signal) node semantics: Math arithmetic and both Script languages
+// (legacy restricted expression and the body language). All of them are total
+// functions with safe fallbacks — they return finite numbers and report a
+// message instead of producing NaN/Infinity.
+import { MATH_OPS, MATH_LITERALS, SCRIPT_LITERALS, SCRIPT_LITERAL_FIELDS, DEFAULT_EXPRESSION, DEFAULT_BODY, mathPorts } from './definitions.js';
+import { compileScript, evaluateScript, scriptLanguageOf as languageOf } from './script.js';
 
 export const finiteOr = (value, fallback = 0) => Number.isFinite(value) ? value : fallback;
 export const mathOperation = (node) => MATH_OPS.includes(node?.op) ? node.op : 'add';
@@ -39,8 +40,43 @@ export function mathIssue(node, readInput = null) {
   if (mathOperation(node) === 'divide' && b === 0) return 'Math: division by zero → 0.';
   return null;
 }
+// The node's language: only an explicit 'body' opts in; a graph saved before the
+// body language existed is an expression.
+export const scriptLanguageOf = node => languageOf(node?.language);
+// Unwired/empty sources fall back to the language's default, so a repaired node
+// keeps producing a defined value.
 export function scriptSource(node) {
-  return typeof node?.source === 'string' && node.source.trim() ? node.source : DEFAULT_EXPRESSION;
+  const fallback = scriptLanguageOf(node) === 'body' ? DEFAULT_BODY : DEFAULT_EXPRESSION;
+  return typeof node?.source === 'string' && node.source.trim() ? node.source : fallback;
+}
+// Compilation is retained per language + exact source. A runtime keeps one cache
+// for its whole life and one retained program per node id, so an eviction can
+// never force a recompilation inside a frame: the cache is bounded by the number
+// of distinct sources in the graph (which the 200 KB file size already caps).
+export function scriptProgram(node, cache = new Map()) {
+  const language = scriptLanguageOf(node);
+  const source = scriptSource(node);
+  const key = `${language}\u0000${source}`;
+  let compiled = cache.get(key);
+  if (!compiled) { compiled = compileScript(source, language); cache.set(key, compiled); }
+  return { language, source, compiled };
+}
+export function scriptValue(node, { time = 0, readInput = null, program = null } = {}, cache = new Map()) {
+  const entry = program || scriptProgram(node, cache);
+  const { language, compiled } = entry;
+  if (!compiled.ok) return { value: 0, error: `Script: ${compiled.error}`, uses: null, language };
+  const vars = { ...scriptInputs(node, readInput), time: finiteOr(time) };
+  const issues = [];
+  try {
+    const value = evaluateScript(compiled, vars, issues);
+    if (!Number.isFinite(value)) return { value: 0, error: 'Script: result is not a finite number → 0.', uses: compiled.uses, language };
+    // The whole node output falls back to 0 whenever arithmetic failed, so a
+    // nested zero divisor can never leak a partial result downstream.
+    if (issues.length) return { value: 0, error: `Script: ${[...new Set(issues)].join(', ')}.`, uses: compiled.uses, language };
+    return { value, error: null, uses: compiled.uses, language };
+  } catch (error) {
+    return { value: 0, error: `Script: ${error.message} → 0.`, uses: compiled.uses, language };
+  }
 }
 export function scriptInputs(node, readInput = null) {
   const read = port => {
@@ -50,28 +86,4 @@ export function scriptInputs(node, readInput = null) {
     return Number.isFinite(node?.[field]) ? node[field] : finiteOr(SCRIPT_LITERALS[field], 0);
   };
   return { x: read('x'), y: read('y') };
-}
-// Compilation is cached per runtime and keyed by the exact source text, so an
-// edited expression is re-validated and can never reuse a stale approval path.
-export function scriptValue(node, { time = 0, readInput = null } = {}, cache = new Map()) {
-  const source = scriptSource(node);
-  let compiled = cache.get(source);
-  if (!compiled) {
-    compiled = compileExpression(source);
-    if (!compiled.ok) return { value: 0, error: `Script: ${compiled.error}`, uses: null };
-    if (cache.size >= 32) cache.clear();
-    cache.set(source, compiled);
-  }
-  const vars = { ...scriptInputs(node, readInput), time: finiteOr(time) };
-  const issues = [];
-  try {
-    const value = evaluateExpression(compiled.ast, vars, issues);
-    if (!Number.isFinite(value)) return { value: 0, error: 'Script: result is not a finite number → 0.', uses: compiled.uses };
-    // The whole node output falls back to 0 whenever arithmetic failed, so a
-    // nested zero divisor can never leak a partial result downstream.
-    if (issues.length) return { value: 0, error: `Script: ${[...new Set(issues)].join(', ')}.`, uses: compiled.uses };
-    return { value, error: null, uses: compiled.uses };
-  } catch (error) {
-    return { value: 0, error: `Script: ${error.message} → 0.`, uses: compiled.uses };
-  }
 }
