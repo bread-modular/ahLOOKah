@@ -4,22 +4,36 @@ const modified = e => e.ctrlKey || e.metaKey;
 const rectangle = (a, b) => ({ x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(a.x - b.x), height: Math.abs(a.y - b.y) });
 
 // Selection is transient UI state, never part of the disk draft. The inspector
-// uses primary; deletion operates on the entire selected group.
+// uses primary; deletion operates on the entire selected group. A selected
+// *connection* is a third, mutually exclusive kind of selection: it is addressed
+// as {kind, key} (see model.js connectionRef) and never implies its endpoint
+// nodes, so Delete can remove one wire without deleting a node.
 export function useNodeSelection(graph, setDraft, navigation) {
   const [selection, setSelection] = useState({ ids: ['output'], primary: 'output' });
+  const [wire, setWire] = useState(null);
   const [box, setBox] = useState(null);
   const gesture = useRef(null), suppressClick = useRef(null);
-  const selectOnly = id => setSelection({ ids: id ? [id] : [], primary: id });
+  // Selecting nodes of any kind drops the connection selection, and selecting a
+  // connection drops the node selection. Exactly one of the two is ever live.
+  const applySelection = next => { setWire(null); setSelection(next); };
+  const selectOnly = id => applySelection({ ids: id ? [id] : [], primary: id });
   const choose = (id, e) => {
     if (!modified(e)) { selectOnly(id); return; }
+    setWire(null);
     setSelection(previous => {
       const ids = previous.ids.includes(id) ? previous.ids.filter(value => value !== id) : [...previous.ids, id];
       return { ids, primary: ids.includes(id) ? id : ids.includes(previous.primary) ? previous.primary : ids.at(-1) || null };
     });
   };
+  const selectWire = ref => {
+    gesture.current = null; setBox(null); suppressClick.current = null;
+    setSelection({ ids: [], primary: null });
+    setWire(ref);
+  };
+  const clearWire = () => setWire(null);
   const cancel = () => {
-    if (gesture.current?.type === 'box') setSelection(gesture.current.before);
-    gesture.current = null; setBox(null);
+    if (gesture.current?.type === 'box') applySelection(gesture.current.before);
+    gesture.current = null; setBox(null); setWire(null);
   };
   const reset = id => { cancel(); suppressClick.current = null; selectOnly(id); };
   const moveGroup = (origins, dx, dy) => {
@@ -39,7 +53,7 @@ export function useNodeSelection(graph, setDraft, navigation) {
       // Modifier clicks toggle only. Even motion while held must not move nodes.
       if (modified(e)) return;
       const ids = selection.ids.includes(n.id) ? selection.ids : [n.id];
-      setSelection({ ids, primary: n.id });
+      applySelection({ ids, primary: n.id });
       gesture.current = { type: 'nodes', pointerId: e.pointerId, id: n.id, start: navigation.toGraph(e.clientX, e.clientY), clientX: e.clientX, clientY: e.clientY, origins: graph.nodes.filter(item => ids.includes(item.id)), moved: false };
       e.currentTarget.setPointerCapture(e.pointerId);
     },
@@ -80,6 +94,7 @@ export function useNodeSelection(graph, setDraft, navigation) {
         return { id: el.dataset.nodeId, ...topLeft, width: bottomRight.x - topLeft.x, height: bottomRight.y - topLeft.y };
       });
       gesture.current = { type: 'box', pointerId: e.pointerId, start, clientX: e.clientX, clientY: e.clientY, bounds, before: selection, additive: modified(e) };
+      setWire(null);
       if (!modified(e)) selectOnly(null);
       e.currentTarget.setPointerCapture(e.pointerId);
     },
@@ -100,5 +115,5 @@ export function useNodeSelection(graph, setDraft, navigation) {
     onPointerCancel: e => { navigation.handlers.onPointerCancel(e); if (gesture.current?.pointerId === e.pointerId) cancel(); },
     onLostPointerCapture: e => { navigation.handlers.onLostPointerCapture(e); if (gesture.current?.pointerId === e.pointerId) cancel(); },
   };
-  return { ...selection, box, reset, cancel, nodeClick, titleHandlers, workspaceHandlers };
+  return { ...selection, wire, box, reset, cancel, selectWire, clearWire, nodeClick, titleHandlers, workspaceHandlers };
 }

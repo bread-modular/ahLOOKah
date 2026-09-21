@@ -2,7 +2,8 @@ import { RuntimeContext } from '../app/RuntimeContext.jsx';
 import { IconControl } from '../components/control/IconControl.jsx';
 import { ModulatedParameter } from './ModulatedParameter.jsx';
 import { BANDS, definitions, numeric, clampStep, SIGNAL_DRAG } from './modulation.js';
-import { MATH_OPS, MATH_LABELS, MATH_INPUTS, MATH_PORT_LABELS, SCRIPT_INPUTS, SCRIPT_PORT_LABELS, SCRIPT_LITERAL_FIELDS, defaultNode, isSignalSource, isVisualSource, isScalarConsumer, isModulationTarget } from './definitions.js';
+import { MATH_OPS, MATH_LABELS, MATH_INPUTS, MATH_PORT_LABELS, SCRIPT_INPUTS, SCRIPT_PORT_LABELS, SCRIPT_LITERAL_FIELDS, defaultNode, isSignalSource, isVisualSource, isScalarConsumer, isModulationTarget, activeInputs, mathPorts } from './definitions.js';
+import { inputAnchor, outputAnchor, signalAnchor, wirePath, BUNDLE_BOW } from './geometry.js';
 import { MAX_EXPRESSION, SCRIPT_HELP, SCRIPT_VARIABLES, validateExpression } from './script.js';
 import { approveExpression, isExpressionApproved } from './script-approval.js';
 import { createEditorAudio } from './audio-provider.js';
@@ -15,7 +16,7 @@ import { SKETCHES } from '../sketch-registry.js';
 import { MEDIA_STORAGE_KEY, registerMediaSketches } from '../media/media-registry.js';
 import { PROJECTION_STORAGE_KEY, registerProjectionSketches } from '../projection/projection-registry.js';
 import { CustomScripts } from '../custom-scripts/service.js';
-import { MODES, newGraph, validateGraph, connect, deleteNodes, inputs, DRAG_TYPE, readPatternDrag, connectSignal, connectSignalEdge, mapSignal, mapSignalInput } from './model.js';
+import { MODES, newGraph, validateGraph, connect, deleteNodes, connectionRef, findConnection, removeConnection, DRAG_TYPE, readPatternDrag, connectSignal, connectSignalEdge, mapSignal, mapSignalInput } from './model.js';
 import { GraphRuntime } from './runtime.js';
 import { nodePatterns, watchGraphs } from './repository.js';
 import { manifestFor, sourceDiagnostics, serializeGraph } from './portability.js';
@@ -34,6 +35,31 @@ function initialParams(sketch) {
   let bank = {};
   try { bank = JSON.parse(localStorage.getItem('viz2_params') || '{}')?.[sketch.id] || {}; } catch {}
   return Object.fromEntries((sketch.params || []).map(p => [p.key, Number.isFinite(bank[p.key]) && bank[p.key] >= p.min && bank[p.key] <= p.max ? bank[p.key] : p.default]));
+}
+function labelFor(n) {
+  return n.type === 'pattern' ? SKETCHES.find(s => s.id === n.patternId)?.name || n.patternId
+    : n.type === 'blend' ? 'Blend' : n.type === 'audio' ? `Audio · ${n.band}` : n.type === 'color' ? 'Color'
+      : n.type === 'math' ? `Math · ${n.op || 'add'}` : n.type === 'script' ? 'Script' : 'Output';
+}
+// One description for a connection, shared by the wire itself and the sidebar
+// panel that explains what Delete/Backspace will remove.
+export function describeConnection(graph, ref, link) {
+  const name = id => labelFor(graph.nodes.find(node => node.id === id) || { id, type: 'missing' });
+  if (ref.kind === 'image') return `${name(link.from)} → ${name(link.to)} ${link.port} (image)`;
+  if (ref.kind === 'signal') return `${name(link.from)} → ${name(link.to)} ${link.port} (scalar)`;
+  return `${name(link.from)} → ${name(link.to)} ${link.param || 'unmapped'} (modulation)`;
+}
+const sameConnection = (a, b) => !!a && !!b && a.kind === b.kind && a.key === b.key;
+// Every wire — image, scalar and modulation — is drawn from the same geometry and
+// is activated the same way: activating selects only the connection, it never
+// deletes a wire and never selects its endpoint nodes.
+function Wire({ kind, link, from, to, bow = 0, description, selected, onSelect }) {
+  const classes = [kind === 'image' ? null : 'nodes-signal-wire', selected ? 'is-selected' : null].filter(Boolean).join(' ');
+  const activate = e => { e.preventDefault(); e.stopPropagation(); onSelect(kind, link); };
+  return <path className={classes || undefined} role="button" tabIndex={0} aria-pressed={selected}
+    data-connection={`${kind}:${connectionRef(kind, link).key}`} data-connection-from={link.from}
+    aria-label={`Select connection ${description}`} title={description}
+    d={wirePath(from, to, bow)} onClick={activate} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') activate(e); }} />;
 }
 // Live once-per-frame scalar value of the selected Math/Script node. Reads the
 // same memoized frame values the renderers consume.
@@ -87,7 +113,6 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   const previewRuntime = useRef(null);
   const [pending, setPending] = useState(null);
   const [signalEndpoint, setSignalEndpoint] = useState(null);
-  const [targetParam, setTargetParam] = useState('');
   const [query, setQuery] = useState(''), [message, setMessage] = useState('');
   const [revision, setRevision] = useState(0);
   const [scriptDraft, setScriptDraft] = useState({ id: null, text: '' });
@@ -111,7 +136,11 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   };
   const node = graph.nodes.find(n => n.id === selected);
   const sketch = SKETCHES.find(s => s.id === node?.patternId);
-  const label = n => n.type === 'pattern' ? SKETCHES.find(s => s.id === n.patternId)?.name || n.patternId : n.type === 'blend' ? 'Blend' : n.type === 'audio' ? `Audio · ${n.band}` : n.type === 'color' ? 'Color' : n.type === 'math' ? `Math · ${n.op || 'add'}` : n.type === 'script' ? 'Script' : 'Output';
+  const label = labelFor;
+  // The sidebar describes the selected connection's target even though the node
+  // itself stays unselected, so its signal chips and mapping settings remain
+  // reachable without making the node a Delete target.
+  const signalNode = node || (selection.wire?.kind === 'modulation' && signalEndpoint ? graph.nodes.find(n => n.id === signalEndpoint.to) : null) || null;
   // Script sources are edited as a draft and only enter the graph through Apply,
   // which also approves that exact text for this browser.
   const scriptNode = node?.type === 'script' ? node : null;
@@ -165,11 +194,20 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
       setSelected(n.id); setMessage('');
     });
   }
-  const selectSignal = (from, to) => { setSelected(to); setSignalEndpoint({ from, to }); setTargetParam(''); };
+  // Focusing a signal endpoint keeps the target node selected, because its
+  // numeric sliders are the mapping targets the connect flow asks for.
+  const focusSignal = (from, to) => { setSelected(to); setSignalEndpoint({ from, to }); };
+  // Selecting a connection is exclusive of node selection: the wire, not its
+  // endpoint nodes, becomes the Delete target.
+  const pickConnection = (kind, link) => {
+    selection.selectWire(connectionRef(kind, link));
+    if (kind === 'modulation') setSignalEndpoint({ from: link.from, to: link.to });
+    else setSignalEndpoint(null);
+  };
   // Scalar targets (Pattern numeric sliders, Blend opacity, Color parameters).
   function signalPort(to) {
     if (!isSignalSource(graph.nodes.find(n => n.id === pending))) { setMessage('Choose an Audio, Math or Script output first, then a signal endpoint.'); return; }
-    attempt(() => { edit(connectSignal(graph, pending, to)); selectSignal(pending, to); setPending(null); setMessage('Choose a numeric target below, or drag its signal onto a slider.'); });
+    attempt(() => { edit(connectSignal(graph, pending, to)); focusSignal(pending, to); setPending(null); setMessage('Choose a numeric target below, or drag its signal onto a slider.'); });
   }
   function assignSignal(from, def) {
     if (!numeric(def)) { setMessage('Unsupported: only numeric sliders can map; enum, bool and text cannot.'); return; }
@@ -195,13 +233,51 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
     patch({ source: text });
     setMessage('Restricted expression applied and approved for this exact source.');
   };
+  // Math Value C only exists while the operation needs it (clamp). Switching to
+  // any other operation removes that one scalar wire — model.js does the same for
+  // graphs saved by builds that always showed C — and the port row disappears with
+  // it. The a/b wires, the node position and the stored c literal are untouched.
+  function changeMathOp(op) {
+    attempt(() => {
+      const droppedC = !mathPorts(op).includes('c') && (graph.signalEdges || []).some(edge => edge.to === node.id && edge.port === 'c');
+      edit({ ...graph, nodes: graph.nodes.map(n => n.id === node.id ? { ...n, op } : n) });
+      if (droppedC) selection.clearWire();
+      setMessage(droppedC ? 'Value C is unused by this operation; its scalar wire was removed.' : '');
+    });
+  }
   const removable = graph.nodes.filter(n => n.type !== 'output' && selection.ids.includes(n.id));
+  // The connection the sidebar describes. A selection whose link disappeared with
+  // an edit (operation change, upstream delete) resolves to null and is simply
+  // cleared, so it can never be mistaken for a node selection.
+  const selectedLink = selection.wire ? findConnection(graph, selection.wire) : null;
+  // Wires that share both endpoints land on the same ◇ socket, so they would be
+  // drawn on top of each other and only the topmost could be picked. Split them
+  // symmetrically in the middle; the endpoints stay exact.
+  const bundles = new Map();
+  for (const m of graph.modulations || []) {
+    const key = `${m.from}:${m.to}`;
+    bundles.set(key, [...(bundles.get(key) || []), m]);
+  }
+  const bundleBow = m => {
+    const group = bundles.get(`${m.from}:${m.to}`) || [m];
+    return group.length < 2 ? 0 : (group.indexOf(m) - (group.length - 1) / 2) * BUNDLE_BOW;
+  };
   const remove = () => {
+    // A selected connection owns Delete: only that wire goes, and the nodes it
+    // joins survive even if they were selected before the wire was picked.
+    if (selection.wire) {
+      if (selectedLink) attempt(() => {
+        setDraft(d => ({ ...d, graph: removeConnection(d.graph, selection.wire) }));
+        selection.clearWire(); setPending(null); setSignalEndpoint(null); setMessage('');
+      });
+      else selection.clearWire();
+      return;
+    }
     const protectsOutput = graph.nodes.some(n => n.type === 'output' && selection.ids.includes(n.id));
     if (removable.length) {
       setDraft(d => ({ ...d, graph: deleteNodes(d.graph, selection.ids) }));
       setSelected(graph.nodes.find(n => n.type === 'output').id);
-      setPending(null); setSignalEndpoint(null); setTargetParam('');
+      setPending(null); setSignalEndpoint(null);
     }
     setMessage(protectsOutput ? (removable.length ? 'Output is required and was kept. Other selected nodes and their connections were deleted.' : 'Output is required and cannot be deleted.') : '');
   };
@@ -272,26 +348,32 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
         <div className="nodes-plane" style={{ transform: `translate(${navigation.view.x}px, ${navigation.view.y}px) scale(${navigation.view.zoom})`, width: Math.max(1000, ...graph.nodes.map(n => n.x + 220)), height: Math.max(850, ...graph.nodes.map(n => n.y + 180)) }}>
           <svg className="nodes-wires" aria-label="Connections">{graph.edges.map(e => {
             const a = graph.nodes.find(n => n.id === e.from), b = graph.nodes.find(n => n.id === e.to);
-            const x1 = a.x + 168, y1 = a.y + 49, x2 = b.x + 12, y2 = b.y + 49 + inputs(b).indexOf(e.port) * 32;
-            return <path key={`${e.to}:${e.port}`} role="button" tabIndex={0} aria-label={`Disconnect ${label(a)} from ${label(b)} ${e.port}`} d={`M ${x1} ${y1} C ${x1 + 80} ${y1}, ${x2 - 80} ${y2}, ${x2} ${y2}`} onClick={() => edit({ ...graph, edges: graph.edges.filter(w => w !== e) })} onKeyDown={event => { if (event.key === 'Enter' || event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); event.stopPropagation(); edit({ ...graph, edges: graph.edges.filter(w => w !== e) }); } }} />;
+            const ref = connectionRef('image', e);
+            return <Wire key={`edge-${ref.key}`} kind="image" link={e} from={outputAnchor(a)} to={inputAnchor(b, e.port)} selected={sameConnection(selection.wire, ref)} description={describeConnection(graph, ref, e)} onSelect={pickConnection} />;
           })}{(graph.signalEdges || []).map(e => {
             const a = graph.nodes.find(n => n.id === e.from), b = graph.nodes.find(n => n.id === e.to);
-            const x1 = a.x + 168, y1 = a.y + 49, x2 = b.x + 12, y2 = b.y + 49 + inputs(b).indexOf(e.port) * 32;
-            return <path key={`wire-${e.to}:${e.port}`} className="nodes-signal-wire" role="button" tabIndex={0} aria-label={`Disconnect signal ${label(a)} from ${label(b)} ${e.port}`} d={`M ${x1} ${y1} C ${x1 + 80} ${y1}, ${x2 - 80} ${y2}, ${x2} ${y2}`} onClick={() => edit({ ...graph, signalEdges: graph.signalEdges.filter(w => w !== e) })} onKeyDown={event => { if (event.key === 'Enter' || event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); event.stopPropagation(); edit({ ...graph, signalEdges: graph.signalEdges.filter(w => w !== e) }); } }} />;
-          })}{(graph.modulations || []).map((m, i) => {
+            const ref = connectionRef('signal', e);
+            return <Wire key={`wire-${ref.key}`} kind="signal" link={e} from={outputAnchor(a)} to={inputAnchor(b, e.port)} selected={sameConnection(selection.wire, ref)} description={describeConnection(graph, ref, e)} onSelect={pickConnection} />;
+          })}{(graph.modulations || []).map(m => {
             const a = graph.nodes.find(n => n.id === m.from), b = graph.nodes.find(n => n.id === m.to);
-            const x = b.x + 12, y = b.y + 99 + (inputs(b).length ? 32 : 0);
-            return <g key={`signal-${i}`}><path className="nodes-signal-wire" role="button" tabIndex={0} aria-label={`Select signal ${a.band} to ${label(b)} ${m.param || 'unassigned'}`} d={`M ${a.x + 168} ${a.y + 49} C ${a.x + 240} ${a.y + 49}, ${x - 70} ${y}, ${x} ${y}`} onClick={() => selectSignal(m.from, m.to)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectSignal(m.from, m.to); } }} /></g>;
+            const ref = connectionRef('modulation', m);
+            return <Wire key={`signal-${ref.key}`} kind="modulation" link={m} from={outputAnchor(a)} to={signalAnchor(b)} bow={bundleBow(m)} selected={sameConnection(selection.wire, ref)} description={describeConnection(graph, ref, m)} onSelect={pickConnection} />;
           })}</svg>
           {graph.nodes.map(n => <article key={n.id} className={`nodes-node ${selection.ids.includes(n.id) ? 'is-selected' : ''}`} data-node-id={n.id} data-primary={selected === n.id || undefined} style={{ left: n.x, top: n.y }} onClick={e => selection.nodeClick(n.id, e)}>
             <button className="nodes-node-title" title={`Select or drag ${label(n)}`} aria-label={`Select ${label(n)}`} aria-pressed={selection.ids.includes(n.id)} {...selection.titleHandlers(n)}>{label(n)}</button>
-            <div className="nodes-ports">{inputs(n).map(name => <button key={name} className="nodes-input" title={`Connect to ${label(n)} ${name} input`} aria-label={`${n.id} input ${name}`} onClick={() => port(n.id, name)}>● {name}</button>)}
+            <div className="nodes-ports">{activeInputs(n).map(name => <button key={name} className="nodes-input" title={`Connect to ${label(n)} ${name} input`} aria-label={`${n.id} input ${name}`} onClick={() => port(n.id, name)}>● {name}</button>)}
               {n.type !== 'output' && <button className={`nodes-output ${pending === n.id ? 'active' : ''}`} title={`Connect from ${label(n)} output`} aria-label={`${n.id} output`} onClick={() => { setPending(n.id); setMessage(isSignalSource(n) ? 'Scalar output selected: click a Math/Script input port or a ◇ signal endpoint.' : ''); }}>out ●</button>}
             </div><small className="nodes-node-detail">{n.type === 'blend' ? `${n.mode} · ${Math.round(n.opacity * 100)}%` : n.type === 'output' ? 'Final image' : n.type === 'audio' ? `${n.band} activity · 0…1` : n.type === 'color' ? 'image → filtered image' : n.type === 'math' ? `${n.op} · scalar out` : n.type === 'script' ? (validateExpression(n.source).ok ? 'restricted expression' : 'expression error') : n.patternId}</small>
             {isModulationTarget(n) && <button className="nodes-signal-endpoint" aria-label={`${n.id} signal endpoint`} onClick={e => {
               e.stopPropagation();
               if (pending) signalPort(n.id);
-              else { const m = (graph.modulations || []).find(m => m.to === n.id); if (m) selectSignal(m.from, n.id); else { setSelected(n.id); setMessage('Choose an Audio, Math or Script output first.'); } }
+              else {
+                const m = (graph.modulations || []).find(m => m.to === n.id);
+                // An endpoint never selects its own node: it selects the
+                // connection, so Delete cannot destroy the node by accident.
+                if (m) pickConnection('modulation', m);
+                else setMessage('Choose an Audio, Math or Script output first.');
+              }
             }}>◇ signal {(graph.modulations || []).filter(m => m.to === n.id).length || ''}</button>}
           </article>)}
           {selection.box && <div className="nodes-selection-box" aria-hidden="true" style={{ left: selection.box.x, top: selection.box.y, width: selection.box.width, height: selection.box.height }} />}
@@ -302,14 +384,23 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
           <IconControl icon="zoomIn" label="Zoom in" disabled={navigation.view.zoom >= 2.5} onClick={() => navigation.zoomAt(1.2)} />
         </div>
       </section>
-      <aside className="nodes-inspector"><h2>{node ? label(node) : 'Preview'}</h2><Preview graph={graph} dependencies={dependencies} selected={selected} revision={revision} current={previewRuntime} sharedRuntime={sharedRuntime} />
+      <aside className="nodes-inspector"><h2>{node ? label(node) : selectedLink ? 'Connection' : 'Preview'}</h2><Preview graph={graph} dependencies={dependencies} selected={selected} revision={revision} current={previewRuntime} sharedRuntime={sharedRuntime} />
+        {selectedLink && <section className="nodes-connections" aria-label="Selected connection">
+          <output className="nodes-connection-name" data-testid="selected-connection">{describeConnection(graph, selection.wire, selectedLink)}</output>
+          <button className="btn btn--danger" title="Remove only this wire; both endpoint nodes stay" onClick={remove}>Delete connection</button>
+        </section>}
         {node?.type === 'audio' && <><label>Audio band<Select aria-label="Audio band" value={node.band} onChange={e => patch({ band: e.target.value })}>{BANDS.map(b => <option key={b}>{b}</option>)}</Select></label><p>Normalized custom-script activity (0…1). Uses the main window’s shared audio input; no input means zero. Connect out to one or many ◇ signal endpoints.</p></>}
         {node?.type === 'output' && <p>Output has no numeric controls. Image mapping is not supported here.</p>}
         {node?.type === 'color' && <p>Color filters its image input in place: saturation → brightness → contrast → hue-rotate. Identity defaults (1 / 1 / 1 / 0) copy the input pixels unchanged; every numeric slider maps like Pattern and Blend. Image input is required before saving.</p>}
-        {node?.type === 'math' && <><label>Operation<Select aria-label="Math operation" title="Choose the scalar operation" value={node.op} onChange={e => patch({ op: e.target.value })}>{MATH_OPS.map(op => <option key={op} value={op}>{MATH_LABELS[op]}</option>)}</Select></label>
-          {MATH_INPUTS.map(port => <label key={port}>{MATH_PORT_LABELS[port]} literal<input className="control-input" type="number" step="0.01" aria-label={`Math ${port} literal`} title={`Literal used when ${port} has no wire`} value={node[port]} onChange={e => { const next = e.target.valueAsNumber; if (Number.isFinite(next)) patch({ [port]: next }); }} /></label>)}
+        {node?.type === 'math' && <><label>Operation<Select aria-label="Math operation" title="Choose the scalar operation" value={node.op} onChange={e => changeMathOp(e.target.value)}>{MATH_OPS.map(op => <option key={op} value={op}>{MATH_LABELS[op]}</option>)}</Select></label>
+          {MATH_INPUTS.map(port => {
+            // Value C exists only for clamp. Outside clamp the row is hidden and
+            // disabled; the stored literal stays untouched for when it returns.
+            const active = mathPorts(node.op).includes(port);
+            return <label key={port} hidden={!active}>{MATH_PORT_LABELS[port]} literal<input className="control-input" type="number" step="0.01" disabled={!active} aria-label={`Math ${port} literal`} title={active ? `Literal used when ${port} has no wire` : `${MATH_PORT_LABELS[port]} is only used by clamp`} value={node[port]} onChange={e => { const next = e.target.valueAsNumber; if (Number.isFinite(next)) patch({ [port]: next }); }} /></label>;
+          })}
           <SignalReadout runtime={previewRuntime} nodeId={node.id} />
-          <p>Scalar inputs stay signed floats — nothing is normalized here. Each port takes a wire from an Audio/Math/Script output, otherwise its literal applies. {node.op === 'clamp' ? 'Clamp keeps a between the sorted b/c bounds. ' : ''}Wires carry values, not pictures.</p></>}
+          <p>Scalar inputs stay signed floats — nothing is normalized here. Each port takes a wire from an Audio/Math/Script output, otherwise its literal applies. {node.op === 'clamp' ? 'Clamp keeps a between the sorted b/c bounds. ' : 'Value C and its wire exist only for clamp. '}Wires carry values, not pictures.</p></>}
         {node?.type === 'script' && <><label>Expression<input className="control-input" aria-label="Script expression" title={SCRIPT_HELP} maxLength={MAX_EXPRESSION} value={scriptText} onChange={e => setScriptDraft({ id: node.id, text: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyExpression(); } }} /></label>
           <button className="btn" aria-label="Apply expression" title="Validate, store and approve this exact expression" disabled={!scriptCheck?.ok} onClick={applyExpression}>Apply</button>
           {!scriptCheck?.ok && <p className="nodes-script-error" role="alert">Script: {scriptCheck?.error}</p>}
@@ -319,14 +410,8 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
           <p>{SCRIPT_HELP} Press Enter or Apply to store it; a disk-loaded expression must be reviewed and applied in this browser before it runs. Unwired x/y use their literals and time is seconds.</p></>}
         {node?.type === 'blend' && <label>Blend mode<Select aria-label="Blend mode" title="Choose pixel blend mode" value={node.mode} onChange={e => patch({ mode: e.target.value })}>{Object.keys(MODES).map(mode => <option key={mode}>{mode}</option>)}</Select></label>}
         {node?.type === 'pattern' && !sketch && <p>Missing pattern. Delete and replace this node, or restore its dependency.</p>}
-        {node && (graph.modulations || []).some(m => m.to === node.id) && <section className="nodes-signals" aria-label="Connected signals"><h2>Connected signals</h2>
-          {[...new Set(graph.modulations.filter(m => m.to === node.id).map(m => m.from))].map(from => <button key={from} className={`btn nodes-signal-chip ${signalEndpoint?.from === from && signalEndpoint?.to === node.id ? 'active' : ''}`} draggable onDragStart={e => e.dataTransfer.setData(SIGNAL_DRAG, from)} onClick={() => selectSignal(from, node.id)}>{label(graph.nodes.find(n => n.id === from))} · drag to slider</button>)}
-          {signalEndpoint?.to === node.id && graph.modulations.some(m => m.from === signalEndpoint.from && m.to === node.id) && <>
-            <label>Target parameter<Select aria-label="Target parameter" value={targetParam} onChange={e => setTargetParam(e.target.value)}><option value="">Choose numeric slider…</option>{definitions(node, SKETCHES).map(d => <option key={d.key} value={d.key} disabled={!numeric(d)}>{d.label}{numeric(d) ? '' : ' (unsupported)'}</option>)}</Select></label>
-            <button className="btn" disabled={!targetParam} onClick={() => assignSignal(signalEndpoint.from, definitions(node, SKETCHES).find(d => d.key === targetParam))}>Map / replace parameter</button>
-            <button className="btn btn--sm" onClick={() => edit({ ...graph, modulations: graph.modulations.filter(m => m.from !== signalEndpoint.from || m.to !== node.id) })}>Disconnect signal</button>
-          </>}
-          <p>Numeric sliders only; enums, bool and text are unsupported. Base stays unchanged. By default mapping min = signal 0 and max = signal 1; a mapped parameter can convert a different signal input range (for example a Math output) instead. Reversed ranges are allowed.</p>
+        {signalNode && (graph.modulations || []).some(m => m.to === signalNode.id) && <section className="nodes-signals" aria-label="Connected signals"><h2>Connected signals</h2>
+          {[...new Set(graph.modulations.filter(m => m.to === signalNode.id).map(m => m.from))].map(from => <button key={from} className={`btn nodes-signal-chip ${signalEndpoint?.from === from && signalEndpoint?.to === signalNode.id ? 'active' : ''}`} draggable title="Drag onto a numeric slider to map it" onDragStart={e => e.dataTransfer.setData(SIGNAL_DRAG, from)} onClick={() => focusSignal(from, signalNode.id)}>{label(graph.nodes.find(n => n.id === from))}</button>)}
         </section>}
         {node && definitions(node, SKETCHES).map(def => {
           const mapping = (graph.modulations || []).find(m => m.to === node.id && m.param === def.key);
@@ -338,7 +423,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
         })}
         {node && graph.edges.filter(e => e.to === node.id).map(e => <button className="btn btn--sm" title={`Disconnect ${e.port} input`} key={e.port} onClick={() => edit({ ...graph, edges: graph.edges.filter(w => w !== e) })}>Disconnect {e.port}</button>)}
         <button className="btn btn--danger" title="Delete all selected nodes and their connections; required Output is kept" disabled={!removable.length} onClick={remove}>Delete node</button>
-        <details><summary>Dependencies & limits</summary><p>24 nodes, 8 leaf renderers, 1280×720 internal image. No recursive graphs. Camera capture stays on output. Local files and custom assets are not embedded.</p>{dependencies.map(d => <p key={d.id}>{d.name || d.id} · {d.kind}</p>)}<button className="btn" title="Refresh dependency fingerprints from available patterns" onClick={() => attempt(() => { setDraft({ ...draft, dependencies: manifestFor(graph, SKETCHES) }); setMessage('Dependency manifest refreshed explicitly. Save when ready.'); })}>Refresh dependencies</button></details>
+        <details><summary>Dependencies & limits</summary><p>No node, Pattern source or wire budget is imposed: practical graph size follows your hardware. 1280×720 internal image, no recursive graphs, camera capture stays on output, and local files or custom assets are not embedded. A pattern file stays under 200 KB so it remains loadable.</p>{dependencies.map(d => <p key={d.id}>{d.name || d.id} · {d.kind}</p>)}<button className="btn" title="Refresh dependency fingerprints from available patterns" onClick={() => attempt(() => { setDraft({ ...draft, dependencies: manifestFor(graph, SKETCHES) }); setMessage('Dependency manifest refreshed explicitly. Save when ready.'); })}>Refresh dependencies</button></details>
       </aside>
     </div>
   </main>;

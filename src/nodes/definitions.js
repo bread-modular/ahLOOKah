@@ -41,6 +41,17 @@ const ports = {
   script: SCRIPT_INPUTS,
 };
 export const inputs = (node) => node?.type === 'pattern' ? [] : (ports[node?.type] || []).slice();
+// Only clamp consumes c: add/subtract/multiply/divide/min/max/abs read a and b at
+// most, and abs ignores b as well but keeps the port so an operation change never
+// rewires a saved graph. `inputs()` stays the stored contract (all three Math
+// ports) so files saved by builds that always showed C still validate; the editor,
+// the wire geometry and the runtime ask this instead, and the model drops a wire
+// to a port that is present in the contract but inactive for the current operation.
+export const MATH_OP_PORTS = Object.freeze({ clamp: Object.freeze(['a', 'b', 'c']) });
+const MATH_DEFAULT_PORTS = Object.freeze(['a', 'b']);
+export const mathPorts = (op) => (MATH_OP_PORTS[op] || MATH_DEFAULT_PORTS).slice();
+export const activeInputs = (node) => node?.type === 'math' ? mathPorts(node.op) : inputs(node);
+export const inactiveMathPort = (node, port) => node?.type === 'math' && inputs(node).includes(port) && !mathPorts(node.op).includes(port);
 export const isSignalSource = (node) => !!node && SIGNAL_TYPES.includes(node.type);
 export const isScalarConsumer = (node) => !!node && SCALAR_TYPES.includes(node.type);
 export const isVisualSource = (node) => !!node && VISUAL_SOURCES.includes(node.type);

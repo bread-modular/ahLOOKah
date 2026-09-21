@@ -7,14 +7,17 @@
 //   modulations — terminal scalar mappings onto a numeric parameter
 import {
   TYPES, COLOR_PARAMS, MATH_OPS, MATH_LITERALS, SCRIPT_LITERALS,
-  inputs, isSignalSource, isScalarConsumer, isModulationTarget,
+  inputs, isSignalSource, isScalarConsumer, isModulationTarget, inactiveMathPort,
 } from './definitions.js';
 import { MAX_EXPRESSION } from './script.js';
 
 export const VERSION = 1;
-export const MAX_NODES = 24;
-export const MAX_SOURCES = 8;
-export const MAX_SIGNAL_EDGES = 48;
+// Graph size is not budgeted here. Node count, Pattern source count and wire
+// counts are limited only by the machine that edits and renders them, because a
+// fixed node/source cap cannot know the hardware. What stays enforced is
+// structural and safety validation: ports, references, uniqueness, cycles,
+// finite numbers, the restricted script expression (MAX_EXPRESSION) and the JSON
+// payload size (MAX_BYTES) that keeps one pattern file loadable.
 export const MAX_BYTES = 200000;
 export const MODES = { Normal: 'source-over', Multiply: 'multiply', Screen: 'screen', Overlay: 'overlay', Difference: 'difference', Add: 'lighter' };
 export { inputs };
@@ -26,8 +29,8 @@ export function validateGraph(raw, { complete = false } = {}) {
   if (!raw || raw.version !== VERSION) fail('Unsupported graph version');
   if (JSON.stringify(raw).length > MAX_BYTES) fail('Graph exceeds 200 KB');
   if (typeof raw.name !== 'string' || !raw.name.trim() || raw.name.length > 80) fail('Name must contain 1–80 characters');
-  if (!Array.isArray(raw.nodes) || !raw.nodes.length || raw.nodes.length > MAX_NODES) fail('Graph needs 1–24 nodes');
-  if (!Array.isArray(raw.edges) || raw.edges.length > MAX_NODES * 2) fail('Too many wires');
+  if (!Array.isArray(raw.nodes) || !raw.nodes.length) fail('Graph needs at least one node');
+  if (!Array.isArray(raw.edges)) fail('Invalid image wires');
   const ids = new Map();
   const nodes = raw.nodes.map(n => {
     if (!n || !idOK(n.id) || ids.has(n.id) || !TYPES.includes(n.type)) fail('Invalid or duplicate node');
@@ -82,7 +85,6 @@ export function validateGraph(raw, { complete = false } = {}) {
     return node;
   });
   if (nodes.filter(n => n.type === 'output').length !== 1) fail('Exactly one Output is required');
-  if (nodes.filter(n => n.type === 'pattern').length > MAX_SOURCES) fail('At most 8 Pattern sources');
   const occupied = new Set();
   const edges = raw.edges.map(e => {
     const from = ids.get(e?.from), to = ids.get(e?.to);
@@ -93,16 +95,22 @@ export function validateGraph(raw, { complete = false } = {}) {
     occupied.add(key);
     return { from: e.from, to: e.to, port: e.port };
   });
-  if (raw.signalEdges !== undefined && (!Array.isArray(raw.signalEdges) || raw.signalEdges.length > MAX_SIGNAL_EDGES)) fail('Too many signal wires');
+  if (raw.signalEdges !== undefined && !Array.isArray(raw.signalEdges)) fail('Invalid signal wires');
+  // A Math input that the selected operation does not consume can never be read:
+  // files saved by builds that always showed C still open, but the inactive wire
+  // is dropped instead of being rejected (which would make the graph unloadable)
+  // or kept (which would leave an invisible, unreachable link behind). Unknown
+  // ports still fail below.
+  const reachableSignalEdges = (raw.signalEdges || []).filter(e => !inactiveMathPort(ids.get(e?.to), e?.port));
   const signalOccupied = new Set();
-  const signalEdges = (raw.signalEdges || []).map(e => {
+  const signalEdges = reachableSignalEdges.map(e => {
     const from = ids.get(e?.from), to = ids.get(e?.to);
     const key = `${e?.to}:${e?.port}`;
     if (!from || !to || !isSignalSource(from) || !isScalarConsumer(to) || !inputs(to).includes(e.port) || signalOccupied.has(key)) fail('Invalid signal reference, port, or duplicate input wire');
     signalOccupied.add(key);
     return { from: e.from, to: e.to, port: e.port };
   });
-  if (raw.modulations !== undefined && (!Array.isArray(raw.modulations) || raw.modulations.length > 256)) fail('Invalid modulation links');
+  if (raw.modulations !== undefined && !Array.isArray(raw.modulations)) fail('Invalid modulation links');
   const mapped = new Set(), links = new Set();
   const modulations = (raw.modulations || []).map(m => {
     const from = ids.get(m?.from), to = ids.get(m?.to);
@@ -160,6 +168,29 @@ export function deleteNodes(graph, ids) {
     ...(graph.modulations ? { modulations: graph.modulations.filter(keepLink) } : {}) };
 }
 export function deleteNode(graph, id) { return deleteNodes(graph, [id]); }
+
+// The three link kinds are independent, so a selected connection is addressed by
+// both its kind and a key that is unique inside that kind. Selection is transient
+// editor state; these helpers turn it back into an exact graph edit, which is what
+// lets Delete remove one wire without touching either endpoint node.
+export const WIRE_KINDS = Object.freeze(['image', 'signal', 'modulation']);
+export function connectionRef(kind, link) {
+  return { kind, key: kind === 'modulation' ? `${link.from}:${link.to}:${link.param ?? ''}` : `${link.to}:${link.port}` };
+}
+export function findConnection(graph, ref) {
+  if (!ref || !WIRE_KINDS.includes(ref.kind)) return null;
+  const links = ref.kind === 'image' ? graph.edges : ref.kind === 'signal' ? graph.signalEdges : graph.modulations;
+  return (links || []).find(link => connectionRef(ref.kind, link).key === ref.key) || null;
+}
+export function removeConnection(graph, ref) {
+  if (!findConnection(graph, ref)) return graph;
+  const keep = link => connectionRef(ref.kind, link).key !== ref.key;
+  const next = { ...graph };
+  if (ref.kind === 'image') next.edges = graph.edges.filter(keep);
+  else if (ref.kind === 'signal') next.signalEdges = (graph.signalEdges || []).filter(keep);
+  else next.modulations = (graph.modulations || []).filter(keep);
+  return validateGraph(next);
+}
 export const DRAG_TYPE = 'application/x-viz-pattern+json';
 export function readPatternDrag(transfer, sketches) {
   try {

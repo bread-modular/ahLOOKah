@@ -50,7 +50,9 @@
 .nodes-node .nodes-output { position:absolute; right:0; top:2px; height:32px; border:0; background:transparent; font-size:11px; padding:3px 6px; color:var(--accent); cursor:pointer; }
 .nodes-node .nodes-output.active { background:var(--accent); color:var(--bg-dark); border-radius:4px; }
 .nodes-node .nodes-input:hover,.nodes-node .nodes-output:hover { color:var(--text-main); }
-.nodes-node-detail { display:block; padding:0 10px 9px; font-size:10px; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+/* One explicit line box: wire geometry mirrors DETAIL_HEIGHT (20 = 11 + 9), so
+   the ◇ signal anchor cannot drift when inherited typography changes. */
+.nodes-node-detail { display:block; padding:0 10px 9px; font-size:10px; line-height:11px; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 @media(max-width:1000px) { .nodes-layout { grid-template-columns:175px minmax(250px,1fr) 225px; } }
 
 .nodes-toolbar-actions { display:flex; gap:8px; align-items:center; margin-left:auto; }
@@ -66,9 +68,20 @@
 
 /* Dashed violet modulation is never a visual/image wire. */
 .nodes-wires .nodes-signal-wire { stroke:#c29aff; stroke-dasharray:7 5; stroke-width:3px; }
+/* A selected connection is highlighted on its own; the endpoint nodes stay
+   unselected, because Delete removes only this wire. */
+.nodes-wires path.is-selected { stroke:#fff; stroke-width:7px; }
+.nodes-wires path.is-selected.nodes-signal-wire { stroke:#e6d6ff; }
 .nodes-signal-endpoint { color:#c29aff; border:0; border-top:1px solid var(--border-gray); background:transparent; width:100%; text-align:left; height:28px; cursor:pointer; }
 .nodes-signal-chip { white-space:normal; text-align:left; margin-bottom:6px; color:#c29aff; width:100%; }
 .nodes-signal-chip.active { border-color:#c29aff; }
+/* Hidden Math ports (Value C outside clamp) keep their stored literal but take
+   no sidebar space. */
+.nodes-inspector label[hidden] { display:none; }
+.nodes-connections output.nodes-connection-name { display:block; margin:10px 0 4px; padding:6px 8px; background:var(--bg-dark); border:1px solid var(--border-gray); border-radius:4px; color:#e6d6ff; font-size:11px; overflow-wrap:anywhere; }
+.nodes-connections .btn { margin:4px 0 0; }
+/* Mapping fields are opt-in: one collapsed toggle per mapped slider. */
+.nodes-mapping-toggle { display:block; width:100%; text-align:left; margin:6px 0 0; }
 .nodes-mapping-overlay { position:absolute; inset:0 7px; pointer-events:none; }
 .nodes-mapping-box { position:absolute; top:0; bottom:0; min-width:2px; background:#b586ff40; border:1px solid #c29aff; border-radius:3px; cursor:grab; pointer-events:auto; touch-action:none; }
 .nodes-mapping-handle { position:absolute; top:-2px; bottom:-2px; width:7px; transform:translateX(-50%); background:#c29aff; border:1px solid #241936; cursor:ew-resize; pointer-events:auto; touch-action:none; }
