@@ -1,12 +1,49 @@
 // Pattern-specific audio transport protocol shared by capture owners and render
 // consumers. Keep this module DOM-free so validation and sizing can be tested in
 // a browser page without booting p5 or microphone capture.
+//
+// Version 2 adds per-node audio routing: node-audio signal slots carry a
+// complete `audioInput` selector, and every v2 control slot carries bounded
+// `source` availability metadata. Version 1 plans/packets remain valid at every
+// boundary and keep exactly their old default-routing semantics.
 
-export const PATTERN_AUDIO_PROTOCOL_VERSION = 1;
+import {
+  AUDIO_CALIBRATION_STATES,
+  AUDIO_CHANNELS,
+  AUDIO_SOURCE_STATUSES,
+  DEFAULT_AUDIO_INPUT,
+  MAX_AUDIO_DEVICE_ID_LENGTH,
+  NODE_AUDIO_SIGNAL_PATTERN_ID,
+  audioRouteKey,
+  isDefaultAudioRoute,
+  normalizeAudioRoute,
+  sameAudioRoute,
+} from './audio-routing.js';
+
+export {
+  AUDIO_CALIBRATION_STATES,
+  AUDIO_CHANNELS,
+  AUDIO_SOURCE_STATUSES,
+  DEFAULT_AUDIO_INPUT,
+  NODE_AUDIO_SIGNAL_PATTERN_ID,
+  audioRouteKey,
+  isDefaultAudioRoute,
+  sameAudioRoute,
+};
+
+export const PATTERN_AUDIO_PROTOCOL_VERSION = 2;
+export const SUPPORTED_PATTERN_AUDIO_PROTOCOL_VERSIONS = Object.freeze([1, 2]);
 export const PATTERN_AUDIO_PLAN_TYPE = 'pattern-audio-plan';
 export const PATTERN_AUDIO_CONTROLS_TYPE = 'pattern-audio-controls';
 export const PATTERN_AUDIO_PLAN_REQUEST_TYPE = 'pattern-audio-plan-request';
 export const PATTERN_CONTROLS_TRANSPORT = 'pattern-controls';
+
+// Owner capabilities published next to the existing request/catalog messages.
+// Old consumers ignore unknown fields.
+export const PATTERN_AUDIO_CAPABILITIES = Object.freeze({
+  protocolVersions: SUPPORTED_PATTERN_AUDIO_PROTOCOL_VERSIONS,
+  nodeAudioRouting: 1,
+});
 
 export const PATTERN_AUDIO_LIMITS = Object.freeze({
   maxSlots: 64, // Up to 8 surfaces × 2 merge inputs × 4 runtime roles.
@@ -19,7 +56,14 @@ export const PATTERN_AUDIO_LIMITS = Object.freeze({
   maxEventsPerSlot: 16,
   maxRevision: 0x7fffffff,
   maxFiniteMagnitude: 1_000_000,
+  maxDeviceIdLength: MAX_AUDIO_DEVICE_ID_LENGTH,
+  maxChannels: 256, // Transport safety bound, not a hardware-channel promise.
 });
+
+// Aggregate transport ceilings (operational estimates, applied to already
+// shape-validated messages before expensive controller/schema work).
+export const PATTERN_AUDIO_PLAN_MAX_BYTES = 256 * 1024;
+export const PATTERN_AUDIO_CONTROLS_MAX_BYTES = 2 * 1024 * 1024;
 
 export const PATTERN_AUDIO_PLAN_LEASE_MS = 3_500;
 export const PATTERN_AUDIO_EXPECTED_CONSUMER_MS = 8_000;
@@ -109,6 +153,47 @@ export function paramsFingerprint(params = {}) {
     .join('|');
 }
 
+// Routing selectors are descriptor metadata, never numeric pattern parameters,
+// so they get their own fingerprint instead of Number() coercion. JSON encoding
+// keeps string ids distinct from numeric junk that never validated anyway.
+export function audioInputFingerprint(audioInput = DEFAULT_AUDIO_INPUT) {
+  return JSON.stringify([audioInput?.deviceId ?? null, audioInput?.channel ?? 'mono']);
+}
+
+// Wire form of a routing selector: a complete plain object with exactly the two
+// documented keys. Unlike the graph model there is no "missing field" default —
+// an incomplete selector is malformed, not global.
+export function validateTransportAudioInput(value) {
+  if (!isPlainObject(value) || Object.keys(value).length !== 2) return null;
+  if (!('deviceId' in value) || !('channel' in value)) return null;
+  return normalizeAudioRoute(value.deviceId, value.channel);
+}
+
+function validateSourceMetadata(value) {
+  if (!isPlainObject(value) || Object.keys(value).length !== 7) return null;
+  if (!('id' in value) || !('generation' in value) || !('activeDeviceId' in value)
+    || !('channels' in value) || !('status' in value) || !('fallback' in value)
+    || !('calibration' in value)) return null;
+  if (value.id !== null && !validString(value.id, PATTERN_AUDIO_LIMITS.maxIdLength)) return null;
+  if (!validRevision(value.generation)) return null;
+  if (value.activeDeviceId !== null
+    && !validString(value.activeDeviceId, PATTERN_AUDIO_LIMITS.maxDeviceIdLength)) return null;
+  if (value.channels !== null
+    && (!Number.isInteger(value.channels) || value.channels < 1 || value.channels > PATTERN_AUDIO_LIMITS.maxChannels)) return null;
+  if (!AUDIO_SOURCE_STATUSES.includes(value.status)) return null;
+  if (typeof value.fallback !== 'boolean') return null;
+  if (!AUDIO_CALIBRATION_STATES.includes(value.calibration)) return null;
+  return {
+    id: value.id,
+    generation: value.generation,
+    activeDeviceId: value.activeDeviceId,
+    channels: value.channels,
+    status: value.status,
+    fallback: value.fallback,
+    calibration: value.calibration,
+  };
+}
+
 function validateParams(sketch, params) {
   if (!isPlainObject(params)) return null;
   const keys = Object.keys(params);
@@ -144,6 +229,9 @@ function publicSlot(slot) {
     paramsRevision: slot.paramsRevision,
     params: { ...slot.params },
     audioTransport: slot.audioTransport,
+    // v2 slots keep their routing selector through every serializer boundary;
+    // v1 slots have none and stay byte-compatible with the old wire.
+    ...(slot.audioInput ? { audioInput: { ...slot.audioInput } } : {}),
   };
 }
 
@@ -154,7 +242,7 @@ export function toPublicPlanSlot(slot) {
 export function validatePatternAudioPlan(message, { getSketchById } = {}) {
   if (!isPlainObject(message)
     || message.type !== PATTERN_AUDIO_PLAN_TYPE
-    || message.version !== PATTERN_AUDIO_PROTOCOL_VERSION
+    || !SUPPORTED_PATTERN_AUDIO_PROTOCOL_VERSIONS.includes(message.version)
     || !validString(message.consumerSessionId, PATTERN_AUDIO_LIMITS.maxIdLength)
     || !validRevision(message.planRevision)
     || !isFiniteNumber(message.sentAt)
@@ -162,6 +250,7 @@ export function validatePatternAudioPlan(message, { getSketchById } = {}) {
     || !Array.isArray(message.slots)
     || message.slots.length > PATTERN_AUDIO_LIMITS.maxSlots) return null;
 
+  const version = message.version;
   const slots = [];
   const runtimeIds = new Set();
   for (const slot of message.slots) {
@@ -177,10 +266,30 @@ export function validatePatternAudioPlan(message, { getSketchById } = {}) {
       || slot.audioTransport !== PATTERN_CONTROLS_TRANSPORT
       || runtimeIds.has(slot.runtimeId)) return null;
 
+    // A v1 plan must never carry routing fields: ignoring their intent would
+    // silently reroute a node's signal to the global input.
+    if (version < 2 && slot.audioInput !== undefined) return null;
+
     const sketch = typeof getSketchById === 'function' ? getSketchById(slot.patternId) : null;
     if (!sketch || getAudioTransport(sketch) !== slot.audioTransport) return null;
     const params = validateParams(sketch, slot.params);
     if (!params) return null;
+
+    let audioInput = null;
+    if (version >= 2) {
+      if (slot.audioInput === undefined) {
+        // Complete valid routing is required on v2 node-audio signal slots;
+        // ordinary pattern slots default to the global full-stereo frame.
+        if (slot.patternId === NODE_AUDIO_SIGNAL_PATTERN_ID) return null;
+        audioInput = { ...DEFAULT_AUDIO_INPUT };
+      } else {
+        audioInput = validateTransportAudioInput(slot.audioInput);
+        if (!audioInput) return null;
+        // Nondefault route metadata is only accepted on the node-audio signal
+        // source in this release.
+        if (!isDefaultAudioRoute(audioInput) && slot.patternId !== NODE_AUDIO_SIGNAL_PATTERN_ID) return null;
+      }
+    }
 
     runtimeIds.add(slot.runtimeId);
     slots.push({
@@ -191,12 +300,13 @@ export function validatePatternAudioPlan(message, { getSketchById } = {}) {
       paramsRevision: slot.paramsRevision,
       params,
       audioTransport: slot.audioTransport,
+      ...(audioInput ? { audioInput } : {}),
     });
   }
 
   return {
     type: PATTERN_AUDIO_PLAN_TYPE,
-    version: PATTERN_AUDIO_PROTOCOL_VERSION,
+    version,
     consumerSessionId: message.consumerSessionId,
     planRevision: message.planRevision,
     sentAt: message.sentAt,
@@ -252,7 +362,7 @@ function validateEvent(event) {
 export function validatePatternAudioControls(message) {
   if (!isPlainObject(message)
     || message.type !== PATTERN_AUDIO_CONTROLS_TYPE
-    || message.version !== PATTERN_AUDIO_PROTOCOL_VERSION
+    || !SUPPORTED_PATTERN_AUDIO_PROTOCOL_VERSIONS.includes(message.version)
     || !validString(message.consumerSessionId, PATTERN_AUDIO_LIMITS.maxIdLength)
     || !validRevision(message.planRevision)
     || !validString(message.audioOwnerId, PATTERN_AUDIO_LIMITS.maxIdLength)
@@ -263,6 +373,7 @@ export function validatePatternAudioControls(message) {
     || !Array.isArray(message.slots)
     || message.slots.length > PATTERN_AUDIO_LIMITS.maxSlots) return null;
 
+  const version = message.version;
   const slots = [];
   const runtimeIds = new Set();
   for (const slot of message.slots) {
@@ -270,6 +381,23 @@ export function validatePatternAudioControls(message) {
       || !validString(slot.runtimeId, PATTERN_AUDIO_LIMITS.maxIdLength)
       || runtimeIds.has(slot.runtimeId)
       || !validRevision(slot.paramsRevision)) return null;
+
+    // v1 slots carry neither routing echoes nor source metadata; a v1 packet
+    // with them is malformed, not a downgrade candidate.
+    if (version < 2 && (slot.audioInput !== undefined || slot.source !== undefined)) return null;
+
+    let audioInput = null;
+    let source = null;
+    if (version >= 2) {
+      // Every v2 slot includes source availability/generation metadata.
+      source = validateSourceMetadata(slot.source);
+      if (!source) return null;
+      if (slot.audioInput !== undefined) {
+        audioInput = validateTransportAudioInput(slot.audioInput);
+        if (!audioInput) return null;
+      }
+    }
+
     const continuous = validateContinuous(slot.continuous || {});
     const arrays = validateArrays(slot.arrays || {});
     if (!continuous || !arrays || !Array.isArray(slot.events) || slot.events.length > PATTERN_AUDIO_LIMITS.maxEventsPerSlot) return null;
@@ -282,12 +410,20 @@ export function validatePatternAudioControls(message) {
       events.push(clean);
     }
     runtimeIds.add(slot.runtimeId);
-    slots.push({ runtimeId: slot.runtimeId, paramsRevision: slot.paramsRevision, continuous, arrays, events });
+    slots.push({
+      runtimeId: slot.runtimeId,
+      paramsRevision: slot.paramsRevision,
+      continuous,
+      arrays,
+      events,
+      ...(source ? { source } : {}),
+      ...(audioInput ? { audioInput } : {}),
+    });
   }
 
   return {
     type: PATTERN_AUDIO_CONTROLS_TYPE,
-    version: PATTERN_AUDIO_PROTOCOL_VERSION,
+    version,
     consumerSessionId: message.consumerSessionId,
     planRevision: message.planRevision,
     audioOwnerId: message.audioOwnerId,

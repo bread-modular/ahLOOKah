@@ -62,7 +62,7 @@ export function sourceDiagnostics(graph, sketches, manifest = []) {
 }
 export function serializeGraph(graph, dependencies) {
   return JSON.stringify({ format: 'viz2-nodes', version: 1, graph: validateGraph(graph), dependencies,
-    portability: 'Local media files/permissions and matching custom scripts/projection definitions are required on the destination. No files or executable code are embedded.' }, null, 2);
+    portability: 'Local media files/permissions and matching custom scripts/projection definitions are required on the destination. No files or executable code are embedded. Audio nodes pinned to a specific input device keep that browser device id, which is origin/profile-specific and may need reselection on another machine or after clearing site data; Global input (the default) always follows the destination Settings.' }, null, 2);
 }
 export function validateManifest(value) {
   if (!Array.isArray(value) || value.length > 80 || value.some(d => !d || typeof d.id !== 'string' || d.id.length > 80 || (d.signature !== null && typeof d.signature !== 'string'))) throw new Error('Invalid dependency manifest');
