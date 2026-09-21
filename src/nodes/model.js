@@ -83,10 +83,17 @@ export function newGraph() {
 export function connect(graph, from, to, port) {
   return validateGraph({ ...graph, edges: [...graph.edges.filter(e => e.to !== to || e.port !== port), { from, to, port }] });
 }
-export function deleteNode(graph, id) {
-  if (graph.nodes.find(n => n.id === id)?.type === 'output') return graph;
-  return { ...graph, nodes: graph.nodes.filter(n => n.id !== id), edges: graph.edges.filter(e => e.from !== id && e.to !== id), ...(graph.modulations ? { modulations: graph.modulations.filter(e => e.from !== id && e.to !== id) } : {}) };
+// Output is structural: selecting it never removes it, but does not veto
+// deletion of other selected nodes. Remove all incident links atomically.
+export function deleteNodes(graph, ids) {
+  const selected = new Set(ids);
+  const removed = new Set(graph.nodes.filter(n => n.type !== 'output' && selected.has(n.id)).map(n => n.id));
+  if (!removed.size) return graph;
+  const keepLink = e => !removed.has(e.from) && !removed.has(e.to);
+  return { ...graph, nodes: graph.nodes.filter(n => !removed.has(n.id)), edges: graph.edges.filter(keepLink),
+    ...(graph.modulations ? { modulations: graph.modulations.filter(keepLink) } : {}) };
 }
+export function deleteNode(graph, id) { return deleteNodes(graph, [id]); }
 export const DRAG_TYPE = 'application/x-viz-pattern+json';
 export function readPatternDrag(transfer, sketches) {
   try {

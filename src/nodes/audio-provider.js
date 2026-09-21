@@ -1,3 +1,4 @@
+import { PreviewAudio } from '../preview-audio.js';
 import { FEATURE_SCHEMA } from '../sketches/feature-controls.js';
 import { NODE_AUDIO_SOURCE } from './audio-source.js';
 import { PatternAudioControlStore } from '../pattern-audio-controls.js';
@@ -24,21 +25,44 @@ export function createEditorAudio() {
   const consumerSessionId = `nodes-editor-${crypto.randomUUID()}`;
   const store = new PatternAudioControlStore({ consumerSessionId });
   const channel = new BroadcastChannel(CHANNEL_NAME);
-  let children = [], revision = 0;
+  const audio = new PreviewAudio({ idleSignal: false });
+  let children = [], revision = 0, topology = '', disposed = false, queued = false;
   const publish = () => {
+    if (disposed) return;
     const slots = children.flatMap(c => c.getAudioSlotDescriptors('preview'));
+    const nextTopology = JSON.stringify(slots.map(s => s.runtimeId).sort());
+    if (nextTopology !== topology) { topology = nextTopology; revision++; }
     const plan = { type: PATTERN_AUDIO_PLAN_TYPE, version: PATTERN_AUDIO_PROTOCOL_VERSION, consumerSessionId, planRevision: revision, sentAt: performance.now(), complete: true, slots };
     store.setPlan(plan);
-    channel.postMessage({ ...plan, slots: slots.map(toPublicPlanSlot) });
+    channel.postMessage({ ...plan, windowId: consumerSessionId, slots: slots.map(toPublicPlanSlot) });
+  };
+  // Slot notifications may fire while a child is being constructed or while
+  // descriptors refresh. Defer/coalesce to avoid publishing a partial graph or
+  // recursively re-entering descriptor collection. Heartbeats retain revisions.
+  const refresh = () => {
+    if (disposed || queued) return;
+    queued = true;
+    queueMicrotask(() => { queued = false; publish(); });
   };
   channel.onmessage = ({ data }) => {
-    if (data?.type === PATTERN_AUDIO_CONTROLS_TYPE) store.acceptPacket(data);
+    if (data?.type === PATTERN_AUDIO_CONTROLS_TYPE) {
+      if (data.windowId && data.windowId !== data.audioOwnerId) return;
+      const receipt = store.acceptPacket(data);
+      if (receipt.accepted && receipt.slots > 0) {
+        if (data.audioActive) audio.setControlActive();
+        else audio.clearFrame();
+      }
+    }
     if (data?.type === PATTERN_AUDIO_PLAN_REQUEST_TYPE) publish();
   };
   const heartbeat = setInterval(publish, 1000);
   return {
-    store,
-    setChildren(next) { children = next; revision++; publish(); },
-    dispose() { children = []; revision++; publish(); clearInterval(heartbeat); channel.close(); },
+    store, audio, refresh,
+    setChildren(next) { if (disposed) return; children = next; publish(); },
+    dispose() {
+      if (disposed) return;
+      children = []; publish(); disposed = true;
+      clearInterval(heartbeat); audio.clearFrame(); channel.close();
+    },
   };
 }
