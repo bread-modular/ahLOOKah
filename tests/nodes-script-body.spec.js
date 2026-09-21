@@ -376,11 +376,15 @@ test('a disk-loaded body script is gated until it is reviewed in this browser', 
   await page.goto(`/?role=nodes&graph=${encodeURIComponent(id)}`);
   await expect(page.locator('.nodes-diagnostics')).toContainText('not approved');
   await page.getByRole('button', { name: 'Select Script', exact: true }).click();
+  // Scalar Script nodes have no preview window in the inspector.
+  await expect(page.getByTestId('node-preview')).toHaveCount(0);
   await expect(page.getByTestId('script-status')).toContainText('review required');
   await expect(page.getByTestId('node-signal-readout')).toContainText('Output 0.000');
   await page.getByRole('button', { name: 'Apply script' }).click();
   await expect(page.getByTestId('script-status')).toContainText('Applied and approved');
-  await expect(page.locator('.nodes-diagnostics')).not.toContainText('not approved');
+  // The script node's inspector has no preview window, so the cleared approval
+  // diagnostic is proven by the readout below running the approved source.
+  await expect(page.locator('.nodes-diagnostics')).toHaveCount(0);
   await expect(page.getByTestId('node-signal-readout')).toContainText('Output 1.000');
   expect(await page.evaluate(async () => (await import('/src/nodes/script-approval.js')).isScriptApproved('body', 'const v = x * 2;\nreturn v;'))).toBe(true);
 });

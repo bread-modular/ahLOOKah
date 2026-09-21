@@ -285,14 +285,16 @@ test('Audio creation supports multiple nodes and refuses enum mapping in the ins
   await page.getByLabel('Search patterns').fill('checkerboard');
   await page.locator('.nodes-pattern-list button').dragTo(page.getByLabel('Graph workspace'), { targetPosition: { x: 40, y: 40 } });
   const target = await page.locator('.nodes-node').filter({ has: page.getByRole('button', { name: 'Select Checkerboard', exact: true }) }).getAttribute('data-node-id');
-  await page.getByRole('button', { name: '+ Audio', exact: true }).click();
+  await page.getByRole('button', { name: '+ Audio', exact: true }).dragTo(page.getByLabel('Graph workspace'));
   const from = await page.locator('.nodes-node[data-primary=true]').getAttribute('data-node-id');
+  // Scalar Audio nodes have no preview window in the inspector.
+  await expect(page.getByTestId('node-preview')).toHaveCount(0);
   await page.getByLabel(`${from} output`, { exact: true }).click(); await page.getByLabel(`${target} signal endpoint`, { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Audio · bass', exact: true })).toHaveCount(1);
   await page.getByRole('button', { name: 'Audio · bass', exact: true }).dragTo(page.getByLabel(source.label, { exact: true }));
   await expect(page.locator('.nodes-workspace')).toHaveAttribute('data-status', /Unsupported: only numeric sliders/);
   await expect(page.locator('.nodes-mapping-box')).toHaveCount(0);
-  await page.getByRole('button', { name: '+ Audio', exact: true }).click(); await page.getByLabel('Audio band').selectOption('high');
+  await page.getByRole('button', { name: '+ Audio', exact: true }).dragTo(page.getByLabel('Graph workspace')); await page.getByLabel('Audio band').selectOption('high');
   await expect(page.getByRole('button', { name: 'Select Audio · bass', exact: true })).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Select Audio · high', exact: true })).toHaveCount(1);
 });

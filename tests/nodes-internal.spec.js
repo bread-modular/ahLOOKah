@@ -84,7 +84,7 @@ test('leaving a dirty editor confirms; cancel keeps the draft and accept discard
   await page.goto('/');
   await page.getByRole('button', { name: 'New Node Pattern', exact: true }).click();
   await editor(page).getByLabel('Graph name').fill('Unsaved draft');
-  await editor(page).getByRole('button', { name: '+ Blend', exact: true }).click();
+  await editor(page).getByRole('button', { name: '+ Blend', exact: true }).dragTo(editor(page).locator('.nodes-workspace'));
   await expect(editor(page).locator('.nodes-node')).toHaveCount(2);
   let warned = '';
   page.once('dialog', d => { warned = d.message(); d.dismiss(); });
