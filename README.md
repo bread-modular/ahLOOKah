@@ -372,15 +372,19 @@ Scripts are trusted JavaScript, **not a sandbox**. The complete tutorial is
 
 ## Node graph patterns
 
-Choose **ADD** (New Node Pattern) in the main **Node Patterns** category, or navigate to
-`?role=nodes`. The dependency-free React/DOM + SVG editor composes source pixels
-through chained Blend nodes. The main **Node Patterns** category owns **Link Folder**,
-**Open Pattern**, **Refresh folder**, and **New Node Pattern**. Select a graph, then
-use the sidebar’s **Edit Pattern** to open a separate tab at `/?role=nodes&graph=<id>`.
-The editor reads that exact disk graph via shared handles, reports unavailable files
-without a fallback, and focuses on editing, **Save**, and **Reload from disk**.
+Choose **ADD** (New Node Pattern) in the main **Node Patterns** category. The
+dependency-free React/DOM + SVG editor composes source pixels through chained Blend
+nodes. The main **Node Patterns** category owns **Link Folder**, **Open Pattern**,
+**Refresh folder**, and **New Node Pattern**. Select a graph, then use the sidebar’s
+**Edit Pattern** to open it in the editor. One graph is edited at a time and the editor
+replaces the main view in the same window — no popup, no tab rail, no draft list; its
+toolbar **Back to Main** returns to the main app, asking first when the draft is dirty.
+Reopening always loads the saved graph instead of reviving a hidden draft. The editor
+reads that exact disk graph via shared handles, reports unavailable files
+without a fallback, and focuses on editing, **Save**, and **Reload from disk**. The
+standalone `/?role=nodes&graph=<id>` URL remains the legacy compatibility path.
 Disk-authoritative `.nodes.json` patterns stay synchronized across same-origin tabs. Browser storage holds handles and filename metadata only;
-drafts stay in memory. Confirmed overwrites update selected patterns, while
+the open draft stays in memory. Confirmed overwrites update selected patterns, while
 unsaved edits never change LIVE. See the [Nodes guide](public/docs/nodes.html) for connections,
 shortcuts, source support, JSON dependency manifests and resource limits.
 
@@ -445,29 +449,31 @@ PLAYWRIGHT_PORT=5188 npx playwright test tests/nodes.spec.js --project=chromium 
 npm run build
 ```
 
-### Internal node editor workspaces
+### Internal node editor
 
-Node Patterns **ADD**, **OPEN**, and **Edit Pattern** now open internal tabs on
- the right of the main app. Opening a repository ID again focuses its existing
-editor. New drafts get their own tab; switching retains graph edits, selection,
-and canvas navigation. Closing a dirty tab asks before discarding; closing during
-a save is disabled. Save adopts the repository ID and updates the main library
-and external output using the existing repository notifications. Unsaved drafts
-are in memory, not crash/reload recovery storage.
+Node Patterns **ADD**, **OPEN**, and **Edit Pattern** open the editor in place over the
+main app view — no popup window, no right-side tab rail, no draft list. Exactly one
+editor session exists: **Back to Main** in the editor toolbar returns to the main app in
+the same browser window and unmounts the editor. Leaving or replacing a dirty graph (and
+**Reload from disk**) asks for confirmation first, and leaving during a save is disabled.
+Save adopts the repository ID and updates the main library and external output using the
+existing repository notifications. The open draft is in memory only; nothing is retained
+as a hidden second draft, so reopening reads the saved graph from disk.
 
-Internal editors reuse `NodesEditor` and borrow the main runtime's AudioManager,
-PatternAudioControlStore, and existing audio engine/clock. They do not create an
-audio channel, capture, ownership handoff, or program canvas host. Main stays
-mounted at the same dimensions, and external screen/output communication remains
-unchanged. Inactive editor source runtimes are paused, not destroyed.
+The editor reuses `NodesEditor` and borrows the main runtime's AudioManager,
+PatternAudioControlStore, and existing audio engine/clock directly. It does not create an
+audio channel, capture, ownership handoff, or program canvas host. Main stays mounted at
+the same dimensions, and external screen/output communication remains unchanged.
+Unmounting the editor disposes its preview runtimes; the main runtime keeps rendering.
 
 Media uses the existing same-document media store/cache and per-renderer playback
-lifecycle; switching tabs retains the editor's video element. Independent graph
+lifecycle, so leaving and reopening the editor reuses the persisted records (the editor's
+own decoders may be recreated; main decoders keep playing). Independent graph
 renderers still have independent video playback elements. Camera preview remains
 an explicit placeholder: `SharedCameraSource` is owned by the separate output
 screen and cannot be borrowed directly by the main document. Editors never open
 a second camera capture. Legacy `?role=nodes&graph=…` URLs remain supported as the
-standalone compatibility path; main app actions no longer launch them.
+standalone compatibility path; main app actions open the editor in place instead.
 
 Focused validation (isolated dev-server port):
 

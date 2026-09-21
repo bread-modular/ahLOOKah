@@ -1,4 +1,4 @@
-import { EditorTabs } from '../nodes/EditorTabs.jsx';
+import { EditorHost } from '../nodes/EditorHost.jsx';
 import { useRuntime } from './RuntimeContext.jsx';
 import { ScreenApp } from '../components/screen/ScreenApp.jsx';
 import { ControlApp } from '../components/control/ControlApp.jsx';
@@ -6,5 +6,5 @@ import { ControlApp } from '../components/control/ControlApp.jsx';
 export function App({ role }) {
   const { runtime } = useRuntime();
   if (role === 'screen') return <ScreenApp />;
-  return <EditorTabs><ControlApp /></EditorTabs>;
+  return <EditorHost><ControlApp /></EditorHost>;
 }

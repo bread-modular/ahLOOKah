@@ -11,6 +11,9 @@
 .nodes-toolbar h1 small { display:block; font-size:11px; color:var(--text-dim); font-weight:400; margin-top:3px; }
 .nodes-toolbar input { width:175px; }
 .nodes-toolbar a { margin-left:auto; font-size:.75rem; }
+/* Single-view editor: "Back to Main" leads the toolbar (both the hosted button
+   and the legacy standalone link) and must never be pushed to the right edge. */
+.nodes-toolbar .nodes-back { margin-left:0; flex:none; white-space:nowrap; text-decoration:none; }
 .nodes-status { padding:9px 18px; background:var(--panel-bg); border-bottom:1px solid var(--border-gray); min-height:35px; color:var(--text-dim); font-size:.72rem; }
 .nodes-layout { display:grid; grid-template-columns:215px minmax(250px,1fr) 280px; min-height:0; flex:1; }
 .nodes-palette,.nodes-inspector { min-width:0; overflow:auto; padding:0 14px 20px; background:var(--panel-bg); }

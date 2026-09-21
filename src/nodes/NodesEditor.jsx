@@ -16,14 +16,23 @@ import { MODES, newGraph, validateGraph, connect, deleteNodes, inputs, DRAG_TYPE
 import { GraphRuntime } from './runtime.js';
 import { nodePatterns, watchGraphs } from './repository.js';
 import { manifestFor, sourceDiagnostics, serializeGraph } from './portability.js';
+import { confirmDiscard } from './leave-guard.js';
 import './nodes.css';
+
+// The editor is hosted in the control window (one session at a time) or at the
+// legacy standalone `?role=nodes` route. Both return to the main app view in the
+// same browser window; no new window, tab rail or draft list is involved.
+function BackToMain({ onBack, busy }) {
+  if (onBack) return <button className="btn btn--status-size nodes-back" type="button" title="Return to the main app view" disabled={busy} onClick={onBack}>Back to Main</button>;
+  return <a className="btn btn--status-size nodes-back" href="/" title="Return to the main app view">Back to Main</a>;
+}
 
 function initialParams(sketch) {
   let bank = {};
   try { bank = JSON.parse(localStorage.getItem('viz2_params') || '{}')?.[sketch.id] || {}; } catch {}
   return Object.fromEntries((sketch.params || []).map(p => [p.key, Number.isFinite(bank[p.key]) && bank[p.key] >= p.min && bank[p.key] <= p.max ? bank[p.key] : p.default]));
 }
-function Preview({ graph, dependencies, selected, revision, current, sharedRuntime, active }) {
+function Preview({ graph, dependencies, selected, revision, current, sharedRuntime }) {
   const canvas = useRef(null), target = useRef(selected);
   const [messages, setMessages] = useState([]);
   target.current = selected;
@@ -54,13 +63,9 @@ function Preview({ graph, dependencies, selected, revision, current, sharedRunti
     } catch (e) { setMessages([e.message]); }
     return () => { cancelAnimationFrame(frame); runtime?.dispose(); audioProvider.setChildren([]); current.current = null; };
   }, [content, manifest, revision]);
-  useEffect(() => {
-    if (active) current.current?.resume();
-    else current.current?.pause();
-  }, [active, content, manifest, revision]);
   return <><canvas ref={canvas} width="480" height="270" aria-label="Selected node live preview" data-testid="node-preview" /><div role="status" className="nodes-diagnostics">{messages.map((m, i) => <p key={i}>{m}</p>)}</div></>;
 }
-export function NodesEditor({ graphId, sharedRuntime, active = true, onState, onSaved, beforeSave }) {
+export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }) {
   const mainContext = useContext(RuntimeContext);
   const [draft, setDraft] = useState(() => ({ graph: newGraph(), dependencies: [] }));
   const { graph, dependencies } = draft;
@@ -79,7 +84,9 @@ export function NodesEditor({ graphId, sharedRuntime, active = true, onState, on
   const [current, setCurrent] = useState(null), [busy, setBusy] = useState(false);
   const baseline = useRef(serializeGraph(newGraph(), []));
   const dirty = () => serializeGraph(graph, dependencies) !== baseline.current;
-  const discard = () => !dirty() || window.confirm('Discard unsaved changes to this draft?');
+  const discard = () => !dirty() || confirmDiscard();
+  // Shared guard: Back to Main and Reload from Disk abandon the same draft.
+  const leave = () => { if (discard()) onBack?.(); };
   const diskAction = async fn => {
     if (busy) return;
     setBusy(true);
@@ -184,7 +191,7 @@ export function NodesEditor({ graphId, sharedRuntime, active = true, onState, on
   }, [draft]);
   useEffect(() => { onState?.({ name: graph.name, dirty: dirty(), busy }); }, [draft, busy, current]);
   if (loadState !== 'ready') return <main className="nodes-app">
-    <header className="nodes-toolbar"><h1>Pattern editor</h1><a href="/" target="_blank" rel="noopener">Main pattern library ↗</a></header>
+    <header className="nodes-toolbar"><h1>Pattern editor</h1><BackToMain onBack={onBack} /></header>
     {loadState === 'loading' ? <p role="status">Loading selected node pattern from disk…</p> : <section role="alert"><p>{message}</p><button className="btn" onClick={() => resolveRoute(true)}>Retry loading</button></section>}
   </main>;
   return <main className="nodes-app" onKeyDown={e => {
@@ -193,12 +200,12 @@ export function NodesEditor({ graphId, sharedRuntime, active = true, onState, on
     if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); remove(); }
   }}>
     <header className="nodes-toolbar">
+      <BackToMain onBack={onBack && leave} busy={busy} />
       <input className="control-input" aria-label="Graph name" title="Edit pattern name" disabled={busy} value={graph.name} maxLength={80} onChange={e => setDraft({ ...draft, graph: { ...graph, name: e.target.value } })} />
       <div className="nodes-toolbar-actions">
         {current && <IconControl className="btn--status-size" icon="reload" label="Reload from Disk" title="Discard edits and reload this pattern from disk" disabled={busy} onClick={() => { if (discard()) diskAction(async () => { await nodePatterns.reconnect(); load(await nodePatterns.load(current.id)); }); }} />}
         <button className="btn btn--solid btn--status-size nodes-save" title="Save pattern to the linked folder" disabled={busy} onClick={() => diskAction(async () => {
           const errors = sourceDiagnostics(graph, SKETCHES, dependencies); if (errors.length) throw new Error(errors.join('; '));
-          beforeSave?.(graph, current);
           const record = await nodePatterns.save(graph, dependencies, current);
           setCurrent(record); baseline.current = serializeGraph(graph, dependencies); updateRoute(record.id);
           setMessage('');
@@ -247,7 +254,7 @@ export function NodesEditor({ graphId, sharedRuntime, active = true, onState, on
           <IconControl icon="zoomIn" label="Zoom in" disabled={navigation.view.zoom >= 2.5} onClick={() => navigation.zoomAt(1.2)} />
         </div>
       </section>
-      <aside className="nodes-inspector"><h2>{node ? label(node) : 'Preview'}</h2><Preview graph={graph} dependencies={dependencies} selected={selected} revision={revision} current={previewRuntime} sharedRuntime={sharedRuntime} active={active} />
+      <aside className="nodes-inspector"><h2>{node ? label(node) : 'Preview'}</h2><Preview graph={graph} dependencies={dependencies} selected={selected} revision={revision} current={previewRuntime} sharedRuntime={sharedRuntime} />
         {node?.type === 'audio' && <><label>Audio band<Select aria-label="Audio band" value={node.band} onChange={e => patch({ band: e.target.value })}>{BANDS.map(b => <option key={b}>{b}</option>)}</Select></label><p>Normalized custom-script activity (0…1). Uses the main window’s shared audio input; no input means zero. Connect out to one or many ◇ signal endpoints.</p></>}
         {node?.type === 'output' && <p>Output has no numeric controls. Audio mapping is not supported here.</p>}
         {node?.type === 'blend' && <label>Blend mode<Select aria-label="Blend mode" title="Choose pixel blend mode" value={node.mode} onChange={e => patch({ mode: e.target.value })}>{Object.keys(MODES).map(mode => <option key={mode}>{mode}</option>)}</Select></label>}
