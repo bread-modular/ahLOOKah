@@ -108,7 +108,7 @@ test('save adopts repository identity; Back to Main then reopen loads the saved 
   await connectDraft(page);
   await editor(page).getByLabel('Graph name').fill('Saved draft');
   await editor(page).getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(editor(page).locator('.nodes-status')).toHaveCount(0);
+  await expect(editor(page).locator('.nodes-workspace')).not.toHaveAttribute('data-status', /.+/);
   await backToMain(page);
   const saved = page.locator('.library-btn').filter({ hasText: 'Saved draft' });
   await expect(saved).toBeVisible();
@@ -144,7 +144,7 @@ test('Back to Main is blocked during a disk write and a failed save retains the 
   });
   await editor(page).getByLabel('Graph name').fill('Kept after failure');
   await editor(page).getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(editor(page).locator('.nodes-status')).toContainText('Mock write failure');
+  await expect(editor(page).locator('.nodes-workspace')).toHaveAttribute('data-status', /Mock write failure/);
   await expect(editor(page).getByLabel('Graph name')).toHaveValue('Kept after failure');
   await expect(back(page)).toBeEnabled();
   await expect(page.locator('.app-editor-panel')).toHaveCount(1);

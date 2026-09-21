@@ -485,7 +485,7 @@ test('editor creates, wires, maps, saves and reloads Color, Math and Script node
   await page.screenshot({ path: '/tmp/nodes-scalar-editor.png' });
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
-  await expect(page.locator('.nodes-status')).toHaveCount(0);
+  await expect(page.locator('.nodes-workspace')).not.toHaveAttribute('data-status', /.+/);
   const saved = await page.evaluate(async id => (await import('/src/nodes/repository.js')).nodePatterns.load(id).then(r => r.graph), id);
   expect(saved.signalEdges).toEqual(scalar().signalEdges);
   expect(saved.nodes.find(n => n.id === 'scale')).toMatchObject({ op: 'add', b: 4 });
@@ -499,7 +499,7 @@ test('editor creates, wires, maps, saves and reloads Color, Math and Script node
   await expect(page.getByTestId('script-status')).toContainText('Applied and approved');
   // Deleting the middle Math node removes the three scalar wires that touch it.
   await page.getByRole('button', { name: 'Select Math · add', exact: true }).click();
-  await page.getByRole('button', { name: 'Delete node', exact: true }).click();
+  await page.getByLabel('Graph workspace').focus(); await page.keyboard.press('Delete');
   await expect(page.locator('.nodes-node')).toHaveCount(5);
   await expect(page.locator('.nodes-signal-wire')).toHaveCount(1);
   expect(errors).toEqual([]);

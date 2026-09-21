@@ -284,7 +284,7 @@ test('clicking a wire or its ◇ endpoint selects only that connection, and Dele
   await page.locator('[data-node-id=red] .nodes-node-title').click();
   await page.locator('[data-node-id=green] .nodes-node-title').click({ modifiers: ['Control'] });
   expect(await selectedIds()).toEqual(['red', 'green']);
-  await page.getByRole('button', { name: 'Delete node', exact: true }).click();
+  await page.getByLabel('Graph workspace').focus(); await page.keyboard.press('Delete');
   await expect(nodeCount).toHaveCount(6);
   expect(await connections()).toEqual(['image:tint:image', 'image:out:image']);
 });
@@ -324,7 +324,7 @@ test('Math Value C hides with its wire outside clamp and its stored literal surv
   const tall = (await mathNode.boundingBox()).height;
 
   await page.getByLabel('Math operation').selectOption('add');
-  await expect(page.locator('.nodes-status')).toContainText('Value C is unused by this operation');
+  await expect(page.locator('.nodes-workspace')).toHaveAttribute('data-status', /Value C is unused by this operation/);
   await expect(cPort).toHaveCount(0);
   await expect(cLiteral).toBeHidden();
   await expect(cLiteral).toBeDisabled();
@@ -349,7 +349,7 @@ test('Math Value C hides with its wire outside clamp and its stored literal surv
   const saved = await diskGraph(page);
   expect(saved.nodes.find(n => n.id === 'scale')).toEqual({ id: 'scale', type: 'math', x: 330, y: 360, op: 'abs', a: 1, b: 2, c: 5 });
   expect(saved.signalEdges).toEqual([{ from: 'audio2', to: 'scale', port: 'a' }]);
-  expect(await page.locator('.nodes-status').count()).toBe(0);
+  expect(await page.locator('.nodes-workspace').getAttribute('data-status')).toBe(null);
   await page.reload();
   await mathNode.locator('.nodes-node-title').click();
   await expect(page.getByLabel('Math operation')).toHaveValue('abs');
@@ -364,7 +364,7 @@ test('mapping controls belong to the overlay: no Mapping settings button, click/
   await page.setViewportSize({ width: 1536, height: 1050 });
   await openFixture(page, mapSignal(wireGraph(), 'audio', 'tint', 'brightness', .2, .8));
   await page.locator('[data-node-id=tint] .nodes-node-title').click();
-  const fields = page.getByLabel('Brightness Mapping min (signal 0)', { exact: true });
+  const fields = page.getByLabel('Brightness Mapping min', { exact: true });
   const box = page.getByTestId('mapping-box-brightness');
   const overlay = page.locator('[data-param-target=brightness] .nodes-mapping-overlay');
   const toggle = page.getByRole('button', { name: 'Brightness mapping settings' });
@@ -413,7 +413,7 @@ test('mapping controls belong to the overlay: no Mapping settings button, click/
   await expect(fields).toHaveCount(0);
 });
 
-test('each open mapping names its connected signal, live, and hides the badge when collapsed', async ({ page }) => {
+test('each mapped parameter names its connected signal next to its title, live', async ({ page }) => {
   await page.setViewportSize({ width: 1536, height: 1050 });
   // Three parameters on one node, each driven by a different signal source.
   const sources = wireGraph();
@@ -436,9 +436,9 @@ test('each open mapping names its connected signal, live, and hides the badge wh
   await expect(badge('brightness')).toHaveText('Audio · bass');
   await expect(badge('contrast')).toHaveText('Audio · high');
 
-  // Collapsing hides the badge again.
+  // The badge rides the parameter's title row, so collapsing the controls keeps it.
   await openMapping(page, 'brightness');
-  await expect(badge('brightness')).toHaveCount(0);
+  await expect(badge('brightness')).toHaveText('Audio · bass');
 
   // A remap updates the badge: dropping the connected Script chip on the
   // Brightness mapping box replaces its source.
@@ -468,8 +468,8 @@ test('mapping endpoints accept values below the parameter domain: negatives pers
 
   const id = await openFixture(page, mapSignal(wireGraph(), 'audio', 'tint', 'brightness', .2, .8));
   await page.locator('[data-node-id=tint] .nodes-node-title').click();
-  const fields = page.getByLabel('Brightness Mapping min (signal 0)', { exact: true });
-  const maxField = page.getByLabel('Brightness Mapping max (signal 1)', { exact: true });
+  const fields = page.getByLabel('Brightness Mapping min', { exact: true });
+  const maxField = page.getByLabel('Brightness Mapping max', { exact: true });
   const inMin = page.getByLabel('Brightness Signal in min', { exact: true });
   const inMax = page.getByLabel('Brightness Signal in max', { exact: true });
   await openMapping(page, 'brightness');
@@ -513,8 +513,8 @@ test('a disclosure click and a sub-threshold drag leave an out-of-domain range a
   await page.locator('[data-node-id=mix] .nodes-node-title').click();
   const overlay = page.locator('[data-param-target=opacity] .nodes-mapping-overlay');
   const box = page.getByTestId('mapping-box-opacity');
-  const min = page.getByLabel('Opacity Mapping min (signal 0)', { exact: true });
-  const max = page.getByLabel('Opacity Mapping max (signal 1)', { exact: true });
+  const min = page.getByLabel('Opacity Mapping min', { exact: true });
+  const max = page.getByLabel('Opacity Mapping max', { exact: true });
   const expanded = () => overlay.getAttribute('aria-expanded');
   const ensureOpen = async () => { if (await expanded() === 'false') await openMapping(page, 'opacity'); };
   const dragBox = async dx => {
@@ -683,13 +683,13 @@ test('graphs beyond the removed 24-node and 8-source budgets stay editable, rend
   await expect.poll(() => page.getByTestId('node-preview').evaluate(c => c.getContext('2d').getImageData(240, 135, 1, 1).data[0])).toBeGreaterThan(10);
   // Delete one node (still 26 > 24) so only this draft can produce the saved file.
   await page.locator('[data-node-id=m0] .nodes-node-title').click();
-  await page.getByRole('button', { name: 'Delete node', exact: true }).click();
+  await page.getByLabel('Graph workspace').focus(); await page.keyboard.press('Delete');
   await expect(page.locator('.nodes-node')).toHaveCount(graph.nodes.length - 1);
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(async () => (await diskGraph(page)).nodes.length).toBe(graph.nodes.length - 1);
   const saved = await diskGraph(page);
   expect(saved.nodes.filter(n => n.type === 'pattern')).toHaveLength(10);
-  const status = await page.locator('.nodes-status').count() ? await page.locator('.nodes-status').textContent() : '';
+  const status = await page.locator('.nodes-workspace').getAttribute('data-status') || '';
   expect(status).toBe('');
   await page.reload();
   await expect(page.locator('.nodes-node')).toHaveCount(graph.nodes.length - 1);

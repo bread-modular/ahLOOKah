@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { ParameterControl } from '../components/control/ParameterControl.jsx';
-import { numeric, clampStep, mappingEndpoint, mappedValue, SIGNAL_DRAG } from './modulation.js';
+import { numeric, mappingEndpoint, mappedValue, SIGNAL_DRAG } from './modulation.js';
 
 // One mapping number field. It must accept values the target parameter's own
 // domain does not contain (a negative minimum, for example) and must not fight
 // the operator while they type a partial "-0." — so it is uncontrolled while
 // focused and the stored value is written back into the DOM as soon as it
-// changes from anywhere else (handle drag, Reverse range, the other field, a
-// remap). Fewer constraints are declared than the domain: `step="any"` keeps any
+// changes from anywhere else (handle drag, the other field, a remap). Fewer
+// constraints are declared than the domain: `step="any"` keeps any
 // finite value valid instead of marking a negative one :invalid.
 function MappingNumberField({ ariaLabel, label, value, onCommit }) {
   const ref = useRef(null);
@@ -97,18 +97,17 @@ export function ModulatedParameter({ node, def, value, onChange, mapping, readEf
   return <div className={`nodes-modulated-param${mapping && eligible ? ' is-mapped' : ''}`} data-param-target={def.key} onDragOver={e => { if (e.dataTransfer.types.includes(SIGNAL_DRAG)) e.preventDefault(); }} onDrop={e => {
     e.preventDefault(); e.stopPropagation(); const source = e.dataTransfer.getData(SIGNAL_DRAG); if (source.length <= 80) onMap(source, def);
   }}>
-    <ParameterControl scope="nodes" id={node.id} def={def} value={value} onChange={onChange} disabled={!!mapping && eligible} mappingOverlay={overlay} />
+    <ParameterControl scope="nodes" id={node.id} def={def} value={value} onChange={onChange} disabled={!!mapping && eligible} mappingOverlay={overlay}
+      labelExtra={mapping && eligible && sourceLabel ? <span className="nodes-mapping-source" data-testid={`mapping-source-${def.key}`} title={`Signal source: ${sourceLabel}`}>{sourceLabel}</span> : null} />
     {!eligible && <small>Audio mapping unsupported: enum, bool and text are not numeric sliders.</small>}
     {mapping && eligible && <>
       <output className="nodes-mapping-value" aria-label={`${def.label} LIVE mapped value`}>LIVE {effective}</output>
       {showFields && <div className="nodes-mapping-fields" id={fieldsId}>
-      <p className="nodes-mapping-inline">{sourceLabel && <span className="nodes-mapping-source" data-testid={`mapping-source-${def.key}`} title={`Signal source: ${sourceLabel}`}>{sourceLabel}</span>}<small>Base: {value} · signal {inputMin} → {min}; {inputMax} → {max}{min > max ? ' (reversed)' : ''}</small></p>
-      <div>{[['min', 'Mapping min (signal 0)', min], ['max', 'Mapping max (signal 1)', max]].map(([key, label, v]) => <MappingNumberField key={key} ariaLabel={`${def.label} ${label}`} label={label} value={v}
+      <p className="nodes-mapping-inline"><small>Base: {value} · signal {inputMin} → {min}; {inputMax} → {max}{min > max ? ' (reversed)' : ''}</small></p>
+      <div>{[['min', 'Mapping min', min], ['max', 'Mapping max', max]].map(([key, label, v]) => <MappingNumberField key={key} ariaLabel={`${def.label} ${label}`} label={label} value={v}
         onCommit={next => onRange(key === 'min' ? mappingEndpoint(next, v) : min, key === 'max' ? mappingEndpoint(next, v) : max)} />)}</div>
       {onInputRange && <div>{[['inputMin', 'Signal in min', inputMin], ['inputMax', 'Signal in max', inputMax]].map(([key, label, v]) => <MappingNumberField key={key} ariaLabel={`${def.label} ${label}`} label={label} value={v}
         onCommit={next => onInputRange(key === 'inputMin' ? next : inputMin, key === 'inputMax' ? next : inputMax)} />)}</div>}
-      <button className="btn btn--sm" onClick={() => onRange(max, min)}>Reverse range</button>
-      <button className="btn btn--sm" onClick={() => onRange(clampStep(value, def), max)}>Start at base</button>
       <button className="btn btn--sm" onClick={onRemove}>Remove mapping</button>
       </div>}
     </>}

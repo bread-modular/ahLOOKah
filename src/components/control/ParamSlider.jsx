@@ -6,7 +6,7 @@ import { formatParamValue } from './panelHelpers.js';
 // `el.value = x; dispatchEvent(new Event('input'))` probes drive it exactly as
 // they did before. The native node is never replaced mid-gesture; external
 // values sync back only while the operator is not dragging.
-export function ParamSlider({ scope, id, def, getValue, onChange, valueFormat = formatParamValue, disabled = false, mappingOverlay = null }) {
+export function ParamSlider({ scope, id, def, getValue, onChange, valueFormat = formatParamValue, disabled = false, mappingOverlay = null, labelExtra = null }) {
   const inputRef = useRef(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -50,6 +50,7 @@ export function ParamSlider({ scope, id, def, getValue, onChange, valueFormat = 
     <div className="param-row">
       <div className="param-head">
         <label htmlFor={controlId}>{def.label}</label>
+        {labelExtra}
         <span className="param-value" data-value={def.key}>{label}</span>
       </div>
       <div className="param-slider-track" style={{ position: 'relative' }}>

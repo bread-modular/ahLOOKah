@@ -23,7 +23,8 @@
 /* Single-view editor: "Back to Main" leads the toolbar (both the hosted button
    and the legacy standalone link) and must never be pushed to the right edge. */
 .nodes-toolbar .nodes-back { margin-left:0; flex:none; white-space:nowrap; text-decoration:none; }
-.nodes-status { padding:9px 18px; background:var(--panel-bg); border-bottom:1px solid var(--border-gray); min-height:35px; color:var(--text-dim); font-size:.72rem; }
+/* The editor renders no status strip: guidance and errors never appear as a bar
+   (see data-status on .nodes-workspace). */
 .nodes-layout { display:grid; grid-template-columns:215px minmax(250px,1fr) 280px; min-height:0; flex:1; }
 .nodes-palette,.nodes-inspector { min-width:0; overflow:auto; padding:0 14px 20px; background:var(--panel-bg); }
 .nodes-palette { border-right:1px solid var(--border-gray); display:flex; flex-direction:column; }
@@ -101,14 +102,25 @@
 .nodes-mapping-overlay:focus-visible { outline:2px solid #e6ecf5; outline-offset:2px; }
 .nodes-mapping-box { position:absolute; top:0; bottom:0; min-width:2px; background:#b586ff40; border:1px solid #c29aff; border-radius:3px; cursor:grab; pointer-events:auto; touch-action:none; }
 .nodes-mapping-handle { position:absolute; top:-2px; bottom:-2px; width:7px; transform:translateX(-50%); background:#c29aff; border:1px solid #241936; cursor:ew-resize; pointer-events:auto; touch-action:none; }
-.nodes-mapping-fields { font-size:11px; color:#cdb6ed; padding:6px 0 0; }
+.nodes-mapping-fields { font-size:11px; color:#cdb6ed; padding:6px 0 10px; }
 .nodes-mapping-fields > div { display:flex; gap:8px; }
 .nodes-mapping-inline { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0; }
 .nodes-mapping-inline small { color:var(--text-dim); }
-/* The connected signal's name, resolved from the graph, as one compact pill. */
-.nodes-mapping-source { display:inline-block; max-width:100%; padding:1px 8px; border:1px solid #3b2c55; border-radius:999px; background:#241936; color:#c9aaff; font-size:10px; line-height:1.6; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+/* The connected signal's name, resolved from the graph, as one compact pill with
+   the same rectangle corners as .btn. It rides the parameter's title row, right
+   after the name, so it never needs a row of its own. */
+.nodes-mapping-source { display:inline-block; max-width:60%; margin-left:6px; padding:0 5px; border:1px solid #3b2c55; border-radius:4px; background:#241936; color:#c9aaff; font-size:10px; line-height:1.5; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+/* Title row of a mapped slider: name + signal pill on the left, value right. */
+.nodes-inspector .param-head { justify-content:flex-start; }
+.nodes-inspector .param-head .param-value { margin-left:auto; }
 .nodes-mapping-fields label { flex:1; min-width:0; margin:8px 0; font-size:10px; }
 .nodes-mapping-fields .btn { margin:3px 4px 0 0; }
+/* A mapping value is typed, never stepped: the browser's spinner arrows are
+   removed and the field keeps symmetric padding now that no glyph sits in the
+   right-hand gutter. */
+.nodes-mapping-fields input.control-input[type="number"] { padding-right:10px; -moz-appearance:textfield; appearance:textfield; }
+.nodes-mapping-fields input.control-input[type="number"]::-webkit-outer-spin-button,
+.nodes-mapping-fields input.control-input[type="number"]::-webkit-inner-spin-button { -webkit-appearance:none; appearance:none; margin:0; }
 .nodes-modulated-param > small { color:var(--text-dim); }
 /* A range control has no border to restyle, so its focus cue is the same soft
    white as the text fields instead of the shared accent ring. */
@@ -119,7 +131,13 @@
 .nodes-modulated-param.is-mapped input[type=range]::-webkit-slider-thumb { opacity:0; }
 .nodes-modulated-param.is-mapped input[type=range]::-moz-range-thumb { opacity:0; }
 .nodes-mapping-live { position:absolute; top:-5px; bottom:-5px; width:3px; transform:translateX(-50%); background:#fff5a8; box-shadow:0 0 0 1px #252214; pointer-events:none; }
-.nodes-mapping-value { display:block; color:#fff5a8; font-weight:700; margin-bottom:5px; font-variant-numeric:tabular-nums; }
+/* The readout is a caption for the track above it, not part of it: the top
+   margin keeps it clear of the mapping box and the handles. */
+.nodes-mapping-value { display:block; color:#fff5a8; font-weight:700; font-size:10px; margin:8px 0 5px; font-variant-numeric:tabular-nums; }
+/* A mapped parameter always keeps air below its block — the collapsed readout
+   must not touch the next parameter, and an open panel adds the fields' own
+   bottom padding under Remove mapping on top of it. */
+.nodes-modulated-param.is-mapped { padding-bottom:6px; }
 
 /* Scalar (Math/Script) inspector: value readout, validation status and errors. */
 .nodes-inspector output.nodes-signal-readout { float:none; display:block; margin:6px 0 2px; padding:6px 8px; background:var(--bg-dark); border:1px solid var(--border-gray); border-radius:4px; color:#fff5a8; font-weight:700; font-variant-numeric:tabular-nums; }

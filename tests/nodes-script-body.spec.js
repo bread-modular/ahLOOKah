@@ -327,7 +327,7 @@ test('the editor applies a body script, keeps the last applied code after a fail
   await expect(page.getByRole('alert')).toContainText('read-only input');
   await expect(page.getByRole('button', { name: 'Apply script' })).toBeDisabled();
   await page.getByLabel('Script source').press('Control+Enter');
-  await expect(page.locator('.nodes-status')).toContainText('read-only input');
+  await expect(page.locator('.nodes-workspace')).toHaveAttribute('data-status', /read-only input/);
   await expect(page.getByTestId('script-status')).toHaveText('Not applied');
   await expect(page.getByTestId('node-signal-readout')).toContainText('Output 0.500');
   // a valid body is applied, approved and immediately drives the scalar output
