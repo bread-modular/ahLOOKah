@@ -204,7 +204,9 @@ test('script sources are approved per exact text, outside the exported graph', (
   const g = chained();
   const text = serializeGraph(g, manifestFor(g, []));
   expect(text).not.toMatch(/approv|trust/i); // no trust flag travels with the file
-  expect(parseGraph(text).graph).toEqual(g);
+  // The round trip equals the canonical graph: audio nodes gain their explicit
+  // Global+Mono route fields during validation (documented migration).
+  expect(parseGraph(text).graph).toEqual(validateGraph(g));
 });
 
 test('script values fall back safely and report errors instead of NaN', () => {

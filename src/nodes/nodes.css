@@ -79,6 +79,9 @@
 /* One explicit line box: wire geometry mirrors DETAIL_HEIGHT (20 = 11 + 9), so
    the ◇ signal anchor cannot drift when inherited typography changes. */
 .nodes-node-detail { display:block; padding:0 10px 9px; font-size:10px; line-height:11px; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+/* Routed audio status: plain text, never color-only; a block row that wraps
+   long device/fallback guidance instead of pushing the panel wide. */
+.nodes-inspector .nodes-audio-status { float:none; display:block; margin:10px 0; font-size:.75rem; line-height:1.35; color:var(--text-dim); }
 @media(max-width:1000px) { .nodes-layout { grid-template-columns:175px minmax(250px,1fr) 225px; } }
 
 .nodes-toolbar-actions { display:flex; gap:8px; align-items:center; margin-left:auto; }
