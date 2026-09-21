@@ -387,8 +387,16 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
     {/* No status strip: guidance and error text never render as a bar. The text
         stays on the workspace's data-status attribute for diagnostics and tests. */}
     <div className="nodes-layout" inert={busy}>
-      <aside className="nodes-palette" aria-label="Pattern palette">{CREATE_NODES.map(n => <button className="btn" key={n.type} title={n.title} draggable onDragStart={e => { e.dataTransfer.effectAllowed = 'copy'; e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ version: 1, nodeType: n.type })); }}>{n.label}</button>)}<input className="control-input" aria-label="Search patterns" title="Filter available patterns" placeholder="Search patterns…" value={query} onChange={e => setQuery(e.target.value)} />
-        <div className="nodes-pattern-list">{SKETCHES.filter(s => !s.nodesGraph && `${s.name} ${s.group}`.toLowerCase().includes(query.toLowerCase())).map(s => <button className="btn" key={s.id} title={`Drag ${s.name} onto the canvas to create a node`} draggable onDragStart={e => { e.dataTransfer.effectAllowed = 'copy'; e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ version: 1, patternId: s.id })); }}><span>{s.name}</span><small>{s.group}{s.camera ? ' · Output camera' : ''}</small></button>)}</div>
+      <aside className="nodes-palette" aria-label="Pattern palette">
+        <div className="nodes-palette-create">
+          <span className="nodes-palette-label">Nodes</span>
+          {CREATE_NODES.map(n => <button className="btn" key={n.type} title={n.title} draggable onDragStart={e => { e.dataTransfer.effectAllowed = 'copy'; e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ version: 1, nodeType: n.type })); }}>{n.label}</button>)}
+        </div>
+        <div className="nodes-palette-patterns">
+          <span className="nodes-palette-label">Patterns</span>
+          <input className="control-input" aria-label="Search patterns" title="Filter available patterns" placeholder="Search patterns…" value={query} onChange={e => setQuery(e.target.value)} />
+          <div className="nodes-pattern-list">{SKETCHES.filter(s => !s.nodesGraph && `${s.name} ${s.group}`.toLowerCase().includes(query.toLowerCase())).map(s => <button className="btn" key={s.id} title={`Drag ${s.name} onto the canvas to create a node`} draggable onDragStart={e => { e.dataTransfer.effectAllowed = 'copy'; e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ version: 1, patternId: s.id })); }}><span>{s.name}</span><small>{s.group}{s.camera ? ' · Output camera' : ''}</small></button>)}</div>
+        </div>
       </aside>
       <section ref={navigation.workspace} {...selection.workspaceHandlers} className="nodes-workspace" aria-label="Graph workspace" tabIndex={0} data-status={message || undefined} onDragOver={e => { if (e.dataTransfer.types.includes(DRAG_TYPE)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }} onDrop={e => {
         e.preventDefault(); const drag = readPaletteDrag(e.dataTransfer, SKETCHES);
