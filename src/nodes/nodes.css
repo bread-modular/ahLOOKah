@@ -70,6 +70,10 @@
 @media(max-width:1000px) { .nodes-layout { grid-template-columns:175px minmax(250px,1fr) 225px; } }
 
 .nodes-toolbar-actions { display:flex; gap:8px; align-items:center; margin-left:auto; }
+/* The name field shares the toolbar buttons' compact shell: one border-box
+   height token, vertical padding zeroed — single-line inputs center their text,
+   so the 16px label stays vertically centered inside the 26px row. */
+.nodes-toolbar input.control-input { box-sizing:border-box; height:calc(.75rem + 14px); padding:0 10px; line-height:1.25; }
 .nodes-toolbar input { width: min(300px, 35vw); font-size:16px; font-weight:600; }
 .nodes-palette { padding-top:14px; gap:10px; }
 .nodes-zoom { position:absolute; bottom:16px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:4px; padding:5px; background:var(--panel-bg); border:1px solid var(--border-gray); border-radius:6px; }
