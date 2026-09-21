@@ -42,6 +42,10 @@
 .nodes-palette { overflow-x:hidden; overflow-y:auto; scrollbar-gutter:auto; scrollbar-width:thin; scrollbar-color:var(--border-gray) var(--panel-bg); }
 .nodes-pattern-list .btn { text-align:left; display:block; width:100%; margin-bottom:6px; white-space:normal; text-transform:none; letter-spacing:normal; font-weight:500; color:var(--text-main); }
 .nodes-pattern-list small { display:block; color:var(--text-dim); font-size:10px; margin-top:4px; }
+/* Sidebar buttons hover in the editor's neutral gray selection language, not the
+   shared accent blue (blue is the input/focus and wire color). Colors only —
+   border width, padding and radius stay the shared .btn shell; danger keeps red. */
+.nodes-palette .btn:hover,.nodes-inspector .btn:not(.btn--danger):hover { border-color:#b8bfc8; background:rgba(184,191,200,.12); }
 .nodes-inspector { border-left:1px solid var(--border-gray); }
 .nodes-inspector canvas { width:100%; background:var(--bg-dark); border:1px solid var(--border-gray); border-radius:4px; }
 .nodes-inspector label { display:block; margin:14px 0; font-size:.78rem; }
@@ -61,10 +65,12 @@
 .nodes-wires path:focus,.nodes-wires path:focus-visible { outline:none; }
 .nodes-wires path:hover,.nodes-wires path:focus { stroke:var(--text-main); stroke-width:7px; }
 .nodes-node { position:absolute; width:180px; min-height:80px; background:var(--panel-bg); border:1px solid var(--border-gray); border-radius:4px; box-shadow:0 8px 25px #0006; }
-.nodes-node.is-selected { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent),0 8px 25px #0006; }
+/* Selection is a neutral cool gray, not the accent blue: blue is the editor's
+   input/focus and wire language, so a selected node must read differently. */
+.nodes-node.is-selected { border-color:#b8bfc8; box-shadow:0 0 0 1px #b8bfc8,0 8px 25px #0006; }
 .nodes-node .nodes-node-title { width:100%; text-align:left; border:0; border-bottom:1px solid var(--border-gray); border-radius:4px 4px 0 0; color:var(--text-main); background:var(--bg-dark); height:30px; padding:5px 10px; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:grab; touch-action:none; }
 .nodes-node-title small { display:block; font-size:9px; color:var(--text-dim); letter-spacing:1px; margin-bottom:2px; }
-.nodes-node.is-selected .nodes-node-title small { color:var(--accent); }
+.nodes-node.is-selected .nodes-node-title small { color:#b8bfc8; }
 .nodes-ports { position:relative; min-height:36px; padding:2px 0; }
 .nodes-node .nodes-input { display:block; height:32px; border:0; background:transparent; font-size:11px; padding:3px 6px; color:var(--accent); cursor:pointer; }
 .nodes-node .nodes-output { position:absolute; right:0; top:2px; height:32px; border:0; background:transparent; font-size:11px; padding:3px 6px; color:var(--accent); cursor:pointer; }
@@ -88,7 +94,7 @@
 .nodes-inspector .param-row { margin-top:14px; }
 
 .nodes-workspace { user-select:none; }
-.nodes-selection-box { position:absolute; border:1px solid var(--accent); background:rgba(77,163,255,.14); pointer-events:none; z-index:2; }
+.nodes-selection-box { position:absolute; border:1px solid #b8bfc8; background:rgba(184,191,200,.14); pointer-events:none; z-index:2; }
 
 /* Dashed violet modulation is never a visual/image wire. */
 .nodes-wires .nodes-signal-wire { stroke:#c29aff; stroke-dasharray:7 5; stroke-width:3px; }
