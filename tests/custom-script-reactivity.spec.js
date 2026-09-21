@@ -143,8 +143,11 @@ test.describe('Custom script built-in reactivity @core', () => {
     engine.beginStream();
     expect(engine.controllers.size).toBe(0);
     expect(before.update(tick(tone())).continuous).toEqual(SILENT_FEATURES);
+    // Reverting params requires a new plan revision under the strengthened
+    // receivePlan contract (same-plan slot revisions cannot regress).
     descriptor.params = { bass: 1 }; descriptor.paramsRevision = 1;
-    engine.receivePlan({ ...plan, slots: [descriptor] });
+    engine.receivePlan({ ...plan, planRevision: 2, slots: [descriptor] });
+    store.setPlan({ ...plan, planRevision: 2, slots: [descriptor] });
     const restarted = step(1);
     expect(restarted.streamGeneration).not.toBe(first.streamGeneration);
     expect(restarted.slots[0].continuous).toEqual(first.slots[0].continuous);

@@ -9,6 +9,7 @@ import {
   TYPES, COLOR_PARAMS, MATH_OPS, MATH_LITERALS, SCRIPT_LITERALS,
   inputs, isSignalSource, isScalarConsumer, isModulationTarget, inactiveMathPort,
 } from './definitions.js';
+import { normalizeAudioRoute } from '../audio-routing.js';
 import { MAX_EXPRESSION, MAX_BODY, LANGUAGES } from './script.js';
 
 export const VERSION = 1;
@@ -59,6 +60,12 @@ export function validateGraph(raw, { complete = false } = {}) {
     if (n.type === 'audio') {
       if (!['bass', 'mid', 'high'].includes(n.band)) fail('Invalid audio band');
       node.band = n.band;
+      // Per-node input route (plan section 6). Missing fields in existing
+      // graphs normalize to Global input + Mono; explicit values must be exact.
+      // Device availability is a runtime condition, never a file-load error.
+      const route = normalizeAudioRoute(n.deviceId, n.channel);
+      if (!route) fail('Invalid audio input route');
+      Object.assign(node, route);
     }
     if (n.type === 'math') {
       if (!MATH_OPS.includes(n.op)) fail('Invalid math operation');

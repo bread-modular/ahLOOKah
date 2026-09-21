@@ -1,7 +1,8 @@
 // Single source of truth for node kinds, ports and numeric definitions. Both the
 // JSON contract (model.js) and the editor/runtime read from here so a node type
-// can never drift between validation, wiring and controls. No imports: this file
-// must stay dependency-free to avoid cycles with model/runtime/modulation.
+// can never drift between validation, wiring and controls. One import: the
+// dependency-free audio-routing route defaults (which must never import back).
+import { DEFAULT_AUDIO_INPUT } from '../audio-routing.js';
 export const TYPES = Object.freeze(['pattern', 'blend', 'output', 'audio', 'color', 'math', 'script']);
 export const VISUAL_TYPES = Object.freeze(['pattern', 'blend', 'color', 'output']);
 export const VISUAL_SOURCES = Object.freeze(['pattern', 'blend', 'color']);
@@ -70,7 +71,7 @@ export function newId() { return `n${crypto.randomUUID().slice(0, 8)}`; }
 export function defaultNode(type, x = 0, y = 0, id = newId()) {
   const base = { id, type, x, y };
   if (type === 'blend') return { ...base, mode: 'Normal', opacity: 1 };
-  if (type === 'audio') return { ...base, band: 'bass' };
+  if (type === 'audio') return { ...base, band: 'bass', ...DEFAULT_AUDIO_INPUT };
   if (type === 'color') return { ...base, params: Object.fromEntries(COLOR_PARAMS.map(p => [p.key, p.default])) };
   if (type === 'math') return { ...base, op: 'add', ...MATH_LITERALS };
   if (type === 'script') return { ...base, language: DEFAULT_LANGUAGE, source: DEFAULT_BODY, ...SCRIPT_LITERALS };

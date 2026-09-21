@@ -1,5 +1,5 @@
 import { parameterView, signalValue } from './modulation.js';
-import { createSignalConsumer } from './audio-provider.js';
+import { createSignalConsumers } from './audio-provider.js';
 import VizCore from '../core/index.js';
 import { ProgramRuntime } from '../program-runtime.js';
 import { PreviewAudio } from '../preview-audio.js';
@@ -50,9 +50,16 @@ const sizeFor = (width, height) => {
 export class GraphRuntime {
   constructor({ graph, sketches, dependencies = [], width = 480, height = 270, audio = new PreviewAudio(), context = {}, videoDeviceId = null, preview = true }) {
     this.graph = validateGraph(graph);
-    this.signal = this.graph.nodes.some(n => n.type === 'audio') ? createSignalConsumer(context.audioControlStore, context.audioRole) : null;
+    this.signal = this.graph.nodes.some(n => n.type === 'audio')
+      ? createSignalConsumers(context.audioControlStore, context.audioRole, this.graph.nodes.filter(n => n.type === 'audio'))
+      : null;
     if (this.signal) context.registerChildRuntime?.(this.signal);
-    this.readContinuous = context.readAudioSignals || this.signal?.read || (() => ({}));
+    // Route-aware continuous reads: nodeId selects the node's own requested
+    // device/channel binding. Legacy callbacks that ignore the argument keep
+    // working (they return one shared frame for every node).
+    this.readContinuous = (nodeId) => context.readAudioSignals
+      ? context.readAudioSignals(nodeId)
+      : (this.signal?.read(nodeId) || {});
     this.frame = 0;
     this.frameSignals = new Map();
     // Compilation happens once per node here, never inside a frame: this cache
@@ -120,10 +127,13 @@ export class GraphRuntime {
   // One shared memo per frame: fanout reads the same value however many
   // parameters/nodes consume it, and cycles fall back to 0 instead of hanging.
   signalValue(id) { return this.computeSignal(id, new Set()); }
+  // Inspector diagnostics: this node's route binding status (source health,
+  // calibration, freshness) — the same data renderers consume.
+  getNodeStatus(id) { return this.signal?.getNodeStatus?.(id) || null; }
   computeSignal(id, visiting) {
     if (this.frameSignals.has(id)) return this.frameSignals.get(id);
     const node = this.graph.nodes.find(n => n.id === id);
-    if (node?.type === 'audio') { const value = signalValue(this.readContinuous(), node.band); this.frameSignals.set(id, value); return value; }
+    if (node?.type === 'audio') { const value = signalValue(this.readContinuous(id), node.band); this.frameSignals.set(id, value); return value; }
     if (!node || (node.type !== 'math' && node.type !== 'script')) return 0;
     if (visiting.has(id)) { this.messages.set(id, 'Signal loop detected → 0.'); return 0; }
     visiting.add(id);
