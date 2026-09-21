@@ -116,6 +116,21 @@ function unknownSource() {
   return { id: null, generation: 0, activeDeviceId: null, channels: null, status: 'unavailable', fallback: false, calibration: 'none' };
 }
 
+// The wire carries exactly the seven bounded source fields; richer pool
+// diagnostics (e.g. requestedDeviceId) stay owner-internal.
+function wireSource(source) {
+  if (!source) return unknownSource();
+  return {
+    id: source.id ?? null,
+    generation: Number.isInteger(source.generation) && source.generation >= 0 ? source.generation : 0,
+    activeDeviceId: typeof source.activeDeviceId === 'string' ? source.activeDeviceId : null,
+    channels: Number.isInteger(source.channels) && source.channels >= 1 ? source.channels : null,
+    status: source.status ?? 'unavailable',
+    fallback: Boolean(source.fallback),
+    calibration: source.calibration ?? 'none',
+  };
+}
+
 export class PatternAudioControlEngine {
   constructor({
     ownerId,
@@ -431,7 +446,7 @@ export class PatternAudioControlEngine {
         // consumer build.
         if (planVersion >= 2) {
           output.audioInput = { ...route };
-          output.source = { ...source };
+          output.source = wireSource(source);
         }
         outputSlots.push(output);
       }

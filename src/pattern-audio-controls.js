@@ -259,6 +259,21 @@ export class PatternAudioControlStore {
     }
   }
 
+  // Primary-status loss: decay global-default slots and pins to the exact
+  // failing device, but leave healthy extra-device routes untouched.
+  invalidatePrimarySlots(deviceId = null) {
+    const now = this.now();
+    for (const state of this.slots.values()) {
+      const route = state.descriptor.audioInput || null;
+      const followsPrimary = !route || route.deviceId === null || (deviceId && route.deviceId === deviceId);
+      if (!followsPrimary) continue;
+      state.events = [];
+      state.seenEventIds.clear();
+      state.lastReadSequence = null;
+      state.forcedStaleAt = now - 1;
+    }
+  }
+
   resetStream(ownerId, streamGeneration) {
     this.audioOwnerId = ownerId || null;
     this.streamGeneration = streamGeneration || null;

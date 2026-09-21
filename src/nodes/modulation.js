@@ -37,8 +37,10 @@ export function mappingDiagnostics(graph, sketches) {
     .map(m => `Unsupported modulation parameter: ${m.to}.${m.param}; only numeric sliders can map (not enum, bool or text).`);
 }
 // Read-only, live values passed to renderers. Stored base parameters never change.
-// Audio sources read the shared continuous frame; Math/Script sources read the
-// runtime's once-per-frame signal value through `readSignal`.
+// Every scalar source prefers the runtime's once-per-frame `readSignal` (so an
+// Audio node's routed value matches its Math/Script consumers and readouts); the
+// standalone fallback reads the route-aware continuous frame for Audio and skips
+// intermediates, exactly as before.
 export function parameterView(graph, node, sketches, readContinuous, readSignal = null) {
   const defs = definitions(node, sketches);
   const base = node.type === 'blend' ? { opacity: node.opacity } : { ...Object.fromEntries(defs.map(d => [d.key, d.default])), ...node.params };
@@ -47,8 +49,8 @@ export function parameterView(graph, node, sketches, readContinuous, readSignal 
     if (m.to !== node.id || !m.param) continue;
     const def = defs.find(d => d.key === m.param), source = graph.nodes.find(n => n.id === m.from);
     if (!numeric(def) || !isSignalSource(source)) continue;
-    const read = source.type === 'audio' ? () => signalValue(readContinuous(), source.band)
-      : readSignal ? () => readSignal(source.id) : null;
+    const read = readSignal ? () => readSignal(source.id)
+      : source.type === 'audio' ? () => signalValue(readContinuous(source.id), source.band) : null;
     if (!read) continue;
     Object.defineProperty(result, m.param, { enumerable: true, configurable: true, get: () => mappedValue(m, read(), def) });
   }

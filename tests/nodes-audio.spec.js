@@ -121,7 +121,13 @@ test('preview and saved runtime use injected controls consistently without visua
     const pixel = c => c.getContext('2d').getImageData(1, 1, 1, 1).data[0];
     await new Promise(r => setTimeout(r, 150));
     const half = [pixel(preview.render()), pixel(layer.querySelector('canvas'))];
-    signal = {}; await new Promise(r => setTimeout(r, 150));
+    signal = {};
+    // The routed frame memo settles through the pattern capture chain over a few
+    // frames; poll inside the page for settled silence on both runtimes.
+    for (let i = 0; i < 100; i++) {
+      await new Promise(r => setTimeout(r, 30));
+      if (Math.abs(pixel(preview.render()) - 46) <= 1 && Math.abs(pixel(layer.querySelector('canvas')) - 46) <= 1) break;
+    }
     const silent = [pixel(preview.render()), pixel(layer.querySelector('canvas'))];
     const slots = children.flatMap(c => c.getAudioSlotDescriptors('preview'));
     const info = { half, silent, canvasCount: preview.buffers.size, sourceCount: preview.sources.size, signals: slots.filter(s => s.patternId === '__node_audio_signal').length, base: preview.graph.nodes[0].params.brightness, opacity: preview.params.get('mix').opacity };

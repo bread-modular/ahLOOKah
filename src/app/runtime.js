@@ -64,6 +64,13 @@ import { RenderPerformance, validPerformanceSample } from '../render-performance
 import { ScreenMappingRenderer } from '../screen-mapping-renderer.js';
 import { SharedCameraSource } from '../shared-camera-source.js';
 import { AudioManager } from '../audio-manager.js';
+import { AudioInputPool } from '../audio-input-pool.js';
+import {
+  CATALOG_AUDIO_INPUTS_REQUEST_TYPE,
+  CATALOG_AUDIO_INPUTS_TYPE,
+  createAudioInputsCatalog,
+  validateAudioInputsRequest,
+} from '../audio-input-catalog.js';
 import { PreviewAudio } from '../preview-audio.js';
 import { PatternAudioControlStore } from '../pattern-audio-controls.js';
 import { PatternAudioControlEngine } from '../pattern-audio-engine.js';
@@ -157,13 +164,19 @@ export function createAppRuntime({
   // ---------------------------------------------------------------------------
   // Services
   // ---------------------------------------------------------------------------
-  const audio = new AudioManager();
+  // The control window owns capture: one shared AudioContext (owned by the
+  // input pool), the primary/global manager, and pooled extra sources for
+  // pinned Audio-node routes. Consumers never capture.
+  const audioPool = new AudioInputPool({});
+  const audio = new AudioManager({ contextProvider: () => audioPool.ensureContext() });
+  audioPool.primaryManager = audio;
   const screenAudio = new PreviewAudio({ idleSignal: false, staleAfterMs: 750 });
   const previewAudio = new PreviewAudio();
   const patternAudioStore = new PatternAudioControlStore({ consumerSessionId: windowId });
   const patternAudioEngine = new PatternAudioControlEngine({
     ownerId: windowId,
     getSketchById: (id) => SKETCHES.find((sketch) => sketch.id === id) || null,
+    resolveRouteInput: (audioInput) => audioPool.resolveRouteInput(audioInput),
   });
   const cameraSource = new SharedCameraSource();
   let customScriptsBooted = false;
@@ -1994,11 +2007,13 @@ export function createAppRuntime({
     if (isAudioOwner && status?.error?.name === 'DeviceEndedError') {
       scheduleAudioRecovery();
     }
+    if (isAudioOwner) refreshAudioInputsCatalog();
   }
   audio.setStatusListener(handleAudioManagerStatus);
 
   function startAudio(deviceId = localStorage.getItem(STORAGE.audio)) {
     if (!isAudioOwner) return Promise.resolve(false);
+    audioPool.setGlobalDeviceId(deviceId || null);
     if (!deviceId) {
       currentAudioDeviceId = null;
       audio.reportStatus('unselected');
@@ -2007,6 +2022,7 @@ export function createAppRuntime({
 
     currentAudioDeviceId = deviceId;
     patternAudioEngine.beginStream();
+    audioPool.notePrimaryRestart();
     return audio.startStream(deviceId);
   }
 
@@ -2073,6 +2089,7 @@ export function createAppRuntime({
     startAudioBroadcast();
     startAudio(currentAudioDeviceId);
     bus.broadcast({ type: 'audio-status', ...audio.getStatus() });
+    refreshAudioInputsCatalog({ force: true });
   }
 
   function relinquishAudioOwnership() {
@@ -2088,6 +2105,15 @@ export function createAppRuntime({
       bus.broadcast({ type: 'noise-floor', status: 'cancelled' });
     }
     audio.stop();
+    // Pinned extra sources and the shared capture context die with ownership;
+    // consumers decay through the documented stale path.
+    audioPool.reset();
+    // Publish `stopping` while the bus is still ours so receivers invalidate the
+    // catalog; a killed process still relies on stale decay.
+    try { publishAudioInputsCatalog('stopping'); } catch { /* noop */ }
+    // Notify while the bus is still ours so stores decay immediately instead of
+    // waiting out the stale window. A killed process still relies on staleness.
+    try { bus.broadcast({ type: 'audio-status', ...audio.getStatus(), ownerStopping: true }); } catch { /* noop */ }
   }
 
   function beginAudioOwnership() {
@@ -2168,12 +2194,84 @@ export function createAppRuntime({
     if (role === 'control' && isAudioOwner && audio.isStarted) audio.resume(true);
   }
 
+  // ---------------------------------------------------------------------------
+  // Audio input catalog (owner-produced, bus-transported, bounded)
+  // ---------------------------------------------------------------------------
+  const audioInputsCatalog = createAudioInputsCatalog();
+  let catalogRevision = 0;
+  let catalogInputsCache = null;
+  let catalogPermissionState = 'unknown';
+  let catalogRefreshInFlight = false;
+  let catalogTrailingRefresh = false;
+  let catalogLastRefreshAt = 0;
+  const catalogServedAt = new Map();
+
+  function publishAudioInputsCatalog(ownerStatus = 'active') {
+    bus.broadcast({
+      type: CATALOG_AUDIO_INPUTS_TYPE,
+      audioOwnerId: windowId,
+      ownerStatus,
+      catalogRevision,
+      complete: true,
+      permissionState: catalogPermissionState,
+      globalRequestedId: currentAudioDeviceId || null,
+      globalActiveId: audio.activeDeviceId || null,
+      globalStatus: lastAudioStatus.status || null,
+      fallback: Boolean(audio.usedFallback),
+      inputs: catalogInputsCache || [],
+    });
+  }
+
+  async function refreshAudioInputsCatalog({ force = false } = {}) {
+    if (!isAudioOwner || typeof navigator.mediaDevices?.enumerateDevices !== 'function') return;
+    const at = performance.now();
+    if (catalogRefreshInFlight) {
+      catalogTrailingRefresh = true;
+      return;
+    }
+    if (!force && at - catalogLastRefreshAt < 1000) {
+      catalogTrailingRefresh = true;
+      return;
+    }
+    catalogRefreshInFlight = true;
+    catalogLastRefreshAt = at;
+    try {
+      // Enumeration requires a fully active visible document; a hidden owner
+      // keeps its last catalog instead of treating silence as empty.
+      if (document.visibilityState === 'visible') {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        catalogInputsCache = devices.filter((device) => device.kind === 'audioinput')
+          .slice(0, 128)
+          .map((device) => ({
+            deviceId: typeof device.deviceId === 'string' ? device.deviceId.slice(0, 512) : '',
+            label: typeof device.label === 'string' ? device.label.slice(0, 160) : '',
+          }))
+          .filter((device) => device.deviceId);
+        const anyLabel = catalogInputsCache.some((device) => device.label);
+        catalogPermissionState = anyLabel ? 'granted' : (catalogInputsCache.length ? 'prompt' : 'unknown');
+      }
+      catalogRevision += 1;
+      publishAudioInputsCatalog();
+    } catch {
+      // A failed refresh keeps the previous catalog; running sources are unaffected.
+    } finally {
+      catalogRefreshInFlight = false;
+      if (catalogTrailingRefresh) {
+        catalogTrailingRefresh = false;
+        refreshAudioInputsCatalog({ force: true });
+      }
+    }
+  }
+
   function audioBroadcastLoop(now) {
     if (!isAudioOwner) return;
 
     if (now - lastAnalysisAt >= 33) {
       lastAnalysisAt = now;
-      const frame = audio.isStarted ? audio.getAnalysisFrame() : null;
+      // One synchronous read per retained source per tick: the cleaned primary
+      // frame feeds Patterns/EQ as today, raw frames feed pinned routes.
+      const sampled = audioPool.sample();
+      const frame = sampled.primary.frame;
       audioFrameSequence += 1;
       const controlDeltaSeconds = lastPatternControlAt
         ? Math.max(1 / 240, Math.min(0.1, (now - lastPatternControlAt) / 1000))
@@ -2187,6 +2285,8 @@ export function createAppRuntime({
         now,
       });
       controlTick.packets.forEach((packet) => bus.broadcast(packet));
+      // Maintain one capture per resolved pinned endpoint against the budget.
+      audioPool.reconcileDemands(patternAudioEngine.getRouteDemands());
 
       if (frame && now - lastSpectrumAt >= 66) {
         lastSpectrumAt = now;
@@ -2508,7 +2608,26 @@ export function createAppRuntime({
         applyDevices(msg);
         break;
 
-      case 'audio-status':
+      case CATALOG_AUDIO_INPUTS_TYPE:
+        // Both the owner (local echo) and consumers keep a validated snapshot.
+        audioInputsCatalog.accept(msg);
+        break;
+
+      case CATALOG_AUDIO_INPUTS_REQUEST_TYPE: {
+        const request = validateAudioInputsRequest(msg);
+        if (!request || request.requesterId === windowId || !isAudioOwner) return;
+        // Answer repeated requests from cache; serve at most one ordinary
+        // refresh per second per requester.
+        const servedAt = catalogServedAt.get(request.requesterId) || 0;
+        const nowMs = performance.now();
+        if (catalogInputsCache && nowMs - servedAt < 1000) return;
+        catalogServedAt.set(request.requesterId, nowMs);
+        if (catalogInputsCache) publishAudioInputsCatalog();
+        else refreshAudioInputsCatalog({ force: true });
+        return;
+      }
+
+      case 'audio-status': {
         lastAudioStatus = {
           status: msg.status,
           state: msg.state,
@@ -2520,10 +2639,16 @@ export function createAppRuntime({
         if (msg.status !== 'running') {
           if (role === 'screen') screenAudio.clearFrame();
           else previewAudio.clearFrame();
-          patternAudioStore.clearForOwnerLoss();
+          // Primary-device trouble is NOT whole-owner loss for routed stores: it
+          // invalidates only slots that follow the primary (global-default, or
+          // pinned to the exact failing id). Pinned routes on other inputs keep
+          // their per-source packets. Full owner/context loss still clears all.
+          if (msg.ownerStopping) patternAudioStore.clearForOwnerLoss();
+          else patternAudioStore.invalidatePrimarySlots(msg.deviceId || null);
         }
         if (role === 'control') store.setState({ audioStatus: { ...lastAudioStatus } });
         return;
+      }
 
       case 'blend-step': {
         if (cueSession || (msg.delta !== 0.05 && msg.delta !== -0.05)) return;
@@ -2781,6 +2906,7 @@ export function createAppRuntime({
     try { if (singleton && singleton.stopHeartbeat) singleton.stopHeartbeat(); } catch { /* noop */ }
     try { removeCurrentP5(); } catch { /* noop */ }
     try { clearPreview(); } catch { /* noop */ }
+    try { audioPool.dispose(); } catch { /* noop */ }
     try { if (bus) bus.close(); } catch { /* noop */ }
   }
 
@@ -3506,7 +3632,11 @@ export function createAppRuntime({
       refreshFallbackAudioLease();
     }
   });
-  navigator.mediaDevices?.addEventListener?.('devicechange', scheduleAudioRecovery);
+  navigator.mediaDevices?.addEventListener?.('devicechange', () => {
+    scheduleAudioRecovery();
+    audioPool.noteDeviceChange();
+    refreshAudioInputsCatalog();
+  });
 
   return {
     claim,
@@ -3523,11 +3653,21 @@ export function createAppRuntime({
     createEditorAudio() {
       const key = Symbol('editor');
       editorAudioChildren.set(key, []);
+      const inputUnsubscribers = new Set();
       return {
         audio, store: patternAudioStore,
         refresh: queuePatternAudioPlanPublish,
         setChildren(children) { editorAudioChildren.set(key, children); queuePatternAudioPlanPublish(); },
-        dispose() { editorAudioChildren.delete(key); queuePatternAudioPlanPublish(); },
+        dispose() { editorAudioChildren.delete(key); queuePatternAudioPlanPublish(); for (const unsubscribe of inputUnsubscribers) unsubscribe(); },
+        // Same catalog interface as the standalone provider, backed by runtime
+        // services and local echo instead of a second channel.
+        getInputSnapshot: () => audioInputsCatalog.getSnapshot(),
+        subscribeInputs(listener) {
+          const unsubscribe = audioInputsCatalog.subscribe(listener);
+          inputUnsubscribers.add(unsubscribe);
+          return () => { unsubscribe(); inputUnsubscribers.delete(unsubscribe); };
+        },
+        refreshInputs: () => refreshAudioInputsCatalog(),
       };
     },
     getEditingParams,

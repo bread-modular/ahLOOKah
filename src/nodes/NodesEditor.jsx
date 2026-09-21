@@ -2,6 +2,7 @@ import { RuntimeContext } from '../app/RuntimeContext.jsx';
 import { IconControl } from '../components/control/IconControl.jsx';
 import { ModulatedParameter } from './ModulatedParameter.jsx';
 import { BANDS, definitions, numeric, clampStep, SIGNAL_DRAG } from './modulation.js';
+import { AUDIO_CHANNEL_LABELS } from '../audio-routing.js';
 import { MATH_OPS, MATH_LABELS, MATH_INPUTS, MATH_PORT_LABELS, SCRIPT_INPUTS, SCRIPT_PORT_LABELS, SCRIPT_LITERAL_FIELDS, defaultNode, isSignalSource, isVisualSource, isScalarConsumer, isModulationTarget, activeInputs, mathPorts } from './definitions.js';
 import { inputAnchor, outputAnchor, signalAnchor, wirePath, BUNDLE_BOW } from './geometry.js';
 import { SCRIPT_VARIABLES, compileScript, helpForLanguage, limitForLanguage, scriptLanguageLabel } from './script.js';
@@ -71,36 +72,64 @@ function Wire({ kind, link, from, to, bow = 0, description, selected, onSelect }
     aria-label={`Select connection ${description}`} title={description}
     d={wirePath(from, to, bow)} onClick={activate} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') activate(e); }} />;
 }
-// Live once-per-frame scalar value of the selected Math/Script node. Reads the
-// same memoized frame values the renderers consume.
-function SignalReadout({ runtime, nodeId }) {
+function LiveReadout(runtime, nodeId, select) {
   const [value, setValue] = useState(null);
   useEffect(() => {
     let frame;
-    const update = () => { setValue(runtime.current?.signalValue(nodeId)); frame = requestAnimationFrame(update); };
+    const update = () => { setValue(runtime.current?.[select]?.(nodeId)); frame = requestAnimationFrame(update); };
     update();
     return () => cancelAnimationFrame(frame);
-  }, [runtime, nodeId]);
+  }, [runtime, nodeId, select]);
+  return value;
+}
+// Live once-per-frame scalar value of the selected Math/Script node. Reads the
+// same memoized frame values the renderers consume.
+function SignalReadout({ runtime, nodeId }) {
+  const value = LiveReadout(runtime, nodeId, 'signalValue');
   return <output className="nodes-signal-readout" data-testid="node-signal-readout" aria-label="Signal output value">{Number.isFinite(value) ? `Output ${value.toFixed(3)}` : 'Output —'}</output>;
 }
-function Preview({ graph, dependencies, selected, revision, current, sharedRuntime, visible = true }) {
+// Requested-vs-actual input status for the selected Audio node: truthy text with
+// a polite live region for transitions, never a color-only or per-tick signal.
+function AudioRouteStatus({ runtime, nodeId, channelNote }) {
+  const status = LiveReadout(runtime, nodeId, 'getNodeStatus');
+  const source = status?.source || null;
+  const running = source?.status === 'running';
+  const text = !status ? 'Audio status unavailable.'
+    : source?.status === 'unselected' ? 'No input selected in Settings — output is zero.'
+    : source?.status === 'permission-denied' ? 'Microphone access denied. Initialize the mic in Settings in the control window.'
+    : source?.status === 'permission-required' ? 'Enable microphone access in Settings in the control window.'
+    : source?.status === 'missing' ? 'Pinned input not found — output stays zero. Reconnect it or pick another input.'
+    : source?.status === 'resource-limit' ? 'Input limit reached (4 inputs) — output stays zero until another source is released.'
+    : source?.status === 'unavailable' ? 'Input cannot be opened — output stays zero; other inputs keep running.'
+    : source?.status === 'starting' ? 'Starting input…'
+    : source?.status === 'suspended' ? 'Input suspended — click the control window to resume audio.'
+    : source?.status === 'muted' ? 'Input muted — output stays zero.'
+    : running && source?.fallback ? 'Global fallback: the selected input was replaced by another available input.'
+    : running ? 'Input active.'
+    : 'Waiting for a compatible audio owner.';
+  const calibration = running && (source?.calibration === 'uncalibrated-channel' || source?.calibration === 'uncalibrated-device')
+    ? ' This input runs without a matching noise calibration.'
+    : '';
+  return <output className="nodes-audio-status" data-testid="node-audio-status" aria-live="polite">{text}{calibration}{running && channelNote ? ` ${channelNote}` : ''}</output>;
+}
+function Preview({ graph, dependencies, selected, revision, current, sharedRuntime, audioProvider, providerReady, visible = true }) {
   const canvas = useRef(null), target = useRef(selected);
   const [messages, setMessages] = useState([]);
   target.current = selected;
   // Moving nodes/renaming does not destroy GPU sources or restart videos.
   const content = JSON.stringify({ ...graph, name: 'preview', nodes: graph.nodes.map(({ x, y, ...n }) => ({ ...n, x: 0, y: 0 })) });
   const manifest = JSON.stringify(dependencies);
-  const provider = useRef(null);
-  useEffect(() => { provider.current = sharedRuntime ? sharedRuntime.createEditorAudio() : createEditorAudio(); return () => { provider.current.dispose(); provider.current = null; }; }, []);
   useEffect(() => {
-    const audioProvider = provider.current;
+    // The provider lives above the Preview/inspector split; wait for it.
+    if (!providerReady || !audioProvider?.current) return undefined;
+    const audioProviderInstance = audioProvider.current;
     let runtime, frame, oldMessage = '';
     try {
       const children = [];
       runtime = new GraphRuntime({ graph: JSON.parse(content), dependencies: JSON.parse(manifest), sketches: SKETCHES,
-        audio: audioProvider.audio,
-        context: { audioControlStore: audioProvider.store, onAudioSlotsChanged: audioProvider.refresh, registerChildRuntime: child => children.push(child) } });
-      audioProvider.setChildren(children);
+        audio: audioProviderInstance.audio,
+        context: { audioControlStore: audioProviderInstance.store, onAudioSlotsChanged: audioProviderInstance.refresh, registerChildRuntime: child => children.push(child) } });
+      audioProviderInstance.setChildren(children);
       current.current = runtime;
       const render = () => {
         const image = runtime.render(target.current || undefined);
@@ -116,8 +145,8 @@ function Preview({ graph, dependencies, selected, revision, current, sharedRunti
       };
       setMessages([]); render();
     } catch (e) { setMessages([e.message]); }
-    return () => { cancelAnimationFrame(frame); runtime?.dispose(); audioProvider.setChildren([]); current.current = null; };
-  }, [content, manifest, revision]);
+    return () => { cancelAnimationFrame(frame); runtime?.dispose(); audioProviderInstance.setChildren([]); current.current = null; };
+  }, [content, manifest, revision, providerReady]);
   // Audio and Script are scalar sources with no image to show, so their
   // inspector omits the preview window entirely; the runtime stays mounted.
   if (!visible) return null;
@@ -140,6 +169,32 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   const selected = selection.primary;
   const setSelected = selection.reset;
   const [current, setCurrent] = useState(null), [busy, setBusy] = useState(false);
+  // One editor audio provider above the Preview/inspector split: the preview
+  // runtime and the inspector share it, so status/catalog state is visible for
+  // scalar selections too and no second channel/capture is ever created.
+  const audioProvider = useRef(null);
+  const [providerReady, setProviderReady] = useState(false);
+  const [inputsSnapshot, setInputsSnapshot] = useState(null);
+  useEffect(() => {
+    const provider = sharedRuntime ? sharedRuntime.createEditorAudio() : createEditorAudio();
+    audioProvider.current = provider;
+    const unsubscribe = provider.subscribeInputs?.(snapshot => setInputsSnapshot(snapshot)) || null;
+    setProviderReady(true);
+    return () => { unsubscribe?.(); setProviderReady(false); provider.dispose(); audioProvider.current = null; };
+  }, []);
+  const inputOptions = Array.isArray(inputsSnapshot?.inputs) ? inputsSnapshot.inputs : [];
+  const deviceLabel = deviceId => {
+    if (!deviceId) return 'Global';
+    const found = inputOptions.find(d => d.deviceId === deviceId);
+    return found ? (found.label || 'Audio input') : 'Unavailable input';
+  };
+  const channelNoteFor = nodeId => {
+    const status = previewRuntime.current?.getNodeStatus?.(nodeId);
+    const channels = status?.source?.channels;
+    return Number.isFinite(channels) && channels <= 1 ? '1-channel input; Left and Right use the same signal.' : '';
+  };
+  const globalActiveLabel = inputsSnapshot?.globalActiveId
+    ? (inputOptions.find(d => d.deviceId === inputsSnapshot.globalActiveId)?.label || null) : null;
   const baseline = useRef(serializeGraph(newGraph(), []));
   const dirty = () => serializeGraph(graph, dependencies) !== baseline.current;
   // Both guards are consulted by every abandon path (Back to Main, Reload from
@@ -422,7 +477,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
             <button className="nodes-node-title" title={`Select or drag ${label(n)}`} aria-label={`Select ${label(n)}`} aria-pressed={selection.ids.includes(n.id)} {...selection.titleHandlers(n)}>{label(n)}</button>
             <div className="nodes-ports">{activeInputs(n).map(name => <button key={name} className="nodes-input" title={`Connect to ${label(n)} ${name} input`} aria-label={`${n.id} input ${name}`} onClick={() => port(n.id, name)}>● {name}</button>)}
               {n.type !== 'output' && <button className={`nodes-output ${pending === n.id ? 'active' : ''}`} title={`Connect from ${label(n)} output`} aria-label={`${n.id} output`} onClick={() => { setPending(n.id); setMessage(''); }}>out ●</button>}
-            </div><small className="nodes-node-detail">{n.type === 'blend' ? `${n.mode} · ${Math.round(n.opacity * 100)}%` : n.type === 'output' ? 'Final image' : n.type === 'audio' ? `${n.band} activity · 0…1` : n.type === 'color' ? 'image → filtered image' : n.type === 'math' ? `${n.op} · scalar out` : n.type === 'script' ? (compileScript(n.source, scriptNodeLanguage(n)).ok ? (scriptNodeLanguage(n) === 'body' ? 'script body' : 'restricted expression') : 'script error') : n.patternId}</small>
+            </div><small className="nodes-node-detail">{n.type === 'blend' ? `${n.mode} · ${Math.round(n.opacity * 100)}%` : n.type === 'output' ? 'Final image' : n.type === 'audio' ? `${deviceLabel(n.deviceId)} · ${AUDIO_CHANNEL_LABELS[n.channel] || 'Mono'} · ${n.band} activity · 0…1` : n.type === 'color' ? 'image → filtered image' : n.type === 'math' ? `${n.op} · scalar out` : n.type === 'script' ? (compileScript(n.source, scriptNodeLanguage(n)).ok ? (scriptNodeLanguage(n) === 'body' ? 'script body' : 'restricted expression') : 'script error') : n.patternId}</small>
             {isModulationTarget(n) && <button className="nodes-signal-endpoint" aria-label={`${n.id} signal endpoint`} onClick={e => {
               e.stopPropagation();
               if (pending) signalPort(n.id);
@@ -442,12 +497,25 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
           <IconControl icon="zoomIn" label="Zoom in" disabled={navigation.view.zoom >= 2.5} onClick={() => navigation.zoomAt(1.2)} />
         </div>
       </section>
-      <aside className="nodes-inspector"><h2>{node ? label(node) : selectedLink ? 'Connection' : 'Preview'}</h2><Preview graph={graph} dependencies={dependencies} selected={selected} revision={revision} current={previewRuntime} sharedRuntime={sharedRuntime} visible={!(node?.type === 'audio' || node?.type === 'script')} />
+      <aside className="nodes-inspector"><h2>{node ? label(node) : selectedLink ? 'Connection' : 'Preview'}</h2><Preview graph={graph} dependencies={dependencies} selected={selected} revision={revision} current={previewRuntime} sharedRuntime={sharedRuntime} audioProvider={audioProvider} providerReady={providerReady} visible={!(node?.type === 'audio' || node?.type === 'script')} />
         {selectedLink && <section className="nodes-connections" aria-label="Selected connection">
           <output className="nodes-connection-name" data-testid="selected-connection">{describeConnection(graph, selection.wire, selectedLink)}</output>
           <button className="btn btn--danger" title="Remove only this wire; both endpoint nodes stay" onClick={remove}>Delete connection</button>
         </section>}
-        {node?.type === 'audio' && <><label>Audio band<Select aria-label="Audio band" value={node.band} onChange={e => patch({ band: e.target.value })}>{BANDS.map(b => <option key={b}>{b}</option>)}</Select></label><p>Normalized custom-script activity (0…1). Uses the main window’s shared audio input; no input means zero. Connect out to one or many ◇ signal endpoints.</p></>}
+        {node?.type === 'audio' && <><label>Audio band<Select aria-label="Audio band" value={node.band} onChange={e => patch({ band: e.target.value })}>{BANDS.map(b => <option key={b}>{b}</option>)}</Select></label>
+          <label>Audio input device<Select aria-label="Audio input device" title="Global follows the Settings input; a pinned entry captures that specific device in the control window" value={node.deviceId ?? ''} onChange={e => patch({ deviceId: e.target.value || null })}>
+            <option value="">Global input (Settings){globalActiveLabel ? ` — ${globalActiveLabel}` : ''}</option>
+            {inputOptions.map((d, i) => <option key={d.deviceId} value={d.deviceId}>{d.label || `Audio input ${i + 1}`}</option>)}
+            {node.deviceId && !inputOptions.some(d => d.deviceId === node.deviceId) && <option value={node.deviceId}>{`Unavailable input (…${node.deviceId.slice(-6)})`}</option>}
+          </Select></label>
+          <label>Channel<Select aria-label="Audio channel" title="Left and Right isolate one channel of a stereo input; Mono combines both channels' activity and does not phase-cancel stereo" value={node.channel} onChange={e => patch({ channel: e.target.value })}>
+            <option value="left">Left</option>
+            <option value="right">Right</option>
+            <option value="mono">Mono</option>
+          </Select></label>
+          <AudioRouteStatus runtime={previewRuntime} nodeId={node.id} channelNote={channelNoteFor(node.id)} />
+          <SignalReadout runtime={previewRuntime} nodeId={node.id} />
+          <p>Normalized custom-script activity (0…1) from this node's own input route. Uses the control window's shared audio inputs; no input means zero. Mono combines both channels' activity; it does not phase-cancel stereo. Connect out to one or many ◇ signal endpoints.</p></>}
         {node?.type === 'output' && <p>Output has no numeric controls. Image mapping is not supported here.</p>}
         {node?.type === 'color' && <p>Color filters its image input in place: saturation → brightness → contrast → hue-rotate. Identity defaults (1 / 1 / 1 / 0) copy the input pixels unchanged; every numeric slider maps like Pattern and Blend. Image input is required before saving.</p>}
         {node?.type === 'math' && <><label>Operation<Select aria-label="Math operation" title="Choose the scalar operation" value={node.op} onChange={e => changeMathOp(e.target.value)}>{MATH_OPS.map(op => <option key={op} value={op}>{MATH_LABELS[op]}</option>)}</Select></label>

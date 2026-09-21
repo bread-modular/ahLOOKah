@@ -38,6 +38,30 @@ const dbToPower = (db) => Math.pow(10, finiteDb(db) / 10);
 const powerToDb = (power) => 10 * Math.log10(Math.max(power, EPSILON * EPSILON));
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
+// Optional per-channel calibration fields ride the existing version-1 profile
+// additively (plan section 5). They are valid only as a complete unit: all four
+// present, per-bin lengths matching the mixed profile, finite values. Malformed
+// optional data is ignored as a unit and never treated as channel calibration.
+function parseChannelFields(raw, bins) {
+  const keys = ['leftDbs', 'rightDbs', 'noiseRmsLeft', 'noiseRmsRight'];
+  const present = keys.filter((key) => raw[key] !== undefined);
+  if (!present.length) return null;
+  if (present.length !== keys.length) return null;
+  const arrays = {};
+  for (const key of ['leftDbs', 'rightDbs']) {
+    const value = raw[key];
+    if (!Array.isArray(value) || value.length !== bins || value.some((v) => !Number.isFinite(v))) return null;
+    arrays[key] = value.map((v) => dbToPower(Number(v)));
+  }
+  const rms = {};
+  for (const key of ['noiseRmsLeft', 'noiseRmsRight']) {
+    const value = Number(raw[key]);
+    if (!Number.isFinite(value) || value < 0 || value > 1) return null;
+    rms[key] = value;
+  }
+  return { leftDbs: arrays.leftDbs, rightDbs: arrays.rightDbs, noiseRmsLeft: rms.noiseRmsLeft, noiseRmsRight: rms.noiseRmsRight };
+}
+
 // ---------------------------------------------------------------------------
 // Persistence
 // ---------------------------------------------------------------------------
@@ -60,6 +84,7 @@ export function loadNoiseFloor() {
     const deviceId = typeof raw.deviceId === 'string' ? raw.deviceId : null;
     const channels = Number.isFinite(raw.channels) ? Math.max(1, Math.round(raw.channels)) : null;
     const noiseRms = Number.isFinite(raw.noiseRms) ? clamp(Number(raw.noiseRms), 0, 1) : null;
+    const channelFields = parseChannelFields(raw, dbs.length);
     profile = {
       bins,
       binHz: sampleRate / fftSize,
@@ -68,6 +93,8 @@ export function loadNoiseFloor() {
       deviceId,
       channels,
       noiseRms,
+      // Present only when the complete optional channel calibration is valid.
+      ...(channelFields || {}),
       capturedAt: Number(raw.capturedAt) || Date.now(),
       seconds: Number(raw.seconds) || 0,
       frames: Number(raw.frames) || 0,
@@ -102,6 +129,13 @@ function persistProfile() {
       deviceId: profile.deviceId || null,
       channels: profile.channels ?? null,
       noiseRms: profile.noiseRms ?? null,
+      // Optional additive channel calibration; old readers ignore it.
+      ...(profile.leftDbs ? {
+        leftDbs: profile.leftDbs.map((p) => Math.round(powerToDb(p) * 10) / 10),
+        rightDbs: profile.rightDbs.map((p) => Math.round(powerToDb(p) * 10) / 10),
+        noiseRmsLeft: profile.noiseRmsLeft,
+        noiseRmsRight: profile.noiseRmsRight,
+      } : {}),
       capturedAt: profile.capturedAt,
       seconds: profile.seconds,
       frames: profile.frames,
@@ -125,6 +159,7 @@ export function getNoiseFloorMeta() {
     deviceId: profile.deviceId || null,
     channels: profile.channels ?? null,
     noiseRms: profile.noiseRms ?? null,
+    channelCalibration: Boolean(profile.leftDbs && profile.rightDbs),
     capturedAt: profile.capturedAt,
     seconds: profile.seconds,
     frames: profile.frames,
@@ -240,6 +275,14 @@ export function feedNoiseCapture(frame) {
   const left = frame?.left;
   const right = frame?.right;
   if (!left?.length && !right?.length) return getNoiseCaptureState();
+
+  // Calibration is scoped to the resolved primary source it started on: a
+  // device switch, fallback or layout change mid-capture cancels it with a
+  // diagnostic instead of mixing two inputs into one signature.
+  if (capture.deviceId != null && typeof frame.deviceId === 'string' && frame.deviceId !== capture.deviceId) {
+    capture = null;
+    return { capturing: false, cancelled: 'source-changed', progress: 0, elapsed: 0, seconds: 0, frames: 0 };
+  }
 
   const binCount = Math.max(left?.length || 0, right?.length || 0);
   if (!capture.sum || capture.sum.length !== binCount) {
@@ -396,4 +439,132 @@ export function applyNoiseFloor(leftOrFrame, right, sampleRate, fftSize) {
   if (left?.length) { cleanArray(left, liveBinHz); applied = true; }
   if (right?.length) { cleanArray(right, liveBinHz); applied = true; }
   return applied;
+}
+
+// ---------------------------------------------------------------------------
+// Routed (per-channel) cleanup
+// ---------------------------------------------------------------------------
+
+function deviceMatchesProfile(deviceId) {
+  if (!profile?.deviceId || !deviceId) return true; // Unknown-ID legacy behavior: primary-mono rules apply.
+  return profile.deviceId === deviceId;
+}
+
+function cleanChannelRms(liveRms, noiseRms) {
+  if (noiseRms == null || !Number.isFinite(liveRms)) return liveRms;
+  const livePower = liveRms * liveRms;
+  const noisePower = noiseRms * noiseRms * OVERSUBTRACTION;
+  const cleanPower = Math.max(livePower - noisePower, livePower * FLOOR_RATIO, EPSILON * EPSILON);
+  const gated = Math.sqrt(cleanPower);
+  if (liveRms < noiseRms * 1.0) {
+    const ratio = clamp((liveRms - noiseRms * 0.5) / (noiseRms * 0.5), 0, 1);
+    return gated * ratio;
+  }
+  return gated;
+}
+
+// Build a cleaned single-route frame from a RAW captured frame without ever
+// mutating it (plan section 5). Returns { frame, calibration }:
+//   mono  — the existing mixed profile/pipeline applies when the profile device
+//           matches (or is unknown); otherwise no subtraction.
+//   left/right — per-channel profile fields when present ('channel-profile');
+//           otherwise the legacy mixed profile is NOT reverse-engineered: the
+//           channel runs unsubtracted with its own waveform RMS
+//           ('uncalibrated-channel'). The opposite channel's/mixed RMS is never
+//           applied. A profile from a different device is 'uncalibrated-device'.
+export function buildChannelFrame(rawFrame, channel) {
+  if (!rawFrame || (channel !== 'left' && channel !== 'right' && channel !== 'mono')) {
+    return { frame: rawFrame || null, calibration: 'none' };
+  }
+  const deviceId = typeof rawFrame.deviceId === 'string' ? rawFrame.deviceId : null;
+  const spectrum = channel === 'mono' ? null : (channel === 'left' ? rawFrame.left : rawFrame.right);
+  const wave = channel === 'mono' ? null : (channel === 'left' ? rawFrame.waveformLeft : rawFrame.waveformRight);
+
+  // Single route projection for Left/Right: one channel only, RMS recomputed
+  // from that channel's own waveform (never copied from the combined frame).
+  const frame = channel === 'mono'
+    ? { ...rawFrame }
+    : {
+        left: spectrum ? spectrum.slice() : undefined,
+        waveformLeft: wave ? wave.slice() : undefined,
+        sampleRate: rawFrame.sampleRate,
+        fftSize: rawFrame.fftSize,
+        time: rawFrame.time,
+        deviceId: rawFrame.deviceId,
+        channels: rawFrame.channels,
+      };
+
+  if (!profile) return { frame, calibration: 'none' };
+  if (!deviceMatchesProfile(deviceId)) return { frame, calibration: 'uncalibrated-device' };
+
+  const liveSampleRate = Number(frame.sampleRate) || profile.sampleRate;
+  const liveFftSize = Number(frame.fftSize) || profile.fftSize;
+  const liveBinHz = Math.max(8000, liveSampleRate) / Math.max(2, liveFftSize);
+
+  if (channel === 'mono') {
+    // Same mixed pipeline as the primary path (profile bins + mixed RMS gate).
+    if (frame.left?.length) cleanArray(frame.left, liveBinHz);
+    if (frame.right?.length) cleanArray(frame.right, liveBinHz);
+    if (profile.noiseRms != null) {
+      const liveRms = computeFrameRms(frame);
+      if (liveRms !== null) {
+        const cleaned = cleanRms(liveRms);
+        frame.rms = cleaned;
+        if (liveRms > 1e-6) {
+          const scale = cleaned / liveRms;
+          if (scale < 0.99) {
+            if (frame.waveformLeft?.length) for (let i = 0; i < frame.waveformLeft.length; i++) frame.waveformLeft[i] *= scale;
+            if (frame.waveformRight?.length) for (let i = 0; i < frame.waveformRight.length; i++) frame.waveformRight[i] *= scale;
+          }
+        } else if (cleaned === 0) {
+          if (frame.waveformLeft?.length) frame.waveformLeft.fill(0);
+          if (frame.waveformRight?.length) frame.waveformRight.fill(0);
+        }
+      }
+    }
+    return { frame, calibration: 'mixed-profile' };
+  }
+
+  const profileDbs = channel === 'left' ? profile.leftDbs : profile.rightDbs;
+  const profileRms = channel === 'left' ? profile.noiseRmsLeft : profile.noiseRmsRight;
+  if (!profileDbs) {
+    // Legacy mixed-only profile: run unsubtracted with the extractor's own
+    // silence gate rather than inventing per-channel calibration.
+    return { frame, calibration: 'uncalibrated-channel' };
+  }
+  if (frame.left?.length) {
+    for (let i = 0; i < frame.left.length; i++) {
+      const power = dbToPower(frame.left[i]);
+      const noise = resampledProfilePower(profileDbs, i * liveBinHz, profile.binHz, profile.bins.length) * OVERSUBTRACTION;
+      const clean = Math.max(power - noise, power * FLOOR_RATIO, EPSILON * EPSILON);
+      frame.left[i] = Math.max(powerToDb(clean), MIN_DB);
+    }
+  }
+  if (frame.waveformLeft?.length) {
+    let sum = 0;
+    for (let i = 0; i < frame.waveformLeft.length; i++) {
+      const v = Number.isFinite(frame.waveformLeft[i]) ? frame.waveformLeft[i] : 0;
+      sum += v * v;
+    }
+    const liveRms = Math.sqrt(sum / frame.waveformLeft.length);
+    const cleaned = cleanChannelRms(liveRms, profileRms ?? null);
+    if (Number.isFinite(cleaned)) {
+      frame.rms = cleaned;
+      if (liveRms > 1e-6) {
+        const scale = cleaned / liveRms;
+        if (scale < 0.99) for (let i = 0; i < frame.waveformLeft.length; i++) frame.waveformLeft[i] *= scale;
+      } else if (cleaned === 0) frame.waveformLeft.fill(0);
+    }
+  }
+  return { frame, calibration: 'channel-profile' };
+}
+
+// Resample an arbitrary power-profile array by Hz (same interpolation shape as
+// noisePowerAtHz, but against an explicit profile so channel fields work too).
+function resampledProfilePower(bins, hz, profileBinHz, length) {
+  const pos = clamp(hz / profileBinHz, 0, length - 1);
+  const i0 = Math.floor(pos);
+  const i1 = Math.min(i0 + 1, length - 1);
+  const frac = pos - i0;
+  return bins[i0] * (1 - frac) + bins[i1] * frac;
 }
