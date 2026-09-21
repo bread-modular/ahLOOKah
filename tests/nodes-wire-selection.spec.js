@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { validateGraph, connectSignal, connectSignalEdge, mapSignal, deleteNodes, connectionRef, findConnection, removeConnection } from '../src/nodes/model.js';
-import { activeInputs, inputs, mathPorts } from '../src/nodes/definitions.js';
+import { activeInputs, inputs, mathPorts, COLOR_PARAMS } from '../src/nodes/definitions.js';
+import { mappedValue } from '../src/nodes/modulation.js';
 import { inputAnchor, outputAnchor, signalAnchor } from '../src/nodes/geometry.js';
 import { mathValue } from '../src/nodes/scalar.js';
 import { parseGraph, serializeGraph, sourceDiagnostics } from '../src/nodes/portability.js';
@@ -82,6 +83,13 @@ const diskGraph = page => page.evaluate(async () => {
   const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('wire-tests');
   return JSON.parse(await (await (await dir.getFileHandle('wire.nodes.json')).getFile()).text()).graph;
 });
+// Disclose one mapped parameter's controls by clicking the overlay on a spot that
+// is empty track (never the box or a handle, which are range gestures).
+const openMapping = async (page, key) => {
+  const overlay = page.locator(`[data-param-target=${key}] .nodes-mapping-overlay`);
+  const rect = await overlay.boundingBox();
+  await page.mouse.click(rect.x + rect.width - 3, rect.y + rect.height / 2);
+};
 
 // Every wire endpoint is compared against the socket the DOM actually draws, so a
 // hand-written node-height offset can never drift back in unnoticed.
@@ -352,35 +360,312 @@ test('Math Value C hides with its wire outside clamp and its stored literal surv
   expect(await portCount()).toBe(3);
 });
 
-test('mapping settings stay collapsed until the named toggle or the mapping box reveals them', async ({ page }) => {
+test('mapping controls belong to the overlay: no Mapping settings button, click/Enter/Space disclosure, collapse on drag, live source badge', async ({ page }) => {
   await page.setViewportSize({ width: 1536, height: 1050 });
-  await openFixture(page, mapSignal(wireGraph(), 'audio', 'tint', 'brightness', .2, .8, true));
+  await openFixture(page, mapSignal(wireGraph(), 'audio', 'tint', 'brightness', .2, .8));
   await page.locator('[data-node-id=tint] .nodes-node-title').click();
   const fields = page.getByLabel('Brightness Mapping min (signal 0)', { exact: true });
-  const toggle = page.getByRole('button', { name: 'Brightness mapping settings' });
   const box = page.getByTestId('mapping-box-brightness');
+  const overlay = page.locator('[data-param-target=brightness] .nodes-mapping-overlay');
+  const toggle = page.getByRole('button', { name: 'Brightness mapping settings' });
   await expect(fields).toHaveCount(0);
   await expect(toggle).toHaveAttribute('aria-expanded', 'false');
   await expect(page.getByLabel('Brightness LIVE mapped value')).toBeVisible();
+  // The old named heading/button is gone: the overlay is the only affordance and
+  // no visible "Mapping settings" text remains anywhere.
+  await expect(toggle).toHaveClass(/nodes-mapping-overlay/);
+  await expect(toggle).toHaveCount(1);
+  expect(await page.getByText(/Mapping settings/i).count()).toBe(0);
 
-  await box.click(); // a click on the overlay box reveals, it does not rescale
+  // Keyboard disclosure from the overlay itself.
+  await overlay.focus();
+  await page.keyboard.press('Enter');
   await expect(fields).toBeVisible();
   await expect(toggle).toHaveAttribute('aria-expanded', 'true');
   await expect(fields).toHaveValue('0.2');
-
-  await toggle.click();
+  await page.keyboard.press('Space');
   await expect(fields).toHaveCount(0);
   await expect(toggle).toHaveAttribute('aria-expanded', 'false');
 
-  await box.click();
+  // Empty track of the overlay: a real click target that toggles too.
+  const track = await overlay.boundingBox();
+  await page.mouse.click(track.x + 4, track.y + track.height / 2);
   await expect(fields).toBeVisible();
+  await expect(overlay).toHaveAttribute('aria-expanded', 'true');
+
+  // Dragging the box rescales the range, collapses the controls and never
+  // reopens them on release.
   const rect = await box.boundingBox();
   await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
   await page.mouse.down();
   await page.mouse.move(rect.x + rect.width / 2 - 24, rect.y + rect.height / 2, { steps: 4 });
   await page.mouse.up();
-  await expect(fields).toHaveCount(0); // a drag hides the settings and cannot reopen them
+  await expect(fields).toHaveCount(0);
   await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+  // A handle resize behaves the same way.
+  const handle = page.locator('[data-param-target=brightness] .nodes-mapping-handle').last();
+  const grip = await handle.boundingBox();
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(grip.x + grip.width / 2 + 18, grip.y + grip.height / 2, { steps: 4 });
+  await page.mouse.up();
+  await expect(fields).toHaveCount(0);
+});
+
+test('each open mapping names its connected signal, live, and hides the badge when collapsed', async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 1050 });
+  // Three parameters on one node, each driven by a different signal source.
+  const sources = wireGraph();
+  sources.modulations = [
+    { from: 'audio', to: 'tint', param: 'brightness', min: .2, max: .8 },
+    { from: 'audio2', to: 'tint', param: 'contrast', min: .5, max: 1.5 },
+    { from: 'sig', to: 'tint', param: 'saturation', min: .5, max: 1.5 },
+  ];
+  await openFixture(page, sources);
+  await page.locator('[data-node-id=tint] .nodes-node-title').click();
+  const badge = key => page.getByTestId(`mapping-source-${key}`);
+
+  await openMapping(page, 'brightness');
+  await expect(badge('brightness')).toHaveText('Audio · bass');
+  await openMapping(page, 'contrast');
+  await expect(badge('contrast')).toHaveText('Audio · high');
+  await openMapping(page, 'saturation');
+  await expect(badge('saturation')).toHaveText('Script');
+  // Each badge stays bound to its own parameter's source.
+  await expect(badge('brightness')).toHaveText('Audio · bass');
+  await expect(badge('contrast')).toHaveText('Audio · high');
+
+  // Collapsing hides the badge again.
+  await openMapping(page, 'brightness');
+  await expect(badge('brightness')).toHaveCount(0);
+
+  // A remap updates the badge: dropping the connected Script chip on the
+  // Brightness mapping box replaces its source.
+  await page.getByRole('button', { name: 'Script', exact: true }).dragTo(page.getByTestId('mapping-box-brightness'));
+  await openMapping(page, 'brightness');
+  await expect(badge('brightness')).toHaveText('Script');
+
+  // A band change on the source node updates the badge without touching the graph.
+  await page.locator('[data-node-id=audio2] .nodes-node-title').click();
+  await page.getByLabel('Audio band').selectOption('mid');
+  await expect(page.getByRole('button', { name: 'Select Audio · mid', exact: true })).toHaveCount(1);
+  await page.locator('[data-node-id=tint] .nodes-node-title').click();
+  await openMapping(page, 'contrast');
+  await expect(badge('contrast')).toHaveText('Audio · mid');
+});
+
+test('mapping endpoints accept values below the parameter domain: negatives persist through save/reload while the effective value stays in the domain', async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 1050 });
+  const def = COLOR_PARAMS.find(p => p.key === 'brightness');
+  // Unit level: the stored endpoint shifts the sweep, and only the value the
+  // target consumes is clamped into the target's own domain.
+  expect(mappedValue({ min: -.5, max: .8 }, 0, def)).toBe(0);
+  expect(mappedValue({ min: -.5, max: .8 }, .5, def)).toBe(.15);
+  expect(mappedValue({ min: -.5, max: .8 }, 1, def)).toBe(.8);
+  expect(mappedValue({ min: .8, max: -.5 }, 0, def)).toBe(.8);
+  expect(mappedValue({ min: -.5, max: -.2 }, 1, def)).toBe(0);
+
+  const id = await openFixture(page, mapSignal(wireGraph(), 'audio', 'tint', 'brightness', .2, .8));
+  await page.locator('[data-node-id=tint] .nodes-node-title').click();
+  const fields = page.getByLabel('Brightness Mapping min (signal 0)', { exact: true });
+  const maxField = page.getByLabel('Brightness Mapping max (signal 1)', { exact: true });
+  const inMin = page.getByLabel('Brightness Signal in min', { exact: true });
+  const inMax = page.getByLabel('Brightness Signal in max', { exact: true });
+  await openMapping(page, 'brightness');
+  await expect(fields).toHaveValue('0.2');
+  await expect(fields).not.toHaveAttribute('min', /.+/);
+  // A minimum below zero is accepted, kept as typed, and the LIVE value the
+  // parameter actually consumes is still clamped into the 0…2 brightness domain.
+  await fields.fill('-0.5');
+  await expect(fields).toHaveValue('-0.5');
+  await expect(page.getByLabel('Brightness LIVE mapped value')).toHaveText('LIVE 0');
+  await maxField.fill('1');
+  await expect(maxField).toHaveValue('1');
+
+  // A fully negative signal input range is valid as long as max > min.
+  await inMin.fill('-2');
+  await inMax.fill('-0.5');
+  await expect(inMin).toHaveValue('-2');
+  await expect(inMax).toHaveValue('-0.5');
+
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(async () => (await diskGraph(page)).modulations.find(m => m.param === 'brightness').min).toBe(-.5);
+  const saved = await diskGraph(page);
+  expect(saved.modulations.find(m => m.param === 'brightness')).toEqual({ from: 'audio', to: 'tint', param: 'brightness', min: -.5, max: 1, inputMin: -2, inputMax: -.5 });
+  expect(saved.nodes.find(n => n.id === 'tint').params.brightness).toBe(1);
+
+  await page.goto(`/?role=nodes&graph=${encodeURIComponent(id)}`);
+  await page.locator('[data-node-id=tint] .nodes-node-title').click();
+  await openMapping(page, 'brightness');
+  await expect(fields).toHaveValue('-0.5');
+  await expect(maxField).toHaveValue('1');
+  await expect(inMin).toHaveValue('-2');
+  await expect(inMax).toHaveValue('-0.5');
+  // Negative endpoints stay editable in the overlay: the pinning is display only.
+  await expect(page.getByTestId('mapping-box-brightness')).toBeVisible();
+});
+
+test('a disclosure click and a sub-threshold drag leave an out-of-domain range alone, and translating it stays continuous', async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 1050 });
+  // min below the 0…1 Opacity floor, so the old domain clamp would have snapped it.
+  await openFixture(page, mapSignal(wireGraph(), 'audio', 'mix', 'opacity', -.5, .8, true));
+  await page.locator('[data-node-id=mix] .nodes-node-title').click();
+  const overlay = page.locator('[data-param-target=opacity] .nodes-mapping-overlay');
+  const box = page.getByTestId('mapping-box-opacity');
+  const min = page.getByLabel('Opacity Mapping min (signal 0)', { exact: true });
+  const max = page.getByLabel('Opacity Mapping max (signal 1)', { exact: true });
+  const expanded = () => overlay.getAttribute('aria-expanded');
+  const ensureOpen = async () => { if (await expanded() === 'false') await openMapping(page, 'opacity'); };
+  const dragBox = async dx => {
+    const rect = await box.boundingBox();
+    await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(rect.x + rect.width / 2 + dx, rect.y + rect.height / 2, { steps: 2 });
+    await page.mouse.up();
+  };
+
+  // The negative endpoint is stored exactly as saved and is not snapped.
+  await openMapping(page, 'opacity');
+  await expect(min).toHaveValue('-0.5');
+  await expect(max).toHaveValue('0.8');
+
+  // Disclosure clicks toggle; they never rewrite the range.
+  await openMapping(page, 'opacity');
+  await expect(min).toHaveCount(0);
+  await openMapping(page, 'opacity');
+  await expect(min).toHaveValue('-0.5');
+  await expect(max).toHaveValue('0.8');
+
+  // A drag shorter than the gesture threshold is still a click.
+  await dragBox(2);
+  await ensureOpen();
+  await expect(min).toHaveValue('-0.5');
+  await expect(max).toHaveValue('0.8');
+
+  // A real drag translates the whole range continuously, outside the domain too,
+  // keeping its width instead of jumping to the domain edge.
+  await dragBox(-20);
+  await ensureOpen();
+  const moved = await min.inputValue();
+  expect(Number(moved)).toBeLessThan(-.5);
+  expect(Number(await max.inputValue()) - Number(moved)).toBeCloseTo(1.3, 6);
+});
+
+test('a keyboard-focused wire drops the rectangular focus box, keeps a stroke cue, and still owns exclusive deletion', async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 1050 });
+  await openFixture(page, wireGraph());
+  const wire = page.locator('[data-connection="modulation:audio:tint:brightness"]');
+  const connection = 'modulation:audio:tint:brightness';
+  const selectedIds = () => page.locator('.nodes-node.is-selected').evaluateAll(nodes => nodes.map(n => n.dataset.nodeId));
+  await expect(page.locator('.nodes-node')).toHaveCount(8);
+
+  await page.locator('[data-node-id=tint] .nodes-node-title').click();
+  await wire.focus();
+  // No outline rectangle around the curve: the stroke itself is the focus cue.
+  const style = await wire.evaluate(path => { const s = getComputedStyle(path); return { outlineStyle: s.outlineStyle, outlineWidth: s.outlineWidth, stroke: s.stroke, strokeWidth: s.strokeWidth }; });
+  expect(style.outlineStyle).toBe('none'); // nothing is painted around the curve
+  expect(style.strokeWidth).toBe('7px');
+  expect(style.stroke).not.toBe('rgb(77, 163, 255)'); // the wire's own colour changed on focus
+
+  await page.keyboard.press('Enter');
+  await expect(wire).toHaveAttribute('aria-pressed', 'true');
+  expect(await selectedIds()).toEqual([]); // exclusive of node selection
+  await expect(page.getByTestId('selected-connection')).toHaveText('Audio · bass → Color brightness (modulation)');
+  await page.keyboard.press('Delete');
+  await expect(page.locator('.nodes-node')).toHaveCount(8); // both endpoint nodes survive
+  await expect(page.locator(`[data-connection="${connection}"]`)).toHaveCount(0);
+  expect(await page.locator('.nodes-wires path').evaluateAll(paths => paths.map(p => p.getAttribute('data-connection')))).toEqual([
+    'image:mix:base', 'image:mix:layer', 'image:tint:image', 'image:out:image', 'signal:sig:x', 'modulation:audio:tint:saturation',
+  ]);
+});
+
+test('node-editor text fields take a soft white focus border with no outline, and sliders keep a non-accent ring', async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 1050 });
+  const unmapped = wireGraph();
+  delete unmapped.modulations; // unbounded sliders must be really focusable
+  await openFixture(page, unmapped);
+  const name = page.getByLabel('Graph name');
+  await name.click();
+  await expect(name).toHaveCSS('outline-style', 'none');
+  await expect(name).toHaveCSS('border-color', 'rgb(230, 236, 245)');
+
+  const palette = page.getByRole('button', { name: '+ Blend', exact: true });
+  // Reach the button with real keyboard navigation: its own focus style must
+  // survive, because the soft-white change is scoped to text/number fields.
+  let landed = false;
+  for (let i = 0; i < 8 && !landed; i += 1) {
+    await page.keyboard.press('Tab');
+    landed = await page.evaluate(() => document.activeElement?.textContent.trim() === '+ Blend');
+  }
+  expect(landed).toBe(true);
+  await expect(palette).toHaveCSS('outline-style', 'none'); // .btn keeps its own focus border
+  await expect(palette).toHaveCSS('border-color', 'rgb(136, 136, 136)');
+
+  await page.locator('[data-node-id=tint] .nodes-node-title').click();
+  const slider = page.getByRole('slider', { name: 'Brightness', exact: true });
+  // Real keyboard focus: tab from the preceding slider, so :focus-visible applies.
+  await page.getByRole('slider', { name: 'Saturation', exact: true }).focus();
+  await page.keyboard.press('Tab');
+  await expect(slider).toBeFocused();
+  await expect(slider).toHaveCSS('outline-style', 'solid');
+  await expect(slider).toHaveCSS('outline-color', 'rgb(230, 236, 245)');
+});
+
+test('Math is no longer created, while an existing Math graph still loads, renders its wired clamp input and saves unchanged', async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 1050 });
+  // A legacy graph saved by an older build: clamp with a *wired* third input that
+  // comes from another Math node, so the rendered pixels depend on that wire.
+  const legacy = { version: 1, name: 'Legacy clamp', nodes: [
+    { id: 'base', type: 'pattern', patternId: 'solid-color', x: 30, y: 40, params: { hue: 0, saturation: 1, brightness: 1, pulse: 0 } },
+    { id: 'tint', type: 'color', x: 330, y: 40, params: { saturation: 1, brightness: 1, contrast: 1, hue: 0 } },
+    { id: 'zero', type: 'math', op: 'add', a: 0, b: 0, c: 1, x: 30, y: 250 },
+    { id: 'scale', type: 'math', op: 'clamp', a: .5, b: .2, c: .9, x: 330, y: 250 },
+    { id: 'out', type: 'output', x: 660, y: 40 },
+  ], edges: [{ from: 'base', to: 'tint', port: 'image' }, { from: 'tint', to: 'out', port: 'image' }],
+  signalEdges: [{ from: 'zero', to: 'scale', port: 'c' }],
+  modulations: [{ from: 'scale', to: 'tint', param: 'brightness', min: 0, max: 1 }] };
+  const id = await openFixture(page, legacy);
+  // No creation action exists for Math; the other four node kinds stay.
+  await expect(page.getByRole('button', { name: '+ Math', exact: true })).toHaveCount(0);
+  for (const name of ['+ Blend', '+ Color', '+ Script', '+ Audio']) await expect(page.getByRole('button', { name, exact: true })).toHaveCount(1);
+
+  // The legacy node loads with its port, its wire and its stored literals.
+  await expect(page.locator('[data-node-id=scale] .nodes-node-detail')).toHaveText('clamp · scalar out');
+  await expect(page.locator('[data-node-id=scale] .nodes-input', { hasText: 'c' })).toBeVisible();
+  await expect(page.locator('[data-connection="signal:scale:c"]')).toHaveCount(1);
+  // The wired third input really drives the rendered pixels: clamp(.5, .2, 0)=.2.
+  const previewRed = () => page.getByTestId('node-preview').evaluate(c => c.getContext('2d').getImageData(10, 10, 1, 1).data[0]);
+  await page.locator('[data-node-id=out] .nodes-node-title').click();
+  await expect.poll(previewRed).toBe(51);
+  await page.locator('[data-node-id=scale] .nodes-node-title').click();
+  await expect(page.getByLabel('Math operation')).toHaveValue('clamp');
+  await expect(page.getByLabel('Math c literal')).toHaveValue('0.9');
+  await expect(page.getByTestId('node-signal-readout')).toContainText('Output 0.200');
+  // Dropping that wire falls back to the stored literal c=.9 → clamp=.5 → 127,
+  // so the connection (not just the literal) is what the render follows.
+  await page.locator('[data-connection="signal:scale:c"]').focus();
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Delete');
+  await expect(page.locator('[data-connection="signal:scale:c"]')).toHaveCount(0);
+  await expect.poll(previewRed).toBeGreaterThan(100);
+
+  // Saving and reloading a legacy graph keeps the node, its literals and its wire.
+  await page.reload();
+  await page.locator('[data-node-id=scale] .nodes-node-title').click();
+  await expect(page.getByLabel('Math operation')).toHaveValue('clamp');
+  await expect(page.getByLabel('Math b literal')).toHaveValue('0.2');
+  await expect(page.locator('[data-connection="signal:scale:c"]')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(async () => (await diskGraph(page)).nodes.find(n => n.id === 'scale').op).toBe('clamp');
+  const saved = await diskGraph(page);
+  expect(saved.nodes.find(n => n.id === 'scale')).toEqual({ id: 'scale', type: 'math', x: 330, y: 250, op: 'clamp', a: .5, b: .2, c: .9 });
+  expect(saved.signalEdges).toEqual([{ from: 'zero', to: 'scale', port: 'c' }]);
+  await page.goto(`/?role=nodes&graph=${encodeURIComponent(id)}`);
+  await expect(page.locator('[data-connection="signal:scale:c"]')).toHaveCount(1);
+  await expect(page.locator('[data-node-id=scale] .nodes-node-detail')).toHaveText('clamp · scalar out');
+  await page.locator('[data-node-id=out] .nodes-node-title').click();
+  await expect.poll(previewRed).toBe(51);
 });
 
 test('graphs beyond the removed 24-node and 8-source budgets stay editable, renderable and saveable', async ({ page }) => {
