@@ -106,11 +106,15 @@ test('real source rendering, chain editing, move, disconnect, delete and screens
   await page.getByRole('button', { name: 'Select Output', exact: true }).click();
   await page.screenshot({ path: testInfo.outputPath('nodes-editor.png'), fullPage: true });
   await page.screenshot({ path: '/tmp/nodes-editor-review.png', fullPage: true });
-  await page.getByRole('button', { name: 'Disconnect image', exact: true }).click();
+  // Connections are removed from the graph itself: focus the wire into Output and
+  // delete the selected connection (the inspector has no Disconnect buttons).
+  await page.locator('[data-connection-from="mix"]').focus(); await page.keyboard.press('Enter');
+  await page.getByRole('button', { name: 'Delete connection', exact: true }).click();
   await expect.poll(() => pixel(page)).toEqual([0, 0, 0, 0]);
   await page.getByLabel('mix output', { exact: true }).click(); await page.getByLabel('output input image').click();
   await expect.poll(async () => (await pixel(page))[1]).toBe(255);
-  await page.getByRole('button', { name: 'Select Blend', exact: true }).click(); await page.getByRole('button', { name: 'Delete node', exact: true }).click();
+  await page.getByRole('button', { name: 'Select Blend', exact: true }).click();
+  await page.getByLabel('Graph workspace').focus(); await page.keyboard.press('Delete'); // Delete owns node removal.
   await expect(page.locator('[data-node-id="mix"]')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
@@ -128,7 +132,7 @@ test('searchable palette accepts validated cross-tab drag payload, rejects forei
   await page.getByLabel('Graph workspace').evaluate((el, text) => { const dataTransfer = new DataTransfer(); dataTransfer.setData('application/x-viz-pattern+json', text); el.dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer, clientX: 350, clientY: 300 })); }, payload);
   await expect(page.locator('[data-node-id]')).toHaveCount(3);
   await page.getByLabel('Graph workspace').evaluate(el => { const dataTransfer = new DataTransfer(); dataTransfer.setData('application/x-viz-pattern+json', '{"version":1,"patternId":"not-real"}'); el.dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer })); });
-  await expect(page.locator('.nodes-status')).toHaveText('Invalid pattern drag payload');
+  await expect(page.locator('.nodes-workspace')).toHaveAttribute('data-status', 'Invalid pattern drag payload');
   await expect(page.locator('[data-node-id]')).toHaveCount(3);
 });
 
@@ -136,7 +140,7 @@ test('disk persistence, stable overwrite, reload and isolated drafts across tabs
   await page.goto('/?role=nodes'); await openFixture(page);
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
-  await expect(page.locator('.nodes-status')).toHaveCount(0);
+  await expect(page.locator('.nodes-workspace')).not.toHaveAttribute('data-status', /.+/);
   const second = await context.newPage(); await second.goto('/?role=nodes');
   await expect(second.getByLabel('Graph name')).toHaveValue('Untitled graph');
   await expect.poll(() => recordNames(second)).toHaveLength(1);
@@ -162,7 +166,7 @@ test('missing dependencies and camera preview are visible and never acquire capt
   const missing = graph(); missing.nodes[0].patternId = 'missing-file'; missing.nodes[0].params = {};
   await openFixture(page, missing);
   await expect(page.locator('.nodes-diagnostics')).toContainText('Missing pattern');
-  await page.getByRole('button', { name: 'Save' }).click(); await expect(page.locator('.nodes-status')).toContainText('Missing pattern');
+  await page.getByRole('button', { name: 'Save' }).click(); await expect(page.locator('.nodes-workspace')).toHaveAttribute('data-status', /Missing pattern/);
 });
 
 test('multi-blend DAG reuses source pixels, resizes and disposes independent audio slots', async ({ page }) => {
@@ -388,7 +392,7 @@ test('new drafts save in linked folder, collision cancellation and failed writes
   await page.getByLabel('Graph name').fill('Edited draft');
   page.removeAllListeners('dialog'); page.on('dialog', d => d.dismiss());
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.locator('.nodes-status')).toContainText('Canceled');
+  await expect(page.locator('.nodes-workspace')).toHaveAttribute('data-status', /Canceled/);
   expect(await diskText(page)).toBe(before);
   await page.getByRole('button', { name: 'Reload from Disk', exact: true }).click();
   await expect(page.getByLabel('Graph name')).toHaveValue('Edited draft');
@@ -402,7 +406,7 @@ test('new drafts save in linked folder, collision cancellation and failed writes
     window.__restoreWriter = () => { FileSystemFileHandle.prototype.createWritable = native; };
   });
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.locator('.nodes-status')).toContainText('Mock disk full');
+  await expect(page.locator('.nodes-workspace')).toHaveAttribute('data-status', /Mock disk full/);
   expect(await diskText(page)).toBe(before);
   await page.evaluate(() => window.__restoreWriter());
   // A fresh graph, not a loaded document, derives its filename from its name.
@@ -412,7 +416,7 @@ test('new drafts save in linked folder, collision cancellation and failed writes
   await page.locator('.nodes-output').click(); await page.getByLabel('output input image').click();
   await page.getByLabel('Graph name').fill('Fresh pattern');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.locator('.nodes-status')).toHaveCount(0);
+  await expect(page.locator('.nodes-workspace')).not.toHaveAttribute('data-status', /.+/);
   await expect.poll(() => recordNames(page)).toHaveLength(2);
   const saved = await page.evaluate(async () => {
     const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('node-patterns');
@@ -428,10 +432,10 @@ test('stale drafts cannot overwrite another tab; refresh retires deleted disk pa
   await page.getByLabel('Graph name').fill('First writer');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
-  await expect(page.locator('.nodes-status')).toHaveCount(0);
+  await expect(page.locator('.nodes-workspace')).not.toHaveAttribute('data-status', /.+/);
   await second.getByLabel('Graph name').fill('Stale writer');
   await second.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(second.locator('.nodes-status')).toContainText('File changed');
+  await expect(second.locator('.nodes-workspace')).toHaveAttribute('data-status', /File changed/);
   expect(JSON.parse(await diskText(page)).graph.name).toBe('First writer');
   await expect(second.getByLabel('Graph name')).toHaveValue('Stale writer');
   await page.evaluate(async () => {
@@ -449,7 +453,7 @@ test('denied save preserves draft; main pickers cancel or report unsupported', a
   const before = await diskText(page);
   await page.evaluate(() => { window.__permission = 'denied'; window.__requestPermission = 'denied'; });
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.locator('.nodes-status')).toContainText('Permission denied');
+  await expect(page.locator('.nodes-workspace')).toHaveAttribute('data-status', /Permission denied/);
   expect(await diskText(page)).toBe(before);
   const main = await context.newPage(); await main.goto('/');
   await folderAction(main, 'Node Patterns', 'Unlink folder');
@@ -490,7 +494,7 @@ test('outside picker files survive reload; invalid and oversized files never rep
   await expect.poll(() => recordNames(page)).toHaveLength(1);
   await expect(page.getByLabel('Graph name')).toHaveValue('Outside pattern');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.locator('.nodes-status')).toContainText('Link a node patterns folder');
+  await expect(page.locator('.nodes-workspace')).toHaveAttribute('data-status', /Link a node patterns folder/);
   expect(await diskText(page)).toBe(before);
   for (const [text, message] of [['{"format":"viz2-nodes","version":99}', 'Unsupported'], ['x'.repeat(200001), '200 KB']]) {
     await page.evaluate(async text => {
@@ -547,7 +551,7 @@ test('folder switch is atomic on storage failure and successful switch keeps fil
   expect(await diskText(page)).toBe(before);
   await expect(page.getByLabel('Graph name')).toHaveValue('Neon composite');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.locator('.nodes-status')).toContainText('Linked folder changed');
+  await expect(page.locator('.nodes-workspace')).toHaveAttribute('data-status', /Linked folder changed/);
 });
 
 const recordNames = page => page.evaluate(async () => (await import('/src/nodes/repository.js')).nodePatterns.records.map(r => r.graph.name));
@@ -600,7 +604,7 @@ test('Node Patterns category owns folder/open; sidebar opens the selected graph 
   await editor.getByLabel('Graph name').fill('Selected graph saved');
   await editor.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(editor.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
-  await expect(editor.locator('.nodes-status')).toHaveCount(0);
+  await expect(editor.locator('.nodes-workspace')).not.toHaveAttribute('data-status', /.+/);
   await expect(category.locator(`[data-id="${id}"]`)).toContainText('Selected graph saved');
   await expect(category.locator('.library-btn').filter({ hasText: 'Neon composite' })).toHaveCount(1);
   await page.getByRole('button', { name: 'Back to Main', exact: true }).click();
@@ -803,7 +807,9 @@ for (const modifier of ['Control', 'Meta']) {
     expect(await selectedIds(page)).toEqual(['red']);
     await nodeTitle(page, 'red').click({ modifiers: [modifier] });
     expect(await selectedIds(page)).toEqual([]);
-    await expect(page.getByRole('button', { name: 'Delete node', exact: true })).toBeDisabled();
+    // An empty selection makes Delete/Backspace a no-op; there is no inspector delete button.
+    await page.getByLabel('Graph workspace').focus(); await page.keyboard.press('Delete');
+    await expect(page.locator('.nodes-node')).toHaveCount(4);
   });
 }
 
@@ -977,7 +983,7 @@ test('25% zoom with pan: group and single drag cross left/top origin, wires and 
   await verifyWires();
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
-  await expect(page.locator('.nodes-status')).toHaveCount(0);
+  await expect(page.locator('.nodes-workspace')).not.toHaveAttribute('data-status', /.+/);
   const saved = JSON.parse(await diskText(page));
   expect(Object.fromEntries(saved.graph.nodes.map(({ id, x, y }) => [id, { x, y }]))).toEqual(final);
   expect(saved.graph.edges).toEqual(graph().edges);

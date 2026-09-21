@@ -122,7 +122,7 @@ for (const mode of ['native tab visibility', 'main visual rAF paused']) {
     // controllers, not retain them until the plan lease eventually expires.
     for (const id of ['color', 'audio']) {
       await page.locator(`[data-node-id=${id}] .nodes-node-title`).click();
-      await page.getByRole('button', { name: 'Delete node', exact: true }).click();
+      await page.getByLabel('Graph workspace').focus(); await page.keyboard.press('Delete');
     }
     await expect.poll(() => main.evaluate(() => window.__viz.patternAudio.engine.activeControllers.filter(c => c.key.includes('nodes-editor-')).length)).toBe(0);
     // Exercise actual runtime teardown while keeping the document inspectable.

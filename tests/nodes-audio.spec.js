@@ -139,11 +139,13 @@ test('endpoint selection, accessible mapping, drag-to-slider, range gestures, re
   await page.getByLabel('audio output', { exact: true }).click(); await page.getByLabel('color signal endpoint', { exact: true }).click();
   await expect(page.locator('.nodes-signal-chip')).toHaveCount(1);
   await page.locator('.nodes-signal-chip').dragTo(page.getByRole('slider', { name: 'Brightness', exact: true }));
-  const low = page.getByLabel('Brightness Mapping min (signal 0)', { exact: true }), high = page.getByLabel('Brightness Mapping max (signal 1)', { exact: true });
+  const low = page.getByLabel('Brightness Mapping min', { exact: true }), high = page.getByLabel('Brightness Mapping max', { exact: true });
   await expect(low).toHaveCount(0); // collapsed by default
   await page.getByRole('button', { name: 'Brightness mapping settings' }).click();
   await expect(low).toHaveValue('0.2'); await low.fill('0.3'); await high.fill('0.7');
-  await page.getByRole('button', { name: 'Reverse range' }).click(); await expect(low).toHaveValue('0.7'); await expect(high).toHaveValue('0.3');
+  // Reversing is a field edit now (min above max is a valid sweep): max first so
+  // the two edits never pass through an equal pair.
+  await high.fill('0.3'); await low.fill('0.7'); await expect(low).toHaveValue('0.7'); await expect(high).toHaveValue('0.3');
   const settings = page.getByRole('button', { name: 'Brightness mapping settings' });
   const box = page.getByTestId('mapping-box-brightness'); await box.scrollIntoViewIfNeeded(); const rect = await box.boundingBox();
   await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2); await page.mouse.down(); await page.mouse.move(rect.x + rect.width / 2 - 20, rect.y + rect.height / 2, { steps: 3 }); await page.mouse.up();
@@ -162,11 +164,11 @@ test('endpoint selection, accessible mapping, drag-to-slider, range gestures, re
   const chip = page.getByRole('button', { name: 'Audio · bass', exact: true });
   await chip.dragTo(page.getByRole('slider', { name: 'Saturation', exact: true }));
   await page.getByRole('button', { name: 'Saturation mapping settings' }).click();
-  await expect(page.getByLabel('Saturation Mapping min (signal 0)', { exact: true })).toHaveValue('1');
+  await expect(page.getByLabel('Saturation Mapping min', { exact: true })).toHaveValue('1');
   await page.getByLabel('audio output', { exact: true }).click(); await page.getByLabel('mix signal endpoint', { exact: true }).click();
   await page.locator('.nodes-signal-chip').dragTo(page.getByRole('slider', { name: 'Opacity', exact: true }));
   await page.getByRole('button', { name: 'Opacity mapping settings' }).click();
-  await expect(page.getByLabel('Opacity Mapping min (signal 0)', { exact: true })).toHaveValue('0.3');
+  await expect(page.getByLabel('Opacity Mapping min', { exact: true })).toHaveValue('0.3');
   // Dropping another connected signal on the same slider is the replacement path.
   await page.getByLabel('audio2 output', { exact: true }).click(); await page.getByLabel('mix signal endpoint', { exact: true }).click();
   const highChip = page.getByRole('button', { name: 'Audio · high', exact: true });
@@ -175,7 +177,7 @@ test('endpoint selection, accessible mapping, drag-to-slider, range gestures, re
   page.once('dialog', d => d.accept());
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
-  await expect(page.locator('.nodes-status')).toHaveCount(0);
+  await expect(page.locator('.nodes-workspace')).not.toHaveAttribute('data-status', /.+/);
   const persisted = await page.evaluate(async () => {
     const d = await (await navigator.storage.getDirectory()).getDirectoryHandle('audio-tests');
     return JSON.parse(await (await (await d.getFileHandle('audio.nodes.json')).getFile()).text()).graph;
@@ -193,7 +195,7 @@ test('endpoint selection, accessible mapping, drag-to-slider, range gestures, re
   await page.screenshot({ path: '/tmp/nodes-audio-editor.png', fullPage: true });
   await page.getByLabel('audio2 output', { exact: true }).click();
   await page.getByLabel('Audio band').selectOption('mid');
-  await page.getByRole('button', { name: 'Delete node', exact: true }).click();
+  await page.getByLabel('Graph workspace').focus(); await page.keyboard.press('Delete');
   await expect(page.locator('.nodes-signal-wire')).toHaveCount(2); // both Pattern mappings survive; deleted Audio's Blend link is removed
   expect(errors).toEqual([]);
 });
@@ -288,7 +290,7 @@ test('Audio creation supports multiple nodes and refuses enum mapping in the ins
   await page.getByLabel(`${from} output`, { exact: true }).click(); await page.getByLabel(`${target} signal endpoint`, { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Audio · bass', exact: true })).toHaveCount(1);
   await page.getByRole('button', { name: 'Audio · bass', exact: true }).dragTo(page.getByLabel(source.label, { exact: true }));
-  await expect(page.locator('.nodes-status')).toContainText('Unsupported: only numeric sliders');
+  await expect(page.locator('.nodes-workspace')).toHaveAttribute('data-status', /Unsupported: only numeric sliders/);
   await expect(page.locator('.nodes-mapping-box')).toHaveCount(0);
   await page.getByRole('button', { name: '+ Audio', exact: true }).click(); await page.getByLabel('Audio band').selectOption('high');
   await expect(page.getByRole('button', { name: 'Select Audio · bass', exact: true })).toHaveCount(1);
@@ -330,7 +332,7 @@ test('mapped editor preview follows main input before and after graph edits', as
   await expect.poll(() => previewRed(page)).toBeGreaterThan(80);
   await page.locator('[data-node-id=color] .nodes-node-title').click();
   await page.getByRole('button', { name: 'Brightness mapping settings' }).click();
-  await page.getByLabel('Brightness Mapping min (signal 0)', { exact: true }).fill('0.4');
+  await page.getByLabel('Brightness Mapping min', { exact: true }).fill('0.4');
   await expect.poll(() => previewRed(page)).toBeGreaterThan(105);
   await sharedInput(main, false);
   await expect.poll(() => previewRed(page)).toBe(102);
@@ -362,7 +364,7 @@ async function saveAndRead(page) {
   page.once('dialog', d => d.accept());
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
-  await expect(page.locator('.nodes-status')).toHaveCount(0);
+  await expect(page.locator('.nodes-workspace')).not.toHaveAttribute('data-status', /.+/);
   return page.evaluate(async () => {
     const { nodePatterns } = await import('/src/nodes/repository.js');
     return (await nodePatterns.load(new URLSearchParams(location.search).get('graph'))).graph;
@@ -399,7 +401,9 @@ test('LIVE indicator follows actual selected preview across owner restart, rever
   main = await context.newPage(); await main.goto('/'); await main.waitForFunction(() => window.__viz?.audioOwner); await sharedInput(main, true);
   await expect.poll(async () => Number((await live.textContent()).replace('LIVE ', ''))).toBeGreaterThan(.3);
   await page.getByRole('button', { name: 'Brightness mapping settings' }).click();
-  await page.getByRole('button', { name: 'Reverse range', exact: true }).click();
+  // Reverse the sweep from the fields themselves: min above max is a valid range.
+  await page.getByLabel('Brightness Mapping max', { exact: true }).fill('0.2');
+  await page.getByLabel('Brightness Mapping min', { exact: true }).fill('0.8');
   await sharedInput(main, false);
   await expect(live).toHaveText('LIVE 0.8');
   await expect.poll(() => previewRed(page)).toBe(204);
@@ -418,7 +422,7 @@ test('LIVE indicator follows actual selected preview across owner restart, rever
   expect(await page.evaluate(() => window.editorCaptureCalls)).toBe(0);
 });
 
-for (const action of ['Delete', 'Backspace', 'sidebar']) {
+for (const action of ['Delete', 'Backspace']) {
   test(`mixed multi-selection ${action} cleans incident links at zoom and persists with Output protected`, async ({ page }) => {
     await page.setViewportSize({ width: 1536, height: 1050 });
     let g = graph();
@@ -439,18 +443,19 @@ for (const action of ['Delete', 'Backspace', 'sidebar']) {
     for (const id of ['mix', 'audio', 'output']) await title(id).click({ modifiers: ['Control'] });
     await expect(page.locator('.nodes-node.is-selected')).toHaveCount(4);
     await expect(page.locator('[data-node-id=output]')).toHaveAttribute('data-primary', 'true');
-    const remove = page.getByRole('button', { name: 'Delete node', exact: true });
-    await expect(remove).toBeEnabled(); // Output primary must not veto the group.
+    // Output primary must not veto the group: every selected node is removable.
+    await expect(page.locator('.nodes-node')).toHaveCount(6);
     // Editing inputs cannot accidentally delete the selected group.
     await page.getByLabel('Graph name').focus(); await page.keyboard.press('Backspace');
     await page.getByLabel('Search patterns').focus(); await page.keyboard.press('Delete');
     await expect(page.locator('.nodes-node')).toHaveCount(6);
-    if (action === 'sidebar') await remove.click();
-    else { await workspace.focus(); await page.keyboard.press(action); }
+    await workspace.focus(); await page.keyboard.press(action);
     await expect(page.locator('.nodes-node')).toHaveCount(3);
-    await expect(page.locator('.nodes-status')).toContainText('Output is required and was kept');
+    await expect(page.locator('.nodes-workspace')).toHaveAttribute('data-status', /Output is required and was kept/);
     await expect(page.locator('.nodes-wires path')).toHaveCount(2);
-    await expect(remove).toBeDisabled();
+    // Output alone stays protected: Delete is refused and it survives.
+    await workspace.focus(); await page.keyboard.press('Delete');
+    await expect(page.locator('.nodes-node')).toHaveCount(3);
     const saved = await saveAndRead(page);
     expect(saved.nodes.map(n => n.id).sort()).toEqual(['audio2', 'keep', 'output']);
     expect(saved.edges).toEqual([{ from: 'keep', to: 'output', port: 'image' }]);
@@ -498,11 +503,11 @@ test('legacy editor keeps ordinary pulse reactive through mapping edits, audio-n
   await sharedInput(page, false); await expect.poll(() => previewRed(editor)).toBe(51);
   await sharedInput(page, true); await expect.poll(() => previewRed(editor)).toBeGreaterThan(110);
   await editor.getByRole('button', { name: 'Saturation mapping settings' }).click();
-  await editor.getByLabel('Saturation Mapping min (signal 0)', { exact: true }).fill('0.4');
+  await editor.getByLabel('Saturation Mapping min', { exact: true }).fill('0.4');
   await expect.poll(() => previewRed(editor)).toBeGreaterThan(110);
   await editor.getByRole('button', { name: 'Remove mapping', exact: true }).click();
   await editor.locator('[data-node-id=audio] .nodes-node-title').click();
-  await editor.getByRole('button', { name: 'Delete node', exact: true }).click();
+  await editor.getByLabel('Graph workspace').focus(); await editor.keyboard.press('Delete');
   await editor.locator('[data-node-id=color] .nodes-node-title').click();
   await expect.poll(() => previewRed(editor)).toBeGreaterThan(110);
   await sharedInput(page, false); await expect.poll(() => previewRed(editor)).toBeLessThan(55);

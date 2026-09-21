@@ -227,8 +227,8 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   };
   // Scalar targets (Pattern numeric sliders, Blend opacity, Color parameters).
   function signalPort(to) {
-    if (!isSignalSource(graph.nodes.find(n => n.id === pending))) { setMessage('Choose an Audio, Math or Script output first, then a signal endpoint.'); return; }
-    attempt(() => { edit(connectSignal(graph, pending, to)); focusSignal(pending, to); setPending(null); setMessage('Choose a numeric target below, or drag its signal onto a slider.'); });
+    if (!isSignalSource(graph.nodes.find(n => n.id === pending))) return;
+    attempt(() => { edit(connectSignal(graph, pending, to)); focusSignal(pending, to); setPending(null); setMessage(''); });
   }
   function assignSignal(from, def) {
     if (!numeric(def)) { setMessage('Unsupported: only numeric sliders can map; enum, bool and text cannot.'); return; }
@@ -239,7 +239,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
     attempt(() => edit(mapSignal(graph, from, node.id, def.key, base, base < def.max ? clampStep(base + (def.max - def.min) * .25, def) : def.min, true)));
   }
   function port(to, name) {
-    if (!pending) { setMessage('Choose an output port first, then an input port.'); return; }
+    if (!pending) return;
     const from = graph.nodes.find(n => n.id === pending), target = graph.nodes.find(n => n.id === to);
     if (isSignalSource(from) && !isScalarConsumer(target)) { setMessage('Scalar outputs connect to Math/Script inputs or a signal endpoint, not image inputs.'); return; }
     if (isVisualSource(from) && isScalarConsumer(target)) { setMessage('Image outputs connect to image inputs (Blend/Color/Output), not scalar ports.'); return; }
@@ -368,12 +368,13 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
         })}>Save</button>
       </div>
     </header>
-    {message && <div className="nodes-status" role="status">{message}</div>}
+    {/* No status strip: guidance and error text never render as a bar. The text
+        stays on the workspace's data-status attribute for diagnostics and tests. */}
     <div className="nodes-layout" inert={busy}>
       <aside className="nodes-palette" aria-label="Pattern palette"><button className="btn" title="Add a Blend node" onClick={() => create('blend')}>+ Blend</button><button className="btn" title="Add a Color node (saturation, brightness, contrast, hue shift)" onClick={() => create('color')}>+ Color</button><button className="btn" title="Add a Script node (restricted scalar expression and compiled body)" onClick={() => create('script')}>+ Script</button><button className="btn" title="Add an Audio node (bass, mid or high activity)" onClick={() => create('audio')}>+ Audio</button><input className="control-input" aria-label="Search patterns" title="Filter available patterns" placeholder="Search patterns…" value={query} onChange={e => setQuery(e.target.value)} />
         <div className="nodes-pattern-list">{SKETCHES.filter(s => !s.nodesGraph && `${s.name} ${s.group}`.toLowerCase().includes(query.toLowerCase())).map(s => <button className="btn" key={s.id} title={`Drag ${s.name} onto the canvas to create a node`} draggable onDragStart={e => { e.dataTransfer.effectAllowed = 'copy'; e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ version: 1, patternId: s.id })); }}><span>{s.name}</span><small>{s.group}{s.camera ? ' · Output camera' : ''}</small></button>)}</div>
       </aside>
-      <section ref={navigation.workspace} {...selection.workspaceHandlers} className="nodes-workspace" aria-label="Graph workspace" tabIndex={0} onDragOver={e => { if (e.dataTransfer.types.includes(DRAG_TYPE)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }} onDrop={e => {
+      <section ref={navigation.workspace} {...selection.workspaceHandlers} className="nodes-workspace" aria-label="Graph workspace" tabIndex={0} data-status={message || undefined} onDragOver={e => { if (e.dataTransfer.types.includes(DRAG_TYPE)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }} onDrop={e => {
         e.preventDefault(); const id = readPatternDrag(e.dataTransfer, SKETCHES);
         if (!id) { setMessage('Invalid pattern drag payload'); return; }
         const point = navigation.toGraph(e.clientX, e.clientY); add(id, point.x, point.y);
@@ -395,7 +396,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
           {graph.nodes.map(n => <article key={n.id} className={`nodes-node ${selection.ids.includes(n.id) ? 'is-selected' : ''}`} data-node-id={n.id} data-primary={selected === n.id || undefined} style={{ left: n.x, top: n.y }} onClick={e => selection.nodeClick(n.id, e)}>
             <button className="nodes-node-title" title={`Select or drag ${label(n)}`} aria-label={`Select ${label(n)}`} aria-pressed={selection.ids.includes(n.id)} {...selection.titleHandlers(n)}>{label(n)}</button>
             <div className="nodes-ports">{activeInputs(n).map(name => <button key={name} className="nodes-input" title={`Connect to ${label(n)} ${name} input`} aria-label={`${n.id} input ${name}`} onClick={() => port(n.id, name)}>● {name}</button>)}
-              {n.type !== 'output' && <button className={`nodes-output ${pending === n.id ? 'active' : ''}`} title={`Connect from ${label(n)} output`} aria-label={`${n.id} output`} onClick={() => { setPending(n.id); setMessage(isSignalSource(n) ? 'Scalar output selected: click a Math/Script input port or a ◇ signal endpoint.' : ''); }}>out ●</button>}
+              {n.type !== 'output' && <button className={`nodes-output ${pending === n.id ? 'active' : ''}`} title={`Connect from ${label(n)} output`} aria-label={`${n.id} output`} onClick={() => { setPending(n.id); setMessage(''); }}>out ●</button>}
             </div><small className="nodes-node-detail">{n.type === 'blend' ? `${n.mode} · ${Math.round(n.opacity * 100)}%` : n.type === 'output' ? 'Final image' : n.type === 'audio' ? `${n.band} activity · 0…1` : n.type === 'color' ? 'image → filtered image' : n.type === 'math' ? `${n.op} · scalar out` : n.type === 'script' ? (compileScript(n.source, scriptNodeLanguage(n)).ok ? (scriptNodeLanguage(n) === 'body' ? 'script body' : 'restricted expression') : 'script error') : n.patternId}</small>
             {isModulationTarget(n) && <button className="nodes-signal-endpoint" aria-label={`${n.id} signal endpoint`} onClick={e => {
               e.stopPropagation();
@@ -405,7 +406,6 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
                 // An endpoint never selects its own node: it selects the
                 // connection, so Delete cannot destroy the node by accident.
                 if (m) pickConnection('modulation', m);
-                else setMessage('Choose an Audio, Math or Script output first.');
               }
             }}>◇ signal {(graph.modulations || []).filter(m => m.to === n.id).length || ''}</button>}
           </article>)}
@@ -458,8 +458,11 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
             onInputRange={(inputMin, inputMax) => { if (inputMax <= inputMin) { setMessage('Signal input range needs a max greater than its min.'); return; } edit(mapSignalInput(graph, mapping.from, node.id, def.key, inputMin, inputMax)); }}
             onRemove={() => edit({ ...graph, modulations: graph.modulations.filter(m => m !== mapping) })} />;
         })}
-        {node && graph.edges.filter(e => e.to === node.id).map(e => <button className="btn btn--sm" title={`Disconnect ${e.port} input`} key={e.port} onClick={() => edit({ ...graph, edges: graph.edges.filter(w => w !== e) })}>Disconnect {e.port}</button>)}
-        <button className="btn btn--danger" title="Delete all selected nodes and their connections; required Output is kept" disabled={!removable.length} onClick={remove}>Delete node</button>
+        {/* Wires and nodes are removed from the graph itself: clicking a wire (or a
+            ◇ endpoint) and pressing Delete/Backspace, or the sidebar Delete
+            connection button, owns connection removal, and Delete/Backspace on a
+            node selection owns node removal. The inspector carries no destructive
+            buttons of its own. */}
         <details><summary>Dependencies & limits</summary><p>No node, Pattern source or wire budget is imposed: practical graph size follows your hardware. 1280×720 internal image, no recursive graphs, camera capture stays on output, and local files or custom assets are not embedded. A pattern file stays under 200 KB so it remains loadable.</p>{dependencies.map(d => <p key={d.id}>{d.name || d.id} · {d.kind}</p>)}<button className="btn" title="Refresh dependency fingerprints from available patterns" onClick={() => attempt(() => { setDraft({ ...draft, dependencies: manifestFor(graph, SKETCHES) }); setMessage('Dependency manifest refreshed explicitly. Save when ready.'); })}>Refresh dependencies</button></details>
       </aside>
     </div>
