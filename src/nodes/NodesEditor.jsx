@@ -21,7 +21,7 @@ import { CustomScripts } from '../custom-scripts/service.js';
 import { MODES, newGraph, validateGraph, connect, deleteNodes, connectionRef, findConnection, removeConnection, DRAG_TYPE, readPaletteDrag, connectSignal, connectSignalEdge, mapSignal, mapSignalInput } from './model.js';
 import { GraphRuntime } from './runtime.js';
 import { nodePatterns, watchGraphs } from './repository.js';
-import { manifestFor, sourceDiagnostics, serializeGraph } from './portability.js';
+import { graphDiagnostics, manifestFor, pruneManifest, serializeGraph } from './portability.js';
 import { confirmDiscard } from './leave-guard.js';
 import './nodes.css';
 
@@ -273,7 +273,12 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
     return () => { stop(); window.removeEventListener('storage', sync); scripts.close(); };
   }, []);
   const attempt = fn => { try { fn(); } catch (e) { setMessage(e.message); } };
-  const edit = next => { const clean = validateGraph(next); setDraft(d => ({ ...d, graph: clean })); };
+  // The dependency manifest follows the graph: deleting the last node that used a
+  // source also drops its manifest entry, so a removed/changed source (a custom
+  // script, say) cannot keep blocking Save after its node is gone. Stored
+  // fingerprints of surviving entries stay untouched until an explicit refresh.
+  const setGraph = next => setDraft(d => ({ ...d, graph: next, dependencies: pruneManifest(next, SKETCHES, d.dependencies) }));
+  const edit = next => { const clean = validateGraph(next); setGraph(clean); };
   const patch = values => attempt(() => edit({ ...graph, nodes: graph.nodes.map(n => n.id === selected ? { ...n, ...values } : n) }));
   // Structural scalar/visual nodes share one creator so defaults and validation
   // always come from the shared definitions module. Audio keeps its established
@@ -360,6 +365,12 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
     });
   }
   const removable = graph.nodes.filter(n => n.type !== 'output' && selection.ids.includes(n.id));
+  // Live diagnostics of the draft: the same messages Save refuses on, plus the
+  // node each one belongs to. They outline the editor and the offending nodes
+  // instead of only failing the write silently.
+  const diagnostics = graphDiagnostics(graph, SKETCHES, dependencies);
+  const blocked = diagnostics.messages.length > 0;
+  const nodeError = id => (diagnostics.byNode.get(id) || []).join('; ');
   // The connection the sidebar describes. A selection whose link disappeared with
   // an edit (operation change, upstream delete) resolves to null and is simply
   // cleared, so it can never be mistaken for a node selection.
@@ -389,7 +400,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
     }
     const protectsOutput = graph.nodes.some(n => n.type === 'output' && selection.ids.includes(n.id));
     if (removable.length) {
-      setDraft(d => ({ ...d, graph: deleteNodes(d.graph, selection.ids) }));
+      setGraph(deleteNodes(graph, selection.ids));
       if (scriptDraft.id && selection.ids.includes(scriptDraft.id)) setScriptDraft({ id: null, language: null, text: '' });
       setSelected(graph.nodes.find(n => n.type === 'output').id);
       setPending(null); setSignalEndpoint(null);
@@ -430,11 +441,11 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
     return () => window.removeEventListener('beforeunload', warn);
   }, [draft, scriptDraft]);
   useEffect(() => { onState?.({ name: graph.name, dirty: dirty(), busy }); }, [draft, busy, current]);
-  if (loadState !== 'ready') return <main className="nodes-app">
+  if (loadState !== 'ready') return <main className={`nodes-app${loadState === 'error' ? ' has-errors' : ''}`}>
     <header className="nodes-toolbar"><h1>Pattern editor</h1><BackToMain onBack={onBack} /></header>
     {loadState === 'loading' ? <p role="status">Loading selected node pattern from disk…</p> : <section role="alert"><p>{message}</p><button className="btn" onClick={() => resolveRoute(true)}>Retry loading</button></section>}
   </main>;
-  return <main className="nodes-app" onKeyDown={e => {
+  return <main className={`nodes-app${blocked ? ' has-errors' : ''}`} data-errors={diagnostics.messages.join(' | ') || undefined} onKeyDown={e => {
     if (busy || e.target.closest('input,select,textarea,[contenteditable]:not([contenteditable="false"]),[role="textbox"]')) return;
     if (e.key === 'Escape') { setPending(null); selection.cancel(); }
     if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); remove(); }
@@ -444,9 +455,9 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
       <input className="control-input" aria-label="Graph name" title="Edit pattern name" disabled={busy} value={graph.name} maxLength={80} onChange={e => setDraft({ ...draft, graph: { ...graph, name: e.target.value } })} />
       <div className="nodes-toolbar-actions">
         {current && <IconControl className="btn--status-size" icon="reload" label="Reload from Disk" title="Discard edits and reload this pattern from disk" disabled={busy} onClick={() => { if (discard()) diskAction(async () => { await nodePatterns.reconnect(); load(await nodePatterns.load(current.id)); }); }} />}
-        <button className="btn btn--solid btn--status-size nodes-save" title="Save pattern to the linked folder" disabled={busy} onClick={() => diskAction(async () => {
+        <button className="btn btn--solid btn--status-size nodes-save" title={blocked ? `Save is blocked: ${diagnostics.messages.join('; ')}` : 'Save pattern to the linked folder'} disabled={busy} onClick={() => diskAction(async () => {
           if (unappliedScript() && !window.confirm('Script text has not been applied. Save without it?')) throw new DOMException('Canceled', 'AbortError');
-          const errors = sourceDiagnostics(graph, SKETCHES, dependencies); if (errors.length) throw new Error(errors.join('; '));
+          if (blocked) throw new Error(diagnostics.messages.join('; '));
           const record = await nodePatterns.save(graph, dependencies, current);
           setCurrent(record); baseline.current = serializeGraph(graph, dependencies); updateRoute(record.id);
           setMessage('');
@@ -469,7 +480,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
           <div className="nodes-pattern-list">{SKETCHES.filter(s => !s.nodesGraph && `${s.name} ${s.group}`.toLowerCase().includes(query.toLowerCase())).map(s => <button className="btn" key={s.id} title={`Drag ${s.name} onto the canvas to create a node`} draggable onDragStart={e => { e.dataTransfer.effectAllowed = 'copy'; e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ version: 1, patternId: s.id })); }}><span>{s.name}</span><small>{s.group}{s.camera ? ' · Output camera' : ''}</small></button>)}</div>
         </div>
       </aside>
-      <section ref={navigation.workspace} {...selection.workspaceHandlers} className="nodes-workspace" aria-label="Graph workspace" tabIndex={0} data-status={message || undefined} onDragOver={e => { if (e.dataTransfer.types.includes(DRAG_TYPE)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }} onDrop={e => {
+      <section ref={navigation.workspace} {...selection.workspaceHandlers} className="nodes-workspace" aria-label="Graph workspace" tabIndex={0} data-status={message || undefined} title={blocked ? diagnostics.messages.join('; ') : undefined} onDragOver={e => { if (e.dataTransfer.types.includes(DRAG_TYPE)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }} onDrop={e => {
         e.preventDefault(); const drag = readPaletteDrag(e.dataTransfer, SKETCHES);
         if (!drag) { setMessage('Invalid palette drag payload'); return; }
         const point = navigation.toGraph(e.clientX, e.clientY);
@@ -489,7 +500,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
             const ref = connectionRef('modulation', m);
             return <Wire key={`signal-${ref.key}`} kind="modulation" link={m} from={outputAnchor(a)} to={signalAnchor(b)} bow={bundleBow(m)} selected={sameConnection(selection.wire, ref)} description={describeConnection(graph, ref, m)} onSelect={pickConnection} />;
           })}</svg>
-          {graph.nodes.map(n => <article key={n.id} className={`nodes-node level-${levelOf(n.type)} ${selection.ids.includes(n.id) ? 'is-selected' : ''}`} data-node-id={n.id} data-primary={selected === n.id || undefined} style={{ left: n.x, top: n.y }} onClick={e => selection.nodeClick(n.id, e)}>
+          {graph.nodes.map(n => <article key={n.id} className={`nodes-node level-${levelOf(n.type)} ${selection.ids.includes(n.id) ? 'is-selected' : ''}${nodeError(n.id) ? ' is-invalid' : ''}`} data-node-id={n.id} data-primary={selected === n.id || undefined} data-node-error={nodeError(n.id) || undefined} title={nodeError(n.id) || undefined} style={{ left: n.x, top: n.y }} onClick={e => selection.nodeClick(n.id, e)}>
             <button className="nodes-node-title" title={`Select or drag ${label(n)}`} aria-label={`Select ${label(n)}`} aria-pressed={selection.ids.includes(n.id)} {...selection.titleHandlers(n)}>{label(n)}</button>
             <div className="nodes-ports">{activeInputs(n).map(name => <button key={name} className="nodes-input" title={`Connect to ${label(n)} ${name} input`} aria-label={`${n.id} input ${name}`} onClick={() => port(n.id, name)}>● {name}</button>)}
               {n.type !== 'output' && <button className={`nodes-output ${pending === n.id ? 'active' : ''}`} title={`Connect from ${label(n)} output`} aria-label={`${n.id} output`} onClick={() => { setPending(n.id); setMessage(''); }}>out ●</button>}
@@ -519,7 +530,15 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
         <div className="nodes-inspector-head"><h2>{node ? label(node) : selectedLink ? 'Connection' : 'Preview'}</h2>
           {node && <span className={`nodes-level-tag level-${levelOf(node.type)}`} title={levelOf(node.type) === 'signal'
             ? 'Signal-level node (Audio, Math, Script): emits numbers, never pictures.'
-            : 'Image-level node (Pattern, Blend, Color, Output): carries pixels.'}>{levelOf(node.type)}</span>}</div><Preview graph={graph} dependencies={dependencies} selected={selected} revision={revision} current={previewRuntime} sharedRuntime={sharedRuntime} audioProvider={audioProvider} providerReady={providerReady} visible={!(node?.type === 'audio' || node?.type === 'script')} />
+            : 'Image-level node (Pattern, Blend, Color, Output): carries pixels.'}>{levelOf(node.type)}</span>}</div>
+        {/* The draft's blocking diagnostics, as text: the red editor outline and the
+            outlined nodes show *that* and *where* something is wrong, and this list
+            says what. No role="alert": the Script inspector already owns that live
+            region for its own validation message. */}
+        {blocked && <section className="nodes-blocked" aria-label="Editor errors" data-testid="nodes-blocked">
+          <h2>Cannot save yet</h2>
+          <ul>{diagnostics.messages.map(problem => <li key={problem}>{problem}</li>)}</ul>
+        </section>}<Preview graph={graph} dependencies={dependencies} selected={selected} revision={revision} current={previewRuntime} sharedRuntime={sharedRuntime} audioProvider={audioProvider} providerReady={providerReady} visible={!(node?.type === 'audio' || node?.type === 'script')} />
         {selectedLink && <section className="nodes-connections" aria-label="Selected connection">
           <output className="nodes-connection-name" data-testid="selected-connection">{describeConnection(graph, selection.wire, selectedLink)}</output>
           <button className="btn btn--danger" title="Remove only this wire; both endpoint nodes stay" onClick={remove}>Delete connection</button>
