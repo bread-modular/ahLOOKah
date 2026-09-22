@@ -2,6 +2,7 @@ import { folderDetails, folderAction } from './fixtures/folder-controls.js';
 import { readFile } from 'node:fs/promises';
 import { test, expect } from '@playwright/test';
 import { validateGraph, connect, deleteNode } from '../src/nodes/model.js';
+import { pruneManifest, sourceDiagnostics, dependencySignature } from '../src/nodes/portability.js';
 
 test.use({ launchOptions: { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] } });
 
@@ -176,6 +177,75 @@ test('missing dependencies and camera preview are visible and never acquire capt
   await openFixture(page, missing);
   await expect(page.locator('.nodes-diagnostics')).toContainText('Missing pattern');
   await page.getByRole('button', { name: 'Save' }).click(); await expect(page.locator('.nodes-workspace')).toHaveAttribute('data-status', /Missing pattern/);
+});
+
+test('dependency manifests follow the graph: stale entries prune, stored fingerprints survive', () => {
+  const sketches = [{ id: 'solid-color', name: 'Solid Color', params: [{ key: 'hue', min: 0, max: 1, default: 0 }] }];
+  const stored = { id: 'solid-color', name: 'Solid Color', kind: 'built-in', signature: dependencySignature(sketches[0]) };
+  const stale = { id: 'ghost-script', name: 'Ghost script', kind: 'custom-script', signature: '9:1a2b3c4d' };
+  const graph = { version: 1, name: 'Prune', nodes: [
+    { id: 'a', type: 'pattern', patternId: 'solid-color', x: 0, y: 0, params: {} },
+    { id: 'output', type: 'output', x: 200, y: 0 },
+  ], edges: [] };
+  // A stale entry blocks Save until the node that used it is gone — and it goes
+  // with that node instead of surviving in the manifest forever.
+  expect(sourceDiagnostics(graph, sketches, [stored, stale])).toEqual(['Missing dependency: Ghost script']);
+  expect(pruneManifest(graph, sketches, [stored, stale])).toEqual([stored]);
+  // A still-referenced entry keeps the fingerprint loaded from disk, so a source
+  // changed outside the editor is still reported until an explicit refresh.
+  const changed = [{ ...sketches[0], params: [] }];
+  expect(sourceDiagnostics(graph, changed, pruneManifest(graph, sketches, [stored]))).toEqual(['Changed dependency: Solid Color; restore it or explicitly refresh dependencies']);
+  // A newly referenced source is added with its current fingerprint.
+  expect(pruneManifest(graph, sketches, [])).toEqual([stored]);
+  // Projection surfaces count as consumed dependencies too.
+  const projections = [{ id: 'mapped', name: 'Mapped', surfaces: [{ id: 's1', patternId: 'solid-color' }] }, ...sketches];
+  const surfaceGraph = { ...graph, nodes: graph.nodes.map(n => n.id === 'a' ? { ...n, patternId: 'mapped' } : n) };
+  expect(pruneManifest(surfaceGraph, projections, [{ ...stale }]).map(d => d.id).sort()).toEqual(['mapped', 'solid-color']);
+});
+
+test('a stale custom-script dependency outlines the editor and is dropped when its node is deleted', async ({ page }) => {
+  await page.goto('/?role=nodes');
+  const id = await page.evaluate(async () => {
+    const { nodePatterns } = await import('/src/nodes/repository.js');
+    const { serializeGraph, manifestFor } = await import('/src/nodes/portability.js');
+    const { SKETCHES } = await import('/src/sketch-registry.js');
+    // A graph whose custom-script source is gone: only the manifest still names it,
+    // which used to refuse Save with nothing visible on screen. The stale node is a
+    // dangling draft branch, exactly like a source the operator already unwired.
+    const live = { version: 1, name: 'Stale script', nodes: [
+      { id: 'solid', type: 'pattern', patternId: 'solid-color', x: 40, y: 60, params: { hue: 0, saturation: 1, brightness: 1, pulse: 0 } },
+      { id: 'output', type: 'output', x: 620, y: 170 },
+    ], edges: [{ from: 'solid', to: 'output', port: 'image' }] };
+    const stale = { id: 'ghost-script', name: 'Ghost script', kind: 'custom-script', signature: '9:1a2b3c4d' };
+    const graph = { ...live, nodes: [...live.nodes, { id: 'ghost', type: 'pattern', patternId: 'ghost-script', x: 40, y: 300, params: {} }] };
+    const manifest = [...manifestFor(live, SKETCHES), stale];
+    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('node-patterns', { create: true });
+    const handle = await dir.getFileHandle('neon.nodes.json', { create: true });
+    const writer = await handle.createWritable(); await writer.write(serializeGraph(graph, manifest)); await writer.close();
+    window.showDirectoryPicker = async () => dir;
+    await nodePatterns.link();
+    return (await nodePatterns.open('neon.nodes.json')).id;
+  });
+  await page.goto(`/?role=nodes&graph=${encodeURIComponent(id)}`);
+  await expect(page.locator('.nodes-app')).toHaveClass(/has-errors/);
+  await expect(page.locator('[data-node-id="ghost"]')).toHaveClass(/is-invalid/);
+  await expect(page.locator('[data-node-id="solid"]')).not.toHaveClass(/is-invalid/);
+  await expect(page.getByTestId('nodes-blocked')).toContainText('Missing dependency: Ghost script');
+  await page.screenshot({ path: '/tmp/nodes-stale-dependency-review.png' });
+  await page.locator('[data-node-id="ghost"] .nodes-node-title').click();
+  await page.getByLabel('Graph workspace').focus();
+  await page.keyboard.press('Delete');
+  await expect(page.locator('[data-node-id="ghost"]')).toHaveCount(0);
+  await expect(page.locator('.nodes-app')).not.toHaveClass(/has-errors/);
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  // The write is async: wait for disk state instead of racing the save.
+  const saved = () => page.evaluate(async () => {
+    const { nodePatterns } = await import('/src/nodes/repository.js');
+    const record = nodePatterns.records.find(r => r.fileName === 'neon.nodes.json');
+    return { nodes: record.graph.nodes.map(n => n.id), dependencies: record.dependencies.map(d => d.id) };
+  });
+  await expect.poll(saved).toEqual({ nodes: ['solid', 'output'], dependencies: ['solid-color'] });
+  await expect(page.locator('.nodes-workspace')).not.toHaveAttribute('data-status', /.+/);
 });
 
 test('multi-blend DAG reuses source pixels, resizes and disposes independent audio slots', async ({ page }) => {

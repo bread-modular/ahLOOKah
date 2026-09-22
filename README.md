@@ -399,7 +399,10 @@ toolbar **Back to Main** returns to the main app, asking first when the draft is
 Reopening always loads the saved graph instead of reviving a hidden draft. The editor
 reads that exact disk graph via shared handles, reports unavailable files
 without a fallback, and focuses on editing, **Save**, and **Reload from disk**. A draft
-saves before it is fully wired: an unconnected Output is kept, and reopens as saved. The
+saves before it is fully wired: an unconnected Output is kept, and reopens as saved. A draft
+that *cannot* be saved is outlined in red — the editor and every offending node — with the
+blocking reasons listed in the inspector, and its dependency manifest follows the graph, so
+deleting the last node that used a removed or changed source clears the block. The
 standalone `/?role=nodes&graph=<id>` URL remains the legacy compatibility path.
 Disk-authoritative `.nodes.json` patterns stay synchronized across same-origin tabs. Browser storage holds handles and filename metadata only;
 the open draft stays in memory. Confirmed overwrites update selected patterns, while

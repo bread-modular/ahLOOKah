@@ -210,3 +210,16 @@
    forces the inspector wider than the panel. */
 .nodes-inspector textarea.nodes-script-source { width:100%; min-height:52px; max-height:280px; resize:vertical; margin:4px 0 0; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:11px; line-height:1.45; white-space:pre; overflow:auto; tab-size:2; }
 .nodes-inspector input[type="number"] { font-variant-numeric:tabular-nums; }
+
+/* Drafts that cannot be saved yet. The editor itself takes the danger-red outline
+   and every node that owns a blocking diagnostic is outlined with it, so an error
+   is never hidden in a status strip and the offending node is findable at a glance
+   instead of the write failing silently. The plain-text list in the inspector says
+   what the outline only points at. */
+.nodes-app.has-errors { outline:2px solid #ff6b6b; outline-offset:-2px; }
+.nodes-node.is-invalid { border-color:#ff6b6b; box-shadow:0 0 0 1px #ff6b6b,0 8px 25px #0006; }
+.nodes-node.is-invalid .nodes-node-detail { color:#ff8b8b; }
+.nodes-inspector .nodes-blocked { margin:18px 0 0; padding:8px 10px; border:1px solid #6d2a2a; border-radius:4px; background:#2a1414; }
+.nodes-inspector .nodes-blocked h2 { margin:0 0 6px; color:#ff8b8b; }
+.nodes-inspector .nodes-blocked ul { margin:0; padding-left:16px; }
+.nodes-inspector .nodes-blocked li { color:#ffb3b3; font-size:.72rem; line-height:1.5; overflow-wrap:anywhere; }
