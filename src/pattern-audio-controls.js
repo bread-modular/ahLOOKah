@@ -144,6 +144,10 @@ export class PatternAudioControlStore {
     this.audioOwnerId = null;
     this.streamGeneration = null;
     this.lastSequence = -1;
+    // Draw receipts must remain ordered across slot/plan/stream resets. A fresh
+    // frame request may outlive any of them; restarting a slot's counter at zero
+    // makes a new draw look older than the marker captured by that request.
+    this.renderSerial = 0;
     this.diagnostics = {
       acceptedPackets: 0,
       acceptedSlots: 0,
@@ -531,7 +535,7 @@ export class PatternAudioControlStore {
       || state.lastReadSequence !== state.current.sequence
       || state.readMarker <= state.lastDrawReadMarker) return false;
     state.lastDrawReadMarker = state.readMarker;
-    state.renderMarker += 1;
+    state.renderMarker = ++this.renderSerial;
     state.renderedParamsRevision = state.descriptor.paramsRevision;
     state.renderedSequence = state.current.sequence;
     return true;
@@ -543,9 +547,14 @@ export class PatternAudioControlStore {
 
   hasRenderedAfter(runtimeId, paramsRevision, marker) {
     const state = this.slots.get(runtimeId);
+    // The requested revision is a lower bound, not a frozen target. Node
+    // modulation can advance params while LIVE/CUE waits for controls. A draw
+    // of the current newer revision satisfies it; an obsolete or undrawn packet
+    // never does. Otherwise the gate waits for a revision we can no longer accept.
     return Boolean(state
       && state.renderMarker > marker
-      && state.renderedParamsRevision === paramsRevision
+      && state.renderedParamsRevision >= paramsRevision
+      && state.renderedParamsRevision === state.descriptor.paramsRevision
       && state.renderedSequence === state.current?.sequence
       && this._freshness(state, this.now()).isFresh);
   }
