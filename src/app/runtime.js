@@ -254,6 +254,7 @@ export function createAppRuntime({
   let cueTakeIntent = null;
   let runtimeGeneration = 0;
   let directGeneration = 0;
+  let pendingNodeSelection = null;
   const lastCueTimings = [];
 
   let currentVideoDeviceId = null;
@@ -924,6 +925,44 @@ export function createAppRuntime({
       });
   }
 
+  function acceptLiveSelection(selection) {
+    if (cueSession || !Array.isArray(selection?.ids)
+      || selection.ids.length !== (selection.merge ? 2 : 1)
+      || !selection.ids.every((id) => typeof id === 'string' && id.length > 0 && id.length <= 64)) return;
+    const missing = selection.ids.filter((id) => !SKETCHES.some((sketch) => sketch.id === id));
+    if (missing.length && (role !== 'screen' || !missing.every((id) => id.startsWith('nodes-')))) return;
+
+    // A newer click wins even when the previous one is still waiting on disk.
+    pendingNodeSelection = null;
+    if (role !== 'screen') {
+      liveProgram = copyProgramSelection(selection);
+      syncLegacyLiveProjection();
+      return;
+    }
+    if (!missing.length) {
+      prepareThenPromoteLive(selection);
+      return;
+    }
+
+    // The selection bus and node-folder bus run independently. Keep the current
+    // output visible and resolve this intent once against fresh disk records;
+    // never turn an unavailable ID into a different pad slot or retry forever.
+    const pending = copyProgramSelection(selection);
+    pendingNodeSelection = pending;
+    directGeneration += 1;
+    disposeRuntime(incomingRuntime);
+    incomingRuntime = null;
+    const settle = (refreshed) => {
+      if (pendingNodeSelection !== pending) return;
+      pendingNodeSelection = null;
+      if (cueSession) return;
+      const resolved = refreshed && validCueSelection(pending);
+      if (resolved) prepareThenPromoteLive(resolved);
+      else broadcastLiveState(); // Missing/invalid/denied disk: restore the actual LIVE state.
+    };
+    nodePatterns.refresh().then(() => settle(true), () => settle(false));
+  }
+
   function loadSketch(index, merge = null) {
     const selection = selectionFromIndices(index, merge);
     if (!selection) return;
@@ -1127,6 +1166,7 @@ export function createAppRuntime({
     if (role !== 'screen' || cueSession || !liveRuntime) return;
     if (entryRequestId && canceledCueEntryRequests.delete(entryRequestId)) return;
 
+    pendingNodeSelection = null;
     directGeneration += 1;
     disposeRuntime(incomingRuntime);
     disposeRuntime(retiringRuntime);
@@ -1638,8 +1678,10 @@ export function createAppRuntime({
     }
 
     const indices = selectionIndices(selection);
-    if (selection.merge) bus.broadcast({ type: 'merge', a: indices[0], b: indices[1] });
-    else if (indices[0] >= 0) bus.broadcast({ type: 'pattern', index: indices[0] });
+    // IDs are authoritative: disk-backed registries (and therefore pad indices)
+    // can temporarily differ between control and output. Keep indices for legacy peers.
+    if (selection.merge) bus.broadcast({ type: 'merge', ids: [...selection.ids], a: indices[0], b: indices[1] });
+    else if (indices[0] >= 0) bus.broadcast({ type: 'pattern', id: selection.ids[0], index: indices[0] });
     else bus.broadcast({ type: 'pattern-id', id: selection.ids[0] });
   }
 
@@ -2477,45 +2519,21 @@ export function createAppRuntime({
       }
 
       case 'pattern': {
-        if (cueSession) break;
-        if (!isFiniteNumber(msg.index)) break;
-        const idx = clampInt(msg.index, 0, 100);
-        const selection = selectionFromIndices(idx);
-        if (!selection) break;
-        if (role === 'screen') {
-          if (!cueSession) prepareThenPromoteLive(selection);
-        } else {
-          liveProgram = copyProgramSelection(selection);
-          syncLegacyLiveProjection();
-        }
+        if ('id' in msg) acceptLiveSelection(singleSelection(msg.id));
+        else if (isFiniteNumber(msg.index)) acceptLiveSelection(selectionFromIndices(clampInt(msg.index, 0, 100)));
         break;
       }
 
       case 'pattern-id': {
-        if (cueSession) break;
-        if (typeof msg.id !== 'string' || msg.id.length > 64) break;
-        const selection = selectionFromId(msg.id);
-        if (!selection) break;
-        if (role === 'screen') {
-          if (!cueSession) prepareThenPromoteLive(selection);
-        } else {
-          liveProgram = copyProgramSelection(selection);
-          syncLegacyLiveProjection();
-        }
+        acceptLiveSelection(singleSelection(msg.id));
         break;
       }
 
       case 'merge': {
-        if (cueSession) break;
-        if (!isFiniteNumber(msg.a) || !isFiniteNumber(msg.b)) break;
-        const a = clampInt(msg.a, 0, 100), b = clampInt(msg.b, 0, 100);
-        const selection = selectionFromIndices(a, [a, b]);
-        if (!selection) break;
-        if (role === 'screen') {
-          if (!cueSession) prepareThenPromoteLive(selection);
-        } else {
-          liveProgram = copyProgramSelection(selection);
-          syncLegacyLiveProjection();
+        if ('ids' in msg) acceptLiveSelection({ ids: msg.ids, merge: true });
+        else if (isFiniteNumber(msg.a) && isFiniteNumber(msg.b)) {
+          const a = clampInt(msg.a, 0, 100), b = clampInt(msg.b, 0, 100);
+          acceptLiveSelection(selectionFromIndices(a, [a, b]));
         }
         break;
       }
@@ -2886,6 +2904,7 @@ export function createAppRuntime({
   // Teardown
   // ---------------------------------------------------------------------------
   function disposeViz() {
+    pendingNodeSelection = null;
     customScripts.close();
     mediaFolder.close();
     cancelAnimationFrame(performanceRaf);
@@ -3092,6 +3111,8 @@ export function createAppRuntime({
   // Custom scripts and user media (local files)
   // ---------------------------------------------------------------------------
   function applyCustomScriptRevision(changedIds, reason = 'CUSTOM SCRIPTS RELOADED') {
+    // Invalidate old renderers, not the operator's most recent LIVE intent.
+    const incomingSelection = incomingRuntime ? copyProgramSelection(incomingRuntime.selection) : null;
     // A registry generation is a transport boundary: no queued TAKE or old
     // renderer may promote after it. Registration failures never reach here.
     directGeneration += 1;
@@ -3109,8 +3130,8 @@ export function createAppRuntime({
       || SKETCHES.find((s) => s.id === id)?.surfaces?.some((surface) => changedIds.has(surface.patternId)));
     const ids = selected.ids.filter((id) => SKETCHES.some((s) => s.id === id));
     const selection = ids.length ? { ids, merge: selected.merge && ids.length > 1 } : singleSelection(SKETCHES[0].id);
-    // Stop pending programs even if the operator changed selection while the
-    // folder was being read. Deletion is immediate, not a fade/retirement.
+    // Stop stale programs, then re-prepare the incoming choice with the new
+    // registry below. Deletion is immediate, not a fade/retirement.
     disposeRuntime(incomingRuntime); incomingRuntime = null;
     disposeRuntime(retiringRuntime); retiringRuntime = null;
     if (role === 'screen' && affected) removeCurrentP5();
@@ -3132,7 +3153,9 @@ export function createAppRuntime({
     syncLegacyLiveProjection();
     refreshProjectionUI();
     setPreviewSelection(selection);
-    if (role === 'screen' && affected) prepareThenPromoteLive(selection, { force: true });
+    if (role === 'screen' && (affected || incomingSelection)) {
+      prepareThenPromoteLive((incomingSelection && validCueSelection(incomingSelection)) || selection, { force: true });
+    }
     queuePatternAudioPlanPublish();
     syncUI(reason);
     if (role === 'screen') broadcastLiveState();

@@ -396,8 +396,23 @@ the open draft stays in memory. Confirmed overwrites update selected patterns, w
 unsaved edits never change LIVE. See the [Nodes guide](public/docs/nodes.html) for connections,
 shortcuts, source support, JSON dependency manifests and resource limits.
 
+LIVE selections carry stable IDs for library clicks, pad slots and merges. If the
+output has not loaded a selected node pattern yet, it retains the current output,
+refreshes disk records and prepares the latest selection. A library refresh also
+re-prepares an incoming selection instead of discarding the operator's choice.
+Newer selections and CUE entry cancel pending LIVE requests; missing, invalid or
+inaccessible files do not revive later without another selection.
+
+The output's fresh-frame check accepts a drawn, current controls revision at least
+as new as the requested one. Node modulation can advance that revision during
+warm-up; waiting for the obsolete exact revision would time out while preview
+keeps drawing. Draw receipts remain ordered across parameter, plan and audio
+stream resets, without accepting stale packets or controls that have not drawn.
+
 ```sh
 PLAYWRIGHT_PORT=5186 npx playwright test tests/nodes.spec.js tests/nodes-scalar.spec.js tests/nodes-script-body.spec.js --no-deps
+# Deterministic cross-window disk/render race regressions, including output pixels:
+PLAYWRIGHT_PORT=5186 npx playwright test tests/nodes-output-selection.spec.js --workers=2 --repeat-each=3
 ```
 
 The graph tests cover blend pixels, Color filter pixels (identity/alpha/chaining),
