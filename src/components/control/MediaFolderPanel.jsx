@@ -19,12 +19,13 @@ export function MediaFolderPanel() {
     else if (canUseFileSystemPicker()) run(() => runtime.commands.addMediaFiles());
     else input.current?.click();
   };
+  // One ADD control covers both paths: a linked folder opens its file picker,
+  // otherwise the native/multi-file picker adds files directly.
   return <section className="media-folder-panel" aria-label="Media files" onKeyDown={e => e.stopPropagation()}>
     <FolderControls label="Media" folder={status.folder} permission={status.permission} busy={busy} run={run}
       link={() => service.link()} refresh={() => service.refresh()} unlink={() => service.unlink()}
       note="Unlink keeps loaded media and source files.">
       <button className="library-add-btn media-add-btn" aria-label="Add media" disabled={busy} onClick={open}>ADD</button>
-      <button className="library-add-btn" aria-label="Open Media" title="Open individual image or video files" disabled={busy} onClick={open}>OPEN</button>
     </FolderControls>
     {picker && <DirectoryPicker title="Open Media" label="Media" folder={status.folder} listing={picker} open={name => service.open(name)} opener={opener} onClose={() => setPicker(null)} />}
     <input ref={input} type="file" accept="image/*,video/*" multiple className="media-file-input" onChange={event => {

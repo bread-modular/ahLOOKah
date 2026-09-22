@@ -8,7 +8,7 @@ import { useVizStore } from '../../state/useVizStore.js';
 export function CustomScriptsPanel() {
   const { runtime, store } = useRuntime();
   const status = useVizStore(store, (s) => s.customScripts) || runtime.customScripts.status;
-  const { busy, message, run, setMessage } = useFolderAction();
+  const { busy, message, run } = useFolderAction();
   const [picker, setPicker] = useState(false);
   const openButton = useRef(null);
   const scripts = runtime.customScripts;
@@ -21,10 +21,6 @@ export function CustomScriptsPanel() {
     <FolderControls label="Custom Scripts" folder={status.folder} permission={status.permission} busy={busy || status.busy} run={run}
       link={() => scripts.choose()} refresh={() => withAccess(() => scripts.reload())} unlink={() => scripts.unlink()}
       note="Unlink removes loaded scripts, not source files.">
-      <button className="library-add-btn" aria-label="New Script" disabled={busy || status.busy || !status.folder} onClick={() => {
-        const name = window.prompt('New script filename', 'new-script.viz.js');
-        if (name?.trim()) run(async () => { await scripts.create(name.trim()); setMessage('Script created. Edit it in your editor, then Open Script.'); });
-      }}>ADD</button>
       <button className="library-add-btn" ref={openButton} aria-label="Open Script" title="Choose a trusted script from the linked folder" disabled={busy || status.busy || !status.folder} onClick={() => setPicker(withAccess(async () => { await scripts.browse(); return scripts.status.files.map(name => ({ name, disabled: scripts.status.opened.includes(name) })); }))}>OPEN</button>
     </FolderControls>
     {(folderReference('scripts')?.files || []).filter(file => !status.opened.includes(file.fileName)).map(file => <p className="script-hint" key={file.fileName}>Open trusted script: {file.fileName}</p>)}

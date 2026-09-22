@@ -56,6 +56,9 @@ test('graph validation rejects cycles, malformed ports, duplicates and recursive
   expect(() => validateGraph({ ...graph(), nodes: [...graph().nodes, graph().nodes[0]] })).toThrow(/duplicate/);
   expect(() => validateGraph({ ...graph(), nodes: graph().nodes.map(n => n.id === 'red' ? { ...n, patternId: 'nodes-recursive' } : n) })).toThrow(/recurs/);
   expect(() => validateGraph({ ...graph(), nodes: graph().nodes.map(n => n.id === 'mix' ? { ...n, opacity: NaN } : n) })).toThrow(/opacity/);
+  // Completeness is opt-in and never a save gate: the repository must store and
+  // re-read a pattern whose Output is still unconnected.
+  expect(validateGraph({ ...graph(), edges: [] })).toMatchObject({ edges: [] });
   expect(() => validateGraph({ ...graph(), edges: [] }, { complete: true })).toThrow(/Connect/);
   expect(deleteNode(graph(), 'red').edges).toHaveLength(2);
   expect(deleteNode(graph(), 'output')).toEqual(graph());
@@ -743,6 +746,68 @@ test('linked folder text rows and unlink preserve source files and standalone wo
   expect(await diskText(page)).toContain('Neon composite');
   await panel.getByRole('button', { name: 'Open Pattern', exact: true }).click();
   await expect.poll(() => recordNames(page)).toEqual(['Neon composite']);
+});
+
+test('a new pattern saves with an unconnected Output, and Delete forgets it without touching disk', async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 960 });
+  await page.goto('/'); await seedFixture(page);
+  const panel = page.getByRole('region', { name: 'Node pattern files' });
+  await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
+  const category = page.locator('#library-section-Node-Patterns');
+  await expect(category.locator('.library-btn')).toHaveCount(1);
+  const patternFiles = () => page.evaluate(async () => {
+    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('node-patterns');
+    const names = [];
+    for await (const [name, entry] of dir.entries()) if (entry.kind === 'file' && name.endsWith('.nodes.json')) names.push(name);
+    return names.sort();
+  });
+  const fileText = name => page.evaluate(async name => (await (await (await navigator.storage.getDirectory()).getDirectoryHandle('node-patterns')).getFileHandle(name)).getFile().then(file => file.text()), name);
+
+  // A fresh graph holds only the Output node: nothing is wired to it yet.
+  await panel.getByRole('button', { name: 'New Node Pattern' }).click();
+  const editor = page.locator('.app-editor-panel');
+  await expect(editor.getByLabel('Graph name')).toHaveValue('Untitled graph');
+  await expect(editor.locator('.nodes-node')).toHaveCount(1);
+  await editor.getByLabel('Graph name').fill('Work in progress');
+  await editor.getByRole('button', { name: 'Save', exact: true }).click();
+  // No silent failure and no visible error: the pattern is written as it stands.
+  await expect(editor.locator('.nodes-disk-error')).toHaveCount(0);
+  await expect(editor.locator('.nodes-workspace')).not.toHaveAttribute('data-status', /.+/);
+  await page.getByRole('button', { name: 'Back to Main', exact: true }).click();
+  await expect(category.locator('.library-btn')).toHaveCount(2);
+  expect(await patternFiles()).toEqual(['Work-in-progress.nodes.json', 'neon.nodes.json']);
+
+  // Delete removes the library item for this browser only.
+  const id = await page.evaluate(async () => (await import('/src/nodes/repository.js')).nodePatterns.records.find(r => r.fileName === 'Work-in-progress.nodes.json').id);
+  const before = await fileText('Work-in-progress.nodes.json');
+  await category.locator(`[data-id="${id}"]`).click();
+  await page.getByRole('button', { name: 'Delete Pattern', exact: true }).click();
+  await expect(category.locator('.library-btn')).toHaveCount(1);
+  expect(await patternFiles()).toEqual(['Work-in-progress.nodes.json', 'neon.nodes.json']);
+  expect(await fileText('Work-in-progress.nodes.json')).toBe(before);
+  expect(await page.evaluate(async id => (await import('/src/nodes/repository.js')).nodePatterns.records.some(r => r.id === id), id)).toBe(false);
+  // Bookkeeping must not undo a delete: a remembered handle for the same file
+  // (for example from an earlier unlinked session) is retired too.
+  await page.evaluate(async () => {
+    const { createHandleStorage } = await import('/src/platform/handleStorage.js');
+    const { nodePatterns } = await import('/src/nodes/repository.js');
+    const store = createHandleStorage('viz2-node-patterns');
+    const state = await store('handles');
+    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('node-patterns');
+    const handle = await dir.getFileHandle('Work-in-progress.nodes.json');
+    await store('handles', { ...state, opened: [...state.opened, { id: `nodes-${crypto.randomUUID()}`, handle }] });
+    await nodePatterns.refresh();
+  });
+  await expect(category.locator('.library-btn')).toHaveCount(1);
+  await page.reload();
+  await expect(category.locator('.library-btn')).toHaveCount(1);
+  // Open Pattern is the documented way back; the file was never touched.
+  await panel.getByRole('button', { name: 'Open Pattern', exact: true }).click();
+  const picker = page.getByRole('dialog', { name: 'Open Pattern', exact: true });
+  await picker.getByRole('combobox').selectOption('Work-in-progress.nodes.json');
+  await picker.getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(category.locator('.library-btn')).toHaveCount(2);
+  expect(await fileText('Work-in-progress.nodes.json')).toBe(before);
 });
 
 test('touch pan and pinch plus trackpad pan stay local to the canvas', async ({ page, context }) => {

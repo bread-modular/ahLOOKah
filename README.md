@@ -370,8 +370,10 @@ docs/               Design docs (CUE mode, audio control plan, refactor)
 
 ### Custom Scripts (desktop Chrome)
 
-Choose a real local directory under **Custom Scripts**, create `.viz.js` files,
-edit them with an external editor/agent, and click **Reload** to activate changes.
+Choose a real local directory under **Custom Scripts**, write `.viz.js` files with
+your own editor, then **Open Script** to activate one and **Reload** to pick up its
+later edits. There is no create control in the app: the library only loads files
+that already exist in the linked folder.
 Scripts are trusted JavaScript, **not a sandbox**. The complete tutorial is
 [Custom Scripts](public/docs/custom-scripts.html); the agent-facing contract is
 [API v1](public/docs/custom-scripts-api.md), with runnable examples alongside it.
@@ -390,12 +392,14 @@ still use unchanged. Sources are approved per exact text *and* language in this 
 so an imported file can never carry trust with it.
 The main **Node Patterns** category owns **Link Folder**, **Open Pattern**,
 **Refresh folder**, and **New Node Pattern**. Select a graph, then use the sidebar’s
-**Edit Pattern** to open it in the editor. One graph is edited at a time and the editor
+**Edit Pattern** to open it in the editor; the sidebar’s **Delete** removes it from
+the library without touching the file on disk (Open Pattern restores it). One graph is edited at a time and the editor
 replaces the main view in the same window — no popup, no tab rail, no draft list; its
 toolbar **Back to Main** returns to the main app, asking first when the draft is dirty.
 Reopening always loads the saved graph instead of reviving a hidden draft. The editor
 reads that exact disk graph via shared handles, reports unavailable files
-without a fallback, and focuses on editing, **Save**, and **Reload from disk**. The
+without a fallback, and focuses on editing, **Save**, and **Reload from disk**. A draft
+saves before it is fully wired: an unconnected Output is kept, and reopens as saved. The
 standalone `/?role=nodes&graph=<id>` URL remains the legacy compatibility path.
 Disk-authoritative `.nodes.json` patterns stay synchronized across same-origin tabs. Browser storage holds handles and filename metadata only;
 the open draft stays in memory. Confirmed overwrites update selected patterns, while

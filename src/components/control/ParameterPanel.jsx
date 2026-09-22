@@ -112,7 +112,7 @@ function EffectParams({ currentPattern, currentPatternId, getValue, changeParam,
     <>
       <PerformanceBudget patternId={currentPatternId} scope={scope} />
       {rows}
-      <NodePatternEdit sketch={sketch} />
+      <NodePatternEdit sketch={sketch} locked={locked} />
       {sketch?.customScript && <ScriptFileControls key={sketch.customScript} file={sketch.customScript} locked={locked} />}
       {sketch?.media && (
         <div className="media-manage-row">
@@ -220,7 +220,7 @@ function MergePatternParams({ patternId, slotLabel, name, getValue, changeParam,
 
   return (
     <section className="merge-pattern-params" data-pattern-id={patternId} aria-label={`${name} parameters`}>
-      <NodePatternEdit sketch={sketch} />
+      <NodePatternEdit sketch={sketch} locked={locked} />
       <div className="merge-pattern-header">
         <span className="merge-pattern-slot">{slotLabel}</span>
         <span className="merge-pattern-name">{name}</span>

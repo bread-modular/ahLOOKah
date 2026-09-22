@@ -60,9 +60,9 @@ test.describe('media patterns', () => {
     expect(addButtonBox).not.toBeNull();
     expect(headerBox).not.toBeNull();
     expect(addButtonBox.width).toBeLessThan(headerBox.width);
-    const openBox = await control.getByRole('button', { name: 'Open Media', exact: true }).boundingBox();
-    expect(openBox.x).toBeGreaterThan(addButtonBox.x);
-    expect(openBox.x + openBox.width).toBeGreaterThanOrEqual(headerBox.x + headerBox.width - 2);
+    // ADD is the Media group's only action and sits at the header's right edge.
+    expect(addButtonBox.x + addButtonBox.width).toBeGreaterThanOrEqual(headerBox.x + headerBox.width - 2);
+    await expect(mediaHeader.locator('.library-add-btn')).toHaveCount(1);
     await addMediaBtn.click();
 
     const mediaBtn = control.locator('.pattern-btn[data-id^="media-"]').first();
