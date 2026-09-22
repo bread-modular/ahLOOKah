@@ -654,7 +654,9 @@
 /* The Favourites mirror sits above the themed groups; a subtle top marker keeps
    it visually separate from the first real group. */
 .library-group-favourites .library-group-header {
-  border-bottom-color: rgba(251, 191, 36, 0.45);
+  border-bottom-width: 2px;
+  border-bottom-color: #ff9f12;
+  color: #fff;
 }
 
 
