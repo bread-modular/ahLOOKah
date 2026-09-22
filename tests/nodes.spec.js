@@ -363,7 +363,7 @@ test('two graph camera nodes share the output camera owner and release consumers
 
 test('guide loads and links back to the independent editor', async ({ page }) => {
   await page.goto('/docs/nodes.html');
-  await expect(page.getByRole('heading', { name: 'Nodes: build a pixel-composited pattern' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Node Patterns', exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Open Nodes editor' })).toHaveAttribute('href', '/?role=nodes');
 });
 

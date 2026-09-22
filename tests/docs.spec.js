@@ -59,8 +59,9 @@ const GUIDE = [
   ['/docs/getting-started.html', 'Getting Started', '/docs/', '/docs/interface.html'],
   ['/docs/interface.html', 'The Interface', '/docs/getting-started.html', '/docs/patterns.html'],
   ['/docs/patterns.html', 'Patterns & Parameters', '/docs/interface.html', '/docs/custom-scripts.html'],
-  ['/docs/custom-scripts.html', 'Custom Scripts', '/docs/patterns.html', '/docs/media.html'],
-  ['/docs/media.html', 'Media Patterns', '/docs/custom-scripts.html', '/docs/slots.html'],
+  ['/docs/custom-scripts.html', 'Custom Scripts', '/docs/patterns.html', '/docs/nodes.html'],
+  ['/docs/nodes.html', 'Node Patterns', '/docs/custom-scripts.html', '/docs/media.html'],
+  ['/docs/media.html', 'Media Patterns', '/docs/nodes.html', '/docs/slots.html'],
   ['/docs/slots.html', 'Slots & Shortcuts', '/docs/media.html', '/docs/blending.html'],
   ['/docs/blending.html', 'Blending Two Patterns', '/docs/slots.html', '/docs/post-processing.html'],
   ['/docs/post-processing.html', 'Post-processing', '/docs/blending.html', '/docs/eq-noise.html'],
@@ -68,7 +69,8 @@ const GUIDE = [
   ['/docs/cue-mode.html', 'Cue Mode', '/docs/eq-noise.html', '/docs/screen-mapping.html'],
   ['/docs/screen-mapping.html', 'Screen Mapping', '/docs/cue-mode.html', '/docs/projection-mapping.html'],
   ['/docs/projection-mapping.html', 'Projection Mapping', '/docs/screen-mapping.html', '/docs/devices.html'],
-  ['/docs/devices.html', 'Devices & Setup', '/docs/projection-mapping.html', '/docs/'],
+  ['/docs/devices.html', 'Devices & Setup', '/docs/projection-mapping.html', '/docs/projects.html'],
+  ['/docs/projects.html', 'Projects', '/docs/devices.html', '/docs/'],
 ];
 
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -106,6 +108,31 @@ test.describe('docs guide navigation', () => {
       }
     });
   }
+});
+
+// The two feature chapters after the projection chapters. Both are static pages, so
+// this pins the operator-facing vocabulary (button names exactly as the app shows
+// them) and the figures each page relies on; the guide loop above already proves
+// every image decodes and that the sidebar/pager chain is complete.
+test('Node Patterns guide documents the editor, its sources and its save path', async ({ page }) => {
+  await page.goto('/docs/nodes.html');
+  const article = page.locator('article');
+  await expect(article.getByRole('heading', { name: 'Node Patterns', exact: true })).toHaveCount(1);
+  for (const text of ['Link Folder', 'Edit Pattern', 'Back to Main', '+ Blend', '+ Color', '+ Script', '+ Audio', 'Ctrl+Enter', 'Connected signals', 'Mapping min', 'Remove mapping', 'Reload from Disk', '.nodes.json']) {
+    await expect(article).toContainText(text);
+  }
+  await expect(article.locator('figure img')).toHaveCount(3);
+  await expect(article.locator('.callout')).not.toHaveCount(0);
+});
+
+test('Projects guide documents save, open, relink and new project', async ({ page }) => {
+  await page.goto('/docs/projects.html');
+  const article = page.locator('article');
+  await expect(article.getByRole('heading', { name: 'Projects', exact: true })).toHaveCount(1);
+  for (const text of ['Save Project', 'Open Project', 'New Project', 'ahlookah-project-YYYY-MM-DD.json', 'Link Folder', 'Reconnect', 'Relink File', 'Unlink', 'IndexedDB']) {
+    await expect(article).toContainText(text);
+  }
+  await expect(article.locator('figure img')).toHaveCount(3);
 });
 
 test('Custom Scripts reference and every complete example are inline with valid anchors', async ({ page, request }) => {
