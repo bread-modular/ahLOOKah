@@ -308,7 +308,8 @@ Docs screenshots (`public/docs/shots/*.jpg`) are regenerated on demand with
 the real control and output windows with Playwright (stubbing only the file
 picker), and writes whole-window figures at 2× device pixels for the
 `public/docs/*.html` pages — no cropped element shots, so the guide always shows
-where each control lives.
+where each control lives. `DOCS_SHOTS_ONLY=nodes,projects` regenerates just those
+scenario groups while iterating on a figure.
 
 `test:all` and `test:e2e` remain aliases for the full suite. No tests are deleted
 for speed: only explicitly tagged `@core` tests run by default. Untagged edge
@@ -414,7 +415,7 @@ deleting the last node that used a removed or changed source clears the block. T
 standalone `/?role=nodes&graph=<id>` URL remains the legacy compatibility path.
 Disk-authoritative `.nodes.json` patterns stay synchronized across same-origin tabs. Browser storage holds handles and filename metadata only;
 the open draft stays in memory. Confirmed overwrites update selected patterns, while
-unsaved edits never change LIVE. See the [Nodes guide](public/docs/nodes.html) for connections,
+unsaved edits never change LIVE. See the [Node Patterns guide](public/docs/nodes.html) for connections,
 shortcuts, source support, JSON dependency manifests and resource limits.
 
 LIVE selections carry stable IDs for library clicks, pad slots and merges. If the
@@ -475,7 +476,9 @@ badge/details/actions. Background restoration never requests permission.
 
 #### Projects (Save Project / Open Project / New Project)
 
-The app menu has three project actions:
+The app menu has three project actions. The complete walkthrough, including what a
+project file carries and how another computer re-links it, is the
+[Projects guide](public/docs/projects.html).
 
 - **Save Project** writes one JSON file — `ahlookah-project-YYYY-MM-DD.json` by
   default, at a **location and file name you pick** (File System Access save

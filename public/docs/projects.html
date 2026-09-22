@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ahLOOKah — Docs: Projects</title>
+  <meta name="description" content="Save Project, Open Project and New Project in ahLOOKah: move a whole show — settings, pad order, calibrations and every linked Scripts, Node Patterns and Media folder — between browsers and computers." />
+  <meta name="theme-color" content="#0b0b0f" />
+  <link rel="canonical" href="https://ahlookah.com/docs/projects.html" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="ahLOOKah — Docs: Projects" />
+  <meta property="og:description" content="One file holds a whole show: save it, open it anywhere, or start fresh." />
+  <meta property="og:image" content="https://ahlookah.com/ahlookah-in-action.png" />
+  <link rel="stylesheet" href="/docs/docs.css" />
+</head>
+
+<body>
+  <header class="topbar">
+    <button class="menu-toggle" id="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="sidebar">
+      <span></span><span></span><span></span>
+    </button>
+    <a class="topbar__brand" href="/docs/">ahLOOKah Docs</a>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar__header">
+        <a class="sidebar__brand" href="/docs/">ah<span class="glow">LOOK</span>ah</a>
+        <span class="sidebar__tag">Docs</span>
+      </div>
+      <nav class="sidebar__nav" aria-label="Documentation">
+        <ul>
+          <li><a href="/docs/">Introduction</a></li>
+          <li><a href="/docs/getting-started.html">Getting Started</a></li>
+          <li><a href="/docs/interface.html">The Interface</a></li>
+          <li><a href="/docs/patterns.html">Patterns &amp; Parameters</a></li>
+          <li><a href="/docs/custom-scripts.html">Custom Scripts</a></li>
+          <li><a href="/docs/nodes.html">Node Patterns</a></li>
+          <li><a href="/docs/media.html">Media Patterns</a></li>
+          <li><a href="/docs/slots.html">Slots &amp; Shortcuts</a></li>
+          <li><a href="/docs/blending.html">Blending Two Patterns</a></li>
+          <li><a href="/docs/post-processing.html">Post-processing</a></li>
+          <li><a href="/docs/eq-noise.html">EQ &amp; Noise</a></li>
+          <li><a href="/docs/cue-mode.html">Cue Mode</a></li>
+          <li><a href="/docs/screen-mapping.html">Screen Mapping</a></li>
+          <li><a href="/docs/projection-mapping.html">Projection Mapping</a></li>
+          <li><a href="/docs/devices.html">Devices &amp; Setup</a></li>
+          <li><a href="/docs/projects.html" class="is-active" aria-current="page">Projects</a></li>
+        </ul>
+      </nav>
+      <div class="sidebar__footer">
+        <a href="/">← Back to app</a>
+      </div>
+    </aside>
+
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+    <main class="content">
+      <article class="article">
+        <h1>Projects</h1>
+        <p class="lede">Everything you set up — parameters, pad order, EQ and noise floor, screen and projection calibration, media patterns, your custom scripts and node graphs — is one <strong>project</strong>. Save it as a single file, open it anywhere, or clear the browser and start again.</p>
+
+        <h2>Where the project actions live</h2>
+        <p>Open the <strong>app menu</strong> in the control panel. The last three entries manage the project:</p>
+
+        <figure class="figure">
+          <img src="/docs/shots/projects-menu.jpg" alt="The ahLOOKah control panel with the app menu open, showing Docs, Key Map, Setup, Save Project, Open Project and New Project" />
+          <figcaption>The app menu: <strong>Save Project</strong>, <strong>Open Project</strong> and <strong>New Project</strong>.</figcaption>
+        </figure>
+
+        <h2>Save Project</h2>
+        <p><strong>Save Project</strong> asks where to put the file and what to call it — the suggested name is <code>ahlookah-project-YYYY-MM-DD.json</code> — and writes one JSON document. In a browser without the File System Access save picker, or when the chosen location refuses the write, the same file downloads normally instead.</p>
+
+        <p>What travels:</p>
+
+        <table>
+          <thead>
+            <tr><th>Saved</th><th>How it comes back</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Every persisted setting — parameters, pad order, effect order, EQ, noise floor, screen calibration and edge blur, projection layouts, favourites and collapsed groups, panel state</td><td>Stored verbatim, so the round-trip is lossless.</td></tr>
+            <tr><td>Media patterns (name, kind, MIME type, size, file name)</td><td>Listed again, but the <em>files</em> are never copied — they need re-linking on another computer. See <a href="/docs/media.html">Media Patterns</a>.</td></tr>
+            <tr><td>Custom Scripts, Node Patterns and Media folder identities plus the file names inside them</td><td>A directory <em>ID</em> per section, never a native handle.</td></tr>
+            <tr><td>Script code fingerprints (SHA-256 of the source)</td><td>Only the digest — never the code, and never trust.</td></tr>
+          </tbody>
+        </table>
+
+        <p>What is deliberately <em>not</em> in the file: native folder handles (a browser will not let one leave its origin), script or graph source text, media bytes, and per-window state such as tab identity or the audio capture lease.</p>
+
+        <div class="callout tip">
+          <p><strong>Tip</strong> A project file is plain JSON — good for backups, for a second machine, and for handing a show to somebody else.</p>
+        </div>
+
+        <h2>Open Project</h2>
+        <p><strong>Open Project</strong> opens such a file here. It <em>replaces</em> this browser’s project rather than merging into it, so save first if you want to keep what is already there. When it finishes you get a summary — settings restored, local settings cleared to match the file, media patterns restored, directories resumed — and a reload so every window starts from the loaded project.</p>
+
+        <p>Linked directories are resolved <em>by identity, before anything is asked</em>:</p>
+
+        <ul>
+          <li><strong>Same computer</strong> — a directory the project was saved from is adopted straight away (its name is verified), media files inside it are re-pointed automatically, and nothing is re-picked. Switching between projects therefore keeps every linked folder working, with no re-linking.</li>
+          <li><strong>Another computer</strong> — the identity has no handle here, so opening stops: a blocking dialog lists each expected directory and the open does not complete — no summary, no reload — until every one is linked.</li>
+        </ul>
+
+        <figure class="figure">
+          <img src="/docs/shots/projects-relink.jpg" alt="The ahLOOKah relink dialog listing the Custom Scripts, Node Patterns and Media directories a project expects, each with a Link Folder button" />
+          <figcaption>On another computer the project waits for its directories. <strong>Link Folder</strong> picks each one; <strong>Reconnect</strong> appears when this computer remembers the directory but browser access expired.</figcaption>
+        </figure>
+
+        <p>Folder names are hints, not identities. A wrong folder name is an explicit error and is never silently substituted; a same-named folder is checked by identity first and only then by you. If the browser wants a directory re-granted at startup (common after a restart), the startup message names the scripts waiting and <strong>Linked → Refresh</strong> both renews access and finishes the reopen — no second save or reload.</p>
+
+        <h3>Missing files never block a project</h3>
+        <p>A file that is not in the linked directory keeps its reference: the affected patterns are marked red in the library and on the pad, <strong>Relink File</strong> appears in the parameters panel for a media pattern, and the section panel names the missing file. Restore the file, or re-link the pattern, and it renders again.</p>
+
+        <h3>Scripts come back by fingerprint</h3>
+        <p>For every script the project lists, the file records a SHA-256 of the source instead of the source itself. On Open Project each listed file is re-read, and when its bytes still match it loads automatically — so a project arrives with its custom patterns without clicking anything, on any computer that has the same code in the linked folder. A file that was edited, renamed or added since is left for the explicit <strong>OPEN</strong> under Custom Scripts, with the panel saying which and why. A project file never carries code or trust, and a listed file without a fingerprint never runs by itself.</p>
+
+        <h2>Linked directories</h2>
+        <p>Custom Scripts, Node Patterns and Media each keep their folder in this browser. Once a folder is linked, the category header shows a <strong>Linked</strong> badge; the badge opens compact folder details:</p>
+
+        <figure class="figure">
+          <img src="/docs/shots/projects-linked.jpg" alt="The ahLOOKah folder details dialog for a linked Node Patterns directory, with Refresh, Relink and Unlink buttons" />
+          <figcaption>The <strong>Linked</strong> badge opens folder details: <strong>Refresh</strong> rereads disk, <strong>Relink</strong> points at a different folder, <strong>Unlink</strong> forgets it. Full paths stay private.</figcaption>
+        </figure>
+
+        <ul>
+          <li><strong>Refresh</strong> — reread the folder, pick up additions, removals and edits, and renew expired access from your click. Background tabs never ask for permission.</li>
+          <li><strong>Relink</strong> — choose the folder again (for example after moving it).</li>
+          <li><strong>Unlink</strong> — forget the folder. Source files are never touched; loaded media references and library entries stay.</li>
+        </ul>
+
+        <p>Handles live in the browser’s IndexedDB, keyed by the project’s directory identity — which is exactly what lets a saved project resume its folders. The current identity per section is machine-local bookkeeping and is never exported.</p>
+
+        <h2>New Project</h2>
+        <p><strong>New Project</strong> clears this browser back to a fresh project and asks for confirmation first. It removes:</p>
+
+        <ul>
+          <li>every project-scoped setting,</li>
+          <li>all media patterns,</li>
+          <li>the portable folder hints and the current directory identities, and</li>
+          <li>the links to Scripts, Node Patterns and Media directories.</li>
+        </ul>
+
+        <p>It refuses while a CUE is staged (the CUE bank references media patterns that are about to disappear) and it deliberately keeps your per-machine device choices and setup state, so your microphone and camera selection survives. Project files on disk are never touched.</p>
+
+        <div class="callout">
+          <p><strong>Note</strong> Remembered directory handles are kept, keyed by their identity, so re-opening an older project file on this computer still resumes its folders without re-linking.</p>
+        </div>
+
+        <h2>How projects meet the rest of the app</h2>
+        <ul>
+          <li><strong>Media</strong> travels as metadata only, so an imported project starts with everything listed and the files needing a local match — see <a href="/docs/media.html">Media Patterns</a>.</li>
+          <li><strong>Custom Scripts</strong> reopen from their fingerprint when the code is unchanged; anything else needs an explicit open — see <a href="/docs/custom-scripts.html">Custom Scripts</a>.</li>
+          <li><strong>Node Patterns</strong> reuse the project’s directory identity, so pattern ids — and therefore pad slots, merges and parameter references — stay stable across machines. See <a href="/docs/nodes.html">Node Patterns</a>.</li>
+          <li><strong>Older exports</strong> (<code>kind: ahlookah-settings</code>) still load and behave as they always did: they carry no identities, so every linked folder is confirmed by hand.</li>
+        </ul>
+
+        <p>Saving, opening and relinking never overwrite or delete your source files.</p>
+
+        <div class="pager">
+          <a href="/docs/devices.html"><span class="label">Previous</span><span class="title">Devices &amp; Setup</span></a>
+          <a class="next" href="/docs/"><span class="label">Home</span><span class="title">Introduction</span></a>
+        </div>
+      </article>
+    </main>
+  </div>
+
+  <script src="/docs/docs.js"></script>
+  <script>
+    window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+  </script>
+  <script defer src="/_vercel/insights/script.js"></script>
+</body>
+
+</html>

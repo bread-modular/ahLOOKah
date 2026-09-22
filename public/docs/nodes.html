@@ -1,52 +1,212 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nodes — Pattern compositor</title>
-<style>body{font:16px/1.65 system-ui;max-width:850px;margin:40px auto;padding:0 24px;color:#dbe7f6;background:#121a27}h1,h2{color:#86d9ff}code{background:#253249;padding:2px 5px}a{color:#86d9ff}li{margin:8px 0}</style>
-<h1>Nodes: build a pixel-composited pattern</h1>
-<p>Choose <strong>New Node Pattern</strong> in the main library’s <strong>Node Patterns</strong> category. The editor opens in place over the main view of the same browser window — no popup, no tab rail — and its toolbar <strong>Back to Main</strong> returns to the main app. It never claims the control/screen singleton or opens microphone/camera capture. A standalone <code>?role=nodes</code> URL still works for direct links.</p>
-<h2>Build and connect</h2>
-<ol><li>Search the palette and drag a pattern into the workspace — clicking a palette row does not create nodes. Dragging an existing main-library pattern into the editor uses a validated cross-tab payload.</li>
-<li>Add a <strong>Blend</strong>, <strong>Color</strong>, <strong>Script</strong> or <strong>Audio</strong> node from the palette buttons above the pattern list. Blend and Color composite or filter images; Script produces numbers; Audio reports band activity. The palette buttons, the canvas node cards and the inspector header tint each node by level — violet for signal-level sources (<strong>Script</strong>, <strong>Audio</strong>, legacy <strong>Math</strong>) and cool blue-gray for image-level nodes (<strong>Blend</strong>, <strong>Color</strong>, Patterns, Output) — so the two classes stay visually separable at a glance; the level is decoration only and never changes wiring or saving.</li>
-<li>Click a visual source’s <strong>out ●</strong> port, then the destination’s <strong>● base</strong>, <strong>● layer</strong>, <strong>● image</strong> (Blend/Color/Output) input. A new connection replaces that input’s previous connection. Cycles and output-as-source connections are rejected.</li>
-<li>Base is the lower image; Layer is composited over it. Choose Normal, Multiply, Screen, Overlay, Difference, or Add. Opacity controls the upper image. Blend outputs can feed further Blend/Color nodes; these are real canvas pixels, not CSS overlays.</li>
-<li>Connect the final image to the one Output node. Nothing has to be wired before you save: an unconnected Output renders transparent until it is. Select any node to see its animated preview. Selected Pattern parameters are editable in the inspector. Select a Blend to edit its mode and opacity.</li></ol>
-<h2>Color and Script nodes, and legacy Math nodes</h2>
-<p><strong>Color</strong> takes one image input and writes a filtered image: saturation → brightness → contrast → hue-rotate, in that fixed order. Identity defaults (1 / 1 / 1 / 0) copy the input pixels exactly, including alpha. Its four sliders are ordinary numeric parameters, so they can be audio/math/script mapped like Pattern and Blend.</p>
-<p><strong>Math</strong> (legacy) is still loaded, edited, rendered and saved for pattern files that already contain it, but it is <strong>not created</strong> any more: there is no <strong>+ Math</strong> palette button, and new graphs use Script instead. A legacy Math node keeps its full contract — add, subtract, multiply, divide, minimum, maximum, clamp and absolute over inputs <code>a</code>, <code>b</code> and <code>c</code>. <code>c</code> exists only for <strong>clamp</strong>: every other operation hides and disables that row, a wire left on the inactive port is removed when the operation changes, and the stored literal is kept for when clamp returns. Existing files are never converted to Script and nothing is dropped from them. The runtime never reads or traverses an inactive port. Each port accepts one wire from an Audio/Math/Script output; an unwired port uses its inspector literal. Values stay signed floats — nothing is normalized inside the graph. Division by zero and non-finite results fall back to 0 and show a diagnostic on the node.</p>
-<p><strong>Script</strong> turns a numeric source into a scalar output using one of two <em>languages</em>, chosen in the inspector. New Script nodes start in <strong>Body (statements + return)</strong>:</p>
-<pre><code>let shape = sin(time) * 0.5 + 0.5;
-if (x &lt; 0.2) return 0;
-const scaled = clamp(x * 2, 0, 1);
-return lerp(scaled, shape, y);</code></pre>
-<p>The body is a small, checked JavaScript subset with the read-only inputs <code>x</code>, <code>y</code>, <code>time</code> (seconds) and the constants <code>pi</code>, <code>e</code>, <code>tau</code>: <code>let</code>/<code>const</code> declarations (one name each, with an initializer), plain and compound assignment to those locals (an assignment expression evaluates to the value it stores, a declaration statement discards it), blocks, <code>if</code>/<code>else</code>, early <code>return</code>, comparisons (<code>== != === !== &lt; &lt;= &gt; &gt;=</code>), short-circuiting <code>&amp;&amp;</code> / <code>||</code>, <code>!</code>, the ternary <code>?:</code>, <code>+ − × ÷ %</code>, parentheses and the listed math functions (<code>sin cos tan asin acos atan atan2 abs min max floor ceil round sqrt pow exp log sign hypot clamp lerp</code>, at most 3 arguments). <strong>Scope is lexical</strong>: a <code>let</code>/<code>const</code> belongs to the block it is declared in, an inner block may shadow an outer name but one block cannot declare the same name twice, and the whole block’s declarations are known before it runs — reading or assigning a name before its own declaration is an error, so <code>let a = a + 1;</code>, <code>return a; let a = 1;</code> and <code>let a = 1; { let a = a + 1; }</code> all fail. The inputs, constants and function names are reserved and read-only (<code>x = 1;</code> and <code>let x = 1;</code> are rejected). Comparisons and <code>!</code> yield <code>1</code>/<code>0</code>, never booleans; <code>&amp;&amp;</code> and <code>||</code> short-circuit and evaluate to one of their operands, so <code>x || 0.5</code> works as a default. The returned value must be a finite number. Loops, functions/arrows/classes, objects/arrays, property access, <code>new</code>, <code>this</code>, template literals, <code>await</code>/<code>yield</code>, imports, <code>var</code>, destructuring, spread, <code>++</code>/<code>--</code>, the comma operator, <code>with</code> and <code>debugger</code> are rejected, and every global (<code>window</code>, <code>document</code>, <code>process</code>, <code>globalThis</code>, <code>eval</code>, <code>Function</code>…) is an unknown name.</p>
-<p>The legacy <strong>Expression (single value)</strong> language is the original one-liner: numbers, <code>x</code>, <code>y</code>, <code>time</code>, <code>pi</code>, <code>e</code>, <code>+ − × ÷ %</code>, unary minus and parentheses plus the same math functions, and nothing else. Graphs saved before the body language existed carry no language field and keep running as expressions, unchanged.</p>
-<p>The source is never executed as JavaScript: Acorn parses it, every syntax node must pass an allowlist, and a body compiles once into a bounded instruction list that the editor’s own interpreter runs — no <code>eval</code>, no generated code, no property or global access. Bodies are limited to 1024 characters, 512 syntax nodes, 80 statements, 512 instructions, 32 locals, 12 nested block levels and an operand nesting depth of 16; expressions stay at 256 characters, 64 operations and depth 12. A body must contain a <code>return</code>, and its result is a function of the inputs alone — every evaluation starts from fresh locals. Sources that fail validation cannot be applied or saved; division/modulo by zero, a missing runtime return, non-finite results and other runtime errors fall back to 0 with a visible message. Compilation happens when a source is applied, never while frames render.</p>
-<p>Press <strong>Ctrl+Enter</strong> (or click <strong>Apply</strong>) to validate, store and approve the text in the <strong>Script source</strong> box; plain Enter adds a new line, so bodies are multi-line. Unapplied text is never dropped silently: Save and Reload from Disk confirm before discarding it, and a failed Apply leaves the last applied source running. Script text travels inside the pattern file, but trusting it does not: a disk-loaded source must be reviewed and <strong>Apply</strong>ed in this browser before it runs, and the approval is bound to that exact text <em>and</em> language (editing one character, or switching languages, invalidates it). Approvals live in browser storage, so an imported file can never carry a trust flag with it.</p>
-<h2>Editing controls</h2>
-<p>Drag node headers to move them. A focused header also moves with arrow keys (10 px). Ctrl/Command-click headers or drag a marquee to select a group. Delete/Backspace removes all selected Pattern, Blend, Color, Audio, Math and Script nodes, including their incident image wires, scalar wires and mappings. Required Output is kept, even when selected with other nodes; its unrelated connections survive. Editing text or inputs never deletes nodes. Clicking a wire or a ◇ signal endpoint selects that connection on its own — its endpoint nodes are <em>not</em> selected, and Delete/Backspace (or the sidebar <strong>Delete connection</strong> button) then removes only that wire while both nodes survive. Deleting lives on the graph itself rather than in the inspector: there are no Delete node or Disconnect buttons to reach for, so clicking a node selects nodes and clears the connection selection, and group deletion is unchanged. Wires that share both endpoints are bowed apart so each one stays visible and clickable. Escape cancels a pending connection. The workspace scrolls to accommodate larger graphs.</p>
-<p>A draft that cannot be saved yet says so on screen instead of failing silently. The editor takes a red outline, every node that owns a blocking diagnostic is outlined with it, and the inspector lists exactly what Save is refusing on: a missing pattern, a missing or changed dependency, an unsupported composite source, an invalid parameter, an invalid script, or an unsupported modulation target. Hovering the workspace repeats that list. Clear the offending node (or restore/refresh the source) and both outlines disappear.</p>
-<h2>Audio modulation</h2>
-<p>Add multiple <strong>Audio</strong> nodes and choose bass, mid or high. Their activity is the same default custom-script <code>reactive</code> feature normalized by <code>response()</code> to 0…1, not raw FFT or a new sensitivity curve. Keep the control window’s audio enabled: the editor and saved patterns consume its shared compact audio controls — the same document runtime when the editor is opened from the main app, the bus otherwise — never a second microphone. Missing/stale input settles to zero; no fabricated idle beats. Math and Script outputs are signals too: they can wire into other Math/Script inputs and into any numeric parameter.</p>
-<ol><li>Click an Audio/Math/Script <strong>out ●</strong> port, then a Pattern/Blend/Color violet <strong>◇ signal</strong> endpoint, or a <strong>Script ● x/y</strong> input port for scalar wiring (legacy Math nodes still expose <strong>● a/b</strong>, plus <strong>● c</strong> for clamp). Repeat to fan out. Dashed violet wires are signals; solid image wires remain separate.</li>
-<li>Drag a connected signal chip from the inspector onto a numeric slider to map it; dropping a second signal on the same slider replaces the existing mapping after confirmation. Selecting a ◇ endpoint or a dashed wire selects that connection (the sidebar names it) without selecting its nodes. One signal can drive many parameters/nodes; each parameter has one mapping.</li>
-<li>The saved-base thumb is hidden while mapped; a distinct pale-yellow LIVE marker and numeric value show the effective runtime value throughout. Removing the mapping restores the base thumb and its saved value. The violet box overlays the slider track: drag its body to move the range, or its endpoints to resize it. The controls below a mapped slider start <strong>collapsed</strong> and have no heading or button of their own — <strong>click the overlay on the track, or focus it and press Enter/Space</strong>, to reveal or hide the Mapping min/max fields, Signal in min/max and Remove mapping. A compact pill beside the parameter’s name (for example <code>Audio · high</code> or <code>Script</code>) names the connected signal, resolved live from the graph, so a band change or a remap updates it; it rides the title row and stays visible whether the controls are open or collapsed. Swapping a range is a plain field edit: type the lower bound into <strong>Mapping max</strong> and the higher one into <strong>Mapping min</strong>, and the sweep runs in reverse. Dragging the box or a handle collapses the panel and a release after a resize never opens it again, so moving the range cannot be mistaken for a click. Min means the signal’s low bound and max its high bound (reversed ranges are valid). Both mapping endpoints accept any finite value, including values outside the parameter’s own range: a negative minimum is stored and saved exactly as typed rather than being reset to the parameter floor, and only the value the parameter actually consumes is clamped to its domain, so the sweep shifts instead of losing the endpoint. The <strong>Signal in min/max</strong> fields convert a different input range and accept negative ranges (for example −2…0.5): a Math or Script output of 0…4 can drive the full parameter range, and older mappings keep the default 0…1; a range needs its max strictly above its min. Base values remain stored and unchanged during playback; removing modulation restores them.</li></ol>
-<p>Pattern numeric sliders, Blend opacity and Color parameters are supported. Enum/bool/text controls are not; Output has no numeric control. Audio, Math and Script nodes use no visual renderer or canvas. Nodes, image wires, scalar wires (including unassigned endpoints), each Script source with its <code>language</code> (absent means the legacy expression language) and mapping ranges persist in <code>.nodes.json</code>; existing version-1 graphs still open and keep their mappings. Deleting a node removes its image wires, scalar wires and mappings. Nested graphs are not supported.</p>
-<h2>Disk patterns, drafts, LIVE and CUE</h2>
-<p>In the main UI, expand <strong>Node Patterns</strong>. Use desktop Chrome on HTTPS or localhost. <strong>Link Folder</strong> grants access to a folder, remembers its handle, and loads its top-level <code>.nodes.json</code> patterns. <strong>Refresh folder</strong> rereads disk, discovers additions/removals/edits, and requests expired read permission from your click. Background tabs never request permission. Invalid or inaccessible files are reported and excluded, not resurrected from browser storage.</p>
-<p><strong>Open Pattern</strong> uses the native disk picker and validates a file before adding it to the main library. Files opened outside the linked folder also appear in the main library and reconnect after reload. Linking a folder clears that explicit outside-file selection, without deleting files. Select a node pattern in the main library, then click <strong>Edit Pattern</strong> in its sidebar. The editor reads that exact graph from disk using its repository ID, in this window. Missing, invalid or inaccessible files show a loading error instead of a different graph. Use <strong>Retry loading</strong> to renew permission. <strong>New Node Pattern</strong> opens a fresh editor; only one graph is edited at a time. The selected pattern’s sidebar also offers <strong>Delete</strong>: it removes the pattern from this browser’s library and writes nothing — the <code>.nodes.json</code> file, its contents and its folder are untouched, and <strong>Refresh folder</strong> does not resurrect the entry. <strong>Open Pattern</strong> (or Relinking the folder) brings it back.</p>
-<p><strong>Save</strong> writes the current draft into the linked folder, wired or not: an unconnected branch is a valid, editable state, and opening the file again restores exactly what you saved. New drafts use a sanitized graph name plus <code>.nodes.json</code>; a pattern loaded from that folder keeps its filename even when renamed in the editor. An outside file is copied into the linked folder on Save, never overwritten at its original location. Existing destination files require confirmation. A file changed/deleted since it was opened cannot be overwritten: open it again first. Same-origin saves use Web Locks and recheck disk content; unrelated external applications do not participate in that lock, so avoid simultaneous external writes.</p>
-<p>Drafts are in-memory for the single open editor session and never broadcast edits to LIVE. Save before closing/reloading. <strong>Back to Main</strong>, Reload from disk, and any dirty-graph replacement warn before discarding unsaved work; nothing is retained as a hidden second draft, so reopening loads the saved graph. Picker cancellation, permission denial and failed writes leave the draft available. There is no revisions, import/export or browser pattern library UI.</p>
-<p>Saved/opened patterns appear in <strong>Node Patterns</strong> in same-origin main-app tabs. Click to play LIVE; Shift-click stages CUE; ordinary pads and merge remain supported. A confirmed overwrite updates the same pattern ID, including LIVE when selected, and invalidates staged runtimes. Disk refreshes broadcast notifications to other tabs, which reread their handles. No polling, server library or cloud sync is used. IndexedDB stores only folder/file handles and identity preferences; graph contents are read from disk. Old browser-only records are ignored, not automatically deleted or migrated.</p>
-<h2>Source support and dependencies</h2>
-<ul><li>Built-in Canvas2D/WebGL patterns, local image/video media, custom scripts, and projection patterns reuse the existing source runtime contract. New source nodes snapshot saved main-app parameter values (or defaults); edit the source node’s numeric geometry/child parameters in the inspector as needed.</li>
-<li>Camera nodes show a visible explanation in editor/control previews. Only an output runtime with the existing shared camera source can render them; graph nodes do not create a second capture owner.</li>
-<li>Output/control runtimes expose each leaf’s independent audio-control slot, parameter snapshot and lifecycle to the existing capture owner. The editor uses the main window’s shared controls for both ordinary audio-reactive patterns and mapped parameters. It does not capture a separate microphone.</li>
-<li>Graph-in-graph sources are deliberately disallowed, including graph children hidden inside projection definitions. Flatten the composition into ordinary source and Blend nodes instead.</li>
-<li>Missing sources, source failures and unavailable projection compositors have visible diagnostics. Media renderers retain their existing missing-file/permission placeholders. Relink files/grant permissions in the main media library, then reload the draft.</li></ul>
-<h2>Pattern file format and dependencies</h2>
-<p>Files contain <code>format: "viz2-nodes", version: 1</code>, a graph, numeric parameter snapshots and a dependency manifest. Reads validate version, byte size, references, ports, cycles, parameters and limits before loading. A pattern does not have to be fully connected to be saved or reopened: an unwired branch stays valid, renders transparent, and can be completed later.</p>
-<p>A graph carries three independent link kinds: image <code>edges</code>, scalar <code>signalEdges</code> (<code>from</code>/<code>to</code>/<code>port</code> into Math/Script inputs) and terminal <code>modulations</code> (a signal source, an optional target parameter and its output range plus the optional <code>inputMin</code>/<code>inputMax</code> signal range). One wire per input, fanout allowed, cycles rejected.</p>
-<p><strong>Media bytes, file handles, executable scripts and external assets are not embedded.</strong> The destination must have matching dependencies. Custom-code fingerprints and projection topology/parameter definitions detect changed dependencies rather than silently substituting them. File content is never executed as code. Restore dependencies in the main app or choose <strong>Refresh dependencies</strong> to accept current local definitions, then Save. The manifest also follows the graph: deleting the last node that referenced a source drops its entry, so a draft whose source was removed or changed can be saved as soon as the offending node is deleted. Media content itself is not content-addressed: a relinked file under the same media ID can differ.</p>
-<h2>Resource bounds and implementation</h2>
-<p>No node, Pattern-source or wire budget is imposed: node count, source count and wiring are limited only by the machine that edits and renders the graph, so the practical size follows your hardware. What validation still bounds is structural and safety: references, ports, uniqueness, cycles, finite numbers, the restricted script source (256 characters for expressions, 1024 for bodies), and 200 KB per JSON record/file so a single pattern stays loadable. Folder bookkeeping keeps 64 folder patterns and up to 64 explicitly opened files. Internal graph images are capped to 1280×720 (aspect ratio preserved) and scaled to the output size. Unconnected draft branches may render for inspection; only the Output-connected branch must have all inputs connected to save. Empty input ports are transparent while drafting.</p>
-<p>Each source is captured immediately after its draw (including async draws), before WebGL discards the frame. Every graph owns buffers, source instances, parameter objects and disposal/resize handling. Move/rename operations do not restart previews; parameter/topology changes currently rebuild the editor preview, so videos and temporal effects restart on those edits. Blend operations use browser Canvas2D sRGB compositing and Color uses Canvas2D filters with identity defaults short-circuited to a plain copy; neither is Photoshop’s complete color-management pipeline. Scalar values are computed once per rendered frame and shared by every consumer (sidebar readout, preview, LIVE and CUE); audio capture and output ownership are unchanged.</p>
-<p>Code lives in <code>src/nodes/</code> (<code>definitions.js</code>, <code>geometry.js</code>, <code>scalar.js</code>, <code>script.js</code>, <code>script-core.js</code>, <code>script-body.js</code>, <code>script-approval.js</code>). Wire endpoints come from <code>geometry.js</code>, which mirrors the CSS node metrics, so the socket a wire lands on is measured geometry rather than a hand-written node-height offset. Tests: <code>PLAYWRIGHT_PORT=5186 npx playwright test tests/nodes.spec.js tests/nodes-scalar.spec.js tests/nodes-script-body.spec.js tests/nodes-wire-selection.spec.js</code>. Node pattern files are separate from general settings. Move/copy them using your file manager, then link the destination folder. The body language’s instruction budgets and limiting behaviour are covered by <code>tests/nodes-script-body.spec.js</code>, which also reports a single indicative compile/evaluation time measurement — it makes no comparative performance claim.</p>
-<p><a href="/?role=nodes">Open Nodes editor</a></p></html>
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ahLOOKah — Docs: Node Patterns</title>
+  <meta name="description" content="Build your own ahLOOKah pattern by wiring nodes: drag sketches, blends, colour filters, audio bands and Script nodes onto a canvas, then save the graph as a .nodes.json pattern." />
+  <meta name="theme-color" content="#0b0b0f" />
+  <link rel="canonical" href="https://ahlookah.com/docs/nodes.html" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="ahLOOKah — Docs: Node Patterns" />
+  <meta property="og:description" content="Wire sketches, blends, colour filters and audio-driven scripts into a pattern of your own." />
+  <meta property="og:image" content="https://ahlookah.com/ahlookah-in-action.png" />
+  <link rel="stylesheet" href="/docs/docs.css" />
+</head>
+
+<body>
+  <header class="topbar">
+    <button class="menu-toggle" id="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="sidebar">
+      <span></span><span></span><span></span>
+    </button>
+    <a class="topbar__brand" href="/docs/">ahLOOKah Docs</a>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar__header">
+        <a class="sidebar__brand" href="/docs/">ah<span class="glow">LOOK</span>ah</a>
+        <span class="sidebar__tag">Docs</span>
+      </div>
+      <nav class="sidebar__nav" aria-label="Documentation">
+        <ul>
+          <li><a href="/docs/">Introduction</a></li>
+          <li><a href="/docs/getting-started.html">Getting Started</a></li>
+          <li><a href="/docs/interface.html">The Interface</a></li>
+          <li><a href="/docs/patterns.html">Patterns &amp; Parameters</a></li>
+          <li><a href="/docs/custom-scripts.html">Custom Scripts</a></li>
+          <li><a href="/docs/nodes.html" class="is-active" aria-current="page">Node Patterns</a></li>
+          <li><a href="/docs/media.html">Media Patterns</a></li>
+          <li><a href="/docs/slots.html">Slots &amp; Shortcuts</a></li>
+          <li><a href="/docs/blending.html">Blending Two Patterns</a></li>
+          <li><a href="/docs/post-processing.html">Post-processing</a></li>
+          <li><a href="/docs/eq-noise.html">EQ &amp; Noise</a></li>
+          <li><a href="/docs/cue-mode.html">Cue Mode</a></li>
+          <li><a href="/docs/screen-mapping.html">Screen Mapping</a></li>
+          <li><a href="/docs/projection-mapping.html">Projection Mapping</a></li>
+          <li><a href="/docs/devices.html">Devices &amp; Setup</a></li>
+          <li><a href="/docs/projects.html">Projects</a></li>
+        </ul>
+      </nav>
+      <div class="sidebar__footer">
+        <a href="/">← Back to app</a>
+      </div>
+    </aside>
+
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+    <main class="content">
+      <article class="article">
+        <h1>Node Patterns</h1>
+        <p class="lede">A node pattern is a picture you build instead of one you pick: drag sketches onto a canvas, chain them through blend and colour nodes, then drive any slider with an audio band or a little script. It saves as a normal <code>.nodes.json</code> pattern and plays like any other effect.</p>
+
+        <h2>Where node patterns live</h2>
+        <p>Everything starts in the <strong>Node Patterns</strong> group at the bottom of the pattern library. Its header carries the folder actions and its body lists the graphs you have:</p>
+
+        <ul>
+          <li><strong>Link Folder</strong> — grant access to a folder of <code>.nodes.json</code> patterns. The folder is remembered, and once it is linked the button becomes a <strong>Linked</strong> badge.</li>
+          <li><strong>ADD</strong> (New Node Pattern) — open a fresh graph in the editor.</li>
+          <li><strong>OPEN</strong> (Open Pattern) — with a linked folder, picks one of that folder’s patterns; without one, opens your computer’s file picker.</li>
+          <li><strong>Linked</strong> — open the folder details for <strong>Refresh</strong>, <strong>Relink</strong> and <strong>Unlink</strong>. Refresh rereads the folder and finds files added, edited or removed outside the app.</li>
+        </ul>
+
+        <figure class="figure">
+          <img src="/docs/shots/nodes-library.jpg" alt="The Node Patterns group in the ahLOOKah pattern library with a Linked badge, ADD and OPEN buttons, and three saved node patterns listed" />
+          <figcaption>The <strong>Node Patterns</strong> group owns its folder actions and lists every graph in the linked folder. Click one to play it, exactly like a built-in sketch.</figcaption>
+        </figure>
+
+        <p>Select a listed graph and its sidebar offers <strong>Edit Pattern</strong> and <strong>Delete</strong>. <strong>Delete</strong> removes the pattern from this browser’s library only — the file on disk is kept, and <strong>OPEN</strong> brings it back.</p>
+
+        <h2>The editor</h2>
+        <p>The editor opens <em>in place</em> over the main app view — no popup, no second tab — and <strong>Back to Main</strong> returns to the control panel. Leaving a dirty graph asks first. The legacy standalone route still works for direct links: <a href="/?role=nodes">Open Nodes editor</a>.</p>
+
+        <p>Three columns: the <strong>palette</strong> on the left, the <strong>canvas</strong> in the middle, and the <strong>inspector</strong> on the right for the selected node.</p>
+
+        <figure class="figure">
+          <img src="/docs/shots/nodes-editor.jpg" alt="The ahLOOKah node editor: a palette of nodes and patterns on the left, a graph of pattern, blend, colour and script nodes wired to an output node in the middle, and the inspector on the right showing the selected Script node" />
+          <figcaption>Two sketches feed a <strong>Blend</strong>, which feeds a <strong>Color</strong> filter and then the <strong>Output</strong>. An <strong>Audio</strong> band is wired into a <strong>Script</strong>, whose value drives the blend opacity.</figcaption>
+        </figure>
+
+        <h3>A first graph, in four moves</h3>
+        <p>The simplest useful pattern is one source wired straight to the Output. A new graph starts empty apart from that Output:</p>
+
+        <ol>
+          <li><strong>Link Folder</strong> on the Node Patterns category, then <strong>ADD</strong> (New Node Pattern) — the editor opens on a blank canvas with a single <strong>Output</strong> node.</li>
+          <li>Drag <strong>Circles</strong> from the pattern list onto the canvas.</li>
+          <li>Click the Circles node’s <strong>out ●</strong>, then the Output’s <strong>● image</strong>. The inspector preview lights up.</li>
+          <li><strong>Save</strong>, then <strong>Back to Main</strong> — the graph is now a pattern in your library, ready for the pad or a slot like any built-in.</li>
+        </ol>
+
+        <p>Everything below is that same move repeated: a second source into <strong>● base</strong> and <strong>● layer</strong> of a Blend, a Color filter in between, an Audio band into a Script to drive a slider.</p>
+
+        <h3>Adding nodes</h3>
+        <p>Drag a row onto the canvas — clicking a palette row deliberately does nothing, so a stray click can never create a node:</p>
+
+        <ul>
+          <li><strong>Patterns</strong> — the searchable list at the bottom of the palette. Every built-in sketch, media pattern, custom script and projection pattern can become a source.</li>
+          <li><strong>+ Blend</strong> — composites two images (base and layer).</li>
+          <li><strong>+ Color</strong> — filters an image: saturation, brightness, contrast and hue shift, applied in that fixed order. The identity defaults copy the input pixel-for-pixel, alpha included.</li>
+          <li><strong>+ Script</strong> — a number from the graph’s inputs or the audio bands.</li>
+          <li><strong>+ Audio</strong> — the activity of a bass, mid or high band.</li>
+        </ul>
+
+        <div class="callout tip">
+          <p><strong>Tip</strong> You can also drag a pattern straight from the main library’s pad or list onto the editor canvas; the editor validates what was dropped.</p>
+        </div>
+
+        <h3>Wiring</h3>
+        <p>Click a source’s <strong>out ●</strong>, then click the destination’s input — <strong>● base</strong>, <strong>● layer</strong> or <strong>● image</strong>. One wire per input: connecting again replaces what was there. Cycles, and using the Output as a source, are rejected. Drag a node header to move it; a focused header nudges with the arrow keys, and a marquee (or <kbd>Ctrl</kbd>/<kbd>Cmd</kbd>-click) selects several at once.</p>
+
+        <table>
+          <thead>
+            <tr><th>Node</th><th>Inputs</th><th>Output</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>Pattern</strong></td><td>—</td><td>Image</td></tr>
+            <tr><td><strong>Blend</strong></td><td>base, layer</td><td>Image</td></tr>
+            <tr><td><strong>Color</strong></td><td>image</td><td>Image</td></tr>
+            <tr><td><strong>Output</strong></td><td>image</td><td>—</td></tr>
+            <tr><td><strong>Audio</strong></td><td>—</td><td>Signal</td></tr>
+            <tr><td><strong>Script</strong></td><td>x, y</td><td>Signal</td></tr>
+          </tbody>
+        </table>
+
+        <p><strong>Blend</strong> offers Normal, Multiply, Screen, Overlay, Difference and Add, with an opacity for the layer. Blend and Color output real pixels, not CSS overlays, so their results can feed further blends and filters. Exactly one <strong>Output</strong> node exists; the branch that reaches it is what plays.</p>
+
+        <div class="callout warn">
+          <p><strong>Camera sources</strong> cannot render from the editor — camera capture belongs to the output window. A camera node is clearly labelled in the palette and shows an explanation in the preview instead of a second capture.</p>
+        </div>
+
+        <h2>Script nodes</h2>
+        <p>A Script turns something the app knows — the audio bands, another node’s value, the clock — into a number. New scripts start in the <strong>Body (statements + return)</strong> language, a small checked subset of JavaScript that always ends in <code>return</code>:</p>
+
+        <pre><code>let eased = pow(x, 0.6);
+if (time &lt; 0.5) return 0;
+return clamp(eased * 0.8, 0, 1);</code></pre>
+
+        <p>Body scripts can declare <code>let</code>/<code>const</code> locals, branch with <code>if</code>/<code>else</code>, compare, use short-circuiting <code>&amp;&amp;</code> / <code>||</code>, the ternary <code>?:</code> and the usual arithmetic, and call a fixed list of maths functions (<code>sin</code>, <code>clamp</code>, <code>lerp</code>, <code>pow</code>, <code>hypot</code>…) — with the read-only inputs <code>x</code>, <code>y</code>, <code>time</code> and the constants <code>pi</code>, <code>e</code>, <code>tau</code>. Loops, functions, objects, property access and globals are rejected.</p>
+
+        <p><strong>Scope is lexical</strong>: a <code>let</code>/<code>const</code> belongs to the block it is declared in, an inner block may shadow an outer name but one block cannot declare the same name twice, and the whole block’s declarations are known before it runs — so reading or assigning a name before its own declaration is an error. The inputs, the constants and the function names are reserved and read-only.</p>
+
+        <p>Older graphs may use the legacy <strong>Expression</strong> language — the original one-liner such as <code>sin(time * 2) * 0.5 + 0.5</code>. Files saved before the body language existed carry no language field and keep running as expressions, unchanged.</p>
+
+        <p>Press <strong>Ctrl+Enter</strong> (or click <strong>Apply</strong>) to validate and store the text in the <strong>Script source</strong> box; plain <kbd>Enter</kbd> adds a line, so bodies stay multi-line. The source is never executed as JavaScript: it is parsed, checked against an allowlist and compiled once into a bounded instruction list the editor runs itself — there is no <code>eval</code> and no generated code. A body is limited to 1024 characters, 512 syntax nodes, 80 statements, 512 instructions, 32 locals, 12 nested block levels and an operand nesting depth of 16; an expression stays at 256 characters, 64 operations and a depth of 12. A script that fails validation cannot be applied or saved, and a runtime error falls back to <code>0</code> with a visible message.</p>
+
+        <h2>Driving sliders with audio and scripts</h2>
+        <p>Signal outputs are not just for wiring node to node. Select the Script or Audio node an Audio→Script chain ends in, and the inspector lists it under <strong>Connected signals</strong>. Drag that chip onto any numeric slider of a selected Pattern, Blend or Color node to map it:</p>
+
+        <figure class="figure">
+          <img src="/docs/shots/nodes-mapping.jpg" alt="The node editor with the Blend node selected: the Opacity slider carries a violet mapping overlay, a LIVE marker showing the value coming from the Script node, and a signal pill naming the source" />
+          <figcaption>A mapped slider shows a violet range overlay, a pale-yellow <strong>LIVE</strong> marker for the value coming from the graph, and a pill naming the signal. The saved value underneath is untouched.</figcaption>
+        </figure>
+
+        <ul>
+          <li><strong>Range</strong> — drag the overlay’s body to slide the range, or its handles to widen it. <strong>Mapping min</strong> is the slider value at the signal’s low bound, <strong>Mapping max</strong> the value at its high bound, so a reversed pair sweeps the other way.</li>
+          <li><strong>Signal in min/max</strong> — convert a different input range (for example a script that outputs 0…4 driving the full slider). Left alone, the range is 0…1.</li>
+          <li><strong>Remove mapping</strong> — click the overlay to reveal the mapping fields, then remove it; the slider returns to its saved base value.</li>
+        </ul>
+
+        <p>Every mapping is a terminal link in the graph file, saved with the pattern, and one signal can drive many sliders. Enum, boolean and text controls cannot be mapped.</p>
+
+        <h2>Saving, drafts and going live</h2>
+        <p>The toolbar holds the graph name, <strong>Save</strong> and <strong>Reload from Disk</strong>. Saving writes the draft into the linked folder as <code>.nodes.json</code>:</p>
+
+        <ul>
+          <li>A draft does not have to be finished. An unconnected Output saves fine and reopens exactly as saved.</li>
+          <li>A pattern opened from the linked folder keeps its filename even when you rename the graph. A file opened from elsewhere is copied into the linked folder on Save and never overwritten at its original location.</li>
+          <li>Overwriting an existing destination file asks first. A file changed or deleted on disk since you opened it cannot be overwritten — reopen it first.</li>
+          <li>A draft that cannot be saved yet says why: the editor and every offending node take a red outline, and the inspector lists the blocking reasons. Deleting the last node that used a removed source clears the block.</li>
+        </ul>
+
+        <p>Drafts live in memory for the one open editor session and never broadcast edits to the live output — save before closing. Nothing is kept as a hidden second draft, so reopening a pattern always reads the saved graph from disk.</p>
+
+        <p>Back in the main app a node pattern behaves like any other: click it to play live, <kbd>Shift</kbd>-click to stage it in CUE, drag it to a pad slot, or use it in a merge. Same-origin tabs stay in sync: a confirmed overwrite updates the same pattern id, and a folder refresh is broadcast to the others.</p>
+
+        <h2>The pattern file</h2>
+        <p>Files are JSON (<code>format: "viz2-nodes"</code>, version 1) holding the graph, parameter snapshots and a dependency manifest with three independent kinds of link: image <code>edges</code>, scalar <code>signalEdges</code> and terminal <code>modulations</code>.</p>
+
+        <ul>
+          <li><strong>Never embedded</strong> — media bytes, file handles, script sources and other external assets. The destination needs the same dependencies, and a changed dependency is detected rather than silently substituted.</li>
+          <li><strong>Not recursive</strong> — a node pattern cannot contain another node pattern; flatten the composition into ordinary sources and blends.</li>
+          <li><strong>Bounded</strong> — one file or record stays under 200 KB, internal graph images are capped at 1280×720, and a folder keeps up to 64 patterns (plus 64 individually opened files). Node, source and wire counts are limited only by your machine, not by the app.</li>
+        </ul>
+
+        <p>Missing files and failed sources show a diagnostic instead of a blank canvas; re-link the file in the main library and reload the draft.</p>
+
+        <div class="pager">
+          <a href="/docs/custom-scripts.html"><span class="label">Previous</span><span class="title">Custom Scripts</span></a>
+          <a class="next" href="/docs/media.html"><span class="label">Next</span><span class="title">Media Patterns</span></a>
+        </div>
+      </article>
+    </main>
+  </div>
+
+  <script src="/docs/docs.js"></script>
+  <script>
+    window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+  </script>
+  <script defer src="/_vercel/insights/script.js"></script>
+</body>
+
+</html>

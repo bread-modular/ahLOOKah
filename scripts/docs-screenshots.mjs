@@ -18,6 +18,14 @@
 //   projection-replace                          — dragging a pattern onto a mapping
 //   projection-alpha-blend                      — Alpha Blend on + the Alphas group
 //   projection-output                           — output window with five warped surfaces
+//   nodes-library                               — Node Patterns group with a linked folder
+//   nodes-editor / nodes-mapping                — the in-place graph editor (Script, then a mapped slider)
+//   projects-menu                               — the app menu's project actions
+//   projects-linked                             — folder details behind a Linked badge
+//   projects-relink                             — the blocking relink dialog for a foreign project
+//
+// DOCS_SHOTS_ONLY=nodes,projects regenerates just those groups (comma-separated
+// scenario prefixes; an empty value regenerates every figure as before).
 import { chromium } from '@playwright/test';
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -35,6 +43,11 @@ const BASE = `http://localhost:${PORT}`;
 const VIEWPORT = { width: 1280, height: 800 };
 const DPR = 2;
 const JPEG = { type: 'jpeg', quality: 80 };
+
+// `DOCS_SHOTS_ONLY=nodes,projects` regenerates just those scenario groups, so a
+// focused figure can be iterated on without rewriting every committed shot.
+const ONLY = (process.env.DOCS_SHOTS_ONLY || '').split(',').map(value => value.trim()).filter(Boolean);
+const wants = (...names) => ONLY.length === 0 || names.some(name => ONLY.includes(name));
 
 const asBase64 = (relative) => readFileSync(resolve(ROOT, relative)).toString('base64');
 
@@ -250,6 +263,224 @@ async function windowShot(page, name) {
   console.log(`  wrote ${name}`);
 }
 
+// ---- Node Patterns + Projects figures -------------------------------------
+//
+// The editor and the project dialogs need a real linked directory. An OPFS
+// directory stands in for the operator's folder (structured-cloneable handles,
+// exactly like desktop Chrome's) and the graph is written by the app's own
+// serializer, so the seeded file is a genuine .nodes.json pattern.
+const NODES_FOLDER = 'viz-nodes';
+
+const source = (id, patternId, x, y, params = {}) => ({ id, type: 'pattern', patternId, x, y, params });
+
+// One graph that exercises every link kind the guide describes: image edges, a
+// scalar signal edge into a Script, and a terminal modulation from that Script
+// onto the Blend opacity.
+const NEON_GRAPH = {
+  version: 1,
+  name: 'Neon composite',
+  nodes: [
+    source('wall', 'neon-metropolis', 10, 25),
+    source('plate', 'tidal-glass', 10, 205),
+    { id: 'mix', type: 'blend', x: 205, y: 110, mode: 'Screen', opacity: 0.9 },
+    { id: 'grade', type: 'color', x: 400, y: 110, params: { saturation: 1.15, brightness: 1.05, contrast: 1.08, hue: 0 } },
+    { id: 'kick', type: 'audio', band: 'bass', x: 10, y: 430 },
+    { id: 'curve', type: 'script', language: 'body', source: 'let eased = pow(x, 0.6);\nreturn clamp(eased * 0.85, 0, 1);', inputX: 0, inputY: 0, x: 205, y: 430 },
+    { id: 'output', type: 'output', x: 595, y: 110 },
+  ],
+  edges: [
+    { from: 'wall', to: 'mix', port: 'base' },
+    { from: 'plate', to: 'mix', port: 'layer' },
+    { from: 'mix', to: 'grade', port: 'image' },
+    { from: 'grade', to: 'output', port: 'image' },
+  ],
+  signalEdges: [{ from: 'kick', to: 'curve', port: 'x' }],
+  modulations: [{ from: 'curve', to: 'mix', param: 'opacity', min: 0.35, max: 1, inputMin: 0, inputMax: 1 }],
+};
+
+// Two more graphs so the library figure shows a folder of patterns rather than one.
+const TIDAL_GRAPH = {
+  version: 1,
+  name: 'Tidal grade',
+  nodes: [
+    source('plate', 'tidal-glass', 10, 25),
+    { id: 'grade', type: 'color', x: 205, y: 25, params: { saturation: 1.2, brightness: 1.1, contrast: 1, hue: -12 } },
+    { id: 'output', type: 'output', x: 400, y: 25 },
+  ],
+  edges: [
+    { from: 'plate', to: 'grade', port: 'image' },
+    { from: 'grade', to: 'output', port: 'image' },
+  ],
+};
+
+const STROBE_GRAPH = {
+  version: 1,
+  name: 'Kick strobe',
+  nodes: [
+    source('mandala', 'chroma-mandala', 10, 25),
+    { id: 'output', type: 'output', x: 205, y: 25 },
+  ],
+  edges: [{ from: 'mandala', to: 'output', port: 'image' }],
+};
+
+const NODE_GRAPHS = [
+  { fileName: 'neon-composite.nodes.json', graph: NEON_GRAPH },
+  { fileName: 'tidal-grade.nodes.json', graph: TIDAL_GRAPH },
+  { fileName: 'kick-strobe.nodes.json', graph: STROBE_GRAPH },
+];
+
+async function seedNodeFolder(page, files = NODE_GRAPHS) {
+  await page.evaluate(async ({ folder, entries }) => {
+    const { SKETCHES } = await import('/src/sketch-registry.js');
+    const { manifestFor, serializeGraph } = await import('/src/nodes/portability.js');
+    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle(folder, { create: true });
+    for (const { fileName, graph } of entries) {
+      const writer = await (await dir.getFileHandle(fileName, { create: true })).createWritable();
+      await writer.write(serializeGraph(graph, manifestFor(graph, SKETCHES)));
+      await writer.close();
+    }
+    // The app asks for a directory when Link Folder is clicked, so the stub only
+    // has to exist by then — and it is a real handle, not a shaped object.
+    window.showDirectoryPicker = async () => dir;
+  }, { folder: NODES_FOLDER, entries: files });
+}
+
+// The figures show a browser where the operator has already reviewed and Applied
+// the seeded script, so the inspector reads "Applied and approved" and the graph
+// is not flagged as unapproved. Approval is bound to this exact text + language.
+async function approveSeededScripts(page) {
+  await page.evaluate(async (graphs) => {
+    const { approveScript } = await import('/src/nodes/script-approval.js');
+    for (const { graph } of graphs) {
+      for (const node of graph.nodes) {
+        if (node.type === 'script') approveScript(node.language || 'expression', node.source);
+      }
+    }
+  }, NODE_GRAPHS);
+}
+
+async function linkNodeFolder(control) {
+  const panel = control.locator('.node-patterns-panel');
+  await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
+  await panel.getByRole('button', { name: 'Node Patterns: Linked', exact: true }).waitFor();
+  await control.locator('.library-btn[data-id^="nodes-"]').first().waitFor();
+  await control.waitForTimeout(400);
+}
+
+// Edit Pattern in the selected pattern's sidebar opens the in-place editor. The
+// graph is chosen by its display name because linked pattern ids are hashed.
+async function openNodeEditor(control, name = 'Neon composite') {
+  await control.locator('.library-btn', { hasText: name }).first().click();
+  await control.getByRole('button', { name: 'Edit Pattern', exact: true }).click();
+  await control.getByLabel('Graph name').waitFor();
+  await control.locator('.nodes-node[data-node-id="output"]').waitFor();
+  await control.waitForTimeout(1500);
+  return name;
+}
+
+const selectNode = (control, id) => control.locator(`.nodes-node[data-node-id="${id}"] .nodes-node-title`).click();
+
+// A project saved on another computer: the directories it names have no identity
+// here, which is exactly what makes the blocking relink dialog appear.
+function foreignProject() {
+  const digest = 'a'.repeat(64);
+  return {
+    app: 'ahlookah',
+    kind: 'ahlookah-project',
+    version: 2,
+    exportedAt: new Date().toISOString(),
+    storage: { viz2_slot_order: JSON.stringify(['plasma-waves', 'checkerboard']) },
+    media: [],
+    folders: {
+      scripts: { folderName: 'viz-scripts', folderId: 'docs-scripts', files: [{ fileName: 'opener.viz.js', linked: true, sha256: digest }] },
+      nodes: { folderName: NODES_FOLDER, folderId: 'docs-nodes', files: [{ fileName: 'neon-composite.nodes.json', linked: true, id: 'nodes-docs-1' }] },
+      media: { folderName: 'viz-media', folderId: 'docs-media', files: [] },
+    },
+  };
+}
+
+async function nodesScenarios(browser, openControl, newControlContext, windowShot) {
+  // ---- nodes-library: the group, its folder actions and a folder of graphs ----
+  {
+    const context = await newControlContext(browser, {});
+    const control = await openControl(context);
+    await seedNodeFolder(control);
+    await approveSeededScripts(control);
+    await linkNodeFolder(control);
+    // Play one so the figure also shows the group's patterns as live library items.
+    await control.locator('.pattern-btn[data-id^="nodes-"]').first().click();
+    await control.waitForTimeout(1200);
+    await control.locator('#library-section-Node-Patterns').locator('..').scrollIntoViewIfNeeded();
+    await windowShot(control, 'nodes-library.jpg');
+    await context.close();
+  }
+
+  // ---- nodes-editor / nodes-mapping: the in-place editor ----------------------
+  {
+    const context = await newControlContext(browser, {});
+    const control = await openControl(context);
+    await seedNodeFolder(control);
+    await approveSeededScripts(control);
+    await linkNodeFolder(control);
+    await openNodeEditor(control);
+
+    // The Script node: the body language, Apply, and the signal it feeds.
+    await selectNode(control, 'curve');
+    await control.waitForTimeout(900);
+    await windowShot(control, 'nodes-editor.jpg');
+
+    // The Blend node: the modulation overlay on its mapped Opacity slider.
+    await selectNode(control, 'mix');
+    await control.waitForTimeout(900);
+    await windowShot(control, 'nodes-mapping.jpg');
+    await context.close();
+  }
+}
+
+async function projectsScenarios(browser, openControl, newControlContext, windowShot) {
+  // ---- projects-menu: the three project actions ------------------------------
+  {
+    const context = await newControlContext(browser, {});
+    const control = await openControl(context);
+    await control.locator('#app-menu-btn').click();
+    await control.locator('#app-menu-list').waitFor();
+    await control.waitForTimeout(300);
+    await windowShot(control, 'projects-menu.jpg');
+    await context.close();
+  }
+
+  // ---- projects-linked: the folder details behind the Linked badge -----------
+  {
+    const context = await newControlContext(browser, {});
+    const control = await openControl(context);
+    await seedNodeFolder(control);
+    await approveSeededScripts(control);
+    await linkNodeFolder(control);
+    await control.locator('#library-section-Node-Patterns').locator('..').scrollIntoViewIfNeeded();
+    await control.getByRole('button', { name: 'Node Patterns: Linked', exact: true }).click();
+    await control.getByRole('dialog', { name: 'Node Patterns folder details' }).waitFor();
+    await control.waitForTimeout(400);
+    await windowShot(control, 'projects-linked.jpg');
+    await context.close();
+  }
+
+  // ---- projects-relink: the blocking dialog a foreign project raises ---------
+  {
+    const context = await newControlContext(browser, {});
+    const control = await openControl(context);
+    await control.locator('#app-menu-btn').click();
+    await control.locator('#project-open-input').setInputFiles({
+      name: 'ahlookah-project-2026-09-22.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(JSON.stringify(foreignProject())),
+    });
+    await control.locator('#project-relink-modal').waitFor();
+    await control.waitForTimeout(400);
+    await windowShot(control, 'projects-relink.jpg');
+    await context.close();
+  }
+}
+
 async function main() {
   const server = startServer();
   const browser = await chromium.launch({
@@ -262,16 +493,16 @@ async function main() {
 
   try {
     await waitForServer(BASE);
-    const video = await recordLoopVideo(browser);
-    const still = await renderStill(browser);
-    const mediaFiles = [
+    const video = wants('media-empty') ? await recordLoopVideo(browser) : null;
+    const still = wants('media-empty') ? await renderStill(browser) : null;
+    const mediaFiles = still ? [
       still,
       { name: 'Tidal Glass Loop.png', type: 'image/png', b64: asBase64('docs/replacement-strength-assets/tidal-glass.png') },
       video,
-    ];
+    ] : [];
 
     // ---- media-empty: nothing loaded yet ----------------------------------
-    {
+    if (wants('media-empty')) {
       const context = await newControlContext(browser, {});
       const control = await openControl(context);
       await control.locator('#library-section-Media').locator('..').scrollIntoViewIfNeeded();
@@ -280,7 +511,7 @@ async function main() {
     }
 
     // ---- media-library / media-video --------------------------------------
-    {
+    if (wants('media-library')) {
       const context = await newControlContext(browser, {});
       await seedMediaPicker(context, mediaFiles);
       const control = await openControl(context);
@@ -310,7 +541,7 @@ async function main() {
     }
 
     // ---- screen-mapping ----------------------------------------------------
-    {
+    if (wants('screen-mapping')) {
       const context = await newControlContext(browser, {
         viz2_screen_mapping_enabled: '1',
         viz2_screen_mapping_edge_blur: '6',
@@ -323,7 +554,7 @@ async function main() {
     }
 
     // ---- projection-panel / editor / corners / alpha blend -----------------
-    {
+    if (wants('projection-panel')) {
       const context = await newControlContext(browser, {
         viz2_projection_patterns: JSON.stringify([PROJECTION_META]),
         viz2_params: JSON.stringify({ [PROJECTION_META.id]: PROJECTION_VALUES }),
@@ -385,7 +616,7 @@ async function main() {
     }
 
     // ---- projection-output: five warped surfaces on the output window -----
-    {
+    if (wants('projection-output')) {
       const context = await newControlContext(browser, {
         viz2_projection_patterns: JSON.stringify([PROJECTION_META]),
         viz2_params: JSON.stringify({ [PROJECTION_META.id]: PROJECTION_VALUES }),
@@ -399,6 +630,8 @@ async function main() {
       await windowShot(screen, 'projection-output.jpg');
       await context.close();
     }
+    if (wants('nodes')) await nodesScenarios(browser, openControl, newControlContext, windowShot);
+    if (wants('projects')) await projectsScenarios(browser, openControl, newControlContext, windowShot);
   } finally {
     await browser.close();
     try { process.kill(-server.pid, 'SIGTERM'); } catch { /* already gone */ }
