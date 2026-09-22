@@ -1,3 +1,9 @@
+import { createAudioClock } from '../platform/audio-clock.js';
+import { NODE_AUDIO_SOURCE } from '../nodes/audio-source.js';
+import { MediaFolder } from '../media/folderService.js';
+import { listMediaRecords } from '../media/media-store.js';
+import { registerNodeSketches } from '../nodes/registry.js';
+import { watchGraphs, nodePatterns } from '../nodes/repository.js';
 // Window runtime coordinator. Owns all long-lived browser resources and the
 // screen-authoritative LIVE/CUE state machine. React only renders the shell and
 // reads accepted snapshots from the per-window store; components invoke the
@@ -41,10 +47,18 @@ import {
   collectSettings,
   serializeSettings,
   downloadSettingsFile,
-  settingsFileName,
+  projectFileName,
+  canUseSaveFilePicker,
+  pickProjectSaveTarget,
+  writeProjectText,
+  clearProject,
   parseSettingsFile,
   applySettings,
+  listUnlinkedMediaIds,
 } from '../platform/settings-portability.js';
+import { relinkImportedMedia } from '../platform/folder-portability.js';
+import { ensureProjectFolder, recallProjectFolder } from '../platform/project-folders.js';
+import { confirmFolderReference } from '../platform/folderReferences.js';
 import {
   ProgramRuntime,
   copyProgramSelection,
@@ -58,6 +72,13 @@ import { RenderPerformance, validPerformanceSample } from '../render-performance
 import { ScreenMappingRenderer } from '../screen-mapping-renderer.js';
 import { SharedCameraSource } from '../shared-camera-source.js';
 import { AudioManager } from '../audio-manager.js';
+import { AudioInputPool } from '../audio-input-pool.js';
+import {
+  CATALOG_AUDIO_INPUTS_REQUEST_TYPE,
+  CATALOG_AUDIO_INPUTS_TYPE,
+  createAudioInputsCatalog,
+  validateAudioInputsRequest,
+} from '../audio-input-catalog.js';
 import { PreviewAudio } from '../preview-audio.js';
 import { PatternAudioControlStore } from '../pattern-audio-controls.js';
 import { PatternAudioControlEngine } from '../pattern-audio-engine.js';
@@ -151,13 +172,19 @@ export function createAppRuntime({
   // ---------------------------------------------------------------------------
   // Services
   // ---------------------------------------------------------------------------
-  const audio = new AudioManager();
+  // The control window owns capture: one shared AudioContext (owned by the
+  // input pool), the primary/global manager, and pooled extra sources for
+  // pinned Audio-node routes. Consumers never capture.
+  const audioPool = new AudioInputPool({});
+  const audio = new AudioManager({ contextProvider: () => audioPool.ensureContext() });
+  audioPool.primaryManager = audio;
   const screenAudio = new PreviewAudio({ idleSignal: false, staleAfterMs: 750 });
   const previewAudio = new PreviewAudio();
   const patternAudioStore = new PatternAudioControlStore({ consumerSessionId: windowId });
   const patternAudioEngine = new PatternAudioControlEngine({
     ownerId: windowId,
     getSketchById: (id) => SKETCHES.find((sketch) => sketch.id === id) || null,
+    resolveRouteInput: (audioInput) => audioPool.resolveRouteInput(audioInput),
   });
   const cameraSource = new SharedCameraSource();
   let customScriptsBooted = false;
@@ -165,6 +192,34 @@ export function createAppRuntime({
     role,
     onStatus: (status) => store.setState({ customScripts: status }),
     onChange: applyCustomScriptRevision,
+  });
+
+  const mediaFolder = new MediaFolder({
+    onStatus: status => store.setState({ mediaFolder: status }),
+    onFiles: async sources => {
+      const existing = await listMediaRecords();
+      for (const source of sources) {
+        let duplicate = false;
+        for (const record of existing) {
+          try {
+            if (record.handle && await record.handle.isSameEntry(source.handle)) {
+              if (source.folderName && record.folderName !== source.folderName) await putMediaRecord({ ...record, folderName: source.folderName });
+              duplicate = true; break;
+            }
+          } catch { /* An unavailable old reference must not block new files. */ }
+        }
+        if (duplicate) continue;
+        const restored = existing.find(record => !record.handle && record.folderName === source.folderName && record.fileName === source.name);
+        if (!restored && loadMediaMeta().length >= 256) throw new Error('Media library: maximum 256 files');
+        const meta = restored ? { id: restored.id, name: restored.name, kind: source.kind } : { id: `m${crypto.randomUUID()}`, name: mediaDisplayName(source.name), kind: source.kind };
+        await putMediaRecord({ ...source, ...meta });
+        existing.push({ ...source, ...meta });
+        addMediaPattern(SKETCHES, meta);
+        // Publish each persisted entry, including partial progress on an I/O failure.
+        bumpMediaRevision();
+        bus.broadcast({ type: 'media-patterns', metas: loadMediaMeta() });
+      }
+    },
   });
 
   const knownAudioConsumers = new Set();
@@ -207,6 +262,7 @@ export function createAppRuntime({
   let cueTakeIntent = null;
   let runtimeGeneration = 0;
   let directGeneration = 0;
+  let pendingNodeSelection = null;
   const lastCueTimings = [];
 
   let currentVideoDeviceId = null;
@@ -234,6 +290,7 @@ export function createAppRuntime({
   let previewP5 = [];
   let projectionPreview = null;
   let previewAudioSlots = [];
+  const editorAudioChildren = new Map();
   let previewSelection = { ids: [], merge: false };
   let lastPreviewKey = null;
   let previewResizeObserver = null;
@@ -259,7 +316,7 @@ export function createAppRuntime({
 
 
   // Audio broadcast loop.
-  let audioBroadcastRaf = 0;
+  const audioBroadcastClock = createAudioClock(audioBroadcastLoop);
   let lastAnalysisAt = 0;
   let lastSpectrumAt = 0;
   let audioFrameSequence = 0;
@@ -876,6 +933,44 @@ export function createAppRuntime({
       });
   }
 
+  function acceptLiveSelection(selection) {
+    if (cueSession || !Array.isArray(selection?.ids)
+      || selection.ids.length !== (selection.merge ? 2 : 1)
+      || !selection.ids.every((id) => typeof id === 'string' && id.length > 0 && id.length <= 64)) return;
+    const missing = selection.ids.filter((id) => !SKETCHES.some((sketch) => sketch.id === id));
+    if (missing.length && (role !== 'screen' || !missing.every((id) => id.startsWith('nodes-')))) return;
+
+    // A newer click wins even when the previous one is still waiting on disk.
+    pendingNodeSelection = null;
+    if (role !== 'screen') {
+      liveProgram = copyProgramSelection(selection);
+      syncLegacyLiveProjection();
+      return;
+    }
+    if (!missing.length) {
+      prepareThenPromoteLive(selection);
+      return;
+    }
+
+    // The selection bus and node-folder bus run independently. Keep the current
+    // output visible and resolve this intent once against fresh disk records;
+    // never turn an unavailable ID into a different pad slot or retry forever.
+    const pending = copyProgramSelection(selection);
+    pendingNodeSelection = pending;
+    directGeneration += 1;
+    disposeRuntime(incomingRuntime);
+    incomingRuntime = null;
+    const settle = (refreshed) => {
+      if (pendingNodeSelection !== pending) return;
+      pendingNodeSelection = null;
+      if (cueSession) return;
+      const resolved = refreshed && validCueSelection(pending);
+      if (resolved) prepareThenPromoteLive(resolved);
+      else broadcastLiveState(); // Missing/invalid/denied disk: restore the actual LIVE state.
+    };
+    nodePatterns.refresh().then(() => settle(true), () => settle(false));
+  }
+
   function loadSketch(index, merge = null) {
     const selection = selectionFromIndices(index, merge);
     if (!selection) return;
@@ -1079,6 +1174,7 @@ export function createAppRuntime({
     if (role !== 'screen' || cueSession || !liveRuntime) return;
     if (entryRequestId && canceledCueEntryRequests.delete(entryRequestId)) return;
 
+    pendingNodeSelection = null;
     directGeneration += 1;
     disposeRuntime(incomingRuntime);
     disposeRuntime(retiringRuntime);
@@ -1590,8 +1686,10 @@ export function createAppRuntime({
     }
 
     const indices = selectionIndices(selection);
-    if (selection.merge) bus.broadcast({ type: 'merge', a: indices[0], b: indices[1] });
-    else if (indices[0] >= 0) bus.broadcast({ type: 'pattern', index: indices[0] });
+    // IDs are authoritative: disk-backed registries (and therefore pad indices)
+    // can temporarily differ between control and output. Keep indices for legacy peers.
+    if (selection.merge) bus.broadcast({ type: 'merge', ids: [...selection.ids], a: indices[0], b: indices[1] });
+    else if (indices[0] >= 0) bus.broadcast({ type: 'pattern', id: selection.ids[0], index: indices[0] });
     else bus.broadcast({ type: 'pattern-id', id: selection.ids[0] });
   }
 
@@ -1640,6 +1738,9 @@ export function createAppRuntime({
       appendRuntime(retiringRuntime, 'retiring');
     } else {
       appendRuntime(projectionPreview, 'preview');
+      for (const children of editorAudioChildren.values()) {
+        for (const child of children) appendRuntime(child, 'preview');
+      }
       for (const descriptor of previewAudioSlots || []) {
         refreshPreviewAudioSlot(descriptor);
         slots.push({ ...descriptor, params: { ...descriptor.params } });
@@ -1648,7 +1749,7 @@ export function createAppRuntime({
     // A removed media entry may still be painting in the retiring LIVE
     // runtime. Do not let its now-unresolvable controller invalidate the
     // complete plan and starve the replacement runtime's fresh-frame gate.
-    return slots.filter((slot) => SKETCHES.some((sketch) => sketch.id === slot.patternId));
+    return slots.filter((slot) => slot.patternId === NODE_AUDIO_SOURCE.id || SKETCHES.some((sketch) => sketch.id === slot.patternId));
   }
 
   function publishPatternAudioPlan({ force = false } = {}) {
@@ -1867,7 +1968,7 @@ export function createAppRuntime({
       return;
     }
 
-    if (sketches.some((sketch) => sketch.projection)) {
+    if (sketches.some((sketch) => sketch.projection || sketch.nodesGraph)) {
       previewStage.classList.add('projection-runtime-preview');
       projectionPreview = new ProgramRuntime({
         coreConstructor: VizCore, selection: previewSelection, sketches: SKETCHES,
@@ -1956,11 +2057,13 @@ export function createAppRuntime({
     if (isAudioOwner && status?.error?.name === 'DeviceEndedError') {
       scheduleAudioRecovery();
     }
+    if (isAudioOwner) refreshAudioInputsCatalog();
   }
   audio.setStatusListener(handleAudioManagerStatus);
 
   function startAudio(deviceId = localStorage.getItem(STORAGE.audio)) {
     if (!isAudioOwner) return Promise.resolve(false);
+    audioPool.setGlobalDeviceId(deviceId || null);
     if (!deviceId) {
       currentAudioDeviceId = null;
       audio.reportStatus('unselected');
@@ -1969,6 +2072,7 @@ export function createAppRuntime({
 
     currentAudioDeviceId = deviceId;
     patternAudioEngine.beginStream();
+    audioPool.notePrimaryRestart();
     return audio.startStream(deviceId);
   }
 
@@ -2035,6 +2139,7 @@ export function createAppRuntime({
     startAudioBroadcast();
     startAudio(currentAudioDeviceId);
     bus.broadcast({ type: 'audio-status', ...audio.getStatus() });
+    refreshAudioInputsCatalog({ force: true });
   }
 
   function relinquishAudioOwnership() {
@@ -2050,6 +2155,15 @@ export function createAppRuntime({
       bus.broadcast({ type: 'noise-floor', status: 'cancelled' });
     }
     audio.stop();
+    // Pinned extra sources and the shared capture context die with ownership;
+    // consumers decay through the documented stale path.
+    audioPool.reset();
+    // Publish `stopping` while the bus is still ours so receivers invalidate the
+    // catalog; a killed process still relies on stale decay.
+    try { publishAudioInputsCatalog('stopping'); } catch { /* noop */ }
+    // Notify while the bus is still ours so stores decay immediately instead of
+    // waiting out the stale window. A killed process still relies on staleness.
+    try { bus.broadcast({ type: 'audio-status', ...audio.getStatus(), ownerStopping: true }); } catch { /* noop */ }
   }
 
   function beginAudioOwnership() {
@@ -2130,13 +2244,84 @@ export function createAppRuntime({
     if (role === 'control' && isAudioOwner && audio.isStarted) audio.resume(true);
   }
 
+  // ---------------------------------------------------------------------------
+  // Audio input catalog (owner-produced, bus-transported, bounded)
+  // ---------------------------------------------------------------------------
+  const audioInputsCatalog = createAudioInputsCatalog();
+  let catalogRevision = 0;
+  let catalogInputsCache = null;
+  let catalogPermissionState = 'unknown';
+  let catalogRefreshInFlight = false;
+  let catalogTrailingRefresh = false;
+  let catalogLastRefreshAt = 0;
+  const catalogServedAt = new Map();
+
+  function publishAudioInputsCatalog(ownerStatus = 'active') {
+    bus.broadcast({
+      type: CATALOG_AUDIO_INPUTS_TYPE,
+      audioOwnerId: windowId,
+      ownerStatus,
+      catalogRevision,
+      complete: true,
+      permissionState: catalogPermissionState,
+      globalRequestedId: currentAudioDeviceId || null,
+      globalActiveId: audio.activeDeviceId || null,
+      globalStatus: lastAudioStatus.status || null,
+      fallback: Boolean(audio.usedFallback),
+      inputs: catalogInputsCache || [],
+    });
+  }
+
+  async function refreshAudioInputsCatalog({ force = false } = {}) {
+    if (!isAudioOwner || typeof navigator.mediaDevices?.enumerateDevices !== 'function') return;
+    const at = performance.now();
+    if (catalogRefreshInFlight) {
+      catalogTrailingRefresh = true;
+      return;
+    }
+    if (!force && at - catalogLastRefreshAt < 1000) {
+      catalogTrailingRefresh = true;
+      return;
+    }
+    catalogRefreshInFlight = true;
+    catalogLastRefreshAt = at;
+    try {
+      // Enumeration requires a fully active visible document; a hidden owner
+      // keeps its last catalog instead of treating silence as empty.
+      if (document.visibilityState === 'visible') {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        catalogInputsCache = devices.filter((device) => device.kind === 'audioinput')
+          .slice(0, 128)
+          .map((device) => ({
+            deviceId: typeof device.deviceId === 'string' ? device.deviceId.slice(0, 512) : '',
+            label: typeof device.label === 'string' ? device.label.slice(0, 160) : '',
+          }))
+          .filter((device) => device.deviceId);
+        const anyLabel = catalogInputsCache.some((device) => device.label);
+        catalogPermissionState = anyLabel ? 'granted' : (catalogInputsCache.length ? 'prompt' : 'unknown');
+      }
+      catalogRevision += 1;
+      publishAudioInputsCatalog();
+    } catch {
+      // A failed refresh keeps the previous catalog; running sources are unaffected.
+    } finally {
+      catalogRefreshInFlight = false;
+      if (catalogTrailingRefresh) {
+        catalogTrailingRefresh = false;
+        refreshAudioInputsCatalog({ force: true });
+      }
+    }
+  }
+
   function audioBroadcastLoop(now) {
-    audioBroadcastRaf = 0;
     if (!isAudioOwner) return;
 
     if (now - lastAnalysisAt >= 33) {
       lastAnalysisAt = now;
-      const frame = audio.isStarted ? audio.getAnalysisFrame() : null;
+      // One synchronous read per retained source per tick: the cleaned primary
+      // frame feeds Patterns/EQ as today, raw frames feed pinned routes.
+      const sampled = audioPool.sample();
+      const frame = sampled.primary.frame;
       audioFrameSequence += 1;
       const controlDeltaSeconds = lastPatternControlAt
         ? Math.max(1 / 240, Math.min(0.1, (now - lastPatternControlAt) / 1000))
@@ -2150,6 +2335,8 @@ export function createAppRuntime({
         now,
       });
       controlTick.packets.forEach((packet) => bus.broadcast(packet));
+      // Maintain one capture per resolved pinned endpoint against the budget.
+      audioPool.reconcileDemands(patternAudioEngine.getRouteDemands());
 
       if (frame && now - lastSpectrumAt >= 66) {
         lastSpectrumAt = now;
@@ -2182,17 +2369,14 @@ export function createAppRuntime({
         });
       }
     }
-
-    audioBroadcastRaf = requestAnimationFrame(audioBroadcastLoop);
   }
 
   function startAudioBroadcast() {
-    if (!audioBroadcastRaf) audioBroadcastRaf = requestAnimationFrame(audioBroadcastLoop);
+    audioBroadcastClock.start();
   }
 
   function stopAudioBroadcast() {
-    if (audioBroadcastRaf) cancelAnimationFrame(audioBroadcastRaf);
-    audioBroadcastRaf = 0;
+    audioBroadcastClock.stop();
     lastAnalysisAt = 0;
     lastSpectrumAt = 0;
     lastPatternControlAt = 0;
@@ -2343,45 +2527,21 @@ export function createAppRuntime({
       }
 
       case 'pattern': {
-        if (cueSession) break;
-        if (!isFiniteNumber(msg.index)) break;
-        const idx = clampInt(msg.index, 0, 100);
-        const selection = selectionFromIndices(idx);
-        if (!selection) break;
-        if (role === 'screen') {
-          if (!cueSession) prepareThenPromoteLive(selection);
-        } else {
-          liveProgram = copyProgramSelection(selection);
-          syncLegacyLiveProjection();
-        }
+        if ('id' in msg) acceptLiveSelection(singleSelection(msg.id));
+        else if (isFiniteNumber(msg.index)) acceptLiveSelection(selectionFromIndices(clampInt(msg.index, 0, 100)));
         break;
       }
 
       case 'pattern-id': {
-        if (cueSession) break;
-        if (typeof msg.id !== 'string' || msg.id.length > 64) break;
-        const selection = selectionFromId(msg.id);
-        if (!selection) break;
-        if (role === 'screen') {
-          if (!cueSession) prepareThenPromoteLive(selection);
-        } else {
-          liveProgram = copyProgramSelection(selection);
-          syncLegacyLiveProjection();
-        }
+        acceptLiveSelection(singleSelection(msg.id));
         break;
       }
 
       case 'merge': {
-        if (cueSession) break;
-        if (!isFiniteNumber(msg.a) || !isFiniteNumber(msg.b)) break;
-        const a = clampInt(msg.a, 0, 100), b = clampInt(msg.b, 0, 100);
-        const selection = selectionFromIndices(a, [a, b]);
-        if (!selection) break;
-        if (role === 'screen') {
-          if (!cueSession) prepareThenPromoteLive(selection);
-        } else {
-          liveProgram = copyProgramSelection(selection);
-          syncLegacyLiveProjection();
+        if ('ids' in msg) acceptLiveSelection({ ids: msg.ids, merge: true });
+        else if (isFiniteNumber(msg.a) && isFiniteNumber(msg.b)) {
+          const a = clampInt(msg.a, 0, 100), b = clampInt(msg.b, 0, 100);
+          acceptLiveSelection(selectionFromIndices(a, [a, b]));
         }
         break;
       }
@@ -2474,7 +2634,26 @@ export function createAppRuntime({
         applyDevices(msg);
         break;
 
-      case 'audio-status':
+      case CATALOG_AUDIO_INPUTS_TYPE:
+        // Both the owner (local echo) and consumers keep a validated snapshot.
+        audioInputsCatalog.accept(msg);
+        break;
+
+      case CATALOG_AUDIO_INPUTS_REQUEST_TYPE: {
+        const request = validateAudioInputsRequest(msg);
+        if (!request || request.requesterId === windowId || !isAudioOwner) return;
+        // Answer repeated requests from cache; serve at most one ordinary
+        // refresh per second per requester.
+        const servedAt = catalogServedAt.get(request.requesterId) || 0;
+        const nowMs = performance.now();
+        if (catalogInputsCache && nowMs - servedAt < 1000) return;
+        catalogServedAt.set(request.requesterId, nowMs);
+        if (catalogInputsCache) publishAudioInputsCatalog();
+        else refreshAudioInputsCatalog({ force: true });
+        return;
+      }
+
+      case 'audio-status': {
         lastAudioStatus = {
           status: msg.status,
           state: msg.state,
@@ -2486,10 +2665,16 @@ export function createAppRuntime({
         if (msg.status !== 'running') {
           if (role === 'screen') screenAudio.clearFrame();
           else previewAudio.clearFrame();
-          patternAudioStore.clearForOwnerLoss();
+          // Primary-device trouble is NOT whole-owner loss for routed stores: it
+          // invalidates only slots that follow the primary (global-default, or
+          // pinned to the exact failing id). Pinned routes on other inputs keep
+          // their per-source packets. Full owner/context loss still clears all.
+          if (msg.ownerStopping) patternAudioStore.clearForOwnerLoss();
+          else patternAudioStore.invalidatePrimarySlots(msg.deviceId || null);
         }
         if (role === 'control') store.setState({ audioStatus: { ...lastAudioStatus } });
         return;
+      }
 
       case 'blend-step': {
         if (cueSession || (msg.delta !== 0.05 && msg.delta !== -0.05)) return;
@@ -2661,6 +2846,7 @@ export function createAppRuntime({
         if (role === 'control') {
           refreshMediaPadOrder();
           store.setState((s) => ({ mediaRevision: s.mediaRevision + 1 }));
+          refreshMissingMedia();
         }
         break;
       }
@@ -2727,12 +2913,14 @@ export function createAppRuntime({
   // Teardown
   // ---------------------------------------------------------------------------
   function disposeViz() {
+    pendingNodeSelection = null;
     customScripts.close();
+    mediaFolder.close();
     cancelAnimationFrame(performanceRaf);
     clearTimeout(performanceExpiry);
     renderPerformance = null;
     stopScreenMappingRenderer();
-    try { if (audioBroadcastRaf) cancelAnimationFrame(audioBroadcastRaf); } catch { /* noop */ }
+    stopAudioBroadcast();
     try { if (cueStageRaf) cancelAnimationFrame(cueStageRaf); } catch { /* noop */ }
     try { if (cueMutationRaf) cancelAnimationFrame(cueMutationRaf); } catch { /* noop */ }
     try { if (previewRenderRaf) cancelAnimationFrame(previewRenderRaf); } catch { /* noop */ }
@@ -2746,6 +2934,7 @@ export function createAppRuntime({
     try { if (singleton && singleton.stopHeartbeat) singleton.stopHeartbeat(); } catch { /* noop */ }
     try { removeCurrentP5(); } catch { /* noop */ }
     try { clearPreview(); } catch { /* noop */ }
+    try { audioPool.dispose(); } catch { /* noop */ }
     try { if (bus) bus.close(); } catch { /* noop */ }
   }
 
@@ -2766,7 +2955,10 @@ export function createAppRuntime({
       return false;
     }
     singleton.startHeartbeat();
+    await nodePatterns.refresh();
+    registerNodeSketches(SKETCHES);
     await customScripts.start();
+    if (role === 'control') await mediaFolder.start();
     customScriptsBooted = true;
 
     const bootBands = getParams(BANDS_ID);
@@ -2840,6 +3032,9 @@ export function createAppRuntime({
     });
     syncUI();
     beginAudioOwnership();
+    // Mark media patterns whose file this browser cannot reach right away, so a
+    // project saved on another computer is visibly flagged after the reload too.
+    refreshMissingMedia();
     // First-run device setup gate (mirrors the legacy ConfigPanel.maybeShowSetupModal).
     if (localStorage.getItem(STORAGE.deviceSetupDone) !== '1') {
       const hasAudio = !!localStorage.getItem(STORAGE.audio);
@@ -2927,12 +3122,14 @@ export function createAppRuntime({
   // ---------------------------------------------------------------------------
   // Custom scripts and user media (local files)
   // ---------------------------------------------------------------------------
-  function applyCustomScriptRevision(changedIds) {
+  function applyCustomScriptRevision(changedIds, reason = 'CUSTOM SCRIPTS RELOADED') {
+    // Invalidate old renderers, not the operator's most recent LIVE intent.
+    const incomingSelection = incomingRuntime ? copyProgramSelection(incomingRuntime.selection) : null;
     // A registry generation is a transport boundary: no queued TAKE or old
     // renderer may promote after it. Registration failures never reach here.
     directGeneration += 1;
-    if (role === 'screen') cancelCueSession('CUE CANCELED — CUSTOM SCRIPTS RELOADED');
-    else if (cueSession) applyReceivedCueState(null, 'CUE CANCELED — CUSTOM SCRIPTS RELOADED');
+    if (role === 'screen') cancelCueSession(`CUE CANCELED — ${reason}`);
+    else if (cueSession) applyReceivedCueState(null, `CUE CANCELED — ${reason}`);
     cueEntryPending = null;
     clearCueMutationQueue();
     const selected = currentLiveSelection();
@@ -2945,8 +3142,8 @@ export function createAppRuntime({
       || SKETCHES.find((s) => s.id === id)?.surfaces?.some((surface) => changedIds.has(surface.patternId)));
     const ids = selected.ids.filter((id) => SKETCHES.some((s) => s.id === id));
     const selection = ids.length ? { ids, merge: selected.merge && ids.length > 1 } : singleSelection(SKETCHES[0].id);
-    // Stop pending programs even if the operator changed selection while the
-    // folder was being read. Deletion is immediate, not a fade/retirement.
+    // Stop stale programs, then re-prepare the incoming choice with the new
+    // registry below. Deletion is immediate, not a fade/retirement.
     disposeRuntime(incomingRuntime); incomingRuntime = null;
     disposeRuntime(retiringRuntime); retiringRuntime = null;
     if (role === 'screen' && affected) removeCurrentP5();
@@ -2968,9 +3165,11 @@ export function createAppRuntime({
     syncLegacyLiveProjection();
     refreshProjectionUI();
     setPreviewSelection(selection);
-    if (role === 'screen' && affected) prepareThenPromoteLive(selection, { force: true });
+    if (role === 'screen' && (affected || incomingSelection)) {
+      prepareThenPromoteLive((incomingSelection && validCueSelection(incomingSelection)) || selection, { force: true });
+    }
     queuePatternAudioPlanPublish();
-    syncUI('CUSTOM SCRIPTS RELOADED');
+    syncUI(reason);
     if (role === 'screen') broadcastLiveState();
   }
 
@@ -2987,6 +3186,112 @@ export function createAppRuntime({
   function bumpMediaRevision() {
     refreshMediaPadOrder();
     store.setState((s) => ({ mediaRevision: s.mediaRevision + 1 }));
+    refreshMissingMedia();
+  }
+
+  // Media patterns whose file this browser cannot reach. They stay listed (the
+  // metadata is still here) but are marked red in the library and pad, with
+  // Relink File offered in the parameter panel — the same state an imported
+  // project starts in on a computer that has no local copy of the file.
+  function refreshMissingMedia() {
+    listUnlinkedMediaIds()
+      .then((ids) => {
+        const current = store.getState().missingMedia || [];
+        if (current.length === ids.length && current.every((id, i) => id === ids[i])) return;
+        store.setState({ missingMedia: ids });
+      })
+      .catch(() => { /* the library simply stays unmarked */ });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Projects (Save Project / Open Project / New Project)
+  // ---------------------------------------------------------------------------
+  const sectionLabel = (section) => ({ scripts: 'Custom Scripts', nodes: 'Node Patterns', media: 'Media' }[section] || section);
+
+  // Re-read everything a project change touches without a reload, so the blocking
+  // relink dialog keeps working on the live window.
+  function refreshProjectLibraries() {
+    registerMediaSketches(SKETCHES, loadMediaMeta());
+    registerProjectionSketches(SKETCHES, SKETCHES.filter((s) => s.projection));
+    refreshProjectionUI();
+    bumpMediaRevision();
+  }
+
+  // Adopt one directory a saved project expects on this computer: verify the
+  // expected name, remember the identity, re-point media files inside it, and
+  // complete that row of the relink dialog. The project only "completes" — success
+  // notice, peer reload — once the last expected directory has been adopted.
+  async function adoptProjectFolder(section, handle, entry) {
+    const label = sectionLabel(section);
+    if (!handle) throw new Error(`${label}: no folder is linked yet.`);
+    if (handle.name !== entry.folderName) throw new Error(`${label}: expected folder “${entry.folderName}”, found “${handle.name}”.`);
+    await ensureProjectFolder(section, handle, entry.folderId || null);
+    confirmFolderReference(section);
+    if (section === 'media') await relinkImportedMedia(handle);
+    refreshProjectLibraries();
+    const state = store.getState().projectRelink;
+    const remaining = (state?.pending || []).filter((item) => item.section !== section);
+    const adopted = [...(state?.adopted || []), section];
+    if (state && remaining.length) {
+      store.setState({ projectRelink: { ...state, pending: remaining, adopted } });
+      return { ok: true, remaining };
+    }
+    if (state) {
+      store.setState({ projectRelink: null });
+      finishProjectOpen(state.fileName, state.summary || {}, adopted);
+    }
+    return { ok: true, remaining: [] };
+  }
+
+  // The project is only usable once every directory it links exists here, so the
+  // success summary (and the peer reload) waits until the last one is adopted.
+  function finishProjectOpen(fileName, summary, adopted = []) {
+    const plural = (count) => (count === 1 ? '' : 's');
+    const details = [`${summary.storageWritten || 0} setting${plural(summary.storageWritten || 0)} restored.`];
+    if (summary.storageRemoved > 0) {
+      details.push(`${summary.storageRemoved} local setting${plural(summary.storageRemoved)} cleared to match the file.`);
+    }
+    if (summary.mediaRestored > 0) {
+      details.push(`${summary.mediaRestored} media pattern${plural(summary.mediaRestored)} restored (files are not copied).`);
+    }
+    if (summary.mediaRelinked > 0) {
+      details.push(`${summary.mediaRelinked} media file${plural(summary.mediaRelinked)} re-linked from the linked Media directory.`);
+    }
+    const resumed = [...new Set([...(summary.resolvedFolders || []), ...adopted])];
+    if (resumed.length) {
+      details.push(`Linked directories resumed on this computer: ${resumed.map(sectionLabel).join(', ')}.`);
+    }
+    const reconnect = summary.reconnectFolders || [];
+    if (reconnect.length) {
+      details.push(`${reconnect.map((item) => item.label).join(', ')}: open Linked and press Refresh once to renew browser access.`);
+    }
+    const unlinked = Array.isArray(summary.unlinkedMedia) ? summary.unlinkedMedia : [];
+    // Cap the list so a large library cannot push the button off-screen.
+    const shown = unlinked.slice(0, 8);
+    if (shown.length < unlinked.length) {
+      const rest = unlinked.length - shown.length;
+      details.push(`+${rest} more media pattern${plural(rest)} need re-linking.`);
+    }
+    if (unlinked.length) {
+      details.push('Missing files never block a project: the affected patterns are marked in the library. Files are never copied.');
+    }
+    const scripts = (summary.folderReferences?.scripts?.files || []).filter((file) => file.linked);
+    if (scripts.length) {
+      details.push(`${scripts.length} script file${plural(scripts.length)} expected in Custom Scripts: files whose code still matches this project reopen automatically after the reload, edited or new files need OPEN.`);
+    }
+    store.setState({
+      notice: {
+        tone: 'success',
+        title: 'Project opened',
+        message: `${fileName} was loaded into this browser. Reload to apply it.`,
+        details,
+        items: shown,
+        reload: true,
+      },
+    });
+    // The other windows re-read persisted state immediately (bus.post = no local
+    // echo); this window shows the dialog and reloads on acknowledge.
+    bus.post({ type: 'settings-imported' });
   }
 
   // Re-instantiate a media pattern after its file was re-pointed. Reached
@@ -3189,8 +3494,7 @@ export function createAppRuntime({
           viaPicker = true;
         } catch (error) {
           if (error?.name === 'AbortError') return [];
-          console.error('[media] file picker failed', error);
-          return [];
+          throw error;
         }
       } else {
         sources = Array.from(fileList || []).map((file) => ({
@@ -3311,19 +3615,84 @@ export function createAppRuntime({
       bus.broadcast({ type: 'media-relinked', id: sketchId });
       return { id: sketchId, kind: source.kind, fileName: source.name };
     },
-    // Download every persisted setting (plus media metadata) as one JSON file.
-    async exportSettings() {
-      const payload = await collectSettings();
-      downloadSettingsFile(serializeSettings(payload), settingsFileName());
-      return payload;
+    // Save Project — write this project (every persisted setting plus the
+    // identities of its linked directories) to a file the operator picks.
+    //
+    // The picker opens first, inside the click, so the browser's user activation
+    // is still valid when it is requested; the project snapshot is collected only
+    // once a destination exists. A dismissed picker is a no-op, and browsers
+    // without the File System Access save picker — or a location that refuses the
+    // write — fall back to a normal download of the same file.
+    async saveProject() {
+      const fileName = projectFileName();
+      let handle = null;
+      if (canUseSaveFilePicker()) {
+        try {
+          handle = await pickProjectSaveTarget(fileName);
+        } catch (error) {
+          if (error?.name === 'AbortError') return { ok: false, canceled: true };
+          console.warn('[project] save picker unavailable, downloading instead', error);
+          handle = null;
+        }
+      }
+      let text = '';
+      try {
+        text = serializeSettings(await collectSettings());
+      } catch (error) {
+        console.error('[project] collect failed', error);
+        store.setState({
+          notice: {
+            tone: 'error',
+            title: 'Save Project failed',
+            message: 'This browser refused to read the current project.',
+            details: ['Nothing was written.'],
+          },
+        });
+        return { ok: false, error: 'collect-failed' };
+      }
+      if (!handle) {
+        downloadSettingsFile(text, fileName);
+        return { ok: true, fileName, downloaded: true };
+      }
+      const savedName = handle.name || fileName;
+      try {
+        await writeProjectText(handle, text);
+        store.setState({
+          notice: {
+            tone: 'success',
+            title: 'Project saved',
+            message: `${savedName} was written to the folder you chose.`,
+            details: ['Linked directories keep their identity, so reopening this file on this computer resumes them without re-linking.'],
+          },
+        });
+        return { ok: true, fileName: savedName, written: true };
+      } catch (error) {
+        console.error('[project] write failed', error);
+        downloadSettingsFile(text, fileName);
+        store.setState({
+          notice: {
+            tone: 'error',
+            title: 'Project not written to that file',
+            message: 'The browser could not write to the location you chose, so the project was downloaded instead.',
+            details: [`Look for ${fileName} in this browser's downloads.`],
+          },
+        });
+        return { ok: true, fileName, downloaded: true };
+      }
     },
-    // Restore a settings file. Replace semantics: the destination mirrors the
-    // source. The operator acknowledges a summary dialog first (NoticeModal),
-    // which is what triggers the reload of every window — so the imported
-    // settings are never applied behind a dismissable native alert.
-    async importSettings(file) {
+    // Open Project — replace this browser's project with a saved file.
+    //
+    // Replace semantics: this browser mirrors the file. Linked directories are
+    // resolved by identity BEFORE anything is asked: on the computer the project
+    // came from they are simply resumed. A directory this computer has no handle
+    // for blocks the open (store.projectRelink) until it is linked — missing
+    // *files* inside a linked directory never block, they are marked instead. The
+    // operator acknowledges a summary dialog (NoticeModal) which is what triggers
+    // the reload of every window, so a project is never applied behind a
+    // dismissable native alert.
+    async openProject(file) {
       if (!file || typeof file.text !== 'function') return { ok: false, error: 'No file selected.' };
-      const fileName = file.name || 'the settings file';
+      const fileName = file.name || 'the project file';
       let text = '';
       try { text = await file.text(); } catch { text = ''; }
       const parsed = parseSettingsFile(text);
@@ -3331,9 +3700,9 @@ export function createAppRuntime({
         store.setState({
           notice: {
             tone: 'error',
-            title: 'Import failed',
+            title: 'Open Project failed',
             message: parsed.error,
-            details: ['Your current settings were left untouched.'],
+            details: ['Your current project was left untouched.'],
           },
         });
         return parsed;
@@ -3342,48 +3711,117 @@ export function createAppRuntime({
       try {
         summary = await applySettings(parsed.payload);
       } catch (error) {
-        console.error('[settings] import failed', error);
+        console.error('[project] open failed', error);
         store.setState({
           notice: {
             tone: 'error',
-            title: 'Import failed',
-            message: 'This browser refused to save the settings from that file.',
+            title: 'Open Project failed',
+            message: 'This browser refused to load the project from that file.',
           },
         });
         return { ok: false, error: 'write-failed' };
       }
 
-      const plural = (count) => (count === 1 ? '' : 's');
+      refreshProjectLibraries();
+      const pending = Array.isArray(summary.pendingFolders) ? summary.pendingFolders : [];
+      if (pending.length) {
+        // The project stays open: it is not usable until every linked directory
+        // it names exists here, so no success notice and no peer reload yet.
+        store.setState({
+          projectRelink: { fileName, pending, adopted: [], summary },
+        });
+        return { ok: true, ...summary };
+      }
+      finishProjectOpen(fileName, summary);
+      return { ok: true, ...summary };
+    },
+    // New Project — clear this browser back to a fresh project.
+    //
+    // Deliberately native confirm: this discards the current project, every media
+    // pattern and every linked directory. A staged CUE blocks it, because the CUE
+    // bank references media patterns that are about to disappear.
+    async newProject() {
+      if (store.getState().cue) {
+        store.setState({
+          notice: {
+            tone: 'error',
+            title: 'New Project blocked',
+            message: 'A CUE is staged.',
+            details: ['Play or cancel the CUE before starting a new project.'],
+          },
+        });
+        return { ok: false, error: 'cue-active' };
+      }
+      const confirmed = window.confirm(
+        'Start a new project?\n\n'
+        + 'This clears every saved setting, all media patterns and every linked Scripts, '
+        + 'Node Patterns and Media directory in this browser. Project files on disk are '
+        + 'not touched, and your device choices are kept.',
+      );
+      if (!confirmed) return { ok: false, canceled: true };
+
+      const failed = [];
+      for (const [label, service] of [['Custom Scripts', customScripts], ['Node Patterns', nodePatterns], ['Media', mediaFolder]]) {
+        try {
+          await service.unlink();
+        } catch (error) {
+          console.warn(`[project] unlink ${label} failed`, error);
+          failed.push(label);
+        }
+      }
+      let summary = { storageCleared: 0, mediaCleared: 0 };
+      try {
+        summary = await clearProject();
+      } catch (error) {
+        console.error('[project] clear failed', error);
+      }
       const details = [
-        `${summary.storageWritten} setting${plural(summary.storageWritten)} restored.`,
+        `${summary.storageCleared} saved setting${summary.storageCleared === 1 ? '' : 's'} cleared.`,
+        summary.mediaCleared ? `${summary.mediaCleared} media pattern${summary.mediaCleared === 1 ? '' : 's'} removed.` : 'No media patterns to remove.',
+        'Linked Scripts, Node Patterns and Media directories were unlinked.',
       ];
-      if (summary.storageRemoved > 0) {
-        details.push(`${summary.storageRemoved} local setting${plural(summary.storageRemoved)} cleared to match the file.`);
-      }
-      if (summary.mediaRestored > 0) {
-        details.push(`${summary.mediaRestored} media pattern${plural(summary.mediaRestored)} restored (files are not copied).`);
-      }
-      const unlinked = Array.isArray(summary.unlinkedMedia) ? summary.unlinkedMedia : [];
-      // Cap the list so a large library cannot push the button off-screen.
-      const shown = unlinked.slice(0, 8);
-      if (shown.length < unlinked.length) {
-        const rest = unlinked.length - shown.length;
-        details.push(`+${rest} more media pattern${plural(rest)} need re-linking.`);
-      }
+      if (failed.length) details.push(`${failed.join(', ')} could not be unlinked here — unlink from Linked after the reload.`);
+      details.push('Device choices and the setup state are kept.');
       store.setState({
         notice: {
           tone: 'success',
-          title: 'Settings imported',
-          message: `${fileName} was written to this browser. Reload to apply it.`,
+          title: 'New project',
+          message: 'This browser is empty again. Reload to start from a clean project.',
           details,
-          items: shown,
           reload: true,
         },
       });
-      // The other windows re-read persisted state immediately (bus.post = no
-      // local echo); this window shows the dialog and reloads on acknowledge.
       bus.post({ type: 'settings-imported' });
       return { ok: true, ...summary };
+    },
+    // Link one directory the current project expects (from the blocking relink
+    // dialog). Runs the section's ordinary Link Folder path — same name checks,
+    // same stores — then binds the directory to the project's identity here.
+    async linkProjectFolder(section) {
+      const entry = (store.getState().projectRelink?.pending || []).find((item) => item.section === section);
+      if (!entry) return null;
+      if (section === 'scripts') await customScripts.choose();
+      else if (section === 'nodes') await nodePatterns.link();
+      else if (section === 'media') await mediaFolder.link();
+      else throw new Error('Unknown directory.');
+      const handle = section === 'scripts' ? customScripts.handle
+        : section === 'nodes' ? nodePatterns.state.folder?.handle
+          : mediaFolder.handle;
+      await adoptProjectFolder(section, handle, entry);
+      return { ok: true };
+    },
+    // Renew browser access to a directory the project already remembers here
+    // (an expired grant) without re-picking it.
+    async reconnectProjectFolder(section) {
+      const entry = (store.getState().projectRelink?.pending || []).find((item) => item.section === section);
+      if (!entry) return null;
+      const record = entry.folderId ? await recallProjectFolder(entry.folderId) : null;
+      const handle = record?.handle;
+      if (!handle) throw new Error(`${sectionLabel(section)}: this directory is not remembered on this computer. Link it instead.`);
+      const permission = await handle.requestPermission({ mode: 'read' });
+      if (permission !== 'granted') throw new Error(`${sectionLabel(section)}: access was not granted. Allow read access in the browser, or link the folder again.`);
+      await adoptProjectFolder(section, handle, entry);
+      return { ok: true };
     },
   };
 
@@ -3450,6 +3888,12 @@ export function createAppRuntime({
       singleton.writeLease();
     }
   });
+  const stopWatchingGraphs = watchGraphs(() => {
+    const changed = registerNodeSketches(SKETCHES);
+    if (changed.size && customScriptsBooted) applyCustomScriptRevision(changed, 'NODE PATTERNS UPDATED');
+    store.setState(s => ({ mediaRevision: s.mediaRevision + 1 }));
+  });
+  lifecycle.track(stopWatchingGraphs);
   lifecycle.trackListener(window, 'storage', (e) => {
     if (singletonBlocked) return;
     if (singleton.isOwner && e.key === singleton.key && e.newValue) {
@@ -3462,7 +3906,11 @@ export function createAppRuntime({
       refreshFallbackAudioLease();
     }
   });
-  navigator.mediaDevices?.addEventListener?.('devicechange', scheduleAudioRecovery);
+  navigator.mediaDevices?.addEventListener?.('devicechange', () => {
+    scheduleAudioRecovery();
+    audioPool.noteDeviceChange();
+    refreshAudioInputsCatalog();
+  });
 
   return {
     claim,
@@ -3471,8 +3919,31 @@ export function createAppRuntime({
     dispose: disposeViz,
     commands,
     customScripts,
+    mediaFolder,
     eqSink,
     registerPreviewHost,
+    // Same-document editors borrow the main capture, control store and engine.
+    // They never create a channel, AudioContext, capture, or program host.
+    createEditorAudio() {
+      const key = Symbol('editor');
+      editorAudioChildren.set(key, []);
+      const inputUnsubscribers = new Set();
+      return {
+        audio, store: patternAudioStore,
+        refresh: queuePatternAudioPlanPublish,
+        setChildren(children) { editorAudioChildren.set(key, children); queuePatternAudioPlanPublish(); },
+        dispose() { editorAudioChildren.delete(key); queuePatternAudioPlanPublish(); for (const unsubscribe of inputUnsubscribers) unsubscribe(); },
+        // Same catalog interface as the standalone provider, backed by runtime
+        // services and local echo instead of a second channel.
+        getInputSnapshot: () => audioInputsCatalog.getSnapshot(),
+        subscribeInputs(listener) {
+          const unsubscribe = audioInputsCatalog.subscribe(listener);
+          inputUnsubscribers.add(unsubscribe);
+          return () => { unsubscribe(); inputUnsubscribers.delete(unsubscribe); };
+        },
+        refreshInputs: () => refreshAudioInputsCatalog(),
+      };
+    },
     getEditingParams,
     getParams,
     getCueParams,

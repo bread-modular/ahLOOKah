@@ -412,6 +412,11 @@
   flex: 0 0 auto;
   margin-left: auto;
   font-size: 0.68rem;
+  font-family: inherit;
+  font-weight: 400;
+  letter-spacing: normal;
+  line-height: normal;
+  text-transform: none;
   padding: 2px 8px;
   background: transparent;
   color: var(--text-dim);
@@ -487,6 +492,7 @@
   position: relative;
 }
 
+.control-input,
 #config-panel .library-search-input {
   width: 100%;
   box-sizing: border-box;
@@ -501,10 +507,13 @@
   transition: border-color 0.15s ease;
 }
 
+.control-input::placeholder,
 #config-panel .library-search-input::placeholder {
   color: var(--text-dim);
 }
 
+.control-input:focus,
+.control-input:focus-visible,
 #config-panel .library-search-input:focus,
 #config-panel .library-search-input:focus-visible {
   border-color: var(--accent);
@@ -645,6 +654,77 @@
 /* The Favourites mirror sits above the themed groups; a subtle top marker keeps
    it visually separate from the first real group. */
 .library-group-favourites .library-group-header {
-  border-bottom-color: rgba(251, 191, 36, 0.45);
+  border-bottom-width: 2px;
+  border-bottom-color: #ff9f12;
+  color: #fff;
 }
 
+
+/* Folder categories share one compact header, including when collapsed. */
+.library-group-header { flex-wrap: wrap; }
+#pattern-library .library-group-header:has(.folder-actions) .library-group-toggle { flex: 0 1 auto; }
+#pattern-library .custom-scripts-panel,
+#pattern-library .node-patterns-panel,
+#pattern-library .media-folder-panel { display: contents; }
+.folder-actions { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; }
+#config-panel .folder-actions .library-add-btn { margin-left: 0; }
+#config-panel .folder-linked { width: auto; padding: 2px 7px; border-radius: 12px; color: var(--accent, #8edbc7); font-size: 10px; text-transform: none; }
+#config-panel .folder-link { width: auto; padding: 3px 6px; font-size: 10px; }
+.library-group-header :is(.custom-scripts-panel, .node-patterns-panel, .media-folder-panel) > :is(p, [role="alert"], .script-tutorial) {
+  flex-basis: 100%; margin: 0; font-size: 11px; font-weight: normal; text-transform: none; letter-spacing: normal;
+}
+.folder-details { width: min(440px, 90vw); color: var(--text-main, #eee); }
+.folder-details::backdrop { background: #0009; }
+.folder-details-name { overflow-wrap: anywhere; font-weight: 600; }
+
+#config-panel .folder-actions .script-icon { flex: 0 0 28px; width: 28px; height: 28px; padding: 5px; }
+#config-panel .folder-linked { margin: 0; letter-spacing: normal; }
+
+.folder-details, .directory-picker { width: min(440px, 90vw); font-size: 13px; line-height: 1.5; }
+.folder-details h2, .directory-picker h2 { margin: 0 32px 16px 0; font-size: 18px; font-weight: 600; }
+.folder-details-name { margin: 0 0 12px; font-size: 14px; }
+.directory-picker .control-select { text-transform: none; }
+.folder-details .device-setup-modal-actions, .directory-picker .device-setup-modal-actions { margin-top: 24px; flex-wrap: wrap; }
+.folder-details [role="alert"], .directory-picker [role="alert"] { color: #ffb5a4; overflow-wrap: anywhere; }
+#config-panel a.library-add-btn { text-decoration: none; line-height: normal; }
+
+/* ---------------------------------------------------------------------------
+   Missing-file marking. A pattern whose source file this browser cannot reach
+   (the usual case after saving a project on another computer, or a file that
+   moved) is drawn red in the library AND on the pad, so it is visible without
+   selecting the pattern. Selecting it still opens the panel, where a media
+   pattern offers Relink File. Missing files never block a project.
+--------------------------------------------------------------------------- */
+
+#config-panel .pattern-btn.is-missing-file {
+  border-color: rgba(231, 76, 60, 0.85);
+  box-shadow: inset 3px 0 0 rgba(231, 76, 60, 0.9);
+}
+
+#config-panel .pattern-btn.is-missing-file .pattern-name { color: #ff8f83; }
+
+#config-panel .pattern-btn.is-missing-file.active,
+#config-panel .pattern-btn.is-missing-file.merge-active,
+#config-panel .pattern-btn.is-missing-file.cue-active,
+#config-panel .pattern-btn.is-missing-file.cue-merge-active {
+  border-color: #ff6b6b;
+  box-shadow: inset 3px 0 0 #ff6b6b;
+}
+
+#config-panel .pattern-btn.is-missing-file.active .pattern-name,
+#config-panel .pattern-btn.is-missing-file.merge-active .pattern-name { color: #3b0b06; }
+
+.pattern-btn .missing-file-badge {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(231, 76, 60, 0.22);
+  color: #ff6b6b;
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1;
+}

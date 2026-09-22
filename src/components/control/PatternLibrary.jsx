@@ -1,10 +1,12 @@
+import { MediaFolderPanel } from './MediaFolderPanel.jsx';
+import { NodePatternsPanel } from './NodePatternsPanel.jsx';
+import { NODE_PATTERNS_GROUP } from '../../nodes/routes.js';
 import { CustomScriptsPanel } from './CustomScriptsPanel.jsx';
 import { PerformanceBudget } from './PerformanceBudget.jsx';
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { SKETCHES, getGroups, getSketchesByGroup, getOrderedSketches } from '../../sketch-registry.js';
 import { PROJECTION_GROUP } from '../../projection/projection-registry.js';
 import { MEDIA_GROUP } from '../../media/media-registry.js';
-import { canUseFileSystemPicker } from '../../media/media-store.js';
 import { STORAGE } from '../../platform/constants.js';
 import { useRuntime } from '../../app/RuntimeContext.jsx';
 import { useVizStore } from '../../state/useVizStore.js';
@@ -46,8 +48,8 @@ export function PatternLibrary() {
   const liveSelection = useVizStore(store, (s) => s.liveSelection);
   const cue = useVizStore(store, (s) => s.cue);
   const mediaRevision = useVizStore(store, (s) => s.mediaRevision);
+  const missingMedia = useVizStore(store, (s) => s.missingMedia);
   useVizStore(store, (s) => s.projectionRevision);
-  const mediaInputRef = useRef(null);
   const [collapsedGroups, setCollapsedGroups] = useState(loadCollapsedGroups);
   const [query, setQuery] = useState('');
   const [favouriteIds, setFavouriteIds] = useState(loadFavouriteIds);
@@ -92,7 +94,7 @@ export function PatternLibrary() {
     const isMediaGroup = group === MEDIA_GROUP;
     // The Media group always renders so new files can be added even before
     // any media pattern exists.
-    if (sketchesInGroup.length === 0 && !isMediaGroup && !isProjectionGroup && group !== 'Custom Scripts') continue;
+    if (sketchesInGroup.length === 0 && !isMediaGroup && !isProjectionGroup && group !== 'Custom Scripts' && group !== NODE_PATTERNS_GROUP) continue;
     const sketches = filterSketches(sketchesInGroup, terms);
     if (searching && sketches.length === 0) continue;
     matchCount += sketches.length;
@@ -119,7 +121,11 @@ export function PatternLibrary() {
   // selects, cues or drags the pattern.
   const renderPattern = (sketch) => {
     const slotIdx = slotOf.get(sketch.id);
-    const classes = ['pattern-btn', 'library-btn', ...selectionClassesFor({ id: sketch.id, isSlot: false, liveSelection, cueSelection, slotOrder: ordered })];
+    // A media pattern whose file this browser cannot reach (a project saved on
+    // another computer, a file that moved) stays listed but is marked red, so a
+    // missing file is visible without selecting the pattern.
+    const missingFile = Boolean(sketch.media && missingMedia.includes(sketch.id));
+    const classes = ['pattern-btn', 'library-btn', ...(missingFile ? ['is-missing-file'] : []), ...selectionClassesFor({ id: sketch.id, isSlot: false, liveSelection, cueSelection, slotOrder: ordered })];
     const isFavourite = favouriteIds.includes(sketch.id);
     return (
       <div className="library-cell" key={sketch.id}>
@@ -128,7 +134,7 @@ export function PatternLibrary() {
           data-id={sketch.id}
           draggable
           disabled={takePending}
-          title={`${sketch.description ? `${sketch.description} ` : ''}Click to play live. Shift-click to stage this pattern as CUE.`}
+          title={`${sketch.description ? `${sketch.description} ` : ''}${missingFile ? 'File not available on this computer — select it and use Relink File. ' : ''}Click to play live. Shift-click to stage this pattern as CUE.`}
           onClick={(event) => {
             if (takePending) return;
             if (slotIdx !== undefined) {
@@ -147,6 +153,7 @@ export function PatternLibrary() {
           onDrop={(e) => { e.preventDefault(); if (slotIdx !== undefined) commitDrop(slotIdx); }}
         >
           <span className="pattern-label"><span className="pattern-name">{sketch.name}</span><PerformanceBudget patternId={sketch.id} compact /></span>
+          {missingFile && <span className="missing-file-badge" title="File not available on this computer — use Relink File">!</span>}
           {sketch.projection && <span className="media-badge" title="Projection mapping">▱</span>}
           {sketch.camera && <span className="camera-badge" title="Uses camera input">📷</span>}
           {sketch.media && sketch.kind === 'image' && <span className="media-badge" title="Loaded image">🖼️</span>}
@@ -211,36 +218,9 @@ export function PatternLibrary() {
                   const name = window.prompt('Name your projection mapping pattern');
                   if (name?.trim()) runtime.commands.addProjection(name);
                 }}>ADD</button>}
-                {isMediaGroup && (
-                  <>
-                    <button
-                      type="button"
-                      className="library-add-btn media-add-btn"
-                      aria-label="Add media"
-                      title="Load images or videos from this computer as patterns (kept as file references; content is read from disk when played)"
-                      onClick={() => {
-                        // File System Access picker (Desktop Chrome): persists a
-                        // path-equivalent handle only. Fallback: hidden input.
-                        if (canUseFileSystemPicker()) runtime.commands.addMediaFiles();
-                        else mediaInputRef.current?.click();
-                      }}
-                    >ADD</button>
-                    {!canUseFileSystemPicker() && (
-                      <input
-                        ref={mediaInputRef}
-                        type="file"
-                        accept="image/*,video/*"
-                        multiple
-                        className="media-file-input"
-                        onChange={(event) => {
-                          const files = event.target.files;
-                          if (files?.length) runtime.commands.addMediaFiles(files);
-                          event.target.value = '';
-                        }}
-                      />
-                    )}
-                  </>
-                )}
+                {group === 'Custom Scripts' && <CustomScriptsPanel />}
+                {group === NODE_PATTERNS_GROUP && <NodePatternsPanel />}
+                {isMediaGroup && <MediaFolderPanel />}
               </div>
               {/* Always-mounted controlled region: `hidden` keeps aria-controls
                   valid while collapsed and keeps the Media empty state inside it. */}
@@ -249,7 +229,6 @@ export function PatternLibrary() {
                 id={groupSectionId(group)}
                 hidden={collapsed}
               >
-                {group === 'Custom Scripts' && <CustomScriptsPanel />}
                 {isMediaGroup && sketches.length === 0 && (
                   <div className="media-empty">No media loaded — add an image or video file.</div>
                 )}

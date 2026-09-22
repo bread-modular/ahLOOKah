@@ -1,0 +1,225 @@
+/* Graph-specific layout only; controls reuse .btn, Select, .control-input and
+   .control-range from the main UI. Keep node/port geometry stable for wires. */
+.nodes-app { height:100vh; display:flex; flex-direction:column; background:var(--bg-dark); color:var(--text-main); font-size:13px; color-scheme:dark; }
+.nodes-app button { font-family:inherit; }
+/* Editor-scoped focus language. Text/number fields and dropdowns change their
+   existing border to a soft white instead of drawing the shared accent ring, and
+   the wire paths drop their outline below. Everything else in the editor (node
+   headers, port buttons, toolbar buttons and links) keeps the shared
+   `:focus-visible` ring, so this is a scoped refinement rather than a global
+   removal of keyboard focus feedback. */
+.nodes-app :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.nodes-app :is(input,select,textarea):focus-visible { outline:none; }
+.nodes-app .control-input:focus,.nodes-app .control-input:focus-visible,
+.nodes-app select:focus-visible { border-color:#e6ecf5; }
+.nodes-app a { color:var(--accent); }
+.nodes-app h2 { font-size:.75rem; font-weight:600; text-transform:uppercase; letter-spacing:.05rem; color:var(--text-dim); margin:18px 0 12px; }
+.nodes-app p { color:var(--text-dim); font-size:.72rem; line-height:1.5; }
+.nodes-toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; padding:14px 18px; background:var(--panel-bg); border-bottom:1px solid var(--border-gray); }
+.nodes-toolbar h1 { font-size:20px; font-weight:600; margin:0 15px 0 0; }
+.nodes-toolbar h1 small { display:block; font-size:11px; color:var(--text-dim); font-weight:400; margin-top:3px; }
+.nodes-toolbar input { width:175px; }
+.nodes-toolbar a { margin-left:auto; font-size:.75rem; }
+/* Single-view editor: "Back to Main" leads the toolbar (both the hosted button
+   and the legacy standalone link) and must never be pushed to the right edge. */
+.nodes-toolbar .nodes-back { margin-left:0; flex:none; white-space:nowrap; text-decoration:none; }
+/* The editor renders no status strip: guidance and errors never appear as a bar
+   (see data-status on .nodes-workspace). */
+.nodes-layout { display:grid; grid-template-columns:215px minmax(250px,1fr) 280px; min-height:0; flex:1; }
+.nodes-palette,.nodes-inspector { min-width:0; overflow:auto; padding:0 14px 20px; background:var(--panel-bg); }
+.nodes-palette { border-right:1px solid var(--border-gray); display:flex; flex-direction:column; }
+.nodes-palette input,.nodes-palette select { width:100%; }
+.nodes-palette > * { flex-shrink:0; }
+/* Palette groups: structural node types above the hairline divider, the
+   searchable pattern library below it. The divider plus the micro heading gives
+   the search field its own section instead of crowding the create buttons. */
+.nodes-palette-create, .nodes-palette-patterns { display:flex; flex-direction:column; min-width:0; }
+.nodes-palette-create { gap:10px; }
+.nodes-palette-patterns { margin-top:4px; padding-top:12px; border-top:1px solid var(--border-gray); gap:8px; }
+.nodes-palette-label { font-size:.68rem; font-weight:600; text-transform:uppercase; letter-spacing:.08rem; color:var(--text-dim); }
+.nodes-pattern-list { flex:none; min-height:0; padding:0; overflow:visible; }
+/* One scroll container at the panel divider; search and rows share its inset. */
+.nodes-palette { overflow-x:hidden; overflow-y:auto; scrollbar-gutter:auto; scrollbar-width:thin; scrollbar-color:var(--border-gray) var(--panel-bg); }
+.nodes-pattern-list .btn { text-align:left; display:block; width:100%; margin-bottom:6px; white-space:normal; text-transform:none; letter-spacing:normal; font-weight:500; color:var(--text-main); }
+.nodes-pattern-list small { display:block; color:var(--text-dim); font-size:10px; margin-top:4px; }
+/* Sidebar buttons hover in the editor's neutral gray selection language, not the
+   shared accent blue (blue is the input/focus and wire color). Colors only —
+   border width, padding and radius stay the shared .btn shell; danger keeps red. */
+.nodes-palette .btn:hover,.nodes-inspector .btn:not(.btn--danger):hover { border-color:#b8bfc8; background:rgba(184,191,200,.12); }
+/* Node-level swatches on the create buttons: violet = signal-level (Script,
+   Audio), cool blue-gray = image-level (Blend, Color) — the same two colours the
+   canvas cards and the inspector header use. Colours only: the shared .btn shell
+   (border width, padding, radius, letter case) stays exactly as it is, and the
+   specific level hovers below simply out-rank the neutral panel hover above. */
+.nodes-palette-create .btn.level-signal { border-color:#3b2c55; background:rgba(194,154,255,.07); box-shadow:inset 3px 0 0 #c29aff; }
+.nodes-palette-create .btn.level-image { border-color:#33404e; background:rgba(138,166,196,.06); box-shadow:inset 3px 0 0 #8aa6c4; }
+.nodes-palette-create .btn.level-signal:hover { border-color:#c29aff; background:rgba(194,154,255,.15); }
+.nodes-palette-create .btn.level-image:hover { border-color:#8aa6c4; background:rgba(138,166,196,.14); }
+/* The shared .btn focus border is a contract (the keyboard test in
+   nodes-wire-selection.spec.js), so a focused level button drops its level
+   border back to the neutral focus gray instead of hiding it. */
+.nodes-palette-create .btn.level-signal:focus-visible,
+.nodes-palette-create .btn.level-image:focus-visible { border-color:#888; }
+.nodes-inspector { border-left:1px solid var(--border-gray); }
+/* Inspector header: the selected node's name plus a small level pill beside it.
+   The pill stays a sibling of the h2 (never inside it), so heading accessible
+   names remain exactly the node label; spacing mirrors the old h2 margin. */
+.nodes-inspector-head { display:flex; align-items:center; gap:8px; margin:18px 0 12px; }
+.nodes-inspector-head h2 { margin:0; }
+.nodes-level-tag { flex:none; padding:1px 6px; border:1px solid; border-radius:4px; font-size:.58rem; font-weight:700; letter-spacing:.06rem; text-transform:uppercase; }
+.nodes-level-tag.level-signal { color:#c9aaff; border-color:#3b2c55; background:#1c1430; }
+.nodes-level-tag.level-image { color:#a8bed4; border-color:#33404e; background:#111821; }
+.nodes-inspector canvas { width:100%; background:var(--bg-dark); border:1px solid var(--border-gray); border-radius:4px; }
+.nodes-inspector label { display:block; margin:14px 0; font-size:.78rem; }
+.nodes-inspector label input,.nodes-inspector label select { display:block; width:100%; margin-top:6px; }
+.nodes-inspector output { float:right; }
+.nodes-inspector > .btn { margin:5px 5px 5px 0; }
+.nodes-inspector details { margin-top:20px; padding-top:16px; border-top:1px solid var(--border-gray); }
+.nodes-inspector summary { cursor:pointer; color:var(--text-dim); font-size:.75rem; }
+.nodes-diagnostics p { color:#ff6b6b; }
+/* A failed Save/Reload is the one editor failure that must be readable on screen. */
+.nodes-toolbar .nodes-disk-error { flex-basis:100%; margin:0; color:#ffb5a4; font-size:12px; overflow-wrap:anywhere; }
+.nodes-workspace { overflow:hidden; touch-action:none; position:relative; background-color:var(--bg-dark); background-image:radial-gradient(var(--border-gray) 1px,transparent 1px); background-size:20px 20px; }
+.nodes-plane { position:absolute; transform-origin:0 0; }
+.nodes-wires { position:absolute; width:100%; height:100%; pointer-events:none; overflow:visible; }
+.nodes-wires path { fill:none; stroke:var(--accent); stroke-width:4px; pointer-events:stroke; cursor:pointer; }
+/* A focused wire is an SVG path: the shared ring would paint a huge rectangle
+   around the whole curve. The stroke itself is the focus cue instead (hover and
+   focus share it), so keyboard users still see exactly which wire is active. */
+.nodes-wires path:focus,.nodes-wires path:focus-visible { outline:none; }
+.nodes-wires path:hover,.nodes-wires path:focus { stroke:var(--text-main); stroke-width:7px; }
+.nodes-node { position:absolute; width:180px; min-height:80px; background:var(--panel-bg); border:1px solid var(--border-gray); border-radius:4px; box-shadow:0 8px 25px #0006; }
+/* Selection is a neutral cool gray, not the accent blue: blue is the editor's
+   input/focus and wire language, so a selected node must read differently. */
+.nodes-node.is-selected { border-color:#b8bfc8; box-shadow:0 0 0 1px #b8bfc8,0 8px 25px #0006; }
+.nodes-node .nodes-node-title { width:100%; text-align:left; border:0; border-bottom:1px solid var(--border-gray); border-radius:4px 4px 0 0; color:var(--text-main); background:var(--bg-dark); height:30px; padding:5px 10px; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:grab; touch-action:none; }
+/* Node levels: a violet tab/tint for signal-level sources (Audio/Math/Script —
+   the same violet as the dashed signal wires and the ◇ endpoints) and a cool
+   blue-gray tab/tint for image-level nodes (Pattern/Blend/Color/Output). Colour
+   only: the 3px title border swaps against 3px of its left padding so text, the
+   30px header, port rows, detail line and node width are untouched — the wire
+   anchors in geometry.js keep landing on the same sockets. */
+.nodes-node.level-signal .nodes-node-title { border-left:3px solid #c29aff; padding-left:7px; background:#140f22; }
+.nodes-node.level-image .nodes-node-title { border-left:3px solid #8aa6c4; padding-left:7px; background:#0d131a; }
+.nodes-node.level-signal .nodes-node-detail { color:#a08bc9; }
+.nodes-node.level-image .nodes-node-detail { color:#8ea6be; }
+.nodes-node-title small { display:block; font-size:9px; color:var(--text-dim); letter-spacing:1px; margin-bottom:2px; }
+.nodes-node.is-selected .nodes-node-title small { color:#b8bfc8; }
+.nodes-ports { position:relative; min-height:36px; padding:2px 0; }
+.nodes-node .nodes-input { display:block; height:32px; border:0; background:transparent; font-size:11px; padding:3px 6px; color:var(--accent); cursor:pointer; }
+.nodes-node .nodes-output { position:absolute; right:0; top:2px; height:32px; border:0; background:transparent; font-size:11px; padding:3px 6px; color:var(--accent); cursor:pointer; }
+.nodes-node .nodes-output.active { background:var(--accent); color:var(--bg-dark); border-radius:4px; }
+.nodes-node .nodes-input:hover,.nodes-node .nodes-output:hover { color:var(--text-main); }
+/* One explicit line box: wire geometry mirrors DETAIL_HEIGHT (20 = 11 + 9), so
+   the ◇ signal anchor cannot drift when inherited typography changes. */
+.nodes-node-detail { display:block; padding:0 10px 9px; font-size:10px; line-height:11px; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+/* Routed audio status: plain text, never color-only; a block row that wraps
+   long device/fallback guidance instead of pushing the panel wide. */
+.nodes-inspector .nodes-audio-status { float:none; display:block; margin:10px 0; font-size:.75rem; line-height:1.35; color:var(--text-dim); }
+@media(max-width:1000px) { .nodes-layout { grid-template-columns:175px minmax(250px,1fr) 225px; } }
+
+.nodes-toolbar-actions { display:flex; gap:8px; align-items:center; margin-left:auto; }
+/* The name field shares the toolbar buttons' compact shell: one border-box
+   height token, vertical padding zeroed — single-line inputs center their text,
+   so the 16px label stays vertically centered inside the 26px row. */
+.nodes-toolbar input.control-input { box-sizing:border-box; height:calc(.75rem + 14px); padding:0 10px; line-height:1.25; }
+.nodes-toolbar input { width: min(300px, 35vw); font-size:16px; font-weight:600; }
+.nodes-palette { padding-top:14px; gap:10px; }
+.nodes-zoom { position:absolute; bottom:16px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:4px; padding:5px; background:var(--panel-bg); border:1px solid var(--border-gray); border-radius:6px; }
+.nodes-zoom .btn { height:28px; }
+.nodes-inspector .param-head label { margin:0; }
+.nodes-inspector .param-row { margin-top:14px; }
+
+.nodes-workspace { user-select:none; }
+.nodes-selection-box { position:absolute; border:1px solid #b8bfc8; background:rgba(184,191,200,.14); pointer-events:none; z-index:2; }
+
+/* Dashed violet modulation is never a visual/image wire. */
+.nodes-wires .nodes-signal-wire { stroke:#c29aff; stroke-dasharray:7 5; stroke-width:3px; }
+/* A selected connection is highlighted on its own; the endpoint nodes stay
+   unselected, because Delete removes only this wire. */
+.nodes-wires path.is-selected { stroke:#fff; stroke-width:7px; }
+.nodes-wires path.is-selected.nodes-signal-wire { stroke:#e6d6ff; }
+.nodes-signal-endpoint { color:#c29aff; border:0; border-top:1px solid var(--border-gray); background:transparent; width:100%; text-align:left; height:28px; cursor:pointer; }
+.nodes-signal-chip { white-space:normal; text-align:left; margin-bottom:6px; color:#c29aff; width:100%; }
+.nodes-signal-chip.active { border-color:#c29aff; }
+/* Hidden Math ports (Value C outside clamp) keep their stored literal but take
+   no sidebar space. */
+.nodes-inspector label[hidden] { display:none; }
+.nodes-connections output.nodes-connection-name { display:block; margin:10px 0 4px; padding:6px 8px; background:var(--bg-dark); border:1px solid var(--border-gray); border-radius:4px; color:#e6d6ff; font-size:11px; overflow-wrap:anywhere; }
+.nodes-connections .btn { margin:4px 0 0; }
+/* Mapping controls are opt-in and have no heading or wrapper box: the overlay is
+   the disclosure toggle (click / Enter / Space) and the compact fields render
+   directly under the parameter. The overlay keeps the full input height as its
+   click target. The track wrapper is flex/line-height:0 so its height equals the
+   18px input (no inline descender gap pulling the center down); the visible
+   box/handles/live marker are centered on the 4px native track (track center =
+   input center) nudged 1px up, so the range pill sits exactly on the slider bar
+   instead of sitting low. */
+.nodes-inspector .param-slider-track { display:flex; align-items:center; line-height:0; }
+.nodes-inspector .param-slider-track input[type=range] { display:block; width:100%; flex:1 1 auto; }
+.nodes-mapping-overlay { position:absolute; inset:0 7px; pointer-events:auto; cursor:pointer; border-radius:6px; }
+.nodes-mapping-overlay:focus-visible { outline:2px solid #e6ecf5; outline-offset:2px; }
+.nodes-mapping-box { position:absolute; top:calc(50% - 1px); height:12px; transform:translateY(-50%); min-width:4px; background:linear-gradient(180deg,#cfaeff33,#a678ff40); border:1px solid #cfaaff; border-radius:6px; box-shadow:inset 0 1px 0 #ffffff26,0 0 8px #b586ff30; cursor:grab; pointer-events:auto; touch-action:none; transition:border-color .15s ease,background .15s ease,box-shadow .15s ease; }
+.nodes-mapping-box:hover { border-color:#e6d6ff; background:linear-gradient(180deg,#dcc2ff40,#b289ff4d); box-shadow:inset 0 1px 0 #ffffff33,0 0 10px #b586ff4d; }
+.nodes-mapping-box:active { cursor:grabbing; }
+.nodes-mapping-handle { position:absolute; top:calc(50% - 1px); height:16px; width:6px; transform:translate(-50%,-50%); background:linear-gradient(180deg,#e2d0ff,#c29aff); border:1px solid #241936; border-radius:3px; box-shadow:0 0 0 1px #c29aff55,0 1px 4px #0009; cursor:ew-resize; pointer-events:auto; touch-action:none; transition:box-shadow .15s ease,background .15s ease; }
+.nodes-mapping-handle:hover { background:linear-gradient(180deg,#f0e4ff,#d3b8ff); box-shadow:0 0 0 1px #e6d6ff88,0 1px 6px #000a; }
+.nodes-mapping-fields { font-size:11px; color:#cdb6ed; padding:6px 0 10px; }
+.nodes-mapping-fields > div { display:flex; gap:8px; }
+.nodes-mapping-inline { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0; }
+.nodes-mapping-inline small { color:var(--text-dim); }
+/* The connected signal's name, resolved from the graph, as one compact pill with
+   the same rectangle corners as .btn. It rides the parameter's title row, right
+   after the name, so it never needs a row of its own. */
+.nodes-mapping-source { display:inline-block; max-width:60%; margin-left:6px; padding:0 5px; border:1px solid #3b2c55; border-radius:4px; background:#241936; color:#c9aaff; font-size:10px; line-height:1.5; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+/* Title row of a mapped slider: name + signal pill on the left, value right. */
+.nodes-inspector .param-head { justify-content:flex-start; }
+.nodes-inspector .param-head .param-value { margin-left:auto; }
+.nodes-mapping-fields label { flex:1; min-width:0; margin:8px 0; font-size:10px; }
+.nodes-mapping-fields .btn { margin:3px 4px 0 0; }
+/* A mapping value is typed, never stepped: the browser's spinner arrows are
+   removed and the field keeps symmetric padding now that no glyph sits in the
+   right-hand gutter. */
+.nodes-mapping-fields input.control-input[type="number"] { padding-right:10px; -moz-appearance:textfield; appearance:textfield; }
+.nodes-mapping-fields input.control-input[type="number"]::-webkit-outer-spin-button,
+.nodes-mapping-fields input.control-input[type="number"]::-webkit-inner-spin-button { -webkit-appearance:none; appearance:none; margin:0; }
+.nodes-modulated-param > small { color:var(--text-dim); }
+/* A range control has no border to restyle, so its focus cue is the same soft
+   white as the text fields instead of the shared accent ring. */
+.nodes-app .param-row input[type="range"]:focus-visible { outline:2px solid #e6ecf5; outline-offset:2px; }
+
+/* Only the saved-base thumb disappears. Keep the neutral track and mapping
+   handles, with a separate non-interactive effective-value marker centered on
+   the track like the range pill (same -1px nudge). */
+.nodes-modulated-param.is-mapped input[type=range]::-webkit-slider-thumb { opacity:0; }
+.nodes-modulated-param.is-mapped input[type=range]::-moz-range-thumb { opacity:0; }
+.nodes-mapping-live { position:absolute; top:calc(50% - 1px); height:16px; width:3px; transform:translate(-50%,-50%); background:#fff5a8; border-radius:2px; box-shadow:0 0 0 1px #252214,0 0 6px #fff5a866; pointer-events:none; }
+/* The readout is a caption for the track above it, not part of it: the top
+   margin keeps it clear of the mapping box and the handles. */
+.nodes-mapping-value { display:block; color:#fff5a8; font-weight:700; font-size:10px; margin:8px 0 5px; font-variant-numeric:tabular-nums; }
+/* A mapped parameter always keeps air below its block — the collapsed readout
+   must not touch the next parameter, and an open panel adds the fields' own
+   bottom padding under Remove mapping on top of it. */
+.nodes-modulated-param.is-mapped { padding-bottom:6px; }
+
+/* Scalar (Math/Script) inspector: value readout, validation status and errors. */
+.nodes-inspector output.nodes-signal-readout { float:none; display:block; margin:6px 0 2px; padding:6px 8px; background:var(--bg-dark); border:1px solid var(--border-gray); border-radius:4px; color:#fff5a8; font-weight:700; font-variant-numeric:tabular-nums; }
+.nodes-script-status { color:#cdb6ed !important; }
+.nodes-script-error { color:#ff6b6b !important; }
+/* Script source is multi-line: monospace, resizable vertically, and it never
+   forces the inspector wider than the panel. */
+.nodes-inspector textarea.nodes-script-source { width:100%; min-height:52px; max-height:280px; resize:vertical; margin:4px 0 0; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:11px; line-height:1.45; white-space:pre; overflow:auto; tab-size:2; }
+.nodes-inspector input[type="number"] { font-variant-numeric:tabular-nums; }
+
+/* Drafts that cannot be saved yet. The editor itself takes the danger-red outline
+   and every node that owns a blocking diagnostic is outlined with it, so an error
+   is never hidden in a status strip and the offending node is findable at a glance
+   instead of the write failing silently. The plain-text list in the inspector says
+   what the outline only points at. */
+.nodes-app.has-errors { outline:2px solid #ff6b6b; outline-offset:-2px; }
+.nodes-node.is-invalid { border-color:#ff6b6b; box-shadow:0 0 0 1px #ff6b6b,0 8px 25px #0006; }
+.nodes-node.is-invalid .nodes-node-detail { color:#ff8b8b; }
+.nodes-inspector .nodes-blocked { margin:18px 0 0; padding:8px 10px; border:1px solid #6d2a2a; border-radius:4px; background:#2a1414; }
+.nodes-inspector .nodes-blocked h2 { margin:0 0 6px; color:#ff8b8b; }
+.nodes-inspector .nodes-blocked ul { margin:0; padding-left:16px; }
+.nodes-inspector .nodes-blocked li { color:#ffb3b3; font-size:.72rem; line-height:1.5; overflow-wrap:anywhere; }

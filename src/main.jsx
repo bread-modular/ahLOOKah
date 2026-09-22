@@ -1,3 +1,4 @@
+import { NodesEditor } from './nodes/NodesEditor.jsx';
 import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Analytics } from '@vercel/analytics/react';
@@ -10,7 +11,7 @@ import { App } from './app/App.jsx';
 import { SingletonError } from './components/errors/SingletonError.jsx';
 
 const identity = createWindowIdentity();
-const store = createVizStore(identity.role);
+const store = identity.role === 'nodes' ? null : createVizStore(identity.role);
 
 function Root() {
   const [runtime, setRuntime] = useState(null);
@@ -42,7 +43,7 @@ function Root() {
 
 createRoot(document.getElementById('root')).render(
   <>
-    <Root />
+    {identity.role === 'nodes' ? <NodesEditor /> : <Root />}
     {/* Dev analytics injects a remote debug script blocked by the local CSP.
         Keep that unnecessary request/error out of local rendering and tests. */}
     {import.meta.env.PROD && <Analytics />}

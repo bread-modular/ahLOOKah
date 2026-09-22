@@ -1,6 +1,12 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { readFile } from 'node:fs/promises'
+import { generatePatternCatalog } from './scripts/generate-pattern-catalog.mjs'
+
+// The built-in pattern catalog is generated from `src/sketches/**/*.pattern.js`
+// before Vite scans dependencies, so dev/build/preview always see the current
+// library — including from a clean checkout with no generated file present.
+await generatePatternCatalog(new URL('.', import.meta.url).pathname)
 
 // Serve the static /docs page for both `/docs` and `/docs/`.
 // Vite's SPA fallback would otherwise serve the React app for these paths
@@ -37,8 +43,32 @@ function docsStaticRoute() {
   }
 }
 
+// Regenerate the built-in pattern catalog when `*.pattern.js` modules are
+// added/removed/renamed during development, then request a full reload (never
+// a hot-swap of an active renderer). Serialized + coalesced; normal edits to
+// existing modules flow through Vite's own HMR/reload path.
+function patternCatalogWatcher() {
+  let pending = null
+  const schedule = (server) => {
+    if (pending) return pending
+    pending = (async () => {
+      await generatePatternCatalog(new URL('.', import.meta.url).pathname)
+      server.ws.send({ type: 'full-reload', path: '*' })
+    })().finally(() => { pending = null })
+    return pending
+  }
+  const isPatternFile = (file) => typeof file === 'string' && file.endsWith('.pattern.js')
+  return {
+    name: 'pattern-catalog-watcher',
+    configureServer(server) {
+      server.watcher.on('add', (file) => { if (isPatternFile(file)) schedule(server) })
+      server.watcher.on('unlink', (file) => { if (isPatternFile(file)) schedule(server) })
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react(), docsStaticRoute()],
+  plugins: [react(), docsStaticRoute(), patternCatalogWatcher()],
   server: {
     host: true,
     port: 3000,

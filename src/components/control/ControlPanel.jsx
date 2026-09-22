@@ -14,6 +14,7 @@ import { AppMenu } from './AppMenu.jsx';
 import { DeviceSetupModal } from './DeviceSetupModal.jsx';
 import { KeyMapModal } from './KeyMapModal.jsx';
 import { NoticeModal } from './NoticeModal.jsx';
+import { ProjectRelinkModal } from './ProjectRelinkModal.jsx';
 
 // Uncontrolled <details> section with native toggle persistence (mirrors the
 // legacy persistSectionOpen behaviour and avoids React's controlled-<details>
@@ -101,6 +102,7 @@ export function ControlPanel() {
 
       {setupModalOpen && <DeviceSetupModal />}
       {keyMapOpen && <KeyMapModal />}
+      <ProjectRelinkModal />
       <NoticeModal />
     </div>
   );

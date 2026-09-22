@@ -158,14 +158,27 @@
 }
 
 /* Action variant — CUE-bordered idle, amber hover echoing .cue-primary */
-#status-line .viz-pill--action.status-btn {
-  margin-left: 0;
+/* Shared compact action metrics: Open Screen and node-editor Save/Reload.
+   0.6rem × 1.25 line box + 12px padding + 2px border = 26px at 16px root. */
+#status-line .viz-pill--action.status-btn,
+.nodes-toolbar .btn--status-size {
+  box-sizing: border-box;
+  height: calc(.75rem + 14px);
   border-radius: 4px;
   padding: 6px 8px;
   font-size: 0.6rem;
   font-weight: 800;
   letter-spacing: 0.09em;
   line-height: 1.25;
+}
+
+.nodes-toolbar .script-icon.btn--status-size {
+  width: calc(.75rem + 14px);
+  padding: 0;
+}
+
+#status-line .viz-pill--action.status-btn {
+  margin-left: 0;
   border-color: rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.04);
   color: var(--text-dim);

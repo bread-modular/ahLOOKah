@@ -1,0 +1,6 @@
+.app-editor-shell { height:100vh; overflow:hidden; background:var(--bg-dark); }
+.app-editor-content { position:relative; min-width:0; height:100%; overflow:auto; }
+.app-main-panel { height:100%; }
+.app-main-panel.is-inactive { visibility:hidden; pointer-events:none; }
+.app-editor-panel { position:absolute; inset:0; min-width:0; }
+.app-editor-panel .nodes-app { height:100%; min-width:745px; }

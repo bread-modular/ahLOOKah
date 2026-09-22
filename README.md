@@ -11,7 +11,7 @@ cues live with zero blank gaps.
 
 ## ✨ Features
 
-- **Audio-reactive sketch library** (plus a non-reactive checkerboard) organized into themed groups:
+- **Audio-reactive sketch library** (plus non-reactive Simple patterns such as Checkerboard and Simple Circle) organized into themed groups:
   *Simple* (first), *Rhythmic*, *3D*, *Cinematic / Shaders*, *Neon / Lasers*, *Video FX*,
   *Glitch / Effects*, *Basics*, and *Alphas* (grayscale-on-black looks built for
   Alpha Blend projection mapping).
@@ -48,11 +48,15 @@ cues live with zero blank gaps.
   bypass the global screen calibration without deleting it.
 - **Camera-input FX** — chroma key, kaleidoscope, pixelate, trails, and more
   (opt-in via browser permissions).
-- **Portable settings** — export every saved setting (parameters, pad order,
-  EQ/noise floor, screen + projection calibration, media references) to a JSON
-  file from the app menu and import it in another browser or machine. Media
-  files are never copied: the import summary lists the patterns whose files are
-  missing, and Relink File appears only for those.
+- **Projects** — the app menu's **Save Project** writes a whole project
+  (parameters, pad order, EQ/noise floor, screen + projection calibration, media
+  references and the identity of each linked Scripts / Node Patterns / Media
+  directory) to a file you choose, **Open Project** brings one back anywhere, and
+  **New Project** clears this browser to start fresh. On the computer it came
+  from, the linked directories resume without re-linking; on another computer a
+  blocking dialog links each missing directory before the project completes.
+  Missing *files* never block: those patterns are marked red in the library and
+  pad. Media files are never copied.
 - **Pattern audio engine** — beat/band-driven control with kick/snare/hat
   transient detection.
 
@@ -151,10 +155,19 @@ by accident. Move focus out of the field first for those CUE gestures.
 
 ### Replacement VJ patterns and camera FX
 
-The library contains **69 built-ins**: all 50 older entries (including Ion Tempest
-and Checkerboard), plus 10 replacements and 9 expansion patterns. The rejected
-60-pattern expansion is removed, not hidden. Category labels/order, Media, custom
-Projection Mapping, and older controls/renderers are unchanged.
+The library ships the older entries (including Ion Tempest and Checkerboard)
+plus Simple Circle, 10 replacements, and 9 expansion patterns with 2 restored
+legacy camera looks. The rejected 60-pattern expansion is removed, not hidden.
+Category labels/order, Media, custom Projection Mapping, and older
+controls/renderers are unchanged. (Historical inventory digests from that
+migration are archived under `docs/history/`; current contracts live in
+`tests/catalog/` and the scoped cohort specs.)
+
+**Simple Circle** (Simple group) is the smallest drawing in the library: one filled
+circle dead centre on black, with exactly two sliders — **Radius** (1 = the circle
+fills the shorter screen edge) and **Hue**. Like Checkerboard it is deliberately not
+audio reactive, so it is a steady base layer for merge/Alpha Blend and a handy
+calibration target when aligning a projector.
 
 | Group | Replacement patterns |
 | --- | --- |
@@ -282,6 +295,7 @@ npm run test:patterns            # Exhaustive individual-pattern tests, on deman
 npm run test:full -- tests/expanded-patterns.spec.js --workers=1
 npm run test:full -- tests/new-effects-smoke.spec.js --grep liquid-chrome
 npm run test:full -- tests/settings-portability.spec.js --workers=1
+npm run test:full -- tests/project-relink.spec.js --workers=1
 npm run test:full -- tests/library-search.spec.js --workers=1
 npm run test:full -- 'tests/screen-mapping*.spec.js' --workers=1
 npm run test:full -- tests/projection-mapping.spec.js --workers=1
@@ -364,8 +378,200 @@ docs/               Design docs (CUE mode, audio control plan, refactor)
 
 ### Custom Scripts (desktop Chrome)
 
-Choose a real local directory under **Custom Scripts**, create `.viz.js` files,
-edit them with an external editor/agent, and click **Reload** to activate changes.
+Choose a real local directory under **Custom Scripts**, write `.viz.js` files with
+your own editor, then **Open Script** to activate one and **Reload** to pick up its
+later edits. There is no create control in the app: the library only loads files
+that already exist in the linked folder.
 Scripts are trusted JavaScript, **not a sandbox**. The complete tutorial is
 [Custom Scripts](public/docs/custom-scripts.html); the agent-facing contract is
 [API v1](public/docs/custom-scripts-api.md), with runnable examples alongside it.
+
+## Node graph patterns
+
+Choose **ADD** (New Node Pattern) in the main **Node Patterns** category. The
+dependency-free React/DOM + SVG editor composes source pixels through chained Blend
+nodes and Color filters, and wires scalar Script nodes into any numeric parameter
+(existing files that contain legacy Math nodes keep loading, rendering and saving).
+Script nodes offer two languages: the new **body** language (`return`, `let`/`const`
+locals with lexical block scope, `if`/`else`, comparisons, short-circuit `&&`/`||` and
+`?:`, compiled once by Acorn-checked bytecode — no `eval`/`Function`, no loops, no
+globals) and the legacy single-value **expression** language that graphs saved before it
+still use unchanged. Sources are approved per exact text *and* language in this browser,
+so an imported file can never carry trust with it.
+The main **Node Patterns** category owns **Link Folder**, **Open Pattern**,
+**Refresh folder**, and **New Node Pattern**. Select a graph, then use the sidebar’s
+**Edit Pattern** to open it in the editor; the sidebar’s **Delete** removes it from
+the library without touching the file on disk (Open Pattern restores it). One graph is edited at a time and the editor
+replaces the main view in the same window — no popup, no tab rail, no draft list; its
+toolbar **Back to Main** returns to the main app, asking first when the draft is dirty.
+Reopening always loads the saved graph instead of reviving a hidden draft. The editor
+reads that exact disk graph via shared handles, reports unavailable files
+without a fallback, and focuses on editing, **Save**, and **Reload from disk**. A draft
+saves before it is fully wired: an unconnected Output is kept, and reopens as saved. A draft
+that *cannot* be saved is outlined in red — the editor and every offending node — with the
+blocking reasons listed in the inspector, and its dependency manifest follows the graph, so
+deleting the last node that used a removed or changed source clears the block. The
+standalone `/?role=nodes&graph=<id>` URL remains the legacy compatibility path.
+Disk-authoritative `.nodes.json` patterns stay synchronized across same-origin tabs. Browser storage holds handles and filename metadata only;
+the open draft stays in memory. Confirmed overwrites update selected patterns, while
+unsaved edits never change LIVE. See the [Nodes guide](public/docs/nodes.html) for connections,
+shortcuts, source support, JSON dependency manifests and resource limits.
+
+LIVE selections carry stable IDs for library clicks, pad slots and merges. If the
+output has not loaded a selected node pattern yet, it retains the current output,
+refreshes disk records and prepares the latest selection. A library refresh also
+re-prepares an incoming selection instead of discarding the operator's choice.
+Newer selections and CUE entry cancel pending LIVE requests; missing, invalid or
+inaccessible files do not revive later without another selection.
+
+The output's fresh-frame check accepts a drawn, current controls revision at least
+as new as the requested one. Node modulation can advance that revision during
+warm-up; waiting for the obsolete exact revision would time out while preview
+keeps drawing. Draw receipts remain ordered across parameter, plan and audio
+stream resets, without accepting stale packets or controls that have not drawn.
+
+```sh
+PLAYWRIGHT_PORT=5186 npx playwright test tests/nodes.spec.js tests/nodes-scalar.spec.js tests/nodes-script-body.spec.js --no-deps
+# Deterministic cross-window disk/render race regressions, including output pixels:
+PLAYWRIGHT_PORT=5186 npx playwright test tests/nodes-output-selection.spec.js --workers=2 --repeat-each=3
+```
+
+The graph tests cover blend pixels, Color filter pixels (identity/alpha/chaining),
+chained DAGs, scalar Script wiring with per-frame fanout and safe fallbacks, legacy
+Math graphs (including clamp's third input) still loading/rendering/saving,
+Script body language safety/budgets/scope/short-circuits, save/reload approval binding,
+live audio → body script → mapping pixels,
+real 2D/WebGL/projection/media/
+custom sources, editor gestures, disk save/open/reload, permissions and overwrite safety, cross-tab library
+updates, LIVE/CUE isolation, independent audio slots, resize and disposal.
+
+### Linked library folders
+
+Custom Scripts, Node Patterns and Media share **Link Folder**, then a **Linked**
+badge beside the category name. The badge opens compact folder details with
+**Refresh**, **Relink**, and **Unlink**. Full paths are not exposed by the browser.
+Handles stay in IndexedDB; no server or new UI package is involved. Folder selection
+requires desktop Chrome on HTTPS or localhost. Linking also remembers the directory's
+project identity (see [Projects](#projects-save-project--open-project--new-project)), which is
+what lets a saved project resume its folders without re-linking.
+
+- **Custom Scripts:** **ADD** creates a starter `.viz.js` without overwriting an
+  existing file. **OPEN** is still the explicit trust gesture, and linking never
+  executes folder contents. Opening a saved project reopens the scripts it names
+  whose code still matches the fingerprint it recorded; an edited, renamed or new
+  file needs **OPEN** again. Scripts run with app privileges, not in a sandbox.
+- **Node Patterns:** **ADD** opens a new editor. When linked, **OPEN** lists only
+  direct-child `.nodes.json` files; unlinked Open retains the native individual-file
+  workflow. Linked patterns remain disk-authoritative, including saves/conflicts.
+- **Media:** linking scans supported images/videos, excluding subfolders and
+  audio/text files. Refresh adds new files without duplicating handles. Linked
+  **ADD** and **OPEN** use the same in-app directory picker; unlinked controls keep
+  the native picker/file-input fallback. Unlink keeps loaded media references.
+
+`src/platform/folderAccess.js` shares permissions, filtered scans and safe child
+resolution. `DirectoryPicker.jsx` shares loading/empty/error/selection states and
+uses the same `Select` chrome as `ParamSelect`. `FolderControls.jsx` shares the
+badge/details/actions. Background restoration never requests permission.
+
+#### Projects (Save Project / Open Project / New Project)
+
+The app menu has three project actions:
+
+- **Save Project** writes one JSON file — `ahlookah-project-YYYY-MM-DD.json` by
+  default, at a **location and file name you pick** (File System Access save
+  picker; a browser without it, or a location that refuses the write, falls back
+  to a normal download of the same file). It contains every persisted setting plus
+  a `folders` section for Scripts, Node Patterns and Media — `folderName`, a
+  `folderId` directory identity, and the relevant `fileName` references (plus IDs
+  for node/media patterns). It contains **no native handles, script source, graph
+  source or media bytes**.
+- **Open Project** opens such a file: the destination mirrors it, unlinking what
+  the file omits. Each section is then resolved by directory identity. The native
+  handle lives in IndexedDB under that `folderId` (`platform/project-folders.js`);
+  the current id per section is machine-local (`viz2_project_folders`, deliberately
+  never exported). So:
+  - **Same computer** — a directory the project was saved from is adopted
+    directly (name verified), Media files inside it are re-pointed automatically,
+    and nothing is re-picked. Switching between projects therefore keeps every
+    linked directory working.
+  - **Another computer** — the id has no handle. A blocking `ProjectRelinkModal`
+    lists each missing directory with **Link Folder** (and **Reconnect** when the
+    directory is remembered but browser access expired). The project does not
+    complete — no summary, no reload — until every directory is linked. A wrong
+    folder name is an explicit error and is never silently substituted; a
+    same-named folder is verified by identity first and only then by you.
+  - **Missing files** inside a linked directory never block anything: the
+    reference stays listed, the affected patterns are marked red in the library and
+    pad (`Relink File` for media), and the section panel names the missing file.
+  - **Scripts** are fingerprinted, not copied: for every script file the project
+    lists, Save Project records a SHA-256 of the source **instead of the source
+    itself**. On Open Project each listed file is re-read and, when its bytes still
+    match, loaded automatically — so a project comes back with its custom patterns
+    without re-opening anything, on any computer that has the same code in the
+    linked folder. A file edited, renamed or added since is left for the explicit
+    **OPEN**, with the panel saying which and why: `Changed since this project was
+    saved: …` or `Open trusted script: … (this project recorded no code fingerprint
+    for it)`. A project file still carries no code and no trust, and a listed file
+    without a fingerprint never runs by itself.
+  - **Permission lapse** — if the browser wants the folder re-granted at startup
+    (common after a restart), the startup message names the scripts waiting and
+    **Linked → Refresh** both renews access and finishes the reopen; no second save
+    or reload is needed.
+- **New Project** clears this browser back to a fresh project: every
+  project-scoped setting, all media patterns, the portable folder hints and the
+  current directory identities, then it unlinks Scripts, Node Patterns and Media.
+  It asks for confirmation first, refuses while a CUE is staged, and keeps the
+  per-machine device choices and setup state. Remembered directory handles are kept
+  (bounded, keyed by id), so re-opening an older project file still resumes its
+  folders here without re-linking.
+
+Node Patterns reuse the project's identity as the folder id, so node pattern ids
+— and therefore pad slots, merges and parameter references — stay stable across
+machines. Expired permissions require a user gesture (Linked → Refresh); renewing
+access never runs anything by itself.
+
+Old exports (`kind: ahlookah-settings`, version 1) still load and behave exactly
+as before: no identities, so every linked folder is confirmed by hand. Legacy
+individually opened files keep their filenames but require explicit re-opening.
+Saving/opening a project and relinking never overwrite or delete source files.
+
+Focused coverage (use a free isolated port):
+
+```sh
+PLAYWRIGHT_PORT=5188 npx playwright test tests/linked-library.spec.js tests/folder-linking.spec.js tests/settings-portability.spec.js tests/project-relink.spec.js tests/custom-scripts.spec.js --project=chromium --workers=2
+PLAYWRIGHT_PORT=5188 npx playwright test tests/nodes.spec.js --project=chromium --workers=2 --grep 'disk persistence|new drafts save|stale drafts|denied save|outside picker|background reload|folder switch|category owns|linked folder text'
+npm run build
+```
+
+### Internal node editor
+
+Node Patterns **ADD**, **OPEN**, and **Edit Pattern** open the editor in place over the
+main app view — no popup window, no right-side tab rail, no draft list. Exactly one
+editor session exists: **Back to Main** in the editor toolbar returns to the main app in
+the same browser window and unmounts the editor. Leaving or replacing a dirty graph (and
+**Reload from disk**) asks for confirmation first, and leaving during a save is disabled.
+Save adopts the repository ID and updates the main library and external output using the
+existing repository notifications. The open draft is in memory only; nothing is retained
+as a hidden second draft, so reopening reads the saved graph from disk.
+
+The editor reuses `NodesEditor` and borrows the main runtime's AudioManager,
+PatternAudioControlStore, and existing audio engine/clock directly. It does not create an
+audio channel, capture, ownership handoff, or program canvas host. Main stays mounted at
+the same dimensions, and external screen/output communication remains unchanged.
+Unmounting the editor disposes its preview runtimes; the main runtime keeps rendering.
+
+Media uses the existing same-document media store/cache and per-renderer playback
+lifecycle, so leaving and reopening the editor reuses the persisted records (the editor's
+own decoders may be recreated; main decoders keep playing). Independent graph
+renderers still have independent video playback elements. Camera preview remains
+an explicit placeholder: `SharedCameraSource` is owned by the separate output
+screen and cannot be borrowed directly by the main document. Editors never open
+a second camera capture. Legacy `?role=nodes&graph=…` URLs remain supported as the
+standalone compatibility path; main app actions open the editor in place instead.
+
+Focused validation (isolated dev-server port):
+
+```sh
+PLAYWRIGHT_PORT=5184 npx playwright test tests/nodes-internal.spec.js tests/nodes.spec.js tests/nodes-audio.spec.js tests/nodes-audio-background.spec.js tests/audio-input.spec.js tests/media-pattern.spec.js tests/control-panel.spec.js --workers=2
+npm run build
+```

@@ -7,7 +7,7 @@ export function AppMenu() {
   const [open, setOpen] = useState(false);
   const btnRef = useRef(null);
   const listRef = useRef(null);
-  const importInputRef = useRef(null);
+  const openInputRef = useRef(null);
 
   const close = () => setOpen(false);
 
@@ -47,34 +47,42 @@ export function AppMenu() {
         <button id="app-menu-keymap" className="app-menu-item" type="button" role="menuitem" onClick={() => { close(); store.setState({ keyMapOpen: true }); }}>Key Map</button>
         <button id="app-menu-setup" className="app-menu-item" type="button" role="menuitem" onClick={() => { close(); store.setState({ setupModalOpen: true }); }}>Setup</button>
         <button
-          id="app-menu-export-settings"
+          id="app-menu-save-project"
           className="app-menu-item"
           type="button"
           role="menuitem"
-          title="Download all saved settings (and media file references) as a JSON file"
-          onClick={() => { close(); runtime.commands.exportSettings(); }}
-        >Export Settings</button>
+          title="Write this project to a file — every saved setting plus the identities of its linked Scripts, Node Patterns and Media directories"
+          onClick={() => { close(); runtime.commands.saveProject(); }}
+        >Save Project</button>
         <button
-          id="app-menu-import-settings"
+          id="app-menu-open-project"
           className="app-menu-item"
           type="button"
           role="menuitem"
-          title="Restore settings from an ahLOOKah settings file"
-          onClick={() => { close(); importInputRef.current?.click(); }}
-        >Import Settings</button>
-        {/* Hidden file input: the import picker is a plain <input type="file">
+          title="Open a saved project file in this browser; already-linked directories resume without relinking"
+          onClick={() => { close(); openInputRef.current?.click(); }}
+        >Open Project</button>
+        <button
+          id="app-menu-new-project"
+          className="app-menu-item"
+          type="button"
+          role="menuitem"
+          title="Clear every saved setting, media pattern and linked directory in this browser and start fresh"
+          onClick={() => { close(); runtime.commands.newProject(); }}
+        >New Project</button>
+        {/* Hidden file input: the project picker is a plain <input type="file">
             so it works in every browser (the FS Access picker is only used for
-            media files). */}
+            media files and for Save Project). */}
         <input
-          id="settings-import-input"
-          ref={importInputRef}
-          className="settings-import-input"
+          id="project-open-input"
+          ref={openInputRef}
+          className="project-open-input"
           type="file"
           accept=".json,application/json"
           onChange={async (event) => {
             const file = event.target.files?.[0];
             event.target.value = '';
-            if (file) await runtime.commands.importSettings(file);
+            if (file) await runtime.commands.openProject(file);
           }}
         />
       </div>

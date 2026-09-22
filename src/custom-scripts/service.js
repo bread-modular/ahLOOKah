@@ -1,5 +1,9 @@
+import { assertFolderReference, confirmFolderReference, missingFolderFiles, forgetFolderFile, folderReference } from '../platform/folderReferences.js';
+import { ensureProjectFolder } from '../platform/project-folders.js';
+import { chooseFolder, folderPermission, requireFolderPermission, scanFolder } from '../platform/folderAccess.js';
 import { SKETCHES } from '../sketch-registry.js';
 import { stageSources, SCRIPT_SUFFIX } from './compiler.js';
+import { sourceHash } from './hash.js';
 import { adaptPattern } from './adapter.js';
 import { scriptStorage, supportError } from './storage.js';
 
@@ -28,10 +32,22 @@ export class CustomScripts {
     try {
       const snapshot = await this.storage('active');
       this.handle = snapshot && 'folder' in snapshot ? snapshot.folder : await this.storage('folder');
+      this.publish({ folder: this.handle?.name || '' });
       await this.restore();
       const permission = await this.handle?.queryPermission({ mode: 'read' }) || 'prompt';
       this.publish({ folder: this.handle?.name || '', permission });
-      if (this.role === 'control' && this.handle && permission === 'granted') await this.listFiles();
+      if (this.handle && permission !== 'granted') {
+        const waiting = this.pendingProjectScripts().length;
+        this.report(waiting
+          ? `Folder access must be renewed. Press Refresh to reopen the ${waiting} script${waiting === 1 ? '' : 's'} this project expects; last-good registrations remain active.`
+          : 'Folder permission denied or expired. Refresh folder or Relink Folder to restore access; last-good scripts remain active.');
+      }
+      if (this.role === 'control' && this.handle && permission === 'granted') {
+        await this.listFiles();
+        // A project opened from a file reopens the scripts whose code still matches
+        // what the project was saved with; anything else waits for an explicit OPEN.
+        await this.projectScripts().catch((error) => this.report(`Project scripts: ${error.message}`));
+      }
     } catch (e) { this.report(`Storage/reconnect: ${e.message}. Unlink and Link Folder again.`); }
   }
   enqueue(fn) {
@@ -59,16 +75,18 @@ export class CustomScripts {
     const next = entries.map((entry) => unchanged.has(entry.definition.id)
       ? previous.find((s) => s.id === entry.definition.id)
       : adaptPattern(entry, this.report, (name) => this.asset(name, snapshot.folder)));
+    for (const entry of next) entry.nodesSourceText = snapshot.sources.find(s => s.name === entry.customScript)?.text || '';
     SKETCHES.splice(0, SKETCHES.length, ...SKETCHES.filter((s) => !s.customScript), ...next);
     this.entries = entries;
     this.active = snapshot;
     this.handle = snapshot.folder;
-    this.publish({ folder: this.handle?.name || '', files: snapshot.files || [], opened: snapshot.sources.map((s) => s.name), errors: [] });
+    this.publish({ folder: this.handle?.name || '', files: snapshot.files || [], opened: snapshot.sources.map((s) => s.name), reopened: [], stale: [], errors: [] });
     const affected = new Set([...previous, ...next].filter((s) => !unchanged.has(s.id)).map((s) => s.id));
     if (affected.size) this.onChange(affected);
   }
   async restore() {
     const snapshot = await this.storage('active');
+    assertFolderReference('scripts', snapshot?.folder || this.handle);
     // Older snapshots autoloaded the whole folder. Require explicit selection now.
     if (this.closed || !snapshot?.selectionVersion || snapshot.revision <= this.active.revision) return;
     const sameFolder = this.active.folder && snapshot.folder && await this.active.folder.isSameEntry(snapshot.folder);
@@ -87,10 +105,18 @@ export class CustomScripts {
     this.channel?.postMessage({ type: 'revision', revision: snapshot.revision });
   }
   assertControl() { if (this.role !== 'control') throw new Error('Only the control window can change scripts'); }
+  // Script files the linked project expects that are not open yet and carry a code
+  // fingerprint — exactly the ones a renewed permission would reopen. Used for the
+  // startup message when access has lapsed, so the hint is actionable.
+  pendingProjectScripts() {
+    return (folderReference('scripts')?.files || [])
+      .filter(file => typeof file.sha256 === 'string' && !this.status.opened.includes(file.fileName));
+  }
   async permission(request = false) {
     this.assertControl();
     if (!this.handle) throw new Error('Link a scripts folder first.');
-    let permission = await this.handle.queryPermission({ mode: 'read' });
+    assertFolderReference('scripts', this.handle);
+    let permission = await folderPermission(this.handle);
     if (permission !== 'granted' && request) permission = await this.handle.requestPermission({ mode: 'read' });
     this.publish({ permission });
     if (permission !== 'granted') throw new Error('Folder permission denied or expired. Click Open Script or reload to renew access, or unlink and Link Folder again. Last-good scripts remain active.');
@@ -99,16 +125,22 @@ export class CustomScripts {
   async choose() {
     this.assertControl();
     if (supportError()) throw new Error(supportError());
-    const handle = await showDirectoryPicker({ id: 'viz2-custom-scripts', mode: 'read' });
+    const handle = await chooseFolder({ id: 'viz2-custom-scripts', mode: 'read', label: 'Custom Scripts' });
+    assertFolderReference('scripts', handle, true);
     return this.enqueue(async () => {
       const files = await this.listFiles(handle, false);
       await this.commit([], handle, [], files);
-      this.publish({ permission: 'granted' });
+      confirmFolderReference('scripts');
+      // Remember the directory identity so a project reopened on this computer
+      // resolves Custom Scripts without asking for a re-link.
+      await ensureProjectFolder('scripts', handle);
+      this.publish({ permission: 'granted', errors: missingFolderFiles('scripts', files) });
     });
   }
   async reconnect() {
     this.assertControl();
     if (!this.handle) return this.choose();
+    assertFolderReference('scripts', this.handle);
     // requestPermission must be invoked while activation is available.
     const permission = await this.handle.requestPermission({ mode: 'read' });
     this.publish({ permission });
@@ -117,15 +149,33 @@ export class CustomScripts {
   async listFiles(folder = this.handle, publish = true) {
     this.assertControl();
     if (!folder) throw new Error('Link a scripts folder first.');
-    const files = [];
-    for await (const [name, handle] of folder.entries()) {
-      if (handle.kind !== 'file' || !name.endsWith(SCRIPT_SUFFIX)) continue;
-      if (files.length >= 100) throw new Error('Folder: maximum 100 .viz.js files');
-      files.push(name);
-    }
-    files.sort((a, b) => a.localeCompare(b));
-    if (publish) this.publish({ files });
+    // Truncate at the folder cap (see create/compile limits) instead of throwing:
+    // a folder at the cap must not stop the project reopen from running.
+    const files = (await scanFolder(folder, { accepts: name => name.endsWith(SCRIPT_SUFFIX), limit: 100, onLimit: () => {} })).map(entry => entry.name);
+    if (publish) this.publish({ files, errors: missingFolderFiles('scripts', files) });
     return files;
+  }
+  async create(name) {
+    this.assertControl();
+    if (typeof name !== 'string' || name.length > 128 || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*\.viz\.js$/.test(name)) throw new Error('Use a filename ending in .viz.js (letters, numbers, dots, hyphens, underscores).');
+    const folder = this.handle;
+    assertFolderReference('scripts', folder);
+    await requireFolderPermission(folder, 'readwrite', true);
+    return this.enqueue(async () => {
+      if (this.handle !== folder) throw new Error('Linked folder changed. Retry in the current folder.');
+      if ((await this.listFiles()).length >= 100) throw new Error('Folder: maximum 100 .viz.js files');
+      // Never overwrite a user's source file. Serialize creation across tabs.
+      await navigator.locks.request('viz2-script-create', async () => {
+        try { await this.handle.getFileHandle(name); throw new Error('File already exists. Open it instead.'); }
+        catch (error) { if (error.name !== 'NotFoundError') throw error; }
+        const file = await this.handle.getFileHandle(name, { create: true });
+        const writer = await file.createWritable();
+        try { await writer.write(`// Edit this file in your editor; reload it in the library.\napi.requireVersion(1);\napi.create({ id: 'custom-${crypto.randomUUID()}', name: ${JSON.stringify(name.replace(/\.viz\.js$/, '').slice(0, 80))}, draw({ p }) { p.background(24); } });\n`); await writer.close(); }
+        catch (error) { await writer.abort().catch(() => {}); throw error; }
+      });
+      const files = await this.listFiles();
+      await this.commit(this.active.sources, this.handle, [], files);
+    });
   }
   browse() { return this.enqueue(async () => { await this.permission(); return this.listFiles(); }); }
   async readSource(name) {
@@ -144,6 +194,49 @@ export class CustomScripts {
       await this.commit([...this.active.sources, source], this.handle, [name]);
     });
   }
+  // Load the scripts a saved project expects when the linked folder still holds the
+  // same code. A project file carries a fingerprint of each source, never the source
+  // itself, so an unchanged file opens on its own while anything else — edited,
+  // renamed, added, or a project that recorded no fingerprint at all — keeps the
+  // explicit "Open trusted script" hint. Only the files a project names are
+  // considered: linking a folder never runs its contents.
+  async projectScripts() {
+    this.assertControl();
+    if (!this.handle || this.status.permission !== 'granted') return [];
+    // A fingerprint is required: a name alone must never start code, so a project
+    // file without one (older file, or a file that could not be read when it was
+    // saved) leaves every entry to the explicit OPEN. The historical `linked` flag
+    // is deliberately NOT the gate: it only records whether the file was in the
+    // folder when the project was written, while the fingerprint says what the code
+    // is — so a file that is back in the folder and byte-identical opens again.
+    const expected = (folderReference('scripts')?.files || []).filter((file) => typeof file.sha256 === 'string');
+    if (!expected.length) return [];
+    const sources = [];
+    const stale = [];
+    for (const file of expected) {
+      if (this.active.sources.some((source) => source.name === file.fileName)) continue;
+      let source = null;
+      try {
+        source = await this.readSource(file.fileName);
+      } catch {
+        continue; // Gone from the folder: reported as missing, never blocking the project.
+      }
+      const digest = await sourceHash(source.text);
+      if (!digest || digest !== file.sha256) {
+        stale.push(file.fileName); // Edited since the project was saved.
+        continue;
+      }
+      sources.push(source);
+    }
+    if (!sources.length) {
+      if (stale.length) this.publish({ stale });
+      return [];
+    }
+    const names = sources.map((source) => source.name);
+    await this.commit([...this.active.sources, ...sources], this.handle, names);
+    this.publish({ reopened: names, stale });
+    return names;
+  }
   reload(name) {
     return this.enqueue(async () => {
       await this.permission();
@@ -157,6 +250,11 @@ export class CustomScripts {
         // A file removed externally retires its patterns. Unopened files are never read.
       }
       await this.commit(sources, this.handle, changed, files);
+      this.publish({ errors: missingFolderFiles('scripts', files) });
+      // Refresh (Linked → Refresh) is also how a project reopen finishes when the
+      // folder permission had lapsed at startup: renewing access is the gesture, and
+      // this is the first moment the files can be read again.
+      await this.projectScripts();
     });
   }
   remove(name) {
@@ -166,6 +264,7 @@ export class CustomScripts {
       // Like media Remove: forget the loaded item, never touch its physical source.
       // Empty changed list also avoids re-evaluating unrelated last-good scripts.
       await this.commit(this.active.sources.filter((s) => s.name !== name), this.handle, []);
+      forgetFolderFile('scripts', name);
     });
   }
   unlink() {

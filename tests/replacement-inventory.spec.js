@@ -1,35 +1,57 @@
 import { test, expect } from '@playwright/test';
-import { readFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
-import { SKETCHES, getGroups } from '../src/sketch-registry.js';
+import { BUILTIN_PATTERNS } from '../src/patterns/builtins.js';
 import { REPLACEMENT_PATTERNS } from '../src/sketches/replacements/index.js';
-const inventory = JSON.parse(readFileSync(new URL('./fixtures/replacement-inventory.json', import.meta.url)));
-const hash = value => createHash('sha256').update(value).digest('hex');
 
-test('replacement provenance: exactly 60 removed, 50 older unchanged, 10 new, category order intact', { tag: '@core' }, () => {
-  const registry = readFileSync('src/sketch-registry.js', 'utf8');
-  const retained = registry.slice(registry.indexOf('export const SKETCHES = ['), registry.indexOf('  // Preserve all 50 older entries'));
-  expect(hash(retained), 'exact original 50 registry declarations, including factory/controller bindings').toBe(inventory.retainedDeclarationSha256);
-  expect(SKETCHES).toHaveLength(71);
-  expect(inventory.removed).toHaveLength(60);
-  expect(inventory.older).toHaveLength(50);
+// Scoped replacement-cohort contract: the 10 named replacements are present in
+// the catalog with their intended distribution and bindings. This spec owns the
+// replacement cohort only — it asserts nothing about the whole-app total,
+// source layout, or group order (see tests/catalog/ for those contracts).
+//
+// The original migration digests (removed-ID list, retained signatures, file
+// hashes) are preserved as evidence at
+// docs/history/replacement-inventory-62617ff.json.
+
+const RETIRED_IDS = [
+  'dot-grid', 'pulse-stripes', 'cross-pulse', 'diamond-tiles', 'radial-spokes',
+  'triangle-mesh', 'ring-grid', 'hatch-weave', 'dash-lanes', 'beat-weave',
+  'ripple-lattice', 'polygon-tunnel', 'orbital-cages', 'silk-flow', 'prism-caustics',
+  'laser-fan', 'neon-hex', 'data-rain', 'signal-tear', 'pulse-grid',
+  'wave-stack', 'beat-orbit', 'level-blocks', 'helix-tower', 'perspective-floor',
+  'gyro-rings', 'depth-frames', 'ember-drift', 'velvet-fog', 'prism-flare',
+  'molten-glass', 'laser-harp', 'neon-frame', 'beam-cascade', 'circuit-pulse',
+  'pixel-sort', 'vhs-tracking', 'block-shift', 'interference',
+  'video-edge-glow', 'video-thermal',
+  'video-prism-split', 'video-ripple-lens', 'video-mirror-tiles', 'video-halftone',
+  'video-solarize', 'video-wave-warp', 'video-duotone',
+  'alpha-rings', 'alpha-bars', 'alpha-grid', 'alpha-spot', 'alpha-sweep',
+  'alpha-diamonds', 'alpha-fog', 'alpha-waves',
+  'vignette', 'split-tone', 'sweep-band', 'grid-lines',
+];
+
+// The expansion wave deliberately restored exactly two retired legacy camera
+// looks; every other retired id stays absent unless explicitly re-adopted.
+const RESTORED_IDS = new Set(['video-thermal', 'video-edge-glow']);
+
+test('replacement cohort: 10 named patterns present with intended distribution and bindings', { tag: '@core' }, () => {
   expect(REPLACEMENT_PATTERNS).toHaveLength(10);
-  expect(new Set(SKETCHES.map(s => s.id)).size).toBe(71);
-  // The expansion wave restored exactly two removed legacy camera looks
-  // (video-thermal, video-edge-glow); every other removed id stays absent.
-  const restored = new Set(['video-thermal', 'video-edge-glow']);
-  for (const id of inventory.removed) expect(SKETCHES.some(s => s.id === id), id).toBe(restored.has(id));
-  expect(SKETCHES.slice(0, 50).map(s => s.id)).toEqual(inventory.older.map(s => s.id));
-  for (const saved of inventory.older) {
-    const s = SKETCHES.find(s => s.id === saved.id);
-    const signature = hash(JSON.stringify(s));
-    expect(signature, saved.id).toBe(saved.signature);
+  const byId = new Map(BUILTIN_PATTERNS.map((s) => [s.id, s]));
+  for (const s of REPLACEMENT_PATTERNS) {
+    expect(byId.get(s.id), s.id).toBe(s);
+    expect(s.audioTransport, s.id).toBe('pattern-controls');
+    expect(typeof s.factory, s.id).toBe('function');
+    expect(typeof s.createAudioController, s.id).toBe('function');
+    expect(s.audioControlSchema && typeof s.audioControlSchema, s.id).toBe('object');
   }
-  for (const [path, digest] of Object.entries(inventory.files)) expect(hash(readFileSync(path)), path).toBe(digest);
-  const groups = ['Simple', 'Rhythmic', '3D', 'Cinematic / Shaders', 'Neon / Lasers', 'Video FX', 'Glitch / Effects', 'Basics', 'Alphas'];
   const expected = { Simple: 1, Rhythmic: 1, '3D': 0, 'Cinematic / Shaders': 2, 'Neon / Lasers': 0, 'Video FX': 2, 'Glitch / Effects': 2, Basics: 0, Alphas: 2 };
-  for (const group of groups) expect(REPLACEMENT_PATTERNS.filter(s => s.group === group), group).toHaveLength(expected[group]);
-  expect(getGroups()).toEqual([...groups, 'Media', 'Projection Mapping', 'Custom Scripts']);
-  expect(SKETCHES.slice(0, 4).map(s => s.id)).toEqual(['circles', 'bars', 'techno3d', 'character3d']);
-  expect(SKETCHES.find(s => s.id === 'checkerboard').audioReactive).toBe(false);
+  for (const [group, count] of Object.entries(expected)) {
+    expect(REPLACEMENT_PATTERNS.filter((s) => s.group === group), group).toHaveLength(count);
+  }
+});
+
+test('replacement retirement policy: restored camera ids allowed, other retired ids absent', { tag: '@core' }, () => {
+  expect(RETIRED_IDS).toHaveLength(60);
+  const byId = new Map(BUILTIN_PATTERNS.map((s) => [s.id, s]));
+  for (const id of RETIRED_IDS) {
+    expect(byId.has(id), id).toBe(RESTORED_IDS.has(id));
+  }
 });

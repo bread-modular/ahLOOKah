@@ -18,6 +18,7 @@ export function ParamSelect({ scope, id, def, value, onChange, disabled = false 
         <span className="param-value" data-value={def.key}>{labelFor(def, value)}</span>
       </div>
       <Select
+        title={def.label}
         id={controlId}
         data-key={def.key}
         className="param-select"

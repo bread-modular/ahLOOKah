@@ -1,7 +1,20 @@
 import { feedNoiseCapture, applyNoiseFloor } from './noise-floor.js';
 
+// Capture-side manager for one input stream: stream -> splitter -> L/R
+// analysers. Lifecycle policies are injectable so the owner's input pool can
+// share one AudioContext across several managers without changing behavior for
+// standalone callers:
+//   contextProvider — lazily supplies a borrowed context; the manager never
+//                     closes a borrowed context.
+//   allowFallback   — the existing one-time OS-default retry is a GLOBAL
+//                     selector policy; pooled extra devices disable it.
+//   feedNoise       — only the primary (global) source feeds the noise-floor
+//                     calibration accumulator; extra sources stay raw.
 export class AudioManager {
-  constructor() {
+  constructor({ contextProvider = null, allowFallback = true, feedNoise = true } = {}) {
+    this.contextProvider = typeof contextProvider === 'function' ? contextProvider : null;
+    this.allowFallback = allowFallback !== false;
+    this.feedNoise = feedNoise !== false;
     this.audioContext = null;
     this.stream = null;
     this.source = null;
@@ -16,6 +29,13 @@ export class AudioManager {
     this.floatWaveDataR = null;
     this.floatFreqDataL = null;
     this.floatFreqDataR = null;
+    // Raw (pre-noise-subtraction) copies, read once per analysis tick so channel
+    // routing can build per-channel views without inheriting combined cleanup.
+    this.rawWaveDataL = null;
+    this.rawWaveDataR = null;
+    this.rawFreqDataL = null;
+    this.rawFreqDataR = null;
+    this.lastRawFrame = null;
     this.isStarted = false;
     this.fftSize = 2048;
     this.requestToken = 0;
@@ -92,7 +112,9 @@ export class AudioManager {
       this.stream = null;
       stream.getTracks().forEach((track) => track.stop());
     }
-    if (this.audioContext) {
+    // A borrowed (pool-shared) context is never closed here: stopping one
+    // source must leave every other source and the shared context alive.
+    if (this.audioContext && this.contextProvider === null) {
       const context = this.audioContext;
       this.audioContext = null;
       context.onstatechange = null;
@@ -103,7 +125,9 @@ export class AudioManager {
     this.splitter = null;
     this.analyserL = null;
     this.analyserR = null;
+    this.audioContext = null;
     this.activeDeviceId = null;
+    this.lastRawFrame = null;
   }
 
   configureAnalyser(analyser) {
@@ -130,6 +154,13 @@ export class AudioManager {
     this.floatWaveDataR = new Float32Array(this.fftSize);
     this.floatFreqDataL = new Float32Array(frequencyBins);
     this.floatFreqDataR = new Float32Array(frequencyBins);
+    // Pristine per-tick copies: noise subtraction mutates the cleaned buffers in
+    // place, so channel routing reads from these instead.
+    this.rawWaveDataL = new Float32Array(this.fftSize);
+    this.rawWaveDataR = new Float32Array(this.fftSize);
+    this.rawFreqDataL = new Float32Array(frequencyBins);
+    this.rawFreqDataR = new Float32Array(frequencyBins);
+    this.lastRawFrame = null;
   }
 
   audioConstraints(deviceId, exact = true) {
@@ -158,8 +189,9 @@ export class AudioManager {
       } catch (err) {
         // Persisted device ids can become stale after an interface is unplugged,
         // the browser restarts, or permissions are reset. Recover with the
-        // default input rather than leaving the EQ silently stuck forever.
-        const canFallback = deviceId && (err?.name === 'OverconstrainedError' || err?.name === 'NotFoundError');
+        // default input rather than leaving the EQ silently stuck forever. This
+        // is a GLOBAL-selector policy: exact pins never substitute another input.
+        const canFallback = this.allowFallback && deviceId && (err?.name === 'OverconstrainedError' || err?.name === 'NotFoundError');
         if (!canFallback) throw err;
         // If a newer start/stop has superseded this request, do not attempt fallback
         if (token !== this.requestToken) throw err;
@@ -175,7 +207,9 @@ export class AudioManager {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       if (!AudioContextClass) throw new Error('Web Audio is not supported by this browser.');
 
-      const context = new AudioContextClass({ latencyHint: 'interactive' });
+      const context = this.contextProvider
+        ? await this.contextProvider()
+        : new AudioContextClass({ latencyHint: 'interactive' });
       const source = context.createMediaStreamSource(stream);
       const splitter = context.createChannelSplitter(2);
       const analyserL = context.createAnalyser();
@@ -204,7 +238,7 @@ export class AudioManager {
         try { analyserL.disconnect(); } catch {}
         try { analyserR.disconnect(); } catch {}
         stream.getTracks().forEach((track) => track.stop());
-        await context.close().catch(() => {});
+        if (!this.contextProvider) await context.close().catch(() => {});
         return false;
       }
 
@@ -232,8 +266,9 @@ export class AudioManager {
         this.analyserR = null;
         this.isStarted = false;
         this.activeDeviceId = null;
+        this.lastRawFrame = null;
         if (staleStream) staleStream.getTracks().forEach((t) => t.stop());
-        if (staleContext) {
+        if (staleContext && !this.contextProvider) {
           staleContext.onstatechange = null;
           await staleContext.close().catch(() => {});
         }
@@ -288,9 +323,8 @@ export class AudioManager {
       this.stream = null;
       stream.getTracks().forEach((track) => track.stop());
     }
-    if (this.audioContext) {
+    if (this.audioContext && this.contextProvider === null) {
       const context = this.audioContext;
-      this.audioContext = null;
       context.onstatechange = null;
       context.close().catch(() => {});
     }
@@ -299,7 +333,9 @@ export class AudioManager {
     this.splitter = null;
     this.analyserL = null;
     this.analyserR = null;
+    this.audioContext = null;
     this.activeDeviceId = null;
+    this.lastRawFrame = null;
     this.reportStatus('stopped');
   }
 
@@ -344,6 +380,42 @@ export class AudioManager {
     return { left: this.freqDataL, right: this.freqDataR };
   }
 
+  // Single analyser pass per tick: floats are read into the pristine raw
+  // buffers, then copied into the working buffers that noise subtraction
+  // mutates in place. `lastRawFrame` is the routing seam for channel views.
+  _readRawFrame() {
+    this.analyserL.getFloatFrequencyData(this.rawFreqDataL);
+    this.analyserR.getFloatFrequencyData(this.rawFreqDataR);
+    this.analyserL.getFloatTimeDomainData(this.rawWaveDataL);
+    this.analyserR.getFloatTimeDomainData(this.rawWaveDataR);
+    this.floatFreqDataL.set(this.rawFreqDataL);
+    this.floatFreqDataR.set(this.rawFreqDataR);
+    this.floatWaveDataL.set(this.rawWaveDataL);
+    this.floatWaveDataR.set(this.rawWaveDataR);
+    this.lastRawFrame = {
+      left: this.rawFreqDataL,
+      right: this.rawFreqDataR,
+      waveformLeft: this.rawWaveDataL,
+      waveformRight: this.rawWaveDataR,
+      sampleRate: this.audioContext.sampleRate,
+      fftSize: this.fftSize,
+      time: this.audioContext.currentTime,
+      deviceId: this.activeDeviceId,
+      channels: this.stream?.getAudioTracks?.()[0]?.getSettings?.().channelCount || 1,
+    };
+    return this.lastRawFrame;
+  }
+
+  // Raw (never noise-subtracted) snapshot of the most recent tick. Channels are
+  // projected from this data so Left/Right views cannot inherit the combined
+  // cleanup or a stereo-derived RMS override.
+  getRawAnalysisFrame() {
+    if (!this.isStarted || !this.audioContext || !this.analyserL || !this.analyserR) return null;
+    if (this.audioContext.state !== 'running') return null;
+    if (!this.lastRawFrame) this._readRawFrame();
+    return this.lastRawFrame;
+  }
+
   // High-resolution snapshot used by the newer shader effects. Float dB data
   // preserves low-level detail needed for adaptive gain and spectral-flux hit
   // detection; waveform data supplies a reliable silence gate and input RMS.
@@ -354,11 +426,9 @@ export class AudioManager {
       return null;
     }
 
-    this.analyserL.getFloatFrequencyData(this.floatFreqDataL);
-    this.analyserR.getFloatFrequencyData(this.floatFreqDataR);
-    this.analyserL.getFloatTimeDomainData(this.floatWaveDataL);
-    this.analyserR.getFloatTimeDomainData(this.floatWaveDataR);
-
+    this._readRawFrame();
+    // The cleaned frame references the working buffers; the raw frame keeps the
+    // pristine copies for channel-scoped routing.
     const frame = {
       left: this.floatFreqDataL,
       right: this.floatFreqDataR,
@@ -368,15 +438,16 @@ export class AudioManager {
       fftSize: this.fftSize,
       time: this.audioContext.currentTime,
       deviceId: this.activeDeviceId,
-      channels: this.stream?.getAudioTracks?.()[0]?.getSettings?.().channelCount || 1,
+      channels: this.lastRawFrame.channels,
     };
 
     // Noise floor: sample the RAW signature while a capture is running, then
     // subtract the stored profile in place so every consumer (musical feature
     // extractor, band-split EQ broadcast) sees the cleaned spectrum.
-    feedNoiseCapture(frame);
-    applyNoiseFloor(frame);
-
+    if (this.feedNoise) {
+      feedNoiseCapture(frame);
+      applyNoiseFloor(frame);
+    }
     return frame;
   }
 

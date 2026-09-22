@@ -1,3 +1,4 @@
+import { DRAG_TYPE } from '../../nodes/model.js';
 // Module-level HTML5 drag state (transient; must not trigger React re-renders).
 let dragSource = null;
 
@@ -23,6 +24,7 @@ export function onDragStart(e) {
   if (e.dataTransfer) {
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', btn.dataset.id);
+    e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ version: 1, patternId: btn.dataset.id }));
   }
 }
 

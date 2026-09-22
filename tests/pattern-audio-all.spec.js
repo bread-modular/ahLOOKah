@@ -49,17 +49,22 @@ test.describe('all-pattern controls-only audio transport', { tag: '@patterns' },
     await page.waitForFunction(() => window.__viz.audioOwner);
     await installSyntheticCapture(page);
 
-    const patternIds = await page.locator('#pattern-library .pattern-btn').evaluateAll((buttons) => buttons.map((button) => button.dataset.id));
-    expect(patternIds).toHaveLength(71);
-    expect(new Set(patternIds).size).toBe(71);
+    const { patternIds, cameraIds } = await page.evaluate(async () => {
+      const { BUILTIN_PATTERNS } = await import('/src/sketch-registry.js');
+      return {
+        patternIds: BUILTIN_PATTERNS.map((s) => s.id),
+        cameraIds: BUILTIN_PATTERNS.filter((s) => s.camera).map((s) => s.id),
+      };
+    });
+    // The library renders exactly the built-in catalog (ID multiset equality —
+    // equal counts alone could hide a duplicate plus an omission), unique ids.
+    const domIds = await page.locator('#pattern-library .pattern-btn').evaluateAll((buttons) => buttons.map((button) => button.dataset.id));
+    expect([...domIds].sort()).toEqual([...patternIds].sort());
+    expect(new Set(domIds).size).toBe(patternIds.length);
 
     // Camera (video) effects never render a preview canvas in the control window:
     // the preview stage shows the placeholder note instead (the live camera video
     // stays on the output screen). Everything else must produce its preview canvas.
-    const cameraIds = await page.evaluate(async () => {
-      const { SKETCHES } = await import('/src/sketch-registry.js');
-      return SKETCHES.filter((sketch) => sketch.camera).map((sketch) => sketch.id);
-    });
     const cameraSet = new Set(cameraIds);
 
     for (const patternId of patternIds) {

@@ -666,3 +666,59 @@ test.describe('pattern-specific audio controls', () => {
     expect(verification[1].controllerErrors).toBe(0);
   });
 });
+
+for (const reset of ['params', 'plan', 'stream']) {
+  test(`fresh-frame markers survive ${reset} resets without acknowledging stale or undrawn controls @core`, async ({ page }) => {
+    await page.goto('/?role=nodes');
+    const result = await page.evaluate(async reset => {
+      const { PatternAudioControlStore } = await import('/src/pattern-audio-controls.js');
+      let now = 0;
+      const store = new PatternAudioControlStore({ consumerSessionId: 'fresh', now: () => now });
+      const descriptor = { runtimeId: 'child', patternId: 'solid-color', paramsRevision: 1,
+        audioTransport: 'pattern-controls', audioControlSchema: { continuous: {}, arrays: {}, events: {} } };
+      let planRevision = 1;
+      const plan = () => ({ consumerSessionId: 'fresh', planRevision, slots: [descriptor] });
+      let sequence = 0;
+      const packet = (paramsRevision = descriptor.paramsRevision) => ({
+        type: 'pattern-audio-controls', version: 1, consumerSessionId: 'fresh', planRevision,
+        audioOwnerId: 'owner', streamGeneration: 'stream', sequence: ++sequence, captureTime: now,
+        slots: [{ runtimeId: 'child', paramsRevision, continuous: {}, arrays: {}, events: [] }],
+      });
+      const draw = () => { store.read('child'); return store.noteDraw('child'); };
+      store.setPlan(plan());
+      store.acceptPacket(packet());
+      for (let i = 0; i < 20; i++) draw();
+      const marker = store.getRenderMarker('child');
+      const requestedRevision = descriptor.paramsRevision;
+      if (reset === 'params') { descriptor.paramsRevision++; store.upsertSlot(descriptor); }
+      if (reset === 'plan') { planRevision++; store.setPlan(plan()); }
+      if (reset === 'stream') store.resetStream('owner', 'stream');
+      const rendered = () => store.hasRenderedAfter('child', requestedRevision, marker);
+      const beforePacket = rendered();
+      const staleRevision = store.acceptPacket(packet(0));
+      draw();
+      const afterStale = rendered();
+      store.acceptPacket(packet());
+      const beforeDraw = rendered();
+      draw();
+      const afterDraw = rendered();
+      const newerMarker = store.getRenderMarker('child');
+      const futureRevision = store.hasRenderedAfter('child', descriptor.paramsRevision + 1, marker);
+      now = 10000;
+      const afterExpiry = rendered();
+      store.retireSlot('child');
+      const afterRetire = rendered();
+      return { marker, newerMarker, staleRevision, beforePacket, afterStale, beforeDraw, afterDraw, futureRevision, afterExpiry, afterRetire };
+    }, reset);
+    expect(result.marker).toBeGreaterThan(0);
+    expect(result.beforePacket).toBe(false);
+    expect(result.staleRevision).toMatchObject({ accepted: true, slots: 0 });
+    expect(result.afterStale).toBe(false);
+    expect(result.beforeDraw).toBe(false);
+    expect(result.afterDraw).toBe(true);
+    expect(result.newerMarker).toBeGreaterThan(result.marker);
+    expect(result.futureRevision).toBe(false);
+    expect(result.afterExpiry).toBe(false);
+    expect(result.afterRetire).toBe(false);
+  });
+}

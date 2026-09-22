@@ -6,8 +6,10 @@ import { formatParamValue } from './panelHelpers.js';
 // `el.value = x; dispatchEvent(new Event('input'))` probes drive it exactly as
 // they did before. The native node is never replaced mid-gesture; external
 // values sync back only while the operator is not dragging.
-export function ParamSlider({ scope, id, def, getValue, onChange, valueFormat = formatParamValue, disabled = false }) {
+export function ParamSlider({ scope, id, def, getValue, onChange, valueFormat = formatParamValue, disabled = false, mappingOverlay = null, labelExtra = null }) {
   const inputRef = useRef(null);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
   const draggingRef = useRef(false);
   const [label, setLabel] = useState(() => valueFormat(getValue(), def));
   const controlId = `param-${scope || 'live'}-${id || 'unknown'}-${def.key}`;
@@ -18,7 +20,7 @@ export function ParamSlider({ scope, id, def, getValue, onChange, valueFormat = 
     const onInput = () => {
       const v = parseFloat(el.value);
       setLabel(valueFormat(v, def));
-      onChange(v);
+      onChangeRef.current(v);
     };
     const onPointerDown = () => { draggingRef.current = true; };
     const onEnd = () => { draggingRef.current = false; };
@@ -48,11 +50,15 @@ export function ParamSlider({ scope, id, def, getValue, onChange, valueFormat = 
     <div className="param-row">
       <div className="param-head">
         <label htmlFor={controlId}>{def.label}</label>
+        {labelExtra}
         <span className="param-value" data-value={def.key}>{label}</span>
       </div>
+      <div className="param-slider-track" style={{ position: 'relative' }}>
       <input
         ref={inputRef}
         type="range"
+        className="control-range"
+        title={def.label}
         id={controlId}
         data-key={def.key}
         min={String(def.min)}
@@ -61,6 +67,8 @@ export function ParamSlider({ scope, id, def, getValue, onChange, valueFormat = 
         defaultValue={String(getValue())}
         disabled={disabled}
       />
+      {mappingOverlay}
+      </div>
     </div>
   );
 }

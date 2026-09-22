@@ -1,4 +1,4 @@
-import { createFeatureController, FEATURE_SCHEMA, SILENT_FEATURES, response, accent } from '../sketches/feature-controls.js';
+import { createFeatureController, createReactiveController, FEATURE_SCHEMA, SILENT_FEATURES, response, accent } from '../sketches/feature-controls.js';
 import { neutralControlsForSchema, validateControlsForSlot } from '../pattern-audio-protocol.js';
 
 // Keep the native factory contract intact: custom patterns participate in all
@@ -17,6 +17,7 @@ export function adaptPattern({ file, definition: d }, report, asset) {
     group: 'Custom Scripts', customScript: file, audioTransport: 'pattern-controls',
     audioControlSchema: d.audio?.schema || FEATURE_SCHEMA,
     createAudioController: ({ rng } = {}) => {
+      if (!d.audio) return createReactiveController();
       const state = { rng: rng || Math.random };
       // Never share adaptive baselines between LIVE/CUE/projection slots. The
       // engine retires this controller on reload, stream reset and slot removal.

@@ -1,0 +1,80 @@
+// Single source of truth for node kinds, ports and numeric definitions. Both the
+// JSON contract (model.js) and the editor/runtime read from here so a node type
+// can never drift between validation, wiring and controls. One import: the
+// dependency-free audio-routing route defaults (which must never import back).
+import { DEFAULT_AUDIO_INPUT } from '../audio-routing.js';
+export const TYPES = Object.freeze(['pattern', 'blend', 'output', 'audio', 'color', 'math', 'script']);
+export const VISUAL_TYPES = Object.freeze(['pattern', 'blend', 'color', 'output']);
+export const VISUAL_SOURCES = Object.freeze(['pattern', 'blend', 'color']);
+export const SIGNAL_TYPES = Object.freeze(['audio', 'math', 'script']);
+export const SCALAR_TYPES = Object.freeze(['math', 'script']);
+export const MODULATION_TARGETS = Object.freeze(['pattern', 'blend', 'color']);
+
+// Identity defaults: an untouched Color node is a pixel-exact copy of its input.
+export const COLOR_PARAMS = Object.freeze([
+  { key: 'saturation', label: 'Saturation', min: 0, max: 2, step: .01, default: 1 },
+  { key: 'brightness', label: 'Brightness', min: 0, max: 2, step: .01, default: 1 },
+  { key: 'contrast', label: 'Contrast', min: 0, max: 2, step: .01, default: 1 },
+  { key: 'hue', label: 'Hue Shift', min: -180, max: 180, step: 1, default: 0 },
+]);
+
+export const MATH_OPS = Object.freeze(['add', 'subtract', 'multiply', 'divide', 'min', 'max', 'clamp', 'abs']);
+export const MATH_LABELS = Object.freeze({
+  add: 'Add (a + b)', subtract: 'Subtract (a − b)', multiply: 'Multiply (a × b)', divide: 'Divide (a ÷ b)',
+  min: 'Minimum (min of a, b)', max: 'Maximum (max of a, b)', clamp: 'Clamp (a between b and c)', abs: 'Absolute (|a|)',
+});
+export const MATH_INPUTS = Object.freeze(['a', 'b', 'c']);
+export const MATH_PORT_LABELS = Object.freeze({ a: 'Value A', b: 'Value B', c: 'Value C' });
+export const MATH_LITERALS = Object.freeze({ a: 0, b: 0, c: 1 });
+export const SCRIPT_INPUTS = Object.freeze(['x', 'y']);
+export const SCRIPT_PORT_LABELS = Object.freeze({ x: 'Input x', y: 'Input y' });
+// Node position already owns x/y, so the wire fallback literals use their own
+// field names (the ports keep the mathematical x/y naming).
+export const SCRIPT_LITERAL_FIELDS = Object.freeze({ x: 'inputX', y: 'inputY' });
+export const SCRIPT_LITERALS = Object.freeze({ inputX: 0, inputY: 0 });
+export const DEFAULT_EXPRESSION = 'x';
+// New Script nodes start in the body language; graphs saved before it existed
+// carry no `language` field and keep running as expressions.
+export const DEFAULT_LANGUAGE = 'body';
+export const DEFAULT_BODY = 'return x;';
+
+const ports = {
+  blend: ['base', 'layer'],
+  color: ['image'],
+  output: ['image'],
+  math: MATH_INPUTS,
+  script: SCRIPT_INPUTS,
+};
+export const inputs = (node) => node?.type === 'pattern' ? [] : (ports[node?.type] || []).slice();
+// Only clamp consumes c: add/subtract/multiply/divide/min/max/abs read a and b at
+// most, and abs ignores b as well but keeps the port so an operation change never
+// rewires a saved graph. `inputs()` stays the stored contract (all three Math
+// ports) so files saved by builds that always showed C still validate; the editor,
+// the wire geometry and the runtime ask this instead, and the model drops a wire
+// to a port that is present in the contract but inactive for the current operation.
+export const MATH_OP_PORTS = Object.freeze({ clamp: Object.freeze(['a', 'b', 'c']) });
+const MATH_DEFAULT_PORTS = Object.freeze(['a', 'b']);
+export const mathPorts = (op) => (MATH_OP_PORTS[op] || MATH_DEFAULT_PORTS).slice();
+export const activeInputs = (node) => node?.type === 'math' ? mathPorts(node.op) : inputs(node);
+export const inactiveMathPort = (node, port) => node?.type === 'math' && inputs(node).includes(port) && !mathPorts(node.op).includes(port);
+export const isSignalSource = (node) => !!node && SIGNAL_TYPES.includes(node.type);
+export const isScalarConsumer = (node) => !!node && SCALAR_TYPES.includes(node.type);
+export const isVisualSource = (node) => !!node && VISUAL_SOURCES.includes(node.type);
+export const isModulationTarget = (node) => !!node && MODULATION_TARGETS.includes(node.type);
+export const isVisualType = (node) => !!node && VISUAL_TYPES.includes(node.type);
+// Numeric controls rendered by the shared parameter UI for a node's own fields.
+export const parameters = (node) => node?.type === 'color' ? COLOR_PARAMS.slice() : [];
+
+export function newId() { return `n${crypto.randomUUID().slice(0, 8)}`; }
+// Structural defaults for a fresh node. Pattern nodes additionally need a
+// non-recursive patternId and a parameter snapshot, so the editor builds those.
+export function defaultNode(type, x = 0, y = 0, id = newId()) {
+  const base = { id, type, x, y };
+  if (type === 'blend') return { ...base, mode: 'Normal', opacity: 1 };
+  if (type === 'audio') return { ...base, band: 'bass', ...DEFAULT_AUDIO_INPUT };
+  if (type === 'color') return { ...base, params: Object.fromEntries(COLOR_PARAMS.map(p => [p.key, p.default])) };
+  if (type === 'math') return { ...base, op: 'add', ...MATH_LITERALS };
+  if (type === 'script') return { ...base, language: DEFAULT_LANGUAGE, source: DEFAULT_BODY, ...SCRIPT_LITERALS };
+  if (type === 'output') return base;
+  throw new Error(`Cannot create a ${type} node without a pattern`);
+}

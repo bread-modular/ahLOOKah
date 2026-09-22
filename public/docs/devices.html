@@ -5,7 +5,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ahLOOKah — Docs: Devices &amp; Setup</title>
-  <meta name="description" content="Change the microphone and camera ahLOOKah uses, and move all saved settings to another browser with Export and Import Settings." />
+  <meta name="description" content="Change the microphone and camera ahLOOKah uses, and move a whole project — settings, linked Scripts, Node Patterns and Media directories — to another browser with Save Project, Open Project and New Project." />
   <meta name="theme-color" content="#0b0b0f" />
   <link rel="canonical" href="https://ahlookah.com/docs/devices.html" />
   <meta property="og:type" content="website" />
@@ -76,18 +76,23 @@
           <p><strong>Tip</strong> Don't see a device? Click <strong>Refresh Devices</strong> to rescan, and make sure the browser has permission for camera and microphone access.</p>
         </div>
 
-        <h2>Moving settings to another browser</h2>
-        <p>Everything you save — pattern parameters, pad order, EQ and noise floor, screen calibration, projection layouts, device choices and panel state — is stored in the browser you're using. To carry it to another browser or computer, open the <strong>app menu</strong>:</p>
+        <h2>Saving, opening and starting a project</h2>
+        <p>Everything you save — pattern parameters, pad order, EQ and noise floor, screen calibration, projection layouts, device choices and panel state — is one <strong>project</strong>, stored in the browser you're using. The <strong>app menu</strong> manages it:</p>
 
         <ul>
-          <li><strong>Export Settings</strong> downloads one file, <code>ahlookah-settings-YYYY-MM-DD.json</code>, containing all of it.</li>
-          <li><strong>Import Settings</strong> restores that file. It <em>replaces</em> the current browser's saved settings, then shows a summary — reload to apply it. So export first if you want to keep what's already there, and finish or cancel any CUE before importing.</li>
+          <li><strong>Save Project</strong> asks where to put the file and what to call it, then writes one <code>.json</code> (suggested name <code>ahlookah-project-YYYY-MM-DD.json</code>) containing all of it plus the identity of each linked directory (Custom Scripts, Node Patterns, Media). A browser without the save picker downloads the same file instead.</li>
+          <li><strong>Open Project</strong> opens such a file here. It <em>replaces</em> the current browser's project, then shows a summary — reload to apply it. So save first if you want to keep what's already there, and finish or cancel any CUE before opening a project.</li>
+          <li><strong>New Project</strong> clears this browser: every saved setting, all media patterns and every linked directory. It asks first, refuses while a CUE is staged, and keeps your device choices and setup state. Project files on disk are untouched.</li>
         </ul>
 
-        <p>Media patterns travel as references only: their names and metadata are restored, but the image or video files stay on the original computer. The import summary lists the patterns that need a file, and <strong>Relink File</strong> appears in the parameters panel only for those patterns — point each one at a file on the new machine and it renders again.</p>
+        <p><strong>On the same computer</strong>, a project's linked directories resume by themselves: linking a folder is remembered per project, so switching between projects never asks you to re-link what is already linked. Media files inside a linked directory are re-pointed automatically.</p>
+
+        <p><strong>On another computer</strong>, the directories are unknown, and opening a project stops until each one is linked: a blocking dialog lists every missing <em>Custom Scripts</em>, <em>Node Patterns</em> and <em>Media</em> directory with a <strong>Link Folder</strong> button (and <strong>Reconnect</strong> when this computer remembers the directory but its access expired). The project only completes — summary and reload — once every directory has been linked. Folder names are hints, never identities, so the same name is required for each.</p>
+
+        <p>Media patterns travel as references only: their names and metadata are restored, but the image or video files stay on the original computer. When a file is not in the linked directory, its pattern is marked red in the library and on the pad, and <strong>Relink File</strong> appears in the parameters panel for it. Missing files never block a project — restore the files (or re-link the pattern) and it renders again. Scripts travel as names plus a <em>fingerprint</em> of their code: a project reopens the script files it lists whose bytes still match what it recorded, so your custom patterns come back without clicking anything. Anything edited, renamed or added since keeps the <strong>Open trusted script</strong> hint — the panel also says <em>changed since this project was saved</em>, or that the project recorded no fingerprint — and needs an explicit <strong>Open</strong> under <strong>Custom Scripts</strong>: a project file never carries code or trust. If the browser asks for folder access again at startup, <strong>Linked → Refresh</strong> renews it and finishes the reopen.</p>
 
         <div class="callout">
-          <p><strong>Note</strong> Device selections are settings too, but device IDs rarely match across machines. If audio or camera stops working after an import, reopen <strong>Setup</strong> and pick the inputs for this computer.</p>
+          <p><strong>Note</strong> Device selections rarely match across machines, so if audio or camera stops working after opening a project, reopen <strong>Setup</strong> and pick the inputs for this computer. <strong>New Project</strong> intentionally keeps the device choices you already made here.</p>
         </div>
 
         <div class="pager">

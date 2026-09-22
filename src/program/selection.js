@@ -10,6 +10,7 @@ import {
 } from '../sketch-registry.js';
 import { copyProgramSelection, selectionsEqual } from '../program-runtime.js';
 
+// Disk node patterns have stable IDs; registry changes invalidate staged runtimes.
 export function singleSelection(id) {
   return { ids: id ? [id] : [], merge: false };
 }

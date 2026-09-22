@@ -1,63 +1,18 @@
-import { REPLACEMENT_PATTERNS } from '../src/sketches/replacements/index.js';
-import { EXPANSION_PATTERNS, RESTORED_CAMERA_PATTERNS } from '../src/sketches/expansion/index.js';
+import { BUILTIN_PATTERNS } from '../src/patterns/builtins.js';
 import { test, expect } from '@playwright/test';
 import { SMOKE_PATTERNS } from './smoke-patterns.js';
 
-// Smoke test: every newly added effect loads and renders without page errors.
-const NEW_IDS = [
-  'laser-grid',
-  'strobe-pulse',
-  'plasma-waves',
-  'glitch-matrix',
-  'neon-ribbons',
-  'prism-burst',
-  'event-horizon',
-  'liquid-chrome',
-  'laser-cathedral',
-  'cymatic-bloom',
-  'holo-swarm',
-  'aurora-veil',
-  'mandelbulb-drift',
-  'storm-surge',
-  'ink-dispersion',
-  'infinity-mirror',
-  'ion-tempest',
-  'crystal-reliquary',
-  'neural-cascade',
-  'aurora-reactor',
-  'warp-loom',
-  // Basics group (added in the pattern-pad/library restructure)
-  'solid-color',
-  'gradient-wash',
-  'color-bars',
-  'noise-static',
-  'film-grain',
-  'checkerboard',
-  // Video FX wave (camera-input) — 4 added by the video/glitch drop
-  'video-chroma',
-  'video-kaleido',
-  'video-pixelate',
-  'video-trails',
-  // Glitch wave (procedural, no camera needed)
-  'glitch-rgb-split',
-  'glitch-scanlines',
-  'glitch-slices',
-  'glitch-crt',
-  // Legacy camera-input effects now registered in the library (Video FX).
-  // The test browser launches with fake media-stream flags, so these get a
-  // synthetic camera; without one they would still render (black/fallback
-  // frame) without crashing — the assertions below stay frame-agnostic.
-  'video-dots-gpu',
-  'video-high-contrast',
-  ...REPLACEMENT_PATTERNS.map(s => s.id),
-  // Expansion wave: 9 researched VJ/VFX patterns + 2 restored legacy camera looks.
-  ...EXPANSION_PATTERNS.map(s => s.id),
-  ...RESTORED_CAMERA_PATTERNS.map(s => s.id),
-];
+// Full-catalog render coverage: one named test per built-in pattern, generated
+// from the real catalog. New patterns receive render coverage automatically —
+// there is no hand-maintained id list to extend.
+//
+// The bounded @smoke representatives (SMOKE_PATTERNS) stay a separate,
+// deliberate contract: one inexpensive pattern per established category.
+const SMOKE_IDS = new Set(Object.values(SMOKE_PATTERNS));
 
-test.describe('new effects smoke test', { tag: '@patterns' }, () => {
-  for (const id of new Set([...NEW_IDS, ...Object.values(SMOKE_PATTERNS)])) {
-    test(`renders ${id} without errors`, { tag: Object.values(SMOKE_PATTERNS).includes(id) ? '@smoke' : [] }, async ({ context, page }) => {
+test.describe('built-in patterns render without errors', { tag: '@patterns' }, () => {
+  for (const { id } of BUILTIN_PATTERNS) {
+    test(`renders ${id} without errors`, { tag: SMOKE_IDS.has(id) ? '@smoke' : [] }, async ({ context, page }) => {
       const errors = [];
       page.on('pageerror', (err) => errors.push(err.message));
       await page.goto('/?role=screen'); // screen window

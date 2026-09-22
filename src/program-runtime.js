@@ -85,6 +85,7 @@ export class ProgramRuntime {
     this.audioRole = audioRole;
     this.onAudioSlotsChanged = typeof onAudioSlotsChanged === 'function' ? onAudioSlotsChanged : null;
     this.audioSlots = [];
+    this.childRuntimes = [];
 
     this.instances = [];
     this.disposed = false;
@@ -269,7 +270,7 @@ export class ProgramRuntime {
   getAudioSlotDescriptors(role = this.audioRole) {
     if (this.disposed) return [];
     this._refreshAudioSlots(role);
-    return this.audioSlots.map((descriptor) => ({
+    return this.audioSlots.filter(d => !this.nodes[d.childIndex]?.sketch.nodesGraph).map((descriptor) => ({
       runtimeId: descriptor.runtimeId,
       patternId: descriptor.patternId,
       role: descriptor.role,
@@ -278,19 +279,19 @@ export class ProgramRuntime {
       params: { ...descriptor.params },
       audioTransport: descriptor.audioTransport,
       audioControlSchema: descriptor.audioControlSchema,
-    }));
+    })).concat(this.childRuntimes.flatMap(runtime => runtime.getAudioSlotDescriptors(role)));
   }
 
   _controlFreshMarkers() {
     this._refreshAudioSlots();
     return this.audioSlots
-      .filter((descriptor) => descriptor.binding)
+      .filter((descriptor) => descriptor.binding && !this.nodes[descriptor.childIndex]?.sketch.nodesGraph)
       .map((descriptor) => ({
         runtimeId: descriptor.runtimeId,
         paramsRevision: descriptor.paramsRevision,
         binding: descriptor.binding,
         marker: descriptor.binding.getRenderMarker(),
-      }));
+      })).concat(this.childRuntimes.flatMap(runtime => runtime._controlFreshMarkers()));
   }
 
   _setAudioEventDeliveryEnabled(enabled) {
@@ -303,6 +304,12 @@ export class ProgramRuntime {
     const node = this.nodes[index];
     const audioSlot = this.audioSlots[index] || null;
     const runtimeContext = {
+      preview: this.preview,
+      cameraSource: this.cameraSource,
+      audioControlStore: this.audioControlStore,
+      audioRole: this.audioRole,
+      onAudioSlotsChanged: () => this._notifyAudioSlotsChanged(),
+      registerChildRuntime: (runtime) => { this.childRuntimes.push(runtime); },
       // Every pattern receives a narrow, renderer-safe controls binding.
       audioControls: audioSlot?.binding || null,
       audioSlot: audioSlot ? {
@@ -870,6 +877,7 @@ export class ProgramRuntime {
     // selection replacement disposes this runtime.
     this._rejectFreshRequests(disposeError);
 
+    this.childRuntimes.splice(0).forEach(runtime => runtime.dispose());
     this.cleanup.splice(0).forEach((cleanup) => {
       try {
         cleanup();

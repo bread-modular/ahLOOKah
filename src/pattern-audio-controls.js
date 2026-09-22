@@ -6,10 +6,13 @@ import {
   PATTERN_AUDIO_CONTROLS_TYPE,
   PATTERN_AUDIO_EVENT_MAX_AGE_MS,
   PATTERN_AUDIO_NEUTRAL_DECAY_MS,
+  PATTERN_AUDIO_PROTOCOL_VERSION,
   PATTERN_AUDIO_STALE_AFTER_MS,
   clamp,
   cloneTransportValue,
+  isDefaultAudioRoute,
   neutralControlsForSchema,
+  sameAudioRoute,
   validateControlsForSlot,
   validatePatternAudioControls,
 } from './pattern-audio-protocol.js';
@@ -31,11 +34,14 @@ function cloneArrays(values = {}) {
 }
 
 function sameDescriptor(left, right) {
-  return left
-    && right
-    && left.patternId === right.patternId
-    && left.paramsRevision === right.paramsRevision
-    && left.audioTransport === right.audioTransport;
+  if (!left || !right) return false;
+  if (left.patternId !== right.patternId
+    || left.paramsRevision !== right.paramsRevision
+    || left.audioTransport !== right.audioTransport) return false;
+  // Routing selectors are part of a binding's identity: a slot that changes its
+  // requested device/channel must reset like any other descriptor change.
+  if (!!left.audioInput !== !!right.audioInput) return false;
+  return !left.audioInput || sameAudioRoute(left.audioInput, right.audioInput);
 }
 
 function makeSlotState(descriptor, {
@@ -48,6 +54,9 @@ function makeSlotState(descriptor, {
     current: null,
     events: [],
     seenEventIds: new Set(),
+    // Last accepted per-slot source availability metadata (v2). A change of the
+    // source tuple resets this slot only — never a healthy unrelated route.
+    source: null,
     // A hidden CUE runtime continues receiving continuous controls so it can
     // warm correctly, but it must not bank one-shot effects while parked.
     eventDeliveryEnabled: Boolean(eventDeliveryEnabled),
@@ -130,10 +139,15 @@ export class PatternAudioControlStore {
     this.now = typeof now === 'function' ? now : defaultNow;
 
     this.planRevision = -1;
+    this.planVersion = null;
     this.slots = new Map();
     this.audioOwnerId = null;
     this.streamGeneration = null;
     this.lastSequence = -1;
+    // Draw receipts must remain ordered across slot/plan/stream resets. A fresh
+    // frame request may outlive any of them; restarting a slot's counter at zero
+    // makes a new draw look older than the marker captured by that request.
+    this.renderSerial = 0;
     this.diagnostics = {
       acceptedPackets: 0,
       acceptedSlots: 0,
@@ -205,6 +219,10 @@ export class PatternAudioControlStore {
 
   setPlan(plan) {
     if (!plan || plan.consumerSessionId !== this.consumerSessionId || !Number.isInteger(plan.planRevision)) return false;
+    // A plan that declares its wire version binds the store to it: packets of a
+    // different version are refused. Unversioned internal plans (legacy local
+    // callers) stay permissive and accept the versions the owner emits.
+    this.planVersion = plan.version ?? null;
     const revisionChanged = plan.planRevision !== this.planRevision;
     const incoming = new Set((plan.slots || []).map((slot) => slot.runtimeId));
 
@@ -245,6 +263,21 @@ export class PatternAudioControlStore {
     }
   }
 
+  // Primary-status loss: decay global-default slots and pins to the exact
+  // failing device, but leave healthy extra-device routes untouched.
+  invalidatePrimarySlots(deviceId = null) {
+    const now = this.now();
+    for (const state of this.slots.values()) {
+      const route = state.descriptor.audioInput || null;
+      const followsPrimary = !route || route.deviceId === null || (deviceId && route.deviceId === deviceId);
+      if (!followsPrimary) continue;
+      state.events = [];
+      state.seenEventIds.clear();
+      state.lastReadSequence = null;
+      state.forcedStaleAt = now - 1;
+    }
+  }
+
   resetStream(ownerId, streamGeneration) {
     this.audioOwnerId = ownerId || null;
     this.streamGeneration = streamGeneration || null;
@@ -272,6 +305,13 @@ export class PatternAudioControlStore {
       this.diagnostics.droppedWrongPlan += 1;
       return { accepted: false, reason: 'plan' };
     }
+    // A packet may only complete the plan version this store published. The v1
+    // exception is a safely downgraded default-only plan, which would also have
+    // re-registered every slot without routing descriptors.
+    if (this.planVersion && packet.version !== this.planVersion) {
+      this.diagnostics.droppedWrongVersion = (this.diagnostics.droppedWrongVersion || 0) + 1;
+      return { accepted: false, reason: 'version' };
+    }
 
     const changedStream = packet.audioOwnerId !== this.audioOwnerId || packet.streamGeneration !== this.streamGeneration;
     if (changedStream) this.resetStream(packet.audioOwnerId, packet.streamGeneration);
@@ -283,7 +323,7 @@ export class PatternAudioControlStore {
     const receivedAt = this.now();
     let acceptedSlots = 0;
     for (const rawSlot of packet.slots) {
-      const state = this.slots.get(rawSlot.runtimeId);
+      let state = this.slots.get(rawSlot.runtimeId);
       if (!state) {
         this.diagnostics.droppedUnknownSlot += 1;
         continue;
@@ -292,11 +332,37 @@ export class PatternAudioControlStore {
         this.diagnostics.droppedWrongRevision += 1;
         continue;
       }
+      // Routing echo: a routed (v2) slot must echo exactly its registered
+      // selector — a missing or different echo is dropped with a diagnostic and
+      // never turns into global audio. A legacy descriptor without routing may
+      // receive an explicit default echo (same semantics), but never a
+      // nondefault one.
+      const echo = rawSlot.audioInput || null;
+      const expected = state.descriptor.audioInput || null;
+      if ((expected && !echo)
+        || (echo && expected && !sameAudioRoute(echo, expected))
+        || (echo && !expected && !isDefaultAudioRoute(echo))) {
+        this.diagnostics.droppedSelector = (this.diagnostics.droppedSelector || 0) + 1;
+        continue;
+      }
       const slot = validateControlsForSlot(rawSlot, state.descriptor);
       if (!slot) {
         this.diagnostics.droppedSchema += 1;
         continue;
       }
+      // Source tuple change (replacement, failure/recovery, channel layout or
+      // calibration reset): start that slot from a fresh sample instead of
+      // interpolating across devices or channels. Other slots are untouched.
+      const nextSource = rawSlot.source || null;
+      if (nextSource && state.source
+        && (nextSource.id !== state.source.id || nextSource.generation !== state.source.generation)) {
+        state = makeSlotState(state.descriptor, {
+          eventDeliveryEnabled: state.eventDeliveryEnabled,
+          eventDeliveryEnabledAt: state.eventDeliveryEnabledAt,
+        });
+        this.slots.set(rawSlot.runtimeId, state);
+      }
+      state.source = nextSource;
 
       state.previous = copySample(state.current);
       state.current = {
@@ -469,7 +535,7 @@ export class PatternAudioControlStore {
       || state.lastReadSequence !== state.current.sequence
       || state.readMarker <= state.lastDrawReadMarker) return false;
     state.lastDrawReadMarker = state.readMarker;
-    state.renderMarker += 1;
+    state.renderMarker = ++this.renderSerial;
     state.renderedParamsRevision = state.descriptor.paramsRevision;
     state.renderedSequence = state.current.sequence;
     return true;
@@ -481,9 +547,14 @@ export class PatternAudioControlStore {
 
   hasRenderedAfter(runtimeId, paramsRevision, marker) {
     const state = this.slots.get(runtimeId);
+    // The requested revision is a lower bound, not a frozen target. Node
+    // modulation can advance params while LIVE/CUE waits for controls. A draw
+    // of the current newer revision satisfies it; an obsolete or undrawn packet
+    // never does. Otherwise the gate waits for a revision we can no longer accept.
     return Boolean(state
       && state.renderMarker > marker
-      && state.renderedParamsRevision === paramsRevision
+      && state.renderedParamsRevision >= paramsRevision
+      && state.renderedParamsRevision === state.descriptor.paramsRevision
       && state.renderedSequence === state.current?.sequence
       && this._freshness(state, this.now()).isFresh);
   }
@@ -500,6 +571,7 @@ export class PatternAudioControlStore {
       renderedParamsRevision: state.renderedParamsRevision,
       renderedSequence: state.renderedSequence,
       descriptor: { ...state.descriptor },
+      source: state.source ? { ...state.source } : null,
     };
   }
 

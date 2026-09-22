@@ -1,15 +1,22 @@
+import { NODE_AUDIO_SOURCE } from './nodes/audio-source.js';
 // Capture-owner engine for pattern-specific audio controls. It consumes one
-// cleaned AudioManager analysis frame per tick, exposes lazy shared conversions,
-// updates per-runtime controllers, and emits compact packets for each consumer.
+// cleaned primary analysis frame per tick, resolves each slot's requested audio
+// input route through the supplied routing seam, keeps one canonical feature
+// extractor per effective route, updates per-runtime controllers, and emits
+// compact packets for each consumer (v1 for default-only legacy plans, v2 with
+// routing echoes and per-slot source status otherwise).
 
 import { makeAudioFeatures } from './sketches/audio-features.js';
 import {
+  DEFAULT_AUDIO_INPUT,
   PATTERN_AUDIO_CONTROLS_TYPE,
   PATTERN_AUDIO_EXPECTED_CONSUMER_MS,
   PATTERN_AUDIO_PLAN_LEASE_MS,
+  PATTERN_AUDIO_PLAN_MAX_BYTES,
   PATTERN_AUDIO_PLAN_TYPE,
-  PATTERN_AUDIO_PROTOCOL_VERSION,
   estimateTransportBytes,
+  audioRouteKey,
+  isDefaultAudioRoute,
   neutralControlsForSchema,
   validateControlsForSlot,
   validatePatternAudioPlan,
@@ -103,6 +110,27 @@ function makeNeutralSlot(descriptor) {
   };
 }
 
+// Neutral source metadata before/while a route has no usable frame. It keeps
+// the v2 slot schema complete without claiming hardware health.
+function unknownSource() {
+  return { id: null, generation: 0, activeDeviceId: null, channels: null, status: 'unavailable', fallback: false, calibration: 'none' };
+}
+
+// The wire carries exactly the seven bounded source fields; richer pool
+// diagnostics (e.g. requestedDeviceId) stay owner-internal.
+function wireSource(source) {
+  if (!source) return unknownSource();
+  return {
+    id: source.id ?? null,
+    generation: Number.isInteger(source.generation) && source.generation >= 0 ? source.generation : 0,
+    activeDeviceId: typeof source.activeDeviceId === 'string' ? source.activeDeviceId : null,
+    channels: Number.isInteger(source.channels) && source.channels >= 1 ? source.channels : null,
+    status: source.status ?? 'unavailable',
+    fallback: Boolean(source.fallback),
+    calibration: source.calibration ?? 'none',
+  };
+}
+
 export class PatternAudioControlEngine {
   constructor({
     ownerId,
@@ -111,18 +139,26 @@ export class PatternAudioControlEngine {
     planLeaseMs = PATTERN_AUDIO_PLAN_LEASE_MS,
     expectedConsumerMs = PATTERN_AUDIO_EXPECTED_CONSUMER_MS,
     createRng = null,
+    resolveRouteInput = null,
   } = {}) {
     this.ownerId = String(ownerId || 'audio-owner');
-    this.getSketchById = typeof getSketchById === 'function' ? getSketchById : () => null;
+    this.getSketchById = id => id === NODE_AUDIO_SOURCE.id ? NODE_AUDIO_SOURCE : (typeof getSketchById === 'function' ? getSketchById(id) : null);
     this.now = typeof now === 'function' ? now : defaultNow;
     this.planLeaseMs = Math.max(250, Number(planLeaseMs) || PATTERN_AUDIO_PLAN_LEASE_MS);
     this.expectedConsumerMs = Math.max(this.planLeaseMs, Number(expectedConsumerMs) || PATTERN_AUDIO_EXPECTED_CONSUMER_MS);
     this.createRng = typeof createRng === 'function' ? createRng : null;
+    // Owner-injected routing seam: (audioInput) => ({ frame, source }). The
+    // default route keeps the primary frame passed to update(); other routes
+    // resolve through the pool. Without a seam every routed slot is neutral.
+    this.resolveRouteInput = typeof resolveRouteInput === 'function' ? resolveRouteInput : null;
     this.featureAnalyser = makeAudioFeatures();
 
     this.plans = new Map();
     this.expectedConsumers = new Map();
     this.controllers = new Map();
+    // One persistent canonical extractor per requested route; rebuilt when the
+    // resolved source tuple (id/generation/layout) changes.
+    this.routeStates = new Map();
     this.streamNumber = 0;
     this.streamGeneration = this._nextStreamGeneration();
     this.lastTickAt = 0;
@@ -138,6 +174,7 @@ export class PatternAudioControlEngine {
       lastControllerMs: 0,
       controllerMsByPattern: {},
       lastShared: null,
+      routedSlots: 0,
     };
   }
 
@@ -149,6 +186,7 @@ export class PatternAudioControlEngine {
   beginStream() {
     this.streamGeneration = this._nextStreamGeneration();
     this.featureAnalyser = makeAudioFeatures();
+    this.routeStates.clear();
     this.disposeControllers();
     return this.streamGeneration;
   }
@@ -170,6 +208,12 @@ export class PatternAudioControlEngine {
       this.diagnostics.droppedPlans += 1;
       return { accepted: false, reason: 'malformed' };
     }
+    // Aggregate transport ceiling on an already shape-validated plan, before
+    // any controller/schema work.
+    if (estimateTransportBytes(plan) > PATTERN_AUDIO_PLAN_MAX_BYTES) {
+      this.diagnostics.droppedPlans += 1;
+      return { accepted: false, reason: 'capacity' };
+    }
     const now = this.now();
     const previous = this.plans.get(plan.consumerSessionId);
     if (previous && plan.planRevision < previous.plan.planRevision) {
@@ -177,12 +221,28 @@ export class PatternAudioControlEngine {
       return { accepted: false, reason: 'revision' };
     }
     // Same topology revision is intentionally valid: parameter revisions update
-    // in place without recreating controller state.
+    // in place without recreating controller state. But at an unchanged slot
+    // revision neither the selector nor the accepted params may change, and a
+    // slot's parameter revision can never regress.
+    if (previous && plan.planRevision === previous.plan.planRevision) {
+      const previousSlots = new Map(previous.plan.slots.map(slot => [slot.runtimeId, slot]));
+      for (const slot of plan.slots) {
+        const before = previousSlots.get(slot.runtimeId);
+        if (!before) continue;
+        if (slot.paramsRevision < before.paramsRevision
+          || (slot.paramsRevision === before.paramsRevision
+            && (JSON.stringify(slot.params) !== JSON.stringify(before.params)
+              || JSON.stringify(slot.audioInput || null) !== JSON.stringify(before.audioInput || null)))) {
+          this.diagnostics.droppedPlans += 1;
+          return { accepted: false, reason: 'revision' };
+        }
+      }
+    }
     this.plans.set(plan.consumerSessionId, { plan, receivedAt: now, expiresAt: now + this.planLeaseMs });
     this.expectedConsumers.set(plan.consumerSessionId, now + this.expectedConsumerMs);
     this.diagnostics.acceptedPlans += 1;
     this._reconcileControllers();
-    return { accepted: true, planRevision: plan.planRevision };
+    return { accepted: true, planRevision: plan.planRevision, version: plan.version };
   }
 
   expirePlans(now = this.now()) {
@@ -207,6 +267,18 @@ export class PatternAudioControlEngine {
     return slots;
   }
 
+  // Distinct nondefault capture demands (one per requested device) implied by
+  // the currently leased plans. Channels never need a second capture.
+  getRouteDemands() {
+    const demands = new Map();
+    for (const { slot } of this._activeSlots()) {
+      const route = slot.audioInput;
+      if (!route || isDefaultAudioRoute(route) || !route.deviceId) continue;
+      if (!demands.has(route.deviceId)) demands.set(route.deviceId, { ...route });
+    }
+    return [...demands.values()];
+  }
+
   _reconcileControllers() {
     const active = new Map();
     for (const { consumerSessionId, slot } of this._activeSlots()) {
@@ -229,7 +301,7 @@ export class PatternAudioControlEngine {
         const rng = this.createRng ? this.createRng({ ...desired.slot }) : undefined;
         const controller = sketch.createAudioController({ rng });
         if (!controller || typeof controller.update !== 'function') throw new Error('Pattern audio controller has no update() method.');
-        this.controllers.set(key, { controller, patternId: desired.slot.patternId });
+        this.controllers.set(key, { controller, patternId: desired.slot.patternId, routeSignature: '' });
         this.diagnostics.controllersCreated += 1;
       } catch (error) {
         console.error(`Unable to create audio controller for ${desired.slot.patternId}:`, error);
@@ -238,12 +310,54 @@ export class PatternAudioControlEngine {
     }
   }
 
+  _resetController(key) {
+    const state = this.controllers.get(key);
+    if (!state) return null;
+    try { state.controller?.dispose?.(); } catch {}
+    const sketch = this.getSketchById(state.patternId);
+    let controller = null;
+    try {
+      controller = sketch?.createAudioController ? sketch.createAudioController({}) : null;
+    } catch (error) {
+      this.diagnostics.controllerErrors += 1;
+    }
+    if (!controller) {
+      this.controllers.delete(key);
+      this.diagnostics.controllersDisposed += 1;
+      return null;
+    }
+    state.controller = controller;
+    state.routeSignature = '';
+    this.diagnostics.controllersCreated += 1;
+    return state;
+  }
+
   disposeControllers() {
     for (const state of this.controllers.values()) {
       try { state.controller?.dispose?.(); } catch {}
       this.diagnostics.controllersDisposed += 1;
     }
     this.controllers.clear();
+  }
+
+  // One canonical analysis view per effective (source, generation, channel)
+  // route. A source/layout change rebuilds the extractor so no resumed spectrum
+  // is ever compared against arbitrarily old flux/AGC state.
+  _viewFor(route, frame, source, deltaSeconds) {
+    const key = audioRouteKey(route);
+    let state = this.routeStates.get(key);
+    if (!state) {
+      state = { analyser: null, signature: '', builds: 0 };
+      this.routeStates.set(key, state);
+    }
+    const signature = `${source.id ?? ''}:${source.generation}:${source.channels ?? ''}`;
+    if (state.signature !== signature) {
+      state.analyser = makeAudioFeatures();
+      state.signature = signature;
+    }
+    state.builds += 1;
+    const analyser = state.analyser;
+    return new SharedAudioAnalysisView(frame, deltaSeconds, (analysisFrame, seconds) => analyser(analysisFrame, {}, seconds));
   }
 
   update({ frame, deltaSeconds, captureTime, sequence, now = this.now() } = {}) {
@@ -258,9 +372,12 @@ export class PatternAudioControlEngine {
     const packets = [];
     const tickStarted = this.now();
     const perPattern = {};
+    let routedSlots = 0;
 
     for (const [consumerSessionId, entry] of this.plans) {
+      const planVersion = entry.plan.version >= 2 ? 2 : 1;
       const outputSlots = [];
+      let anyUsable = false;
       for (const slot of entry.plan.slots) {
         const sketch = this.getSketchById(slot.patternId);
         const descriptor = {
@@ -269,12 +386,39 @@ export class PatternAudioControlEngine {
         };
         const state = this.controllers.get(controllerKey(consumerSessionId, slot.runtimeId));
         let output = makeNeutralSlot(descriptor);
-        if (state?.controller) {
+        // Route selection happens BEFORE extraction: default/default-mono slots
+        // share the primary full-stereo view; every other requested route gets
+        // its own projected frame and canonical extractor.
+        const route = slot.audioInput || DEFAULT_AUDIO_INPUT;
+        let routeFrame = frame;
+        let routeView = shared;
+        let source;
+        if (isDefaultAudioRoute(route)) {
+          source = this.resolveRouteInput?.(route)?.source
+            || { id: 'primary', generation: 0, activeDeviceId: frame?.deviceId ?? null,
+              channels: Number.isFinite(frame?.channels) ? frame.channels : null,
+              status: frame ? 'running' : 'unavailable', fallback: false, calibration: 'none' };
+        } else {
+          routedSlots += 1;
+          const resolution = this.resolveRouteInput ? this.resolveRouteInput(route) : null;
+          routeFrame = resolution?.frame || null;
+          source = resolution?.source || unknownSource();
+          routeView = routeFrame ? this._viewFor(route, routeFrame, source, dt) : null;
+        }
+        // A changed resolved source/generation restarts the controller from a
+        // fresh history even when patternId and runtimeId did not change.
+        const signature = `${audioRouteKey(route)}:${source.id ?? ''}:${source.generation}`;
+        let controllerState = state;
+        if (controllerState && controllerState.routeSignature && controllerState.routeSignature !== signature) {
+          controllerState = this._resetController(controllerKey(consumerSessionId, slot.runtimeId));
+        }
+        if (controllerState) controllerState.routeSignature = signature;
+        if (controllerState?.controller) {
           const started = this.now();
           try {
-            const candidate = state.controller.update({
-              frame,
-              shared,
+            const candidate = controllerState.controller.update({
+              frame: routeFrame,
+              shared: routeView,
               params: { ...slot.params },
               deltaSeconds: dt,
               captureTime,
@@ -296,19 +440,31 @@ export class PatternAudioControlEngine {
           const elapsed = Math.max(0, this.now() - started);
           perPattern[slot.patternId] = (perPattern[slot.patternId] || 0) + elapsed;
         }
+        if (routeFrame) anyUsable = true;
+        // v2 slots echo their requested selector and carry bounded source
+        // availability metadata; v1 packets stay byte-compatible with the old
+        // consumer build.
+        if (planVersion >= 2) {
+          output.audioInput = { ...route };
+          output.source = wireSource(source);
+        }
         outputSlots.push(output);
       }
 
       const packet = {
         type: PATTERN_AUDIO_CONTROLS_TYPE,
-        version: PATTERN_AUDIO_PROTOCOL_VERSION,
+        version: planVersion,
         consumerSessionId,
         planRevision: entry.plan.planRevision,
         audioOwnerId: this.ownerId,
         streamGeneration: this.streamGeneration,
         sequence: Number.isInteger(sequence) && sequence >= 0 ? sequence : 0,
         captureTime: Number.isFinite(captureTime) ? captureTime : now,
-        audioActive: Boolean(frame),
+        // v1 semantics: the primary frame existed. v2: at least one slot in this
+        // packet has usable input — a healthy pinned input keeps the packet
+        // active even while the global input is unselected, and a slot's own
+        // source status stays authoritative.
+        audioActive: planVersion >= 2 ? anyUsable : Boolean(frame),
         slots: outputSlots,
       };
       packets.push(packet);
@@ -320,6 +476,7 @@ export class PatternAudioControlEngine {
     this.diagnostics.lastControllerMs = Math.max(0, this.now() - tickStarted);
     this.diagnostics.controllerMsByPattern = perPattern;
     this.diagnostics.lastShared = { ...shared.diagnostics };
+    this.diagnostics.routedSlots = routedSlots;
     return { packets, shared };
   }
 
@@ -333,6 +490,7 @@ export class PatternAudioControlEngine {
           patternId: slot.patternId,
           paramsRevision: slot.paramsRevision,
           audioTransport: slot.audioTransport,
+          audioInput: slot.audioInput ? { ...slot.audioInput } : null,
         })),
         age: Math.max(0, this.now() - entry.receivedAt),
       };
@@ -341,8 +499,10 @@ export class PatternAudioControlEngine {
       ownerId: this.ownerId,
       streamGeneration: this.streamGeneration,
       activeControllers: [...this.controllers.entries()].map(([key, state]) => ({ key, patternId: state.patternId })),
+      routeStates: [...this.routeStates.entries()].map(([key, state]) => ({ route: key, builds: state.builds })),
       plans,
       expectedConsumers: [...this.expectedConsumers.keys()],
+      routeDemands: this.getRouteDemands(),
       ...this.diagnostics,
     };
   }

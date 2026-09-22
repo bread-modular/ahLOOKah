@@ -1,3 +1,4 @@
+import { folderDetails, folderAction } from './fixtures/folder-controls.js';
 import { test, expect } from '@playwright/test';
 
 const source = (name = 'Demo', extra = '') => `api.requireVersion(1); api.create({id:'custom-demo',name:${JSON.stringify(name)},draw({p}){p.background(24);},${extra}});`;
@@ -190,7 +191,7 @@ test('Custom Scripts @core multiwindow reload cancels cue, disposes preview/outp
   await expect.poll(() => page.evaluate(() => window.customStarts || 0)).toBeGreaterThan(0);
   await page.keyboard.press('Shift+1');
   await expect(page.locator('#cue-preview-controls')).toBeVisible();
-  await page.getByRole('button', { name: 'Reload linked scripts', exact: true }).click();
+  await folderAction(page, 'Custom Scripts', 'Refresh folder');
   await expect(page.locator('#cue-preview-controls')).toBeHidden();
   await expect.poll(() => output.evaluate(() => window.customStops || 0)).toBeGreaterThan(0);
   await expect.poll(() => output.evaluate(() => window.customStarts || 0)).toBeGreaterThan(1);
@@ -257,7 +258,7 @@ for (const name of ['drawing', 'mesh', 'shader', 'audio', 'audio-advanced', 'ima
   });
 }
 
-test('Custom Scripts @core selection modal, parameter actions, path copy, unlink and no Create UI', async ({ page, context }, testInfo) => {
+test('Custom Scripts @core selection modal, parameter actions, folder details cleanup and unlink', async ({ page, context }, testInfo) => {
   await seedFolder(page, source());
   // Start unlinked; picker is the only mocked native UI. Handles/bytes are real OPFS.
   await page.evaluate(async () => { const { scriptStorage } = await import('/src/custom-scripts/storage.js'); await scriptStorage('folder', null); });
@@ -266,16 +267,16 @@ test('Custom Scripts @core selection modal, parameter actions, path copy, unlink
     window.showDirectoryPicker = async () => (await navigator.storage.getDirectory()).getDirectoryHandle('scripts');
   });
   const panel = page.locator('.custom-scripts-panel');
-  await expect(panel.getByRole('button')).toHaveCount(1);
+  await expect(panel.getByRole('button')).toHaveCount(2);
   await expect(panel.getByRole('button', { name: 'Link Folder' })).toBeVisible();
-  await panel.screenshot({ path: testInfo.outputPath('unlinked.png') });
-  await page.getByRole('button', { name: 'Link Folder', exact: true }).click();
+  await panel.locator('..').screenshot({ path: testInfo.outputPath('unlinked.png') });
+  await page.locator('.custom-scripts-panel').getByRole('button', { name: 'Link Folder', exact: true }).click();
   await expect(page.locator('[data-id="custom-demo"]')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /create script/i })).toHaveCount(0);
-  await expect(panel.getByRole('button', { name: 'Copy folder name: scripts' })).toHaveAttribute('title', /Chrome does not expose the absolute native path/);
-  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-  await panel.getByRole('button', { name: 'Copy folder name: scripts' }).click();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('scripts');
+  await expect(page.getByRole('button', { name: 'Open Script', exact: true })).toBeEnabled();
+  const details = await folderDetails(page, 'Custom Scripts');
+  await expect(details).toContainText('Full paths are private');
+  await expect(details.getByRole('button', { name: /Copy folder/ })).toHaveCount(0);
+  await details.getByRole('button', { name: 'Close folder details' }).click();
   await page.getByRole('button', { name: 'Open Script', exact: true }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page.getByRole('dialog')).toContainText('not in a sandbox');
@@ -289,13 +290,14 @@ test('Custom Scripts @core selection modal, parameter actions, path copy, unlink
   const params = page.locator('#params-list');
   await expect(params.getByRole('button', { name: 'Reload', exact: true })).toBeVisible();
   await expect(params.getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
-  const row = await panel.locator('.script-folder-row').boundingBox();
-  const folderName = await panel.locator('.script-folder-name').boundingBox();
-  const close = await panel.getByRole('button', { name: 'Unlink scripts folder' }).boundingBox();
+  const row = await panel.locator('..').boundingBox();
+  const folderName = await panel.locator('.folder-linked').boundingBox();
+  const close = await panel.getByRole('button', { name: 'Open Script', exact: true }).boundingBox();
   expect(folderName.width).toBeLessThan(row.width / 2);
   expect(Math.abs(close.x + close.width - row.x - row.width)).toBeLessThan(2);
-  await expect(panel.locator('.script-folder-name')).toHaveCSS('text-transform', 'none');
+  await expect(panel.locator('.folder-linked')).toHaveCSS('text-transform', 'none');
   await page.screenshot({ path: testInfo.outputPath('linked-parameters.png') });
+  await panel.locator('..').screenshot({ path: '/tmp/refined-custom-scripts.png' });
   await page.evaluate(async () => {
     const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('scripts');
     const w = await (await dir.getFileHandle('demo.viz.js')).createWritable(); await w.write('api.requireVersion(1);syntax('); await w.close();
@@ -309,10 +311,10 @@ test('Custom Scripts @core selection modal, parameter actions, path copy, unlink
   page.once('dialog', (dialog) => { expect(dialog.message()).toContain('source file is kept'); return dialog.accept(); });
   await params.getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(page.locator('[data-id="custom-demo"]')).toHaveCount(0);
-  await panel.getByRole('button', { name: 'Reload linked scripts' }).click();
+  await folderAction(page, 'Custom Scripts', 'Refresh folder');
   await expect(panel.getByRole('alert')).toHaveCount(0); // broken but no longer selected
-  await panel.getByRole('button', { name: 'Unlink scripts folder' }).click();
-  await expect(panel.getByRole('button')).toHaveCount(1);
+  await folderAction(page, 'Custom Scripts', 'Unlink folder');
+  await expect(panel.getByRole('button')).toHaveCount(2);
   expect(await page.evaluate(async () => !!await (await (await navigator.storage.getDirectory()).getDirectoryHandle('scripts')).getFileHandle('demo.viz.js'))).toBe(true);
   await page.reload();
   await expect(panel.getByRole('button', { name: 'Link Folder' })).toBeVisible();
@@ -392,7 +394,7 @@ test('Custom Scripts @core stale TAKE cannot promote after reload; external dele
   await page.locator('#library-pane h3').click();
   await page.keyboard.press('Enter');
   await expect.poll(() => output.evaluate(() => window.__viz.cue?.takePending)).toBe(true);
-  await page.getByRole('button', { name: 'Reload linked scripts', exact: true }).click();
+  await folderAction(page, 'Custom Scripts', 'Refresh folder');
   await expect.poll(() => output.evaluate(() => window.__viz.cue)).toBeNull();
   await output.evaluate(() => {
     const { original, callbacks, cancel } = window.holdFrames;
@@ -403,7 +405,7 @@ test('Custom Scripts @core stale TAKE cannot promote after reload; external dele
   await page.locator('[data-id="custom-demo"]').click();
   await expect.poll(() => output.evaluate(() => window.__viz.patternId)).toBe('custom-demo');
   await page.evaluate(async () => { const d = await (await navigator.storage.getDirectory()).getDirectoryHandle('scripts'); await d.removeEntry('demo.viz.js'); });
-  await page.getByRole('button', { name: 'Reload linked scripts', exact: true }).click();
+  await folderAction(page, 'Custom Scripts', 'Refresh folder');
   await expect.poll(() => output.evaluate(() => window.__viz.patternId)).toBe('circles');
 });
 
@@ -425,7 +427,7 @@ test('Custom Scripts @core parameter schema changes and projection children reco
     const w = await (await dir.getFileHandle('demo.viz.js')).createWritable(); await w.write(text); await w.close();
   }, text);
   await update(text.replace("max:100", "max:20").replace('default:50', 'default:10'));
-  await page.getByRole('button', { name: 'Reload linked scripts', exact: true }).click();
+  await folderAction(page, 'Custom Scripts', 'Refresh folder');
   await expect.poll(() => output.evaluate(async () => (await import('/src/sketch-registry.js')).SKETCHES.find((s) => s.id === 'projection-custom').params.find((p) => p.label === 'Size')?.max)).toBe(20);
   await expect.poll(() => output.evaluate(() => window.__viz.programs.live?.children)).toEqual(['custom-demo']);
   await page.locator('[data-id="custom-demo"]').click();
@@ -468,14 +470,14 @@ test('Custom Scripts @core unlink disposes live and preview in all windows and l
   await page.waitForFunction(() => window.__viz?.screenOnline);
   await page.locator('[data-id="custom-demo"]').click();
   await expect.poll(() => output.evaluate(() => window.__viz?.patternId)).toBe('custom-demo');
-  await page.getByRole('button', { name: 'Unlink scripts folder' }).click();
+  await folderAction(page, 'Custom Scripts', 'Unlink folder');
   await expect.poll(() => output.evaluate(() => window.__viz?.patternId)).toBe('circles');
   await expect.poll(() => output.evaluate(() => window.stops || 0)).toBeGreaterThan(0);
   await expect.poll(() => page.evaluate(() => window.stops || 0)).toBeGreaterThan(0);
   await output.reload();
   await expect.poll(() => output.evaluate(async () => (await import('/src/sketch-registry.js')).SKETCHES.filter((s) => s.customScript).length)).toBe(0);
   await page.reload();
-  await expect(page.getByRole('button', { name: 'Link Folder' })).toBeVisible();
+  await expect(page.locator('.custom-scripts-panel').getByRole('button', { name: 'Link Folder' })).toBeVisible();
 });
 
 test('Custom Scripts @core failed Open stays in modal, preserves selection and supports retry', async ({ page }) => {
@@ -511,18 +513,13 @@ test('Custom Scripts @core legacy autoload snapshots do not execute; long folder
     await scriptStorage('active', { revision: 1, folder, sources: [{ name: 'demo.viz.js', text: 'window.legacyExecuted=true;' + text }] });
   }, { name, text: source() });
   await page.goto('/?role=control');
-  const folder = page.getByRole('button', { name: `Copy folder name: ${name}` });
-  await expect(folder).toBeVisible();
-  await expect(folder).toHaveAttribute('title', `${name}\nClick to copy folder name. Chrome does not expose the absolute native path.`);
+  const dialog = await folderDetails(page, 'Custom Scripts');
+  await expect(dialog.locator('.folder-details-name')).toHaveText(name);
+  await expect(dialog).toContainText('Full paths are private');
   expect(await page.evaluate(() => !!window.legacyExecuted)).toBe(false);
   await expect(page.locator('[data-id="custom-demo"]')).toHaveCount(0);
-  // Test the established narrow library content floor, without changing saved pane settings.
-  await page.locator('.custom-scripts-panel').evaluate((el) => { el.style.width = '210px'; });
-  const box = await page.locator('.script-folder-row').boundingBox();
-  const close = await page.getByRole('button', { name: 'Unlink scripts folder' }).boundingBox();
-  expect(close.x + close.width).toBeLessThanOrEqual(box.x + box.width + 1);
-  expect(await folder.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
-  await page.getByRole('button', { name: 'Unlink scripts folder' }).click();
+  expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await dialog.getByRole('button', { name: 'Unlink folder', exact: true }).click();
   await page.reload();
-  await expect(page.getByRole('button', { name: 'Link Folder' })).toBeVisible();
+  await expect(page.locator('.custom-scripts-panel').getByRole('button', { name: 'Link Folder' })).toBeVisible();
 });
