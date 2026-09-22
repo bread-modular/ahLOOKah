@@ -1,6 +1,8 @@
 # Built-in patterns: one implementation and one focused test
 
-**Status:** Proposed; investigation and design only. No runtime or test implementation changes are included.
+**Status:** Implemented and verified (workspace 180, 2026-09-22). Simple Circle is the migrated pilot (`src/sketches/simple-circle.pattern.js` + `tests/patterns/simple-circle.spec.js`); the catalog foundation, discovery, contracts, and decoupled specs are landed.
+
+**§7 extension probe — verified in an isolated project copy:** adding only `src/sketches/probe-dot.pattern.js` + `tests/patterns/probe-dot.spec.js` produced a 73-entry catalog with no registry/count/cohort/smoke/compat/README edit. Evidence: `validate-pattern-catalog` OK (73 built-ins); 22/22 passed (probe spec, `tests/catalog`, both cohort specs, smoke-selection); control-panel/library-search key specs passed unchanged; smoke `--list` showed 73 tests including `renders probe-dot`. Failure modes verified: duplicate IDs and filename/ID mismatches fail validation with origin + field diagnostics (exit 1). Full suites: `@core` 172 passed + 3 pre-existing failures (canvas-density Pendulum + linked-library scrollbar, confirmed identical on pristine base via stash); `@smoke` 25/25; `new-effects-smoke` 72/72 serial (parallel flakes under load are contention, not regressions); `npm run build` green with the catalog gate.
 
 **Inspected baseline:** `62617ff`, including `8b59020` ("Add a simple circle."). Paths and line numbers below refer to that baseline.
 

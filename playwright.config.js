@@ -1,4 +1,11 @@
 import { defineConfig, devices } from '@playwright/test';
+import { generatePatternCatalog } from './scripts/generate-pattern-catalog.mjs';
+
+// Regenerate the built-in pattern catalog during config loading — before specs
+// are imported and test cases enumerated — so Node-side registry imports (and
+// `--list`) work from a clean checkout. Covers all npm test aliases and direct
+// `npx playwright test` without relying on the web server or globalSetup.
+await generatePatternCatalog(new URL('.', import.meta.url).pathname);
 
 // Override for isolated worktrees; never reuse an unrelated app on the default port.
 const port = Number(process.env.PLAYWRIGHT_PORT || 5173);

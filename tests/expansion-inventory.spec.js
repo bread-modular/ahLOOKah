@@ -1,18 +1,24 @@
 import { test, expect } from '@playwright/test';
-import { SKETCHES, getGroups } from '../src/sketch-registry.js';
+import { BUILTIN_PATTERNS } from '../src/patterns/builtins.js';
 import { EXPANSION_PATTERNS, RESTORED_CAMERA_PATTERNS } from '../src/sketches/expansion/index.js';
 import { createExpansionController } from '../src/sketches/expansion/runtime.js';
 import { BAND_PARAMS } from '../src/sketches/band-reactive.js';
 import { FEATURE_SCHEMA } from '../src/sketches/feature-controls.js';
 
+// Scoped expansion-cohort contract: the 9 researched patterns plus the 2
+// restored legacy camera looks are present with their intended distribution,
+// params, and controller bindings. This spec owns the expansion cohort only —
+// it asserts nothing about the whole-app total or group order (see
+// tests/catalog/ for those contracts).
+
 const ALL = [...EXPANSION_PATTERNS, ...RESTORED_CAMERA_PATTERNS];
 
-test('expansion provenance: 9 new + 2 restored, registry totals 72, category order intact', { tag: '@core' }, () => {
+test('expansion cohort: 9 new + 2 restored present with intended distribution', { tag: '@core' }, () => {
   expect(EXPANSION_PATTERNS).toHaveLength(9);
   expect(RESTORED_CAMERA_PATTERNS.map((s) => s.id)).toEqual(['video-edge-glow', 'video-thermal']);
   expect(ALL.every(Boolean)).toBe(true);
-  expect(SKETCHES).toHaveLength(72);
-  expect(new Set(SKETCHES.map((s) => s.id)).size).toBe(72);
+  const byId = new Map(BUILTIN_PATTERNS.map((s) => [s.id, s]));
+  for (const s of ALL) expect(byId.get(s.id), s.id).toBe(s);
   // Remaining entries per existing visual category. No Media/Projection Mapping additions.
   const expected = { Simple: 0, Rhythmic: 0, '3D': 2, 'Cinematic / Shaders': 1, 'Neon / Lasers': 0, 'Video FX': 2, 'Glitch / Effects': 2, Basics: 1, Alphas: 1 };
   for (const [group, count] of Object.entries(expected)) {
@@ -20,10 +26,9 @@ test('expansion provenance: 9 new + 2 restored, registry totals 72, category ord
   }
   expect(RESTORED_CAMERA_PATTERNS.every((s) => s.group === 'Video FX' && s.camera)).toBe(true);
   expect(EXPANSION_PATTERNS.filter((s) => s.camera).map((s) => s.id)).toEqual(['video-datamosh', 'video-rolling-shutter']);
-  // Group labels/order unchanged; Media & Projection Mapping untouched.
-  expect(getGroups()).toEqual(['Simple', 'Rhythmic', '3D', 'Cinematic / Shaders', 'Neon / Lasers', 'Video FX', 'Glitch / Effects', 'Basics', 'Alphas', 'Media', 'Projection Mapping', 'Custom Scripts']);
-  expect(SKETCHES.slice(0, 4).map((s) => s.id)).toEqual(['circles', 'bars', 'techno3d', 'character3d']);
-  expect(SKETCHES.find((s) => s.id === 'checkerboard').audioReactive).toBe(false);
+});
+
+test('expansion cohort: shared controller identity, band schema, and param contracts', { tag: '@core' }, () => {
   // Every entry: own controller identity (never the replacement/shared ones),
   // shared band schema/sliders, transport, description and docs of band roles.
   for (const s of ALL) {

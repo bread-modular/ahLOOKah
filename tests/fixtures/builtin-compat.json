@@ -1,0 +1,2358 @@
+[
+ {
+  "id": "circles",
+  "name": "Circles",
+  "group": "Simple",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ],
+   [
+    "glitch",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "bars",
+  "name": "Bars",
+  "group": "Simple",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "gain",
+    1
+   ],
+   [
+    "barWidth",
+    4
+   ],
+   [
+    "flash",
+    1
+   ],
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "techno3d",
+  "name": "Techno 3D",
+  "group": "3D",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "spin",
+    1
+   ],
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "character3d",
+  "name": "Character 3D",
+  "group": "3D",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "groove",
+    1
+   ],
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "pulse-rings",
+  "name": "Pulse Rings",
+  "group": "Rhythmic",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "kick",
+    0.35
+   ],
+   [
+    "speed",
+    1
+   ],
+   [
+    "rings",
+    40
+   ],
+   [
+    "sub",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "particle-storm",
+  "name": "Particle Storm",
+  "group": "Rhythmic",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "count",
+    320
+   ],
+   [
+    "burst",
+    1
+   ],
+   [
+    "wind",
+    1
+   ],
+   [
+    "kick",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "chroma-mandala",
+  "name": "Chroma Mandala",
+  "group": "Rhythmic",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "petals",
+    12
+   ],
+   [
+    "spin",
+    1
+   ],
+   [
+    "bloom",
+    1
+   ],
+   [
+    "sub",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "starfield-rush",
+  "name": "Starfield Rush",
+  "group": "3D",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "count",
+    240
+   ],
+   [
+    "warp",
+    1
+   ],
+   [
+    "hue",
+    1
+   ],
+   [
+    "sparkle",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "echo-ripples",
+  "name": "Echo Ripples",
+  "group": "Rhythmic",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "speed",
+    1
+   ],
+   [
+    "ripples",
+    20
+   ],
+   [
+    "thick",
+    1
+   ],
+   [
+    "sparkle",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "laser-grid",
+  "name": "Laser Grid",
+  "group": "Neon / Lasers",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ],
+   [
+    "grid",
+    18
+   ],
+   [
+    "beams",
+    6
+   ],
+   [
+    "speed",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "strobe-pulse",
+  "name": "Strobe Pulse",
+  "group": "Rhythmic",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "threshold",
+    0.32
+   ],
+   [
+    "kickFreq",
+    60
+   ],
+   [
+    "kickRange",
+    40
+   ],
+   [
+    "decay",
+    0.82
+   ],
+   [
+    "split",
+    1
+   ],
+   [
+    "cycle",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "plasma-waves",
+  "name": "Plasma Waves",
+  "group": "Rhythmic",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ],
+   [
+    "cell",
+    10
+   ],
+   [
+    "speed",
+    1
+   ],
+   [
+    "scale",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "glitch-matrix",
+  "name": "Glitch Matrix",
+  "group": "Glitch / Effects",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "columns",
+    40
+   ],
+   [
+    "speed",
+    1
+   ],
+   [
+    "glitch",
+    1
+   ],
+   [
+    "trail",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "neon-ribbons",
+  "name": "Neon Ribbons",
+  "group": "Neon / Lasers",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ],
+   [
+    "ribbons",
+    6
+   ],
+   [
+    "flow",
+    1
+   ],
+   [
+    "width",
+    1
+   ],
+   [
+    "trail",
+    60
+   ]
+  ]
+ },
+ {
+  "id": "prism-burst",
+  "name": "Prism Burst",
+  "group": "Neon / Lasers",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ],
+   [
+    "rays",
+    48
+   ],
+   [
+    "spin",
+    1
+   ],
+   [
+    "length",
+    1
+   ],
+   [
+    "core",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "event-horizon",
+  "name": "Event Horizon",
+  "group": "Cinematic / Shaders",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ],
+   [
+    "punch",
+    1
+   ],
+   [
+    "gravity",
+    1
+   ],
+   [
+    "disk",
+    1
+   ],
+   [
+    "spin",
+    1
+   ],
+   [
+    "bloom",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "liquid-chrome",
+  "name": "Liquid Chrome",
+  "group": "Cinematic / Shaders",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ],
+   [
+    "punch",
+    1
+   ],
+   [
+    "morph",
+    1
+   ],
+   [
+    "reflect",
+    1
+   ],
+   [
+    "speed",
+    1
+   ],
+   [
+    "iridescence",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "laser-cathedral",
+  "name": "Laser Cathedral",
+  "group": "Neon / Lasers",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ],
+   [
+    "punch",
+    1
+   ],
+   [
+    "speed",
+    1
+   ],
+   [
+    "beams",
+    1
+   ],
+   [
+    "depth",
+    1
+   ],
+   [
+    "structure",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "cymatic-bloom",
+  "name": "Cymatic Bloom",
+  "group": "Cinematic / Shaders",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ],
+   [
+    "punch",
+    1
+   ],
+   [
+    "symmetry",
+    10
+   ],
+   [
+    "complexity",
+    1
+   ],
+   [
+    "flow",
+    1
+   ],
+   [
+    "bloom",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "holo-swarm",
+  "name": "Holo Swarm",
+  "group": "Cinematic / Shaders",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ],
+   [
+    "punch",
+    1
+   ],
+   [
+    "morph",
+    1
+   ],
+   [
+    "density",
+    1
+   ],
+   [
+    "scan",
+    1
+   ],
+   [
+    "speed",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "aurora-veil",
+  "name": "Aurora Veil",
+  "group": "Cinematic / Shaders",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ],
+   [
+    "punch",
+    1
+   ],
+   [
+    "curtain",
+    1
+   ],
+   [
+    "flow",
+    1
+   ],
+   [
+    "shimmer",
+    1
+   ],
+   [
+    "haze",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "mandelbulb-drift",
+  "name": "Mandelbulb Drift",
+  "group": "3D",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ],
+   [
+    "punch",
+    1
+   ],
+   [
+    "power",
+    8
+   ],
+   [
+    "detail",
+    1
+   ],
+   [
+    "drift",
+    1
+   ],
+   [
+    "glow",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "storm-surge",
+  "name": "Storm Surge",
+  "group": "Cinematic / Shaders",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ],
+   [
+    "punch",
+    1
+   ],
+   [
+    "cover",
+    1
+   ],
+   [
+    "godrays",
+    1
+   ],
+   [
+    "drift",
+    1
+   ],
+   [
+    "bloom",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "ink-dispersion",
+  "name": "Ink Dispersion",
+  "group": "Cinematic / Shaders",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ],
+   [
+    "punch",
+    1
+   ],
+   [
+    "viscosity",
+    1
+   ],
+   [
+    "density",
+    1
+   ],
+   [
+    "spread",
+    1
+   ],
+   [
+    "bloom",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "infinity-mirror",
+  "name": "Infinity Mirror",
+  "group": "3D",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ],
+   [
+    "punch",
+    1
+   ],
+   [
+    "mirrors",
+    0.8
+   ],
+   [
+    "glow",
+    1
+   ],
+   [
+    "spin",
+    1
+   ],
+   [
+    "depth",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "ion-tempest",
+  "name": "Ion Tempest",
+  "group": "Cinematic / Shaders",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ],
+   [
+    "punch",
+    1
+   ],
+   [
+    "storm",
+    1
+   ],
+   [
+    "branch",
+    1
+   ],
+   [
+    "speed",
+    1
+   ],
+   [
+    "glow",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "crystal-reliquary",
+  "name": "Crystal Reliquary",
+  "group": "3D",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ],
+   [
+    "punch",
+    1
+   ],
+   [
+    "scale",
+    1
+   ],
+   [
+    "facet",
+    1
+   ],
+   [
+    "spin",
+    1
+   ],
+   [
+    "caustic",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "neural-cascade",
+  "name": "Neural Cascade",
+  "group": "Cinematic / Shaders",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ],
+   [
+    "punch",
+    1
+   ],
+   [
+    "nodes",
+    1
+   ],
+   [
+    "links",
+    1
+   ],
+   [
+    "pulse",
+    1
+   ],
+   [
+    "speed",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "aurora-reactor",
+  "name": "Aurora Reactor",
+  "group": "Cinematic / Shaders",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ],
+   [
+    "punch",
+    1
+   ],
+   [
+    "field",
+    1
+   ],
+   [
+    "curtain",
+    1
+   ],
+   [
+    "core",
+    1
+   ],
+   [
+    "speed",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "warp-loom",
+  "name": "Warp Loom",
+  "group": "Cinematic / Shaders",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ],
+   [
+    "punch",
+    1
+   ],
+   [
+    "threads",
+    1
+   ],
+   [
+    "twist",
+    1
+   ],
+   [
+    "speed",
+    1
+   ],
+   [
+    "bloom",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "fractal-nebula",
+  "name": "Fractal Nebula",
+  "group": "Cinematic / Shaders",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ],
+   [
+    "punch",
+    1
+   ],
+   [
+    "power",
+    1
+   ],
+   [
+    "detail",
+    1
+   ],
+   [
+    "glow",
+    1
+   ],
+   [
+    "speed",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "aurora-storm",
+  "name": "Aurora Storm",
+  "group": "Cinematic / Shaders",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ],
+   [
+    "punch",
+    1
+   ],
+   [
+    "curtains",
+    1
+   ],
+   [
+    "palette",
+    1
+   ],
+   [
+    "shimmer",
+    1
+   ],
+   [
+    "speed",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "wormhole-transit",
+  "name": "Wormhole Transit",
+  "group": "3D",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ],
+   [
+    "punch",
+    1
+   ],
+   [
+    "twist",
+    1
+   ],
+   [
+    "throat",
+    1
+   ],
+   [
+    "doppler",
+    1
+   ],
+   [
+    "speed",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "neon-metropolis",
+  "name": "Neon Metropolis",
+  "group": "Neon / Lasers",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ],
+   [
+    "punch",
+    1
+   ],
+   [
+    "skyline",
+    1
+   ],
+   [
+    "neon",
+    1
+   ],
+   [
+    "traffic",
+    1
+   ],
+   [
+    "speed",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "solid-color",
+  "name": "Solid Color",
+  "group": "Basics",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "hue",
+    0.6
+   ],
+   [
+    "saturation",
+    0.7
+   ],
+   [
+    "brightness",
+    0.9
+   ],
+   [
+    "pulse",
+    0
+   ]
+  ]
+ },
+ {
+  "id": "gradient-wash",
+  "name": "Color Wash",
+  "group": "Basics",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "hueA",
+    0.55
+   ],
+   [
+    "hueB",
+    0.92
+   ],
+   [
+    "speed",
+    0.6
+   ],
+   [
+    "pulse",
+    0.8
+   ]
+  ]
+ },
+ {
+  "id": "color-bars",
+  "name": "Color Bars",
+  "group": "Basics",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "bars",
+    8
+   ],
+   [
+    "saturation",
+    0.85
+   ],
+   [
+    "brightness",
+    0.95
+   ],
+   [
+    "wobble",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "noise-static",
+  "name": "Noise Static",
+  "group": "Basics",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "intensity",
+    0.7
+   ],
+   [
+    "density",
+    3
+   ],
+   [
+    "color",
+    0
+   ],
+   [
+    "pulse",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "film-grain",
+  "name": "Film Grain",
+  "group": "Basics",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "amount",
+    0.5
+   ],
+   [
+    "size",
+    2
+   ],
+   [
+    "tint",
+    0.08
+   ],
+   [
+    "bgBrightness",
+    0.25
+   ],
+   [
+    "speed",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "checkerboard",
+  "name": "Checkerboard",
+  "group": "Simple",
+  "audioReactive": false,
+  "camera": null,
+  "params": [
+   [
+    "cell",
+    48
+   ],
+   [
+    "hueA",
+    0.58
+   ],
+   [
+    "hueB",
+    0.08
+   ],
+   [
+    "saturation",
+    0
+   ],
+   [
+    "brightnessA",
+    1
+   ],
+   [
+    "brightnessB",
+    0
+   ],
+   [
+    "speed",
+    0
+   ]
+  ]
+ },
+ {
+  "id": "video-chroma",
+  "name": "Video Chroma Key",
+  "group": "Video FX",
+  "audioReactive": null,
+  "camera": true,
+  "params": [
+   [
+    "keyHue",
+    120
+   ],
+   [
+    "tolerance",
+    0.16
+   ],
+   [
+    "softness",
+    0.12
+   ],
+   [
+    "bgMode",
+    1
+   ],
+   [
+    "bgHue",
+    275
+   ],
+   [
+    "bgSat",
+    0.7
+   ],
+   [
+    "bgBright",
+    0.55
+   ],
+   [
+    "audioReact",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "video-kaleido",
+  "name": "Video Kaleidoscope",
+  "group": "Video FX",
+  "audioReactive": null,
+  "camera": true,
+  "params": [
+   [
+    "segments",
+    6
+   ],
+   [
+    "speed",
+    0.6
+   ],
+   [
+    "zoom",
+    1
+   ],
+   [
+    "cx",
+    0
+   ],
+   [
+    "cy",
+    0
+   ],
+   [
+    "audioZoom",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "video-pixelate",
+  "name": "Video Pixelate",
+  "group": "Video FX",
+  "audioReactive": null,
+  "camera": true,
+  "params": [
+   [
+    "block",
+    14
+   ],
+   [
+    "audioBlocks",
+    0.8
+   ],
+   [
+    "levels",
+    8
+   ],
+   [
+    "tint",
+    0
+   ],
+   [
+    "bright",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "video-trails",
+  "name": "Video Trails",
+  "group": "Video FX",
+  "audioReactive": null,
+  "camera": true,
+  "params": [
+   [
+    "decay",
+    0.6
+   ],
+   [
+    "tintHue",
+    0.6
+   ],
+   [
+    "blend",
+    0
+   ],
+   [
+    "audioDecay",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "glitch-rgb-split",
+  "name": "RGB Split",
+  "group": "Glitch / Effects",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "intensity",
+    0.4
+   ],
+   [
+    "burst",
+    1
+   ],
+   [
+    "speed",
+    1
+   ],
+   [
+    "pulse",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "glitch-scanlines",
+  "name": "Scanline Roll",
+  "group": "Glitch / Effects",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "speed",
+    1
+   ],
+   [
+    "intensity",
+    1
+   ],
+   [
+    "bands",
+    3
+   ],
+   [
+    "pulse",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "glitch-slices",
+  "name": "Slice Glitch",
+  "group": "Glitch / Effects",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "slices",
+    10
+   ],
+   [
+    "shift",
+    0.5
+   ],
+   [
+    "blocks",
+    8
+   ],
+   [
+    "speed",
+    1
+   ],
+   [
+    "pulse",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "glitch-crt",
+  "name": "CRT Glitch",
+  "group": "Glitch / Effects",
+  "audioReactive": null,
+  "camera": null,
+  "params": [
+   [
+    "curvature",
+    0.6
+   ],
+   [
+    "scanlines",
+    0.7
+   ],
+   [
+    "flicker",
+    0.5
+   ],
+   [
+    "roll",
+    0.5
+   ],
+   [
+    "ghost",
+    0.4
+   ],
+   [
+    "speed",
+    1
+   ],
+   [
+    "pulse",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "video-dots-gpu",
+  "name": "Video Dots GPU",
+  "group": "Video FX",
+  "audioReactive": null,
+  "camera": true,
+  "params": [
+   [
+    "spacing",
+    12
+   ],
+   [
+    "glitch",
+    1
+   ],
+   [
+    "react",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "video-high-contrast",
+  "name": "Video High Contrast",
+  "group": "Video FX",
+  "audioReactive": null,
+  "camera": true,
+  "params": [
+   [
+    "threshold",
+    0.35
+   ],
+   [
+    "contrast",
+    1
+   ],
+   [
+    "react",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "truchet-relay",
+  "name": "Truchet Relay",
+  "group": "Simple",
+  "audioReactive": true,
+  "camera": null,
+  "params": [
+   [
+    "detail",
+    1
+   ],
+   [
+    "speed",
+    0.6
+   ],
+   [
+    "hue",
+    0.53
+   ],
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "membrane-modes",
+  "name": "Membrane Modes",
+  "group": "Rhythmic",
+  "audioReactive": true,
+  "camera": null,
+  "params": [
+   [
+    "detail",
+    1
+   ],
+   [
+    "speed",
+    0.6
+   ],
+   [
+    "accents",
+    1
+   ],
+   [
+    "hue",
+    0.53
+   ],
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "schlieren-flow",
+  "name": "Schlieren Flow",
+  "group": "Cinematic / Shaders",
+  "audioReactive": true,
+  "camera": null,
+  "params": [
+   [
+    "detail",
+    1
+   ],
+   [
+    "speed",
+    0.6
+   ],
+   [
+    "hue",
+    0.53
+   ],
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "tidal-glass",
+  "name": "Tidal Glass",
+  "group": "Cinematic / Shaders",
+  "audioReactive": true,
+  "camera": null,
+  "params": [
+   [
+    "detail",
+    1
+   ],
+   [
+    "speed",
+    0.6
+   ],
+   [
+    "hue",
+    0.53
+   ],
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "video-slit-scan",
+  "name": "Video Slit Scan",
+  "group": "Video FX",
+  "audioReactive": true,
+  "camera": true,
+  "params": [
+   [
+    "detail",
+    1
+   ],
+   [
+    "speed",
+    0.6
+   ],
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "video-facet-fold",
+  "name": "Video Facet Fold",
+  "group": "Video FX",
+  "audioReactive": true,
+  "camera": true,
+  "params": [
+   [
+    "detail",
+    1
+   ],
+   [
+    "speed",
+    0.6
+   ],
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "bitplane-rewire",
+  "name": "Bitplane Rewire",
+  "group": "Glitch / Effects",
+  "audioReactive": true,
+  "camera": null,
+  "params": [
+   [
+    "detail",
+    1
+   ],
+   [
+    "speed",
+    0.6
+   ],
+   [
+    "hue",
+    0.53
+   ],
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "riso-misprint",
+  "name": "Riso Misprint",
+  "group": "Glitch / Effects",
+  "audioReactive": true,
+  "camera": null,
+  "params": [
+   [
+    "speed",
+    0.6
+   ],
+   [
+    "hue",
+    0.53
+   ],
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "iris-diaphragm",
+  "name": "Iris Diaphragm",
+  "group": "Alphas",
+  "audioReactive": true,
+  "camera": null,
+  "params": [
+   [
+    "detail",
+    1
+   ],
+   [
+    "speed",
+    0.6
+   ],
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "cellular-gate",
+  "name": "Cellular Gate",
+  "group": "Alphas",
+  "audioReactive": true,
+  "camera": null,
+  "params": [
+   [
+    "detail",
+    1
+   ],
+   [
+    "speed",
+    0.6
+   ],
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "voxel-cascade",
+  "name": "Voxel Cascade",
+  "group": "3D",
+  "audioReactive": true,
+  "camera": null,
+  "params": [
+   [
+    "detail",
+    1
+   ],
+   [
+    "speed",
+    0.6
+   ],
+   [
+    "hue",
+    0.53
+   ],
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "gyro-lattice",
+  "name": "Gyro Lattice",
+  "group": "3D",
+  "audioReactive": true,
+  "camera": null,
+  "params": [
+   [
+    "detail",
+    1
+   ],
+   [
+    "speed",
+    0.6
+   ],
+   [
+    "hue",
+    0.53
+   ],
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "godray-forge",
+  "name": "Godray Forge",
+  "group": "Cinematic / Shaders",
+  "audioReactive": true,
+  "camera": null,
+  "params": [
+   [
+    "detail",
+    1
+   ],
+   [
+    "speed",
+    0.6
+   ],
+   [
+    "hue",
+    0.53
+   ],
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "video-datamosh",
+  "name": "Video Datamosh",
+  "group": "Video FX",
+  "audioReactive": true,
+  "camera": true,
+  "params": [
+   [
+    "detail",
+    1
+   ],
+   [
+    "speed",
+    0.6
+   ],
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "video-rolling-shutter",
+  "name": "Video Rolling Shutter",
+  "group": "Video FX",
+  "audioReactive": true,
+  "camera": true,
+  "params": [
+   [
+    "detail",
+    1
+   ],
+   [
+    "speed",
+    0.6
+   ],
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "vhs-head-switch",
+  "name": "VHS Head Switch",
+  "group": "Glitch / Effects",
+  "audioReactive": true,
+  "camera": null,
+  "params": [
+   [
+    "detail",
+    1
+   ],
+   [
+    "speed",
+    0.6
+   ],
+   [
+    "hue",
+    0.53
+   ],
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "dct-blocks",
+  "name": "DCT Blocks",
+  "group": "Glitch / Effects",
+  "audioReactive": true,
+  "camera": null,
+  "params": [
+   [
+    "detail",
+    1
+   ],
+   [
+    "speed",
+    0.6
+   ],
+   [
+    "hue",
+    0.53
+   ],
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "test-card",
+  "name": "Test Card",
+  "group": "Basics",
+  "audioReactive": true,
+  "camera": null,
+  "params": [
+   [
+    "detail",
+    1
+   ],
+   [
+    "speed",
+    0.6
+   ],
+   [
+    "hue",
+    0.53
+   ],
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "blinder-matrix",
+  "name": "Blinder Matrix",
+  "group": "Alphas",
+  "audioReactive": true,
+  "camera": null,
+  "params": [
+   [
+    "detail",
+    1
+   ],
+   [
+    "speed",
+    0.6
+   ],
+   [
+    "accents",
+    1
+   ],
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "video-edge-glow",
+  "name": "Video Edge Glow",
+  "group": "Video FX",
+  "audioReactive": true,
+  "camera": true,
+  "params": [
+   [
+    "amount",
+    0.5
+   ],
+   [
+    "detail",
+    4
+   ],
+   [
+    "hue",
+    0.52
+   ],
+   [
+    "mirror",
+    1
+   ],
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "video-thermal",
+  "name": "Video Thermal",
+  "group": "Video FX",
+  "audioReactive": true,
+  "camera": true,
+  "params": [
+   [
+    "amount",
+    0.5
+   ],
+   [
+    "detail",
+    4
+   ],
+   [
+    "hue",
+    0.52
+   ],
+   [
+    "mirror",
+    1
+   ],
+   [
+    "bass",
+    1
+   ],
+   [
+    "mid",
+    1
+   ],
+   [
+    "high",
+    1
+   ]
+  ]
+ },
+ {
+  "id": "simple-circle",
+  "name": "Simple Circle",
+  "group": "Simple",
+  "audioReactive": false,
+  "camera": null,
+  "params": [
+   [
+    "radius",
+    0.3
+   ],
+   [
+    "hue",
+    0.6
+   ]
+  ]
+ }
+]
