@@ -40,7 +40,7 @@ test.describe('screen window', () => {
 });
 
 test.describe('control panel window', () => {
-  test('renders a 10-slot pad with 1-0 badges and a grouped library of all 72 patterns', async ({ context }) => {
+  test('renders a 10-slot pad with 1-0 badges and a grouped library of the full catalog', async ({ context }) => {
     const control = await context.newPage();
     await control.goto(CONTROL_URL);
 
@@ -57,39 +57,48 @@ test.describe('control panel window', () => {
     await expect(control.locator('#pattern-pad [data-index="0"]')).toHaveAttribute('data-id', 'circles');
     await expect(control.locator('#pattern-pad [data-index="9"]')).toHaveAttribute('data-id', 'laser-grid');
 
-    // Library: all 72 patterns grouped under 13 headers (including
+    // Library: the full built-in catalog grouped under its headers (including
     // camera-input Video FX effects surfaced in the library; Media, Projection
     // Mapping, Custom Scripts and Node Patterns groups are always present and start empty).
+    // Expected ids/groups come from the real catalog, not a copied literal.
+    const catalog = await control.evaluate(async () => {
+      const { BUILTIN_PATTERNS, getGroups, getSketchesByGroup } = await import('/src/sketch-registry.js');
+      const groups = getGroups();
+      return {
+        ids: BUILTIN_PATTERNS.map((s) => s.id),
+        // DOM order is group-by-group (catalog order within each group).
+        domIds: groups.flatMap((g) => getSketchesByGroup(g).map((s) => s.id)),
+        groups,
+        byGroup: Object.fromEntries(getGroups().map((g) => [
+          g, BUILTIN_PATTERNS.filter((s) => s.group === g).map((s) => s.name),
+        ])),
+        cameraByGroup: Object.fromEntries(getGroups().map((g) => [
+          g, BUILTIN_PATTERNS.filter((s) => s.group === g && s.camera).length,
+        ])),
+      };
+    });
     const items = control.locator('#pattern-library .pattern-btn');
-    await expect(items).toHaveCount(72);
+    await expect(items).toHaveCount(catalog.ids.length);
+    expect(await items.evaluateAll((buttons) => buttons.map((b) => b.dataset.id))).toEqual(catalog.domIds);
     const headers = control.locator('.library-group-header');
-    await expect(headers).toHaveCount(13);
-    await expect(headers.locator('.library-group-toggle span')).toHaveText([
-      'Simple', 'Rhythmic', '3D', 'Cinematic / Shaders', 'Neon / Lasers',
-      'Video FX', 'Glitch / Effects', 'Basics', 'Alphas', 'Media', 'Projection Mapping', 'Custom Scripts', 'Node Patterns',
-    ]);
-    await expect(control.locator('#library-section-Simple .pattern-name')).toHaveText([
-      'Circles', 'Bars', 'Checkerboard', 'Truchet Relay',
-    ]);
-    await expect(control.locator('#library-section-Basics .pattern-name')).toHaveText([
-      'Solid Color', 'Color Wash', 'Color Bars', 'Noise Static', 'Film Grain',
-      'Test Card',
-    ]);
-    await expect(control.locator('#library-section-Alphas .pattern-name')).toHaveText([
-      'Iris Diaphragm', 'Cellular Gate', 'Blinder Matrix',
-    ]);
+    await expect(headers).toHaveCount(catalog.groups.length);
+    await expect(headers.locator('.library-group-toggle span')).toHaveText(catalog.groups);
+    for (const group of ['Simple', 'Basics', 'Alphas']) {
+      const sectionId = `#library-section-${group.replace(/[^a-zA-Z0-9_-]+/g, '-')}`;
+      await expect(control.locator(`${sectionId} .pattern-name`)).toHaveText(catalog.byGroup[group]);
+    }
     // The Media group always renders its add-media control, even when empty.
     await expect(control.locator('.media-add-btn')).toHaveCount(1);
-    await expect(headers.last().locator('.library-group-toggle span')).toHaveText('Node Patterns');
+    await expect(headers.last().locator('.library-group-toggle span')).toHaveText('Projection Mapping');
     await expect(control.getByRole('button', { name: 'Add projection mapping pattern' })).toHaveCount(1);
 
-    // The Video FX group lists all 12 camera effects (8 + 2 new + 2 restored),
-    // each marked with a camera glyph; Glitch / Effects holds 9
+    // Every camera-input pattern carries a camera badge; group sizes come from
+    // the catalog, not fixed counts.
     const vfx = control.locator('.library-group', { hasText: 'Video FX' });
-    await expect(vfx.locator('.pattern-btn')).toHaveCount(12);
-    await expect(vfx.locator('.camera-badge')).toHaveCount(12);
+    await expect(vfx.locator('.pattern-btn')).toHaveCount(catalog.byGroup['Video FX'].length);
+    await expect(vfx.locator('.camera-badge')).toHaveCount(catalog.cameraByGroup['Video FX']);
     const glitch = control.locator('.library-group', { hasText: 'Glitch / Effects' });
-    await expect(glitch.locator('.pattern-btn')).toHaveCount(9);
+    await expect(glitch.locator('.pattern-btn')).toHaveCount(catalog.byGroup['Glitch / Effects'].length);
 
     // Assigned patterns show a slot-number badge; unassigned ones don't
     await expect(control.locator('#pattern-library [data-id="circles"] .slot-badge')).toHaveText('1');
@@ -254,7 +263,8 @@ test.describe('pattern pad + library interactions', () => {
     const target = control.locator('#pattern-pad [data-index="0"]');
     // Wait for pad+library to finish rAF-coalesced init so drag listeners exist
     await expect(control.locator('#pattern-pad .pattern-btn')).toHaveCount(10);
-    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(72);
+    const builtinCount = await control.evaluate(async () => (await import('/src/sketch-registry.js')).BUILTIN_PATTERNS.length);
+    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(builtinCount);
     await expect(target).toHaveAttribute('data-id', 'circles');
     await expect(source).toBeVisible();
     await source.scrollIntoViewIfNeeded();
@@ -331,7 +341,8 @@ test.describe('pattern pad + library interactions', () => {
     // The section stays mounted (hidden) so aria-controls keeps resolving
     await expect(control.locator('#pattern-library [data-id="echo-ripples"]')).toBeHidden();
     await expect(control.locator('#pattern-library [data-id="glitch-matrix"]')).toBeVisible();
-    await expect(control.locator('.library-group-toggle')).toHaveCount(13);
+    const toggles = await control.evaluate(async () => (await import('/src/sketch-registry.js')).getGroups().length);
+    await expect(control.locator('.library-group-toggle')).toHaveCount(toggles);
 
     // The Media group header (toggle + Add media) stays usable alongside:
     // both keep positive, non-overlapping hit areas inside the header row.
@@ -373,8 +384,12 @@ test.describe('pattern pad + library interactions', () => {
     await control.reload();
 
     // Malformed data falls back to "everything expanded"
-    await expect(control.locator('.library-group-header')).toHaveCount(13);
-    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(72);
+    const { groupCount, patternCount } = await control.evaluate(async () => {
+      const { BUILTIN_PATTERNS, getGroups } = await import('/src/sketch-registry.js');
+      return { groupCount: getGroups().length, patternCount: BUILTIN_PATTERNS.length };
+    });
+    await expect(control.locator('.library-group-header')).toHaveCount(groupCount);
+    await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(patternCount);
     await expect(control.locator('.library-group-toggle').first()).toHaveAttribute('aria-expanded', 'true');
   });
 

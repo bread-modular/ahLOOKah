@@ -24,7 +24,7 @@ test('Simple Circle draws one centred circle driven by Radius + Hue, opaque and 
     const { default: VizCore } = await import('/src/core/index.js');
     const { SKETCHES, defaultParamValues } = await import('/src/sketch-registry.js');
     const { disposeVizInstance } = await import('/src/program-runtime.js');
-    const { AUDIO_CONTROL_SCHEMA, createAudioController } = await import('/src/sketches/simple_circle.js');
+    const { AUDIO_CONTROL_SCHEMA, createAudioController } = await import('/src/sketches/simple-circle.pattern.js');
 
     const entry = SKETCHES.find((s) => s.id === 'simple-circle');
 

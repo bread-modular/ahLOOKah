@@ -2,7 +2,7 @@
 
 ## Scope and provenance
 
-Base: `01e798a`. Inspected **addition diffs** of `7ebcd47` (20 entries) and `cbee609` (40 entries); the intervening reactivity work added none. The [superseded audit](recent-audio-reactivity.md) retains the exact historical ID list. `tests/fixtures/replacement-inventory.json` pins all 60 removed IDs, the 50 retained registry signatures, and SHA-256 digests of the older implementation files.
+Base: `01e798a`. Inspected **addition diffs** of `7ebcd47` (20 entries) and `cbee609` (40 entries); the intervening reactivity work added none. The [superseded audit](recent-audio-reactivity.md) retains the exact historical ID list. `docs/history/replacement-inventory-62617ff.json` (archived from `tests/fixtures/replacement-inventory.json`) pins all 60 removed IDs, the 50 retained registry signatures, and SHA-256 digests of the older implementation files.
 
 **110 − 60 + 18 = 68 built-ins.** Checkerboard was an older modified entry, not one of the 60; it remains static. Ion Tempest and every older implementation are byte-unchanged. The first 50 registry entries, their order, metadata, defaults and schemas are unchanged. Category labels/order remain Simple, Rhythmic, 3D, Cinematic / Shaders, Neon / Lasers, Video FX, Glitch / Effects, Basics, Alphas, Media, Projection Mapping. **Zero additions/removals in Media or custom Projection Mapping.** No storage migration or deletion of saved settings/custom patterns is performed; references to retired IDs cannot resurrect their implementations.
 
