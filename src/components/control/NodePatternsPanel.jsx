@@ -4,11 +4,21 @@ import { useEffect, useRef, useState } from 'react';
 import { nodePatterns, watchGraphs } from '../../nodes/repository.js';
 import { useNodeEditor } from '../../nodes/EditorHost.jsx';
 
-export function NodePatternEdit({ sketch }) {
+export function NodePatternEdit({ sketch, locked }) {
   const { open } = useNodeEditor();
+  const { busy, message, run } = useFolderAction();
   if (!sketch?.nodesGraph) return null;
-  return <div className="media-manage-row">
-    <button className="btn btn--md" onClick={() => open(sketch.id)}>Edit Pattern</button>
+  const name = sketch.name || sketch.id;
+  return <div className="node-pattern-controls" onKeyDown={e => e.stopPropagation()}>
+    <div className="media-manage-row">
+      <button className="btn btn--md" disabled={busy || locked} title="Open this pattern in the node editor" onClick={() => open(sketch.id)}>Edit Pattern</button>
+      <button className="btn btn--md btn--danger" disabled={busy || locked} title="Delete this pattern from the library; the source file is kept" aria-label="Delete Pattern" onClick={() => {
+        // Same contract as script Delete: forget the library item, never the file.
+        if (window.confirm(`Delete “${name}” from the library? The source file is kept on disk; use Open Pattern to restore it.`)) run(() => nodePatterns.remove(sketch.id));
+      }}>Delete</button>
+    </div>
+    <p className="script-hint">Delete removes this pattern from the library here, not its source file.</p>
+    {message && <p role="alert">{message}</p>}
   </div>;
 }
 

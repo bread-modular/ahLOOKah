@@ -267,12 +267,12 @@ test('Custom Scripts @core selection modal, parameter actions, folder details cl
     window.showDirectoryPicker = async () => (await navigator.storage.getDirectory()).getDirectoryHandle('scripts');
   });
   const panel = page.locator('.custom-scripts-panel');
-  await expect(panel.getByRole('button')).toHaveCount(3);
+  await expect(panel.getByRole('button')).toHaveCount(2);
   await expect(panel.getByRole('button', { name: 'Link Folder' })).toBeVisible();
   await panel.locator('..').screenshot({ path: testInfo.outputPath('unlinked.png') });
   await page.locator('.custom-scripts-panel').getByRole('button', { name: 'Link Folder', exact: true }).click();
   await expect(page.locator('[data-id="custom-demo"]')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'New Script' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Open Script', exact: true })).toBeEnabled();
   const details = await folderDetails(page, 'Custom Scripts');
   await expect(details).toContainText('Full paths are private');
   await expect(details.getByRole('button', { name: /Copy folder/ })).toHaveCount(0);
@@ -314,7 +314,7 @@ test('Custom Scripts @core selection modal, parameter actions, folder details cl
   await folderAction(page, 'Custom Scripts', 'Refresh folder');
   await expect(panel.getByRole('alert')).toHaveCount(0); // broken but no longer selected
   await folderAction(page, 'Custom Scripts', 'Unlink folder');
-  await expect(panel.getByRole('button')).toHaveCount(3);
+  await expect(panel.getByRole('button')).toHaveCount(2);
   expect(await page.evaluate(async () => !!await (await (await navigator.storage.getDirectory()).getDirectoryHandle('scripts')).getFileHandle('demo.viz.js'))).toBe(true);
   await page.reload();
   await expect(panel.getByRole('button', { name: 'Link Folder' })).toBeVisible();

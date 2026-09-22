@@ -77,6 +77,8 @@
 .nodes-inspector details { margin-top:20px; padding-top:16px; border-top:1px solid var(--border-gray); }
 .nodes-inspector summary { cursor:pointer; color:var(--text-dim); font-size:.75rem; }
 .nodes-diagnostics p { color:#ff6b6b; }
+/* A failed Save/Reload is the one editor failure that must be readable on screen. */
+.nodes-toolbar .nodes-disk-error { flex-basis:100%; margin:0; color:#ffb5a4; font-size:12px; overflow-wrap:anywhere; }
 .nodes-workspace { overflow:hidden; touch-action:none; position:relative; background-color:var(--bg-dark); background-image:radial-gradient(var(--border-gray) 1px,transparent 1px); background-size:20px 20px; }
 .nodes-plane { position:absolute; transform-origin:0 0; }
 .nodes-wires { position:absolute; width:100%; height:100%; pointer-events:none; overflow:visible; }

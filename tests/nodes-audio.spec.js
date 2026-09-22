@@ -224,13 +224,16 @@ test('palette uses edge scrollbar, equal row/search widths, overflow only, and d
   await palette.evaluate(p => p.scrollTop = 0); await page.screenshot({ path: '/tmp/nodes-palette-toolbar.png' });
 });
 
-test('Node Patterns ADD matches shared Custom Scripts and Projection action typography', async ({ page }) => {
+test('Node Patterns ADD matches shared Media and Projection action typography', async ({ page }) => {
   await page.setViewportSize({ width: 1536, height: 1050 }); await page.goto('/');
   const add = page.getByRole('button', { name: 'New Node Pattern', exact: true }); await expect(add).toBeVisible();
   const style = el => { const s = getComputedStyle(el); return Object.fromEntries(['fontFamily', 'fontWeight', 'fontSize', 'letterSpacing', 'lineHeight', 'padding', 'borderRadius'].map(k => [k, s[k]])); };
-  expect(await add.evaluate(style)).toEqual(await page.getByRole('button', { name: 'New Script', exact: true }).evaluate(style));
+  const themed = await add.evaluate(style);
+  // Media and Projection Mapping keep the shared library ADD action (Custom
+  // Scripts is Open-only now), so the three headers must still read identically.
+  expect(await page.locator('.media-add-btn').evaluate(style)).toEqual(themed);
   const projection = page.locator('.library-group').filter({ has: page.locator('.library-group-toggle', { hasText: 'Projection Mapping' }) }).locator('.library-add-btn');
-  if (await projection.count()) expect(await add.evaluate(style)).toEqual(await projection.first().evaluate(style));
+  if (await projection.count()) expect(await projection.first().evaluate(style)).toEqual(themed);
   await add.scrollIntoViewIfNeeded(); await page.screenshot({ path: '/tmp/nodes-library-toolbar.png' });
 });
 

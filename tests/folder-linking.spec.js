@@ -81,28 +81,30 @@ for (const category of categories) {
   });
 }
 
-test('Scripts: create cancel, safe starter, no overwrite, explicit trusted open and restore @core', async ({ page }) => {
+test('Scripts: no create control, explicit trusted open, untouched source and restore @core', async ({ page }) => {
   await page.goto('/'); await seed(page);
   const panel = page.locator('.custom-scripts-panel');
-  await expect(panel.getByRole('button', { name: 'New Script', exact: true })).toBeDisabled();
+  // Only Open exists: scripts are authored in an external editor, never created here.
+  await expect(panel.getByRole('button', { name: 'Open Script', exact: true })).toBeDisabled();
   await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
-  page.once('dialog', d => d.dismiss());
-  await panel.getByRole('button', { name: 'New Script', exact: true }).click();
-  page.once('dialog', d => d.accept('starter.viz.js'));
-  await panel.getByRole('button', { name: 'New Script', exact: true }).click();
-  await expect(panel).toContainText('Script created');
+  await expect(panel.locator('.library-add-btn')).toHaveText(['OPEN']);
+  await expect(panel.getByRole('button', { name: 'Open Script', exact: true })).toBeEnabled();
+  const before = await page.evaluate(async () => {
+    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('scripts');
+    const handle = await dir.getFileHandle('starter.viz.js', { create: true });
+    const text = "api.requireVersion(1); api.create({ id: 'custom-starter', name: 'Starter', draw({ p }) { p.background(24); } });";
+    const writer = await handle.createWritable(); await writer.write(text); await writer.close();
+    return text;
+  });
   await expect(page.locator('.library-btn[data-id^="custom-"]')).toHaveCount(0);
-  const read = () => page.evaluate(async () => (await (await (await (await navigator.storage.getDirectory()).getDirectoryHandle('scripts')).getFileHandle('starter.viz.js')).getFile()).text());
-  const before = await read();
-  page.once('dialog', d => d.accept('starter.viz.js'));
-  await panel.getByRole('button', { name: 'New Script', exact: true }).click();
-  await expect(panel).toContainText('File already exists'); expect(await read()).toBe(before);
   await panel.getByRole('button', { name: 'Open Script', exact: true }).click();
   const picker = page.getByRole('dialog', { name: 'Open Script', exact: true });
   await picker.getByLabel('Script in scripts', { exact: true }).selectOption('starter.viz.js');
   await picker.getByRole('button', { name: 'Open', exact: true }).click();
   await expect(page.locator('.library-btn[data-id^="custom-"]')).toHaveCount(1);
   await page.reload(); await expect(page.locator('.library-btn[data-id^="custom-"]')).toHaveCount(1);
+  const read = () => page.evaluate(async () => (await (await (await (await navigator.storage.getDirectory()).getDirectoryHandle('scripts')).getFileHandle('starter.viz.js')).getFile()).text());
+  expect(await read()).toBe(before);
 });
 
 async function seedMedia(page) {
@@ -159,8 +161,8 @@ test('Media: filtered folder scan, disk playback, refresh dedup, persistence, in
   await page.reload(); await expect(media).toHaveCount(3);
   await expect(panel.getByRole('button', { name: 'Link Folder', exact: true })).toBeVisible();
   await seedMedia(page);
-  await panel.getByRole('button', { name: 'Open Media', exact: true }).click();
-  await expect(media).toHaveCount(4); // original standalone add flow remains available
+  await panel.getByRole('button', { name: 'Add media', exact: true }).click();
+  await expect(media).toHaveCount(4); // ADD covers both the folder picker and standalone files
   await other.close();
 });
 

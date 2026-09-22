@@ -25,6 +25,10 @@
 .directory-picker::backdrop { background: rgba(6, 8, 10, .72); backdrop-filter: blur(6px); }
 .script-file-controls { margin-top: 16px; }
 #config-panel .script-file-controls .media-manage-row { margin-top: 8px; }
+/* Node pattern actions mirror the script rows: Edit/Delete, then the note. */
+.node-pattern-controls { margin-top: 16px; }
+#config-panel .node-pattern-controls .media-manage-row { margin-top: 8px; }
+#config-panel .node-pattern-controls [role="alert"] { color: #ffb5a4; overflow-wrap: anywhere; }
 /* Script activation explicitly cancels TAKE; keep its recovery controls usable
    while the rest of the pattern library is transport-locked. */
 #config-panel.cue-pending :is(.custom-scripts-panel, .node-patterns-panel) { pointer-events: auto; }

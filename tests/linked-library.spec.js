@@ -2,9 +2,11 @@ import { test, expect } from '@playwright/test';
 import { folderDetails } from './fixtures/folder-controls.js';
 
 const sections = [
-  { key: 'scripts', label: 'Custom Scripts', panel: '.custom-scripts-panel', open: 'Open Script', title: 'Open Script', file: 'demo.viz.js' },
-  { key: 'nodes', label: 'Node Patterns', panel: '.node-patterns-panel', open: 'Open Pattern', title: 'Open Pattern', file: 'demo.nodes.json' },
-  { key: 'media', label: 'Media', panel: '.media-folder-panel', open: 'Open Media', title: 'Open Media', file: 'demo.PNG' },
+  // `open` is the one control that opens the category picker; `buttons` is the
+  // exact header action set, so a duplicated control fails the suite.
+  { key: 'scripts', label: 'Custom Scripts', panel: '.custom-scripts-panel', open: 'Open Script', title: 'Open Script', file: 'demo.viz.js', buttons: ['OPEN'] },
+  { key: 'nodes', label: 'Node Patterns', panel: '.node-patterns-panel', open: 'Open Pattern', title: 'Open Pattern', file: 'demo.nodes.json', buttons: ['ADD', 'OPEN'] },
+  { key: 'media', label: 'Media', panel: '.media-folder-panel', open: 'Add media', title: 'Open Media', file: 'demo.PNG', buttons: ['ADD'] },
 ];
 async function seed(page) {
   await page.evaluate(async () => {
@@ -60,7 +62,7 @@ for (const s of sections) {
     await page.goto('/'); await seed(page);
     const panel = page.locator(s.panel);
     await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
-    await expect(panel.locator('.library-add-btn')).toHaveText(['ADD', 'OPEN']);
+    await expect(panel.locator('.library-add-btn')).toHaveText(s.buttons);
     await expect(panel.getByRole('link', { name: /Tutorial|API/ })).toHaveCount(0);
     await expect(panel.locator('.library-add-btn svg')).toHaveCount(0);
     const details = await folderDetails(page, s.label);

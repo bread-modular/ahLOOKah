@@ -7,7 +7,11 @@ import { createHandleStorage } from '../platform/handleStorage.js';
 export const SUFFIX = '.nodes.json';
 const CHANNEL = 'viz2-nodes-disk';
 const storage = createHandleStorage('viz2-node-patterns');
-const empty = () => ({ folder: null, opened: [] });
+// `hidden` remembers patterns deleted from the library in this browser (folder
+// file names, or picker-opened ids). It is a view filter, never a disk action:
+// the source files stay exactly where they are.
+const HIDDEN_LIMIT = 256;
+const empty = () => ({ folder: null, opened: [], hidden: [] });
 const lock = fn => navigator.locks ? navigator.locks.request(CHANNEL, fn) : Promise.reject(new Error('Node pattern writes require Web Locks in desktop Chrome.'));
 async function digest(text) {
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))].map(n => n.toString(16).padStart(2, '0')).join('');
@@ -18,7 +22,9 @@ async function read(handle) {
   if (file.size > MAX_BYTES) throw new Error('Pattern exceeds 200 KB');
   const text = await file.text();
   const data = parseGraph(text);
-  validateGraph(data.graph, { complete: true });
+  // Structural validation only: a pattern whose Output is not wired yet is a
+  // legitimate, editable state, so it must load exactly like a finished one.
+  validateGraph(data.graph);
   return { ...data, text, hash: await digest(text) };
 }
 export class NodePatterns {
@@ -43,6 +49,7 @@ export class NodePatterns {
       try {
         this.state = await this.store('handles') || empty();
         const { folder, opened } = this.state;
+        const hidden = this.state.hidden || [];
         assertFolderReference('nodes', folder?.handle);
         const add = async (handle, id, folderId = null) => {
           try { await permission(handle); records.push({ ...await read(handle), id, handle, fileName: handle.name, folderId }); }
@@ -54,11 +61,16 @@ export class NodePatterns {
             const files = await scanFolder(folder.handle, { accepts: name => name.endsWith(SUFFIX), limit: 64, onLimit: () => errors.push('Folder limit: 64 node patterns') });
             errors.push(...missingFolderFiles('nodes', files.map(file => file.name)));
             for (const { name, handle } of files) {
+              if (hidden.includes(name)) continue;
               await add(handle, referencedFileId('nodes', name, true) || await nodeFileId(folder.id, name), folder.id);
             }
           } catch (e) { errors.push(e.message); }
         }
         for (const entry of opened) {
+          // A deleted folder pattern is remembered by file name, because that is
+          // all the folder scan yields; the same rule retires any stale opened
+          // entry for that file so a delete cannot be undone by bookkeeping.
+          if (hidden.includes(entry.id) || hidden.includes(entry.handle?.name)) continue;
           if (records.some(r => r.id === entry.id)) continue;
           // A picker-opened file inside the linked folder is represented once.
           let duplicate = false;
@@ -89,7 +101,8 @@ export class NodePatterns {
     await lock(async () => {
       const state = await this.store('handles') || empty();
       const same = state.folder && await state.folder.handle.isSameEntry(handle);
-      await this.store('handles', { folder: { handle, id: same ? state.folder.id : crypto.randomUUID() }, opened: [] });
+      // Relinking is an explicit reset: the folder is re-listed in full.
+      await this.store('handles', { folder: { handle, id: same ? state.folder.id : crypto.randomUUID() }, opened: [], hidden: [] });
     });
     confirmFolderReference('nodes');
     await this.refresh(); this.changed();
@@ -116,10 +129,11 @@ export class NodePatterns {
   }
   async open(name) {
     let handle;
-    if (this.state.folder) {
-      assertFolderReference('nodes', this.state.folder.handle);
-      await permission(this.state.folder.handle, 'read', true);
-      handle = await linkedFile(this.state.folder.handle, name, name => name.endsWith(SUFFIX));
+    const folder = this.state.folder;
+    if (folder) {
+      assertFolderReference('nodes', folder.handle);
+      await permission(folder.handle, 'read', true);
+      handle = await linkedFile(folder.handle, name, name => name.endsWith(SUFFIX));
     } else {
       if (!globalThis.showOpenFilePicker) throw new Error('Open pattern requires desktop Chrome with File System Access.');
       [handle] = await showOpenFilePicker({ id: 'viz2-node-patterns', multiple: false, types: [{ description: 'Node pattern', accept: { 'application/json': ['.json'] } }] });
@@ -130,13 +144,23 @@ export class NodePatterns {
     let id;
     await lock(async () => {
       const state = await this.store('handles') || empty();
+      // Opening a deleted pattern explicitly is how it returns to the library.
+      state.hidden = (state.hidden || []).filter(value => value !== handle.name);
       for (const r of this.records) if (await r.handle.isSameEntry(handle)) id = r.id;
       for (const entry of state.opened) if (await entry.handle.isSameEntry(handle)) id = entry.id;
       if (!id) {
-        if (state.opened.length >= 64) throw new Error('Maximum 64 opened files. Link Folder to reset the selection.');
-        id = referencedFileId('nodes', handle.name, false) || `nodes-${crypto.randomUUID()}`;
-        state.opened.push({ id, handle }); await this.store('handles', state);
+        // A file inside the linked folder is represented by the folder scan, so
+        // it needs no opened entry (and never consumes one of those 64 slots).
+        // Folder read permission is already granted above, so that scan sees it.
+        if (folder) id = referencedFileId('nodes', handle.name, true) || await nodeFileId(folder.id, handle.name);
+        else {
+          if (state.opened.length >= 64) throw new Error('Maximum 64 opened files. Link Folder to reset the selection.');
+          id = referencedFileId('nodes', handle.name, false) || `nodes-${crypto.randomUUID()}`;
+          state.opened.push({ id, handle });
+        }
       }
+      // One write covers both the opened entry and any hidden-name restore.
+      await this.store('handles', state);
     });
     await this.refresh(); this.changed();
     for (const record of this.records) if (await record.handle.isSameEntry(handle)) return record;
@@ -153,7 +177,10 @@ export class NodePatterns {
     return latest;
   }
   async save(graph, dependencies, current, confirm = globalThis.confirm) {
-    validateGraph(graph, { complete: true });
+    // Connectivity is deliberately NOT required: an unconnected Output is a
+    // work-in-progress pattern, not an invalid file. Structural validation and
+    // the dependency/script diagnostics in the editor still gate the write.
+    validateGraph(graph);
     const text = serializeGraph(graph, dependencies);
     parseGraph(text);
     if (new TextEncoder().encode(text).length > MAX_BYTES) throw new Error('Pattern exceeds 200 KB');
@@ -189,9 +216,42 @@ export class NodePatterns {
       let writer;
       try { writer = await handle.createWritable(); await writer.write(text); await writer.close(); }
       catch (e) { try { await writer?.abort(); } catch { /* Already closed */ } throw e; }
+      // Writing this name makes it part of the library again, even if the same
+      // file was deleted from the library earlier in this browser.
+      if ((latest?.hidden || []).includes(fileName)) await this.store('handles', { ...latest, hidden: latest.hidden.filter(value => value !== fileName) });
       return { ...parseGraph(text), text, hash: await digest(text), id: referencedFileId('nodes', fileName, true) || await nodeFileId(folder.id, fileName), handle, fileName, folderId: folder.id };
     });
     await this.refresh(); this.changed(); return result;
+  }
+  // Delete removes the pattern from this browser's library and writes nothing:
+  // the .nodes.json file, its contents and its disk location are untouched.
+  // A folder-linked file is remembered as hidden, because a folder scan would
+  // otherwise re-list it on the next refresh; a picker-opened file simply leaves
+  // the opened list. `open()` restores either one.
+  async remove(id) {
+    const record = this.records.find(r => r.id === id);
+    if (!record) throw new Error('Pattern no longer available. Refresh the folder.');
+    await lock(async () => {
+      const state = await this.store('handles') || empty();
+      const hidden = state.hidden || [];
+      if (record.folderId) {
+        state.hidden = [...new Set([...hidden, record.fileName])].slice(-HIDDEN_LIMIT);
+        // Drop any opened entry that points at this exact file: the folder scan
+        // is name-filtered, but a remembered handle would re-add it by identity.
+        const keep = [];
+        for (const entry of state.opened || []) {
+          let same = entry.handle?.name === record.fileName;
+          if (same) { try { same = await entry.handle.isSameEntry(record.handle); } catch { same = false; } }
+          if (!same) keep.push(entry);
+        }
+        state.opened = keep;
+      } else {
+        state.opened = (state.opened || []).filter(entry => entry.id !== id);
+        state.hidden = hidden.filter(value => value !== id);
+      }
+      await this.store('handles', state);
+    });
+    await this.refresh(); this.changed();
   }
 }
 export const nodePatterns = new NodePatterns();

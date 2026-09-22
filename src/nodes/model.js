@@ -152,6 +152,10 @@ export function validateGraph(raw, { complete = false } = {}) {
     visiting.delete(id); visited.add(id);
   }
   nodes.forEach(n => visit(n.id));
+  // Completeness is opt-in and never a save gate: a pattern may be saved (and
+  // re-read from disk) while its Output is still unconnected, so a half-wired
+  // graph stays editable instead of being refused silently. Callers that want
+  // the "every reachable input is wired" rule must ask for it explicitly.
   if (complete) {
     const required = new Set();
     const walk = id => { if (required.has(id)) return; required.add(id); edges.filter(e => e.to === id).forEach(e => walk(e.from)); };

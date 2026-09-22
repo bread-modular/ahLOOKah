@@ -176,6 +176,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   const selected = selection.primary;
   const setSelected = selection.reset;
   const [current, setCurrent] = useState(null), [busy, setBusy] = useState(false);
+  const [diskError, setDiskError] = useState('');
   // One editor audio provider above the Preview/inspector split: the preview
   // runtime and the inspector share it, so status/catalog state is visible for
   // scalar selections too and no second channel/capture is ever created.
@@ -212,8 +213,14 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   const leave = () => { if (discard()) onBack?.(); };
   const diskAction = async fn => {
     if (busy) return;
-    setBusy(true);
-    try { await fn(); } catch (e) { setMessage(e.name === 'AbortError' ? 'Canceled. Draft retained.' : e.message); }
+    setBusy(true); setDiskError('');
+    try { await fn(); }
+    catch (e) {
+      // Cancel is an operator decision; anything else is a real failure and must
+      // be visible, not only recorded in the workspace's data-status attribute.
+      if (e.name === 'AbortError') setMessage('Canceled. Draft retained.');
+      else { setMessage(e.message); setDiskError(e.message); }
+    }
     finally { setBusy(false); }
   };
   const node = graph.nodes.find(n => n.id === selected);
@@ -445,9 +452,11 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
           setMessage('');
         })}>Save</button>
       </div>
+      {diskError && <p className="nodes-disk-error" role="alert">{diskError}</p>}
     </header>
-    {/* No status strip: guidance and error text never render as a bar. The text
-        stays on the workspace's data-status attribute for diagnostics and tests. */}
+    {/* No status strip: guidance and error text never render as a bar. Guidance
+        stays on the workspace's data-status attribute for diagnostics and tests;
+        only a failed Save/Reload surfaces the alert above. */}
     <div className="nodes-layout" inert={busy}>
       <aside className="nodes-palette" aria-label="Pattern palette">
         <div className="nodes-palette-create">
@@ -530,7 +539,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
           <SignalReadout runtime={previewRuntime} nodeId={node.id} />
           <p>Normalized custom-script activity (0…1) from this node's own input route. Uses the control window's shared audio inputs; no input means zero. Mono combines both channels' activity; it does not phase-cancel stereo. Connect out to one or many ◇ signal endpoints.</p></>}
         {node?.type === 'output' && <p>Output has no numeric controls. Image mapping is not supported here.</p>}
-        {node?.type === 'color' && <p>Color filters its image input in place: saturation → brightness → contrast → hue-rotate. Identity defaults (1 / 1 / 1 / 0) copy the input pixels unchanged; every numeric slider maps like Pattern and Blend. Image input is required before saving.</p>}
+        {node?.type === 'color' && <p>Color filters its image input in place: saturation → brightness → contrast → hue-rotate. Identity defaults (1 / 1 / 1 / 0) copy the input pixels unchanged; every numeric slider maps like Pattern and Blend. Without an image input it renders transparent, and it still saves.</p>}
         {node?.type === 'math' && <><label>Operation<Select aria-label="Math operation" title="Choose the scalar operation" value={node.op} onChange={e => changeMathOp(e.target.value)}>{MATH_OPS.map(op => <option key={op} value={op}>{MATH_LABELS[op]}</option>)}</Select></label>
           {MATH_INPUTS.map(port => {
             // Value C exists only for clamp. Outside clamp the row is hidden and
