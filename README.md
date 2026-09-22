@@ -11,7 +11,7 @@ cues live with zero blank gaps.
 
 ## ✨ Features
 
-- **Audio-reactive sketch library** (plus a non-reactive checkerboard) organized into themed groups:
+- **Audio-reactive sketch library** (plus two non-reactive Simple patterns, Checkerboard and Simple Circle) organized into themed groups:
   *Simple* (first), *Rhythmic*, *3D*, *Cinematic / Shaders*, *Neon / Lasers*, *Video FX*,
   *Glitch / Effects*, *Basics*, and *Alphas* (grayscale-on-black looks built for
   Alpha Blend projection mapping).
@@ -151,10 +151,16 @@ by accident. Move focus out of the field first for those CUE gestures.
 
 ### Replacement VJ patterns and camera FX
 
-The library contains **69 built-ins**: all 50 older entries (including Ion Tempest
-and Checkerboard), plus 10 replacements and 9 expansion patterns. The rejected
-60-pattern expansion is removed, not hidden. Category labels/order, Media, custom
-Projection Mapping, and older controls/renderers are unchanged.
+The library contains **70 built-ins**: all 50 older entries (including Ion Tempest
+and Checkerboard) plus Simple Circle, 10 replacements and 9 expansion patterns. The
+rejected 60-pattern expansion is removed, not hidden. Category labels/order, Media,
+custom Projection Mapping, and older controls/renderers are unchanged.
+
+**Simple Circle** (Simple group) is the smallest drawing in the library: one filled
+circle dead centre on black, with exactly two sliders — **Radius** (1 = the circle
+fills the shorter screen edge) and **Hue**. Like Checkerboard it is deliberately not
+audio reactive, so it is a steady base layer for merge/Alpha Blend and a handy
+calibration target when aligning a projector.
 
 | Group | Replacement patterns |
 | --- | --- |

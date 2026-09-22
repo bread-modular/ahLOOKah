@@ -7,12 +7,12 @@ import { FEATURE_SCHEMA } from '../src/sketches/feature-controls.js';
 
 const ALL = [...EXPANSION_PATTERNS, ...RESTORED_CAMERA_PATTERNS];
 
-test('expansion provenance: 9 new + 2 restored, registry totals 71, category order intact', { tag: '@core' }, () => {
+test('expansion provenance: 9 new + 2 restored, registry totals 72, category order intact', { tag: '@core' }, () => {
   expect(EXPANSION_PATTERNS).toHaveLength(9);
   expect(RESTORED_CAMERA_PATTERNS.map((s) => s.id)).toEqual(['video-edge-glow', 'video-thermal']);
   expect(ALL.every(Boolean)).toBe(true);
-  expect(SKETCHES).toHaveLength(71);
-  expect(new Set(SKETCHES.map((s) => s.id)).size).toBe(71);
+  expect(SKETCHES).toHaveLength(72);
+  expect(new Set(SKETCHES.map((s) => s.id)).size).toBe(72);
   // Remaining entries per existing visual category. No Media/Projection Mapping additions.
   const expected = { Simple: 0, Rhythmic: 0, '3D': 2, 'Cinematic / Shaders': 1, 'Neon / Lasers': 0, 'Video FX': 2, 'Glitch / Effects': 2, Basics: 1, Alphas: 1 };
   for (const [group, count] of Object.entries(expected)) {

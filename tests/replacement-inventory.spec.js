@@ -10,11 +10,11 @@ test('replacement provenance: exactly 60 removed, 50 older unchanged, 10 new, ca
   const registry = readFileSync('src/sketch-registry.js', 'utf8');
   const retained = registry.slice(registry.indexOf('export const SKETCHES = ['), registry.indexOf('  // Preserve all 50 older entries'));
   expect(hash(retained), 'exact original 50 registry declarations, including factory/controller bindings').toBe(inventory.retainedDeclarationSha256);
-  expect(SKETCHES).toHaveLength(71);
+  expect(SKETCHES).toHaveLength(72);
   expect(inventory.removed).toHaveLength(60);
   expect(inventory.older).toHaveLength(50);
   expect(REPLACEMENT_PATTERNS).toHaveLength(10);
-  expect(new Set(SKETCHES.map(s => s.id)).size).toBe(71);
+  expect(new Set(SKETCHES.map(s => s.id)).size).toBe(72);
   // The expansion wave restored exactly two removed legacy camera looks
   // (video-thermal, video-edge-glow); every other removed id stays absent.
   const restored = new Set(['video-thermal', 'video-edge-glow']);

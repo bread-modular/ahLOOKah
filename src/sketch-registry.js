@@ -196,6 +196,11 @@ import checkerboard, {
   AUDIO_CONTROL_SCHEMA as checkerboardAudioControlSchema,
   createAudioController as createCheckerboardAudioController,
 } from './sketches/checkerboard.js';
+// Second non-reactive Simple entry: a single centred circle with Radius + Hue.
+import simpleCircle, {
+  AUDIO_CONTROL_SCHEMA as simpleCircleAudioControlSchema,
+  createAudioController as createSimpleCircleAudioController,
+} from './sketches/simple_circle.js';
 // Camera-input FX (chroma keyer, kaleidoscope, pixelate, motion trails) and a
 // second wave of glitch looks for the grouped pattern library.
 import videoChroma, {
@@ -1051,6 +1056,24 @@ export const SKETCHES = [
   // Appended after the 10 replacements: nothing above moves or changes.
   ...EXPANSION_PATTERNS,
   ...RESTORED_CAMERA_PATTERNS,
+  // Simple Circle — added last so every declaration above stays byte-identical
+  // (tests/replacement-inventory.spec.js hashes the original 50-entry block).
+  // Non-reactive like Checkerboard: two sliders, Radius and Hue, nothing else.
+  {
+    id: 'simple-circle',
+    name: 'Simple Circle',
+    audioReactive: false,
+    description: 'One centred circle on black — not audio reactive. Radius and hue controls only.',
+    factory: simpleCircle,
+    audioTransport: 'pattern-controls',
+    createAudioController: createSimpleCircleAudioController,
+    audioControlSchema: simpleCircleAudioControlSchema,
+    params: [
+      { key: 'radius', label: 'Radius', min: 0.02, max: 1, step: 0.01, default: 0.3 },
+      { key: 'hue', label: 'Hue', min: 0, max: 1, step: 0.01, default: 0.6 },
+    ],
+    group: 'Simple',
+  },
 ];
 
 // Reserved id for the global dual-effect blend params (shown in merge mode).

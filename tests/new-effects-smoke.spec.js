@@ -33,6 +33,8 @@ const NEW_IDS = [
   'noise-static',
   'film-grain',
   'checkerboard',
+  // Second non-reactive Simple entry (single centred circle, Radius + Hue).
+  'simple-circle',
   // Video FX wave (camera-input) — 4 added by the video/glitch drop
   'video-chroma',
   'video-kaleido',
