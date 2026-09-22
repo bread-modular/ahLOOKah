@@ -46,7 +46,29 @@
    shared accent blue (blue is the input/focus and wire color). Colors only —
    border width, padding and radius stay the shared .btn shell; danger keeps red. */
 .nodes-palette .btn:hover,.nodes-inspector .btn:not(.btn--danger):hover { border-color:#b8bfc8; background:rgba(184,191,200,.12); }
+/* Node-level swatches on the create buttons: violet = signal-level (Script,
+   Audio), cool blue-gray = image-level (Blend, Color) — the same two colours the
+   canvas cards and the inspector header use. Colours only: the shared .btn shell
+   (border width, padding, radius, letter case) stays exactly as it is, and the
+   specific level hovers below simply out-rank the neutral panel hover above. */
+.nodes-palette-create .btn.level-signal { border-color:#3b2c55; background:rgba(194,154,255,.07); box-shadow:inset 3px 0 0 #c29aff; }
+.nodes-palette-create .btn.level-image { border-color:#33404e; background:rgba(138,166,196,.06); box-shadow:inset 3px 0 0 #8aa6c4; }
+.nodes-palette-create .btn.level-signal:hover { border-color:#c29aff; background:rgba(194,154,255,.15); }
+.nodes-palette-create .btn.level-image:hover { border-color:#8aa6c4; background:rgba(138,166,196,.14); }
+/* The shared .btn focus border is a contract (the keyboard test in
+   nodes-wire-selection.spec.js), so a focused level button drops its level
+   border back to the neutral focus gray instead of hiding it. */
+.nodes-palette-create .btn.level-signal:focus-visible,
+.nodes-palette-create .btn.level-image:focus-visible { border-color:#888; }
 .nodes-inspector { border-left:1px solid var(--border-gray); }
+/* Inspector header: the selected node's name plus a small level pill beside it.
+   The pill stays a sibling of the h2 (never inside it), so heading accessible
+   names remain exactly the node label; spacing mirrors the old h2 margin. */
+.nodes-inspector-head { display:flex; align-items:center; gap:8px; margin:18px 0 12px; }
+.nodes-inspector-head h2 { margin:0; }
+.nodes-level-tag { flex:none; padding:1px 6px; border:1px solid; border-radius:4px; font-size:.58rem; font-weight:700; letter-spacing:.06rem; text-transform:uppercase; }
+.nodes-level-tag.level-signal { color:#c9aaff; border-color:#3b2c55; background:#1c1430; }
+.nodes-level-tag.level-image { color:#a8bed4; border-color:#33404e; background:#111821; }
 .nodes-inspector canvas { width:100%; background:var(--bg-dark); border:1px solid var(--border-gray); border-radius:4px; }
 .nodes-inspector label { display:block; margin:14px 0; font-size:.78rem; }
 .nodes-inspector label input,.nodes-inspector label select { display:block; width:100%; margin-top:6px; }
@@ -69,6 +91,16 @@
    input/focus and wire language, so a selected node must read differently. */
 .nodes-node.is-selected { border-color:#b8bfc8; box-shadow:0 0 0 1px #b8bfc8,0 8px 25px #0006; }
 .nodes-node .nodes-node-title { width:100%; text-align:left; border:0; border-bottom:1px solid var(--border-gray); border-radius:4px 4px 0 0; color:var(--text-main); background:var(--bg-dark); height:30px; padding:5px 10px; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:grab; touch-action:none; }
+/* Node levels: a violet tab/tint for signal-level sources (Audio/Math/Script —
+   the same violet as the dashed signal wires and the ◇ endpoints) and a cool
+   blue-gray tab/tint for image-level nodes (Pattern/Blend/Color/Output). Colour
+   only: the 3px title border swaps against 3px of its left padding so text, the
+   30px header, port rows, detail line and node width are untouched — the wire
+   anchors in geometry.js keep landing on the same sockets. */
+.nodes-node.level-signal .nodes-node-title { border-left:3px solid #c29aff; padding-left:7px; background:#140f22; }
+.nodes-node.level-image .nodes-node-title { border-left:3px solid #8aa6c4; padding-left:7px; background:#0d131a; }
+.nodes-node.level-signal .nodes-node-detail { color:#a08bc9; }
+.nodes-node.level-image .nodes-node-detail { color:#8ea6be; }
 .nodes-node-title small { display:block; font-size:9px; color:var(--text-dim); letter-spacing:1px; margin-bottom:2px; }
 .nodes-node.is-selected .nodes-node-title small { color:#b8bfc8; }
 .nodes-ports { position:relative; min-height:36px; padding:2px 0; }
