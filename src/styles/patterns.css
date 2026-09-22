@@ -687,3 +687,44 @@
 .folder-details .device-setup-modal-actions, .directory-picker .device-setup-modal-actions { margin-top: 24px; flex-wrap: wrap; }
 .folder-details [role="alert"], .directory-picker [role="alert"] { color: #ffb5a4; overflow-wrap: anywhere; }
 #config-panel a.library-add-btn { text-decoration: none; line-height: normal; }
+
+/* ---------------------------------------------------------------------------
+   Missing-file marking. A pattern whose source file this browser cannot reach
+   (the usual case after saving a project on another computer, or a file that
+   moved) is drawn red in the library AND on the pad, so it is visible without
+   selecting the pattern. Selecting it still opens the panel, where a media
+   pattern offers Relink File. Missing files never block a project.
+--------------------------------------------------------------------------- */
+
+#config-panel .pattern-btn.is-missing-file {
+  border-color: rgba(231, 76, 60, 0.85);
+  box-shadow: inset 3px 0 0 rgba(231, 76, 60, 0.9);
+}
+
+#config-panel .pattern-btn.is-missing-file .pattern-name { color: #ff8f83; }
+
+#config-panel .pattern-btn.is-missing-file.active,
+#config-panel .pattern-btn.is-missing-file.merge-active,
+#config-panel .pattern-btn.is-missing-file.cue-active,
+#config-panel .pattern-btn.is-missing-file.cue-merge-active {
+  border-color: #ff6b6b;
+  box-shadow: inset 3px 0 0 #ff6b6b;
+}
+
+#config-panel .pattern-btn.is-missing-file.active .pattern-name,
+#config-panel .pattern-btn.is-missing-file.merge-active .pattern-name { color: #3b0b06; }
+
+.pattern-btn .missing-file-badge {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(231, 76, 60, 0.22);
+  color: #ff6b6b;
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1;
+}

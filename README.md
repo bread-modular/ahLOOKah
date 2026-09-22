@@ -48,11 +48,15 @@ cues live with zero blank gaps.
   bypass the global screen calibration without deleting it.
 - **Camera-input FX** — chroma key, kaleidoscope, pixelate, trails, and more
   (opt-in via browser permissions).
-- **Portable settings** — export every saved setting (parameters, pad order,
-  EQ/noise floor, screen + projection calibration, media references) to a JSON
-  file from the app menu and import it in another browser or machine. Media
-  files are never copied: the import summary lists the patterns whose files are
-  missing, and Relink File appears only for those.
+- **Projects** — the app menu's **Save Project** writes a whole project
+  (parameters, pad order, EQ/noise floor, screen + projection calibration, media
+  references and the identity of each linked Scripts / Node Patterns / Media
+  directory) to a file you choose, **Open Project** brings one back anywhere, and
+  **New Project** clears this browser to start fresh. On the computer it came
+  from, the linked directories resume without re-linking; on another computer a
+  blocking dialog links each missing directory before the project completes.
+  Missing *files* never block: those patterns are marked red in the library and
+  pad. Media files are never copied.
 - **Pattern audio engine** — beat/band-driven control with kick/snare/hat
   transient detection.
 
@@ -291,6 +295,7 @@ npm run test:patterns            # Exhaustive individual-pattern tests, on deman
 npm run test:full -- tests/expanded-patterns.spec.js --workers=1
 npm run test:full -- tests/new-effects-smoke.spec.js --grep liquid-chrome
 npm run test:full -- tests/settings-portability.spec.js --workers=1
+npm run test:full -- tests/project-relink.spec.js --workers=1
 npm run test:full -- tests/library-search.spec.js --workers=1
 npm run test:full -- 'tests/screen-mapping*.spec.js' --workers=1
 npm run test:full -- tests/projection-mapping.spec.js --workers=1
@@ -446,11 +451,15 @@ Custom Scripts, Node Patterns and Media share **Link Folder**, then a **Linked**
 badge beside the category name. The badge opens compact folder details with
 **Refresh**, **Relink**, and **Unlink**. Full paths are not exposed by the browser.
 Handles stay in IndexedDB; no server or new UI package is involved. Folder selection
-requires desktop Chrome on HTTPS or localhost.
+requires desktop Chrome on HTTPS or localhost. Linking also remembers the directory's
+project identity (see [Projects](#projects-save-project--open-project--new-project)), which is
+what lets a saved project resume its folders without re-linking.
 
 - **Custom Scripts:** **ADD** creates a starter `.viz.js` without overwriting an
-  existing file. **OPEN** requires an explicit trusted-script selection; linking
-  never executes folder contents. Scripts run with app privileges, not in a sandbox.
+  existing file. **OPEN** is still the explicit trust gesture, and linking never
+  executes folder contents. Opening a saved project reopens the scripts it names
+  whose code still matches the fingerprint it recorded; an edited, renamed or new
+  file needs **OPEN** again. Scripts run with app privileges, not in a sandbox.
 - **Node Patterns:** **ADD** opens a new editor. When linked, **OPEN** lists only
   direct-child `.nodes.json` files; unlinked Open retains the native individual-file
   workflow. Linked patterns remain disk-authoritative, including saves/conflicts.
@@ -464,31 +473,72 @@ resolution. `DirectoryPicker.jsx` shares loading/empty/error/selection states an
 uses the same `Select` chrome as `ParamSelect`. `FolderControls.jsx` shares the
 badge/details/actions. Background restoration never requests permission.
 
-#### Project/settings portability
+#### Projects (Save Project / Open Project / New Project)
 
-The existing main-menu settings export/import carries an optional `folders` section
-for Scripts, Node Patterns and Media: `folderName` plus relevant `fileName` references
-(and IDs for node/media patterns). It contains **no native handles, script source,
-graph source or media bytes**. This is not a standalone node export feature.
+The app menu has three project actions:
 
-After import, use **Linked → Relink**, or **Relink Folder** in an unlinked section.
-A wrong folder name is an explicit error and is never silently substituted. Even a
-matching name must be explicitly reselected: names are hints, not directory
-identities. You must verify same-name folders yourself; files are not content-hashed
-or copied. Missing files remain named in the recovery metadata; restore them and
-Refresh. Expired permissions require a user gesture. Scripts must be explicitly
-opened again after import, even after relinking. Linked node/media IDs are retained
-on recovery so parameter and pad references continue to resolve.
+- **Save Project** writes one JSON file — `ahlookah-project-YYYY-MM-DD.json` by
+  default, at a **location and file name you pick** (File System Access save
+  picker; a browser without it, or a location that refuses the write, falls back
+  to a normal download of the same file). It contains every persisted setting plus
+  a `folders` section for Scripts, Node Patterns and Media — `folderName`, a
+  `folderId` directory identity, and the relevant `fileName` references (plus IDs
+  for node/media patterns). It contains **no native handles, script source, graph
+  source or media bytes**.
+- **Open Project** opens such a file: the destination mirrors it, unlinking what
+  the file omits. Each section is then resolved by directory identity. The native
+  handle lives in IndexedDB under that `folderId` (`platform/project-folders.js`);
+  the current id per section is machine-local (`viz2_project_folders`, deliberately
+  never exported). So:
+  - **Same computer** — a directory the project was saved from is adopted
+    directly (name verified), Media files inside it are re-pointed automatically,
+    and nothing is re-picked. Switching between projects therefore keeps every
+    linked directory working.
+  - **Another computer** — the id has no handle. A blocking `ProjectRelinkModal`
+    lists each missing directory with **Link Folder** (and **Reconnect** when the
+    directory is remembered but browser access expired). The project does not
+    complete — no summary, no reload — until every directory is linked. A wrong
+    folder name is an explicit error and is never silently substituted; a
+    same-named folder is verified by identity first and only then by you.
+  - **Missing files** inside a linked directory never block anything: the
+    reference stays listed, the affected patterns are marked red in the library and
+    pad (`Relink File` for media), and the section panel names the missing file.
+  - **Scripts** are fingerprinted, not copied: for every script file the project
+    lists, Save Project records a SHA-256 of the source **instead of the source
+    itself**. On Open Project each listed file is re-read and, when its bytes still
+    match, loaded automatically — so a project comes back with its custom patterns
+    without re-opening anything, on any computer that has the same code in the
+    linked folder. A file edited, renamed or added since is left for the explicit
+    **OPEN**, with the panel saying which and why: `Changed since this project was
+    saved: …` or `Open trusted script: … (this project recorded no code fingerprint
+    for it)`. A project file still carries no code and no trust, and a listed file
+    without a fingerprint never runs by itself.
+  - **Permission lapse** — if the browser wants the folder re-granted at startup
+    (common after a restart), the startup message names the scripts waiting and
+    **Linked → Refresh** both renews access and finishes the reopen; no second save
+    or reload is needed.
+- **New Project** clears this browser back to a fresh project: every
+  project-scoped setting, all media patterns, the portable folder hints and the
+  current directory identities, then it unlinks Scripts, Node Patterns and Media.
+  It asks for confirmation first, refuses while a CUE is staged, and keeps the
+  per-machine device choices and setup state. Remembered directory handles are kept
+  (bounded, keyed by id), so re-opening an older project file still resumes its
+  folders here without re-linking.
 
-Old exports without `folders` keep their historical behavior; no folder name can be
-inferred from them. Individually opened files retain filenames but require explicit
-reopening/relinking. Ambiguous same-name standalone node references are rejected
-rather than guessed. Export/import and relink never overwrite or delete source files.
+Node Patterns reuse the project's identity as the folder id, so node pattern ids
+— and therefore pad slots, merges and parameter references — stay stable across
+machines. Expired permissions require a user gesture (Linked → Refresh); renewing
+access never runs anything by itself.
+
+Old exports (`kind: ahlookah-settings`, version 1) still load and behave exactly
+as before: no identities, so every linked folder is confirmed by hand. Legacy
+individually opened files keep their filenames but require explicit re-opening.
+Saving/opening a project and relinking never overwrite or delete source files.
 
 Focused coverage (use a free isolated port):
 
 ```sh
-PLAYWRIGHT_PORT=5188 npx playwright test tests/linked-library.spec.js tests/folder-linking.spec.js tests/settings-portability.spec.js tests/custom-scripts.spec.js --project=chromium --workers=2
+PLAYWRIGHT_PORT=5188 npx playwright test tests/linked-library.spec.js tests/folder-linking.spec.js tests/settings-portability.spec.js tests/project-relink.spec.js tests/custom-scripts.spec.js --project=chromium --workers=2
 PLAYWRIGHT_PORT=5188 npx playwright test tests/nodes.spec.js --project=chromium --workers=2 --grep 'disk persistence|new drafts save|stale drafts|denied save|outside picker|background reload|folder switch|category owns|linked folder text'
 npm run build
 ```

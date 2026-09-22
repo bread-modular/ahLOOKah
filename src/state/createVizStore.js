@@ -57,9 +57,17 @@ export function createVizStore(role) {
     postFxOpen: true,
     bandEqOpen: true,
     transportNotice: '',
-    // One-shot result dialog for settings import (see NoticeModal). Shape:
+    // One-shot result dialog for project save (see NoticeModal). Shape:
     // { tone: 'success' | 'error', title, message, details?: string[],
     //   items?: string[], reload?: boolean }.
     notice: null,
+    // Blocking relink dialog for a project whose linked directories are not
+    // available on this computer (see ProjectRelinkModal). Shape:
+    // { fileName, pending: [{ section, label, folderName, folderId, reason }],
+    //   adopted: string[], summary }.
+    projectRelink: null,
+    // Media pattern ids whose file this browser cannot reach; the library and pad
+    // mark them red.
+    missingMedia: [],
   }));
 }

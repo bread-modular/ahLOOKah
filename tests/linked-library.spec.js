@@ -261,27 +261,57 @@ test('linked library screenshots @core', async ({ page }) => {
 });
 
 
-test('main project import in a fresh browser requires relink; missing handles never open a native file picker @core', async ({ page, browser }) => {
+test('a project saved elsewhere blocks until every directory is linked; missing handles never open a native file picker @core', async ({ page, browser }) => {
   await page.goto('/'); await seed(page); await linkAll(page); await openSelected(page, sections[0]);
   const payload = await page.evaluate(async () => (await import('/src/platform/settings-portability.js')).collectSettings());
   const context = await browser.newContext({ baseURL: new URL(page.url()).origin, storageState: { cookies: [], origins: [{ origin: new URL(page.url()).origin, localStorage: [{ name: 'viz2_device_setup_done', value: '1' }] }] } });
   try {
     const destination = await context.newPage(); await destination.goto('/');
     await destination.locator('#app-menu-btn').click();
-    await destination.locator('#settings-import-input').setInputFiles({ name: 'project.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(payload)) });
-    await expect(destination.locator('#notice-modal')).toContainText('Relink each imported folder');
-    await destination.locator('#notice-modal-reload').click();
-    for (const s of sections) {
-      await expect(destination.locator(s.panel)).toContainText(`expected folder “${s.key}”, found no linked folder`);
-      await expect(destination.locator(s.panel).getByRole('button', { name: 'Relink Folder', exact: true })).toBeVisible();
-    }
+    await destination.locator('#project-open-input').setInputFiles({ name: 'project.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(payload)) });
+
+    // This computer has no record for any of the project's directory identities,
+    // so the save blocks: no result notice, no dismiss control, Escape does
+    // nothing, and each expected directory is listed for linking.
+    const modal = destination.locator('#project-relink-modal');
+    await expect(modal).toBeVisible();
+    for (const s of sections) await expect(modal.locator(`[data-section="${s.key}"]`)).toContainText(s.label);
+    await expect(destination.locator('#notice-modal')).toHaveCount(0);
+    // Nothing in the dialog can dismiss it: no close, no dismiss, no apply.
+    await expect(modal.getByRole('button', { name: 'Close' })).toHaveCount(0);
+    await expect(modal.locator('#notice-modal-dismiss')).toHaveCount(0);
+    await expect(modal.locator('#notice-modal-reload')).toHaveCount(0);
+    await destination.keyboard.press('Escape');
+    await expect(modal).toBeVisible();
+
+    // Same-named folders on this computer (the seeded ones).
     await seed(destination);
-    for (const s of sections) await destination.locator(s.panel).getByRole('button', { name: 'Relink Folder', exact: true }).click();
+    await modal.locator('#project-relink-link-media').click();
+    await expect(modal.locator('[data-section="media"]')).toHaveCount(0);
+    // Two directories are still missing — the project has not completed.
+    await expect(modal).toBeVisible();
+    await expect(destination.locator('#notice-modal')).toHaveCount(0);
+
+    await modal.locator('#project-relink-link-scripts').click();
+    await modal.locator('#project-relink-link-nodes').click();
+
+    // The last link completes the save: notice, then reload on acknowledge.
+    await expect(modal).toHaveCount(0);
+    const notice = destination.locator('#notice-modal');
+    await expect(notice).toContainText('Project opened');
+    await destination.locator('#notice-modal-reload').click();
+
+    for (const s of sections) await expect(destination.locator(s.panel)).toContainText('Linked');
     await expect(destination.locator('.library-btn[data-id^="nodes-"]')).toHaveAttribute('data-id', payload.folders.nodes.files[0].id);
     await expect(destination.locator('.library-btn[data-id^="media-"]')).toHaveAttribute('data-id', `media-${payload.media[0].id}`);
-    expect(await destination.evaluate(() => window.scriptRuns || 0)).toBe(0);
-    await openSelected(destination, sections[0]);
-    expect(await destination.evaluate(() => window.nativeFilePicks)).toBe(0);
+    // The project named “demo.viz.js” and recorded a fingerprint of its code, so the
+    // copy in this computer's linked folder reopened by itself — no OPEN click here.
+    expect(await destination.evaluate(() => window.scriptRuns || 0)).toBe(1);
+    await expect(destination.locator('.library-btn[data-id="custom-dir-demo"]')).toBeVisible();
+    // Re-seed the pickers after the reload so "no native picker was opened" is
+    // measured, not just unset.
+    await seed(destination);
+    expect(await destination.evaluate(() => window.nativeFilePicks || 0)).toBe(0);
     const restored = await destination.evaluate(async () => (await import('/src/platform/settings-portability.js')).collectSettings());
     expect(restored.folders).toEqual(payload.folders);
   } finally { await context.close(); }

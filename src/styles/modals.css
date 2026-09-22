@@ -239,8 +239,8 @@
   display: none;
 }
 
-/* Hidden <input type="file"> that backs the Import Settings menu item. */
-.settings-import-input {
+/* Hidden <input type="file"> that backs the Open Project menu item. */
+.project-open-input {
   display: none;
 }
 
@@ -373,7 +373,8 @@
    never reads as a failure.
 --------------------------------------------------------------------------- */
 
-#notice-modal {
+#notice-modal,
+#project-relink-modal {
   position: fixed;
   inset: 0;
   z-index: 5100;
@@ -493,3 +494,41 @@
 .notice-modal-actions .btn {
   min-width: 132px;
 }
+
+/* ---------------------------------------------------------------------------
+   Project relink dialog — a saved project whose linked directories are not
+   available on this computer (usually: saved on another machine). Blocking on
+   purpose: no close control, no Escape and no backdrop dismissal, because the
+   save only completes once every directory it names exists here. Missing files
+   inside a linked directory never block — they are marked in the library.
+--------------------------------------------------------------------------- */
+
+#project-relink-modal { z-index: 5200; }
+
+.project-relink-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.project-relink-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid rgba(231, 76, 60, 0.35);
+  border-radius: 8px;
+  background: rgba(231, 76, 60, 0.06);
+}
+
+.project-relink-info { display: grid; gap: 2px; min-width: 0; flex: 1 1 200px; }
+.project-relink-info strong { color: #fff; font-size: 0.85rem; }
+.project-relink-folder { font-size: 0.74rem; color: var(--text-main, #d8d8d8); overflow-wrap: anywhere; }
+.project-relink-reason { font-size: 0.72rem; color: #ffb5a4; }
+.project-relink-actions { display: flex; gap: 6px; margin-left: auto; }
+.project-relink-actions .btn { width: auto; min-width: 0; }
+.project-relink-error { margin: 12px 0 0; font-size: 0.78rem; color: #ff8f83; overflow-wrap: anywhere; }
+.notice-modal-note { margin: 14px 0 0; font-size: 0.74rem; line-height: 1.6; color: var(--text-dim, #9a9a9a); }

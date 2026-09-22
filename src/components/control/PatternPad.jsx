@@ -10,6 +10,7 @@ export function PatternPad() {
   const padOrder = useVizStore(store, (s) => s.padOrder);
   const liveSelection = useVizStore(store, (s) => s.liveSelection);
   const cue = useVizStore(store, (s) => s.cue);
+  const missingMedia = useVizStore(store, (s) => s.missingMedia);
 
   const ordered = padOrder.length ? padOrder : getOrderedSketches().map((s) => s.id);
   const cueSelection = cue?.selection || null;
@@ -33,7 +34,8 @@ export function PatternPad() {
     <div id="pattern-pad" className="pattern-pad">
       {ordered.slice(0, 10).map((id, i) => {
         const sketch = getOrderedSketches().find((s) => s.id === id) || null;
-        const classes = ['pattern-btn', 'slot-btn', ...selectionClassesFor({ id, isSlot: true, liveSelection, cueSelection, slotOrder: ordered })];
+        const missingFile = Boolean(sketch?.media && missingMedia.includes(id));
+        const classes = ['pattern-btn', 'slot-btn', ...(missingFile ? ['is-missing-file'] : []), ...selectionClassesFor({ id, isSlot: true, liveSelection, cueSelection, slotOrder: ordered })];
         return (
           <button
             key={`slot-${i}`}
@@ -42,7 +44,9 @@ export function PatternPad() {
             data-index={String(i)}
             draggable
             disabled={takePending}
-            title="Click to play live. Shift-click to stage this pattern as CUE."
+            title={missingFile
+              ? 'File not available on this computer — select it and use Relink File. Click to play live. Shift-click to stage this pattern as CUE.'
+              : 'Click to play live. Shift-click to stage this pattern as CUE.'}
             onClick={(event) => {
               if (!sketch || takePending) return;
               if (event.shiftKey) runtime.commands.cueSelect(i);
@@ -56,6 +60,7 @@ export function PatternPad() {
           >
             <span className="pattern-key">{slotLabel(i)}</span>
             <span className="pattern-label"><span className="pattern-name">{sketch ? sketch.name : '—'}</span><PerformanceBudget patternId={id} compact /></span>
+            {missingFile && <span className="missing-file-badge" title="File not available on this computer — use Relink File">!</span>}
             <span className="drag-handle" title="Drag to swap slots">⠿</span>
           </button>
         );

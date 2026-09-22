@@ -23,7 +23,14 @@ export function CustomScriptsPanel() {
       note="Unlink removes loaded scripts, not source files.">
       <button className="library-add-btn" ref={openButton} aria-label="Open Script" title="Choose a trusted script from the linked folder" disabled={busy || status.busy || !status.folder} onClick={() => setPicker(withAccess(async () => { await scripts.browse(); return scripts.status.files.map(name => ({ name, disabled: scripts.status.opened.includes(name) })); }))}>OPEN</button>
     </FolderControls>
-    {(folderReference('scripts')?.files || []).filter(file => !status.opened.includes(file.fileName)).map(file => <p className="script-hint" key={file.fileName}>Open trusted script: {file.fileName}</p>)}
+    {(folderReference('scripts')?.files || []).filter(file => !status.opened.includes(file.fileName)).map(file => (
+      <p className="script-hint" key={file.fileName}>
+        Open trusted script: {file.fileName}
+        {typeof file.sha256 === 'string' ? '' : ' (this project recorded no code fingerprint for it)'}
+      </p>
+    ))}
+    {(status.reopened || []).length > 0 && <p role="status">Reopened with this project: {status.reopened.join(', ')}</p>}
+    {(status.stale || []).length > 0 && <p role="status">Changed since this project was saved: {status.stale.join(', ')} — open them to load the current code.</p>}
     {status.support && <p role="alert">{status.support}</p>}
     {status.busy && <p role="status">Reading / validating selected scripts…</p>}
     {message && <p role="status">{message}</p>}
