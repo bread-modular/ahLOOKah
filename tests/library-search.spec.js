@@ -364,7 +364,7 @@ test.describe('pattern library favourites', () => {
     }));
 
     await control.locator('#app-menu-btn').click();
-    await control.locator('#settings-import-input').setInputFiles(settingsFile);
+    await control.locator('#project-open-input').setInputFiles(settingsFile);
     await expect(control.locator('#notice-modal')).toBeVisible();
     await control.locator('#notice-modal-reload').click();
 
@@ -375,16 +375,27 @@ test.describe('pattern library favourites', () => {
     await expect(control.getByRole('button', { name: 'Remove Bars from favourites' })).toHaveCount(2);
   });
 
-  test('favourites travel with an exported settings file', async ({ context }) => {
+  test('favourites travel with a saved project file', async ({ context }) => {
+    await context.addInitScript(`
+      window.savedProject = { text: null };
+      window.showSaveFilePicker = async ({ suggestedName }) => ({
+        name: suggestedName,
+        async createWritable() {
+          return {
+            async write(text) { window.savedProject.text = text; },
+            async close() {},
+            async abort() {},
+          };
+        },
+      });
+    `);
     const control = await openControl(context);
     await control.getByRole('button', { name: 'Add Circles to favourites' }).click();
 
     await control.locator('#app-menu-btn').click();
-    const [download] = await Promise.all([
-      control.waitForEvent('download'),
-      control.locator('#app-menu-export-settings').click(),
-    ]);
-    const payload = JSON.parse(fs.readFileSync(await download.path(), 'utf8'));
+    await control.locator('#app-menu-save-project').click();
+    await expect(control.locator('#notice-modal')).toContainText('Project saved');
+    const payload = JSON.parse(await control.evaluate(() => window.savedProject.text));
     expect(payload.storage[FAVOURITES_KEY]).toBe('["circles"]');
   });
 });

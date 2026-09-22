@@ -1,4 +1,5 @@
 import { assertFolderReference, confirmFolderReference, missingFolderFiles } from '../platform/folderReferences.js';
+import { ensureProjectFolder } from '../platform/project-folders.js';
 import { createHandleStorage } from '../platform/handleStorage.js';
 import { chooseFolder, folderPermission, requireFolderPermission, scanFolder, linkedFile } from '../platform/folderAccess.js';
 import { mediaKindForName, mimeForName } from './media-store.js';
@@ -33,6 +34,9 @@ export class MediaFolder {
     await this.lock(async () => {
       await this.storage('folder', handle);
       confirmFolderReference('media');
+      // Remember the directory identity so a project reopened on this computer
+      // resolves Media without asking for a re-link.
+      await ensureProjectFolder('media', handle);
       await this.restore();
       this.publish({ errors: missingFolderFiles('media', files.map(file => file.name)) });
       try { await this.onFiles(files); }

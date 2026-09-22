@@ -1,7 +1,15 @@
-import { collectFolderReferences, applyFolderReferences } from './folder-portability.js';
-import { sanitizeFolderReferences } from './folderReferences.js';
-// Settings export / import — move every persisted ahLOOKah setting from one
-// browser (or machine) to another as a single JSON file.
+import { collectFolderReferences, applyFolderReferences, relinkImportedMedia } from './folder-portability.js';
+import { sanitizeFolderReferences, clearFolderReferences } from './folderReferences.js';
+import { clearProjectFolders } from './project-folders.js';
+// Project save / load — move a whole ahLOOKah project (every persisted setting
+// plus its library references and linked-directory identities) from one browser
+// or machine to another as a single JSON file.
+//
+// The app menu drives this module:
+//   * Save Project   — write the project to a file the operator picks (location
+//                      and file name), falling back to a download.
+//   * Open Project   — replace this browser's project with such a file.
+//   * New Project    — clear everything project-scoped back to a fresh browser.
 //
 // What travels:
 //   * every persisted setting in localStorage (params, pad order, EQ/noise
@@ -12,16 +20,24 @@ import { sanitizeFolderReferences } from './folderReferences.js';
 //     FileSystemFileHandle cannot leave the origin it was granted in, so
 //     imported media patterns stay listed but must be re-linked to a local
 //     file before they render (see media/media-store.js).
+//   * the identity of each linked directory (Custom Scripts, Node Patterns,
+//     Media) — a `folderId`, never a native handle. On the computer the project
+//     was exported from that id resolves to the already-linked directory, so
+//     switching between projects never asks to re-link what is already linked.
+//     Anywhere else the id has no record and the operator is asked to link it.
 //
 // What never travels: per-window/session keys (tab id, singleton leases, audio
-// capture lease). Those are runtime coordination, not settings.
+// capture lease). Those are runtime coordination, not project state.
 import { STORAGE } from './constants.js';
 import { MEDIA_STORAGE_KEY, sanitizeMediaMeta } from '../media/media-registry.js';
 import { PROJECTION_STORAGE_KEY } from '../projection/projection-registry.js';
 import { listMediaRecords, replaceMediaRecords, isMediaLinked } from '../media/media-store.js';
 
-export const SETTINGS_FILE_KIND = 'ahlookah-settings';
-export const SETTINGS_FILE_VERSION = 1;
+export const SETTINGS_FILE_KIND = 'ahlookah-project';
+// Pre-project exports used this kind; they still load (without directory
+// identities, so every linked folder is confirmed by hand, as before).
+export const LEGACY_SETTINGS_FILE_KIND = 'ahlookah-settings';
+export const SETTINGS_FILE_VERSION = 2;
 
 const APP_ID = 'ahlookah';
 const MAX_FILE_CHARS = 4_000_000;
@@ -32,6 +48,9 @@ const MAX_MEDIA_FILE_NAME_CHARS = 255;
 // Persisted settings, in a fixed order. Ephemeral coordination keys
 // (viz2_tab_id, viz2_singleton_*, viz2_audio_capture_lease) are deliberately
 // absent — importing them would make one window think another owns a lease.
+// The per-machine directory identities (viz2_project_folders) are absent too:
+// the project file carries the ids that matter, and the local map must never be
+// overwritten from another computer.
 export const SETTINGS_STORAGE_KEYS = Object.freeze([
   STORAGE.params,
   STORAGE.slotOrder,
@@ -58,10 +77,10 @@ function pad2(value) {
   return String(value).padStart(2, '0');
 }
 
-// Local-date file name so an operator with several exports can tell them apart.
-export function settingsFileName(now = new Date()) {
+// Local-date file name so an operator with several projects can tell them apart.
+export function projectFileName(now = new Date()) {
   const stamp = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
-  return `ahlookah-settings-${stamp}.json`;
+  return `ahlookah-project-${stamp}.json`;
 }
 
 function mediaEntryFromRecord(record) {
@@ -125,12 +144,85 @@ export function downloadSettingsFile(text, fileName) {
   window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
+// ---------------------------------------------------------------------------
+// Save Project — the browser picks the location and the file name
+// ---------------------------------------------------------------------------
+
+// File System Access save picker. Without it (Firefox/Safari, some embedded
+// webviews) Save Project falls back to a plain download of the same file.
+export function canUseSaveFilePicker() {
+  return typeof window !== 'undefined' && typeof window.showSaveFilePicker === 'function';
+}
+
+// Ask for a destination. This must run inside the click that started the save —
+// before collecting the (slower) project snapshot — so the browser's user
+// activation is still valid. Rejects with AbortError when the picker is dismissed.
+export async function pickProjectSaveTarget(fileName) {
+  return window.showSaveFilePicker({
+    id: 'ahlookah-project',
+    suggestedName: fileName,
+    types: [{ description: 'ahLOOKah project', accept: { 'application/json': ['.json'] } }],
+  });
+}
+
+// Write the serialized project through a picked handle. A failed write aborts the
+// stream, so a half-written project file never stays on disk.
+export async function writeProjectText(handle, text) {
+  const writable = await handle.createWritable();
+  try {
+    await writable.write(text);
+    await writable.close();
+  } catch (error) {
+    try { await writable.abort(); } catch { /* already closed */ }
+    throw error;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// New Project
+// ---------------------------------------------------------------------------
+
+// Keys that describe this machine rather than the project: the device choices and
+// the one-time setup gate survive New Project, so starting fresh never asks the
+// operator to re-pick a camera or re-run setup.
+const MACHINE_KEY_SET = new Set([STORAGE.audio, STORAGE.video, STORAGE.deviceSetupDone]);
+
+// New Project: forget everything project-scoped — settings, media patterns, the
+// portable folder hints and the current directory identities. Linked handles are
+// cleared by the section services as they unlink; the remembered-handle registry
+// is deliberately left alone, so an older project file still resumes its folders
+// on this computer without re-linking.
+export async function clearProject() {
+  let storageCleared = 0;
+  for (const key of SETTINGS_STORAGE_KEYS) {
+    if (MACHINE_KEY_SET.has(key)) continue;
+    try {
+      if (localStorage.getItem(key) !== null) {
+        localStorage.removeItem(key);
+        storageCleared += 1;
+      }
+    } catch {
+      /* private mode / quota — keep clearing the remaining keys */
+    }
+  }
+  let mediaCleared = 0;
+  try {
+    mediaCleared = (await listMediaRecords()).length;
+    await replaceMediaRecords([]);
+  } catch {
+    /* the reload still starts from an empty library */
+  }
+  clearFolderReferences();
+  clearProjectFolders();
+  return { storageCleared, mediaCleared };
+}
+
 // Validate a picked file. Returns { ok: true, payload } or { ok: false, error }.
 // Every accepted field is re-sanitized so a hand-edited file can never write
 // an unexpected key or an oversized value.
 export function parseSettingsFile(text) {
   if (typeof text !== 'string' || !text.trim()) return { ok: false, error: 'The file is empty.' };
-  if (text.length > MAX_FILE_CHARS) return { ok: false, error: 'The file is too large to be an ahLOOKah settings export.' };
+  if (text.length > MAX_FILE_CHARS) return { ok: false, error: 'The file is too large to be an ahLOOKah project file.' };
   let raw;
   try {
     raw = JSON.parse(text);
@@ -138,16 +230,16 @@ export function parseSettingsFile(text) {
     return { ok: false, error: 'That file is not valid JSON.' };
   }
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    return { ok: false, error: 'That file is not an ahLOOKah settings export.' };
+    return { ok: false, error: 'That file is not an ahLOOKah project file.' };
   }
-  if (raw.kind !== SETTINGS_FILE_KIND || raw.app !== APP_ID) {
+  if (raw.app !== APP_ID || (raw.kind !== SETTINGS_FILE_KIND && raw.kind !== LEGACY_SETTINGS_FILE_KIND)) {
     return { ok: false, error: 'That file was not exported by ahLOOKah.' };
   }
   if (!Number.isInteger(raw.version) || raw.version < 1) {
-    return { ok: false, error: 'The settings file has an unrecognized version.' };
+    return { ok: false, error: 'The project file has an unrecognized version.' };
   }
   if (raw.version > SETTINGS_FILE_VERSION) {
-    return { ok: false, error: `The settings file was written by a newer ahLOOKah version (v${raw.version}).` };
+    return { ok: false, error: `The project file was written by a newer ahLOOKah version (v${raw.version}).` };
   }
 
   const storage = {};
@@ -181,8 +273,10 @@ export function parseSettingsFile(text) {
 
 // Apply a validated payload. Replace semantics: the destination mirrors the
 // source, so allowlisted settings the file omits are cleared rather than left
-// behind (that is what "move my settings" means). Media records are replaced
-// wholesale with metadata-only entries.
+// behind (that is what "save this project here" means). Media records are
+// replaced wholesale with metadata-only entries — then re-pointed at the adopted
+// Media directory, so a project reopened on the computer it came from keeps its
+// media without a single re-link.
 export async function applySettings(payload) {
   const storage = payload?.storage && typeof payload.storage === 'object' ? payload.storage : {};
   const media = Array.isArray(payload?.media) ? payload.media : [];
@@ -203,16 +297,27 @@ export async function applySettings(payload) {
     }
   }
 
-  await applyFolderReferences(payload.folders);
+  const folders = await applyFolderReferences(payload.folders);
   await replaceMediaRecords(media);
+  const mediaRelinked = await relinkImportedMedia(folders.mediaFolder);
   const unlinkedMedia = await listUnlinkedMedia();
 
-  return { storageWritten, storageRemoved, mediaRestored: media.length, unlinkedMedia, folderReferences: payload.folders || null };
+  return {
+    storageWritten,
+    storageRemoved,
+    mediaRestored: media.length,
+    mediaRelinked,
+    unlinkedMedia,
+    folderReferences: payload.folders || null,
+    resolvedFolders: folders.resolved,
+    pendingFolders: folders.pending,
+    reconnectFolders: folders.reconnect,
+  };
 }
 
 // Media patterns whose file this browser cannot reach (no handle, no legacy
-// blob). After an import that is every restored pattern, which is what the UI
-// reports so the operator knows which files still need re-linking.
+// blob). After a save on another computer that is every restored pattern, which
+// is what the UI reports so the operator knows which files still need re-linking.
 export async function listUnlinkedMedia() {
   try {
     const records = await listMediaRecords();
@@ -223,6 +328,22 @@ export async function listUnlinkedMedia() {
       if (!linked) names.push(typeof record.name === 'string' && record.name ? record.name : 'Untitled media');
     }
     return names;
+  } catch {
+    return [];
+  }
+}
+
+// Sketch ids (media patterns) whose file this browser cannot reach — used to mark
+// those patterns in the library and pad.
+export async function listUnlinkedMediaIds() {
+  try {
+    const records = await listMediaRecords();
+    const ids = [];
+    for (const record of records) {
+      if (!record?.id) continue;
+      if (!await isMediaLinked(record.id)) ids.push(`media-${record.id}`);
+    }
+    return ids;
   } catch {
     return [];
   }

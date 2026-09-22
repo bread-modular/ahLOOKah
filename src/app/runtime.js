@@ -47,10 +47,18 @@ import {
   collectSettings,
   serializeSettings,
   downloadSettingsFile,
-  settingsFileName,
+  projectFileName,
+  canUseSaveFilePicker,
+  pickProjectSaveTarget,
+  writeProjectText,
+  clearProject,
   parseSettingsFile,
   applySettings,
+  listUnlinkedMediaIds,
 } from '../platform/settings-portability.js';
+import { relinkImportedMedia } from '../platform/folder-portability.js';
+import { ensureProjectFolder, recallProjectFolder } from '../platform/project-folders.js';
+import { confirmFolderReference } from '../platform/folderReferences.js';
 import {
   ProgramRuntime,
   copyProgramSelection,
@@ -2838,6 +2846,7 @@ export function createAppRuntime({
         if (role === 'control') {
           refreshMediaPadOrder();
           store.setState((s) => ({ mediaRevision: s.mediaRevision + 1 }));
+          refreshMissingMedia();
         }
         break;
       }
@@ -3023,6 +3032,9 @@ export function createAppRuntime({
     });
     syncUI();
     beginAudioOwnership();
+    // Mark media patterns whose file this browser cannot reach right away, so a
+    // project saved on another computer is visibly flagged after the reload too.
+    refreshMissingMedia();
     // First-run device setup gate (mirrors the legacy ConfigPanel.maybeShowSetupModal).
     if (localStorage.getItem(STORAGE.deviceSetupDone) !== '1') {
       const hasAudio = !!localStorage.getItem(STORAGE.audio);
@@ -3174,6 +3186,112 @@ export function createAppRuntime({
   function bumpMediaRevision() {
     refreshMediaPadOrder();
     store.setState((s) => ({ mediaRevision: s.mediaRevision + 1 }));
+    refreshMissingMedia();
+  }
+
+  // Media patterns whose file this browser cannot reach. They stay listed (the
+  // metadata is still here) but are marked red in the library and pad, with
+  // Relink File offered in the parameter panel — the same state an imported
+  // project starts in on a computer that has no local copy of the file.
+  function refreshMissingMedia() {
+    listUnlinkedMediaIds()
+      .then((ids) => {
+        const current = store.getState().missingMedia || [];
+        if (current.length === ids.length && current.every((id, i) => id === ids[i])) return;
+        store.setState({ missingMedia: ids });
+      })
+      .catch(() => { /* the library simply stays unmarked */ });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Projects (Save Project / Open Project / New Project)
+  // ---------------------------------------------------------------------------
+  const sectionLabel = (section) => ({ scripts: 'Custom Scripts', nodes: 'Node Patterns', media: 'Media' }[section] || section);
+
+  // Re-read everything a project change touches without a reload, so the blocking
+  // relink dialog keeps working on the live window.
+  function refreshProjectLibraries() {
+    registerMediaSketches(SKETCHES, loadMediaMeta());
+    registerProjectionSketches(SKETCHES, SKETCHES.filter((s) => s.projection));
+    refreshProjectionUI();
+    bumpMediaRevision();
+  }
+
+  // Adopt one directory a saved project expects on this computer: verify the
+  // expected name, remember the identity, re-point media files inside it, and
+  // complete that row of the relink dialog. The project only "completes" — success
+  // notice, peer reload — once the last expected directory has been adopted.
+  async function adoptProjectFolder(section, handle, entry) {
+    const label = sectionLabel(section);
+    if (!handle) throw new Error(`${label}: no folder is linked yet.`);
+    if (handle.name !== entry.folderName) throw new Error(`${label}: expected folder “${entry.folderName}”, found “${handle.name}”.`);
+    await ensureProjectFolder(section, handle, entry.folderId || null);
+    confirmFolderReference(section);
+    if (section === 'media') await relinkImportedMedia(handle);
+    refreshProjectLibraries();
+    const state = store.getState().projectRelink;
+    const remaining = (state?.pending || []).filter((item) => item.section !== section);
+    const adopted = [...(state?.adopted || []), section];
+    if (state && remaining.length) {
+      store.setState({ projectRelink: { ...state, pending: remaining, adopted } });
+      return { ok: true, remaining };
+    }
+    if (state) {
+      store.setState({ projectRelink: null });
+      finishProjectOpen(state.fileName, state.summary || {}, adopted);
+    }
+    return { ok: true, remaining: [] };
+  }
+
+  // The project is only usable once every directory it links exists here, so the
+  // success summary (and the peer reload) waits until the last one is adopted.
+  function finishProjectOpen(fileName, summary, adopted = []) {
+    const plural = (count) => (count === 1 ? '' : 's');
+    const details = [`${summary.storageWritten || 0} setting${plural(summary.storageWritten || 0)} restored.`];
+    if (summary.storageRemoved > 0) {
+      details.push(`${summary.storageRemoved} local setting${plural(summary.storageRemoved)} cleared to match the file.`);
+    }
+    if (summary.mediaRestored > 0) {
+      details.push(`${summary.mediaRestored} media pattern${plural(summary.mediaRestored)} restored (files are not copied).`);
+    }
+    if (summary.mediaRelinked > 0) {
+      details.push(`${summary.mediaRelinked} media file${plural(summary.mediaRelinked)} re-linked from the linked Media directory.`);
+    }
+    const resumed = [...new Set([...(summary.resolvedFolders || []), ...adopted])];
+    if (resumed.length) {
+      details.push(`Linked directories resumed on this computer: ${resumed.map(sectionLabel).join(', ')}.`);
+    }
+    const reconnect = summary.reconnectFolders || [];
+    if (reconnect.length) {
+      details.push(`${reconnect.map((item) => item.label).join(', ')}: open Linked and press Refresh once to renew browser access.`);
+    }
+    const unlinked = Array.isArray(summary.unlinkedMedia) ? summary.unlinkedMedia : [];
+    // Cap the list so a large library cannot push the button off-screen.
+    const shown = unlinked.slice(0, 8);
+    if (shown.length < unlinked.length) {
+      const rest = unlinked.length - shown.length;
+      details.push(`+${rest} more media pattern${plural(rest)} need re-linking.`);
+    }
+    if (unlinked.length) {
+      details.push('Missing files never block a project: the affected patterns are marked in the library. Files are never copied.');
+    }
+    const scripts = (summary.folderReferences?.scripts?.files || []).filter((file) => file.linked);
+    if (scripts.length) {
+      details.push(`${scripts.length} script file${plural(scripts.length)} expected in Custom Scripts: files whose code still matches this project reopen automatically after the reload, edited or new files need OPEN.`);
+    }
+    store.setState({
+      notice: {
+        tone: 'success',
+        title: 'Project opened',
+        message: `${fileName} was loaded into this browser. Reload to apply it.`,
+        details,
+        items: shown,
+        reload: true,
+      },
+    });
+    // The other windows re-read persisted state immediately (bus.post = no local
+    // echo); this window shows the dialog and reloads on acknowledge.
+    bus.post({ type: 'settings-imported' });
   }
 
   // Re-instantiate a media pattern after its file was re-pointed. Reached
@@ -3497,19 +3615,84 @@ export function createAppRuntime({
       bus.broadcast({ type: 'media-relinked', id: sketchId });
       return { id: sketchId, kind: source.kind, fileName: source.name };
     },
-    // Download every persisted setting (plus media metadata) as one JSON file.
-    async exportSettings() {
-      const payload = await collectSettings();
-      downloadSettingsFile(serializeSettings(payload), settingsFileName());
-      return payload;
+    // Save Project — write this project (every persisted setting plus the
+    // identities of its linked directories) to a file the operator picks.
+    //
+    // The picker opens first, inside the click, so the browser's user activation
+    // is still valid when it is requested; the project snapshot is collected only
+    // once a destination exists. A dismissed picker is a no-op, and browsers
+    // without the File System Access save picker — or a location that refuses the
+    // write — fall back to a normal download of the same file.
+    async saveProject() {
+      const fileName = projectFileName();
+      let handle = null;
+      if (canUseSaveFilePicker()) {
+        try {
+          handle = await pickProjectSaveTarget(fileName);
+        } catch (error) {
+          if (error?.name === 'AbortError') return { ok: false, canceled: true };
+          console.warn('[project] save picker unavailable, downloading instead', error);
+          handle = null;
+        }
+      }
+      let text = '';
+      try {
+        text = serializeSettings(await collectSettings());
+      } catch (error) {
+        console.error('[project] collect failed', error);
+        store.setState({
+          notice: {
+            tone: 'error',
+            title: 'Save Project failed',
+            message: 'This browser refused to read the current project.',
+            details: ['Nothing was written.'],
+          },
+        });
+        return { ok: false, error: 'collect-failed' };
+      }
+      if (!handle) {
+        downloadSettingsFile(text, fileName);
+        return { ok: true, fileName, downloaded: true };
+      }
+      const savedName = handle.name || fileName;
+      try {
+        await writeProjectText(handle, text);
+        store.setState({
+          notice: {
+            tone: 'success',
+            title: 'Project saved',
+            message: `${savedName} was written to the folder you chose.`,
+            details: ['Linked directories keep their identity, so reopening this file on this computer resumes them without re-linking.'],
+          },
+        });
+        return { ok: true, fileName: savedName, written: true };
+      } catch (error) {
+        console.error('[project] write failed', error);
+        downloadSettingsFile(text, fileName);
+        store.setState({
+          notice: {
+            tone: 'error',
+            title: 'Project not written to that file',
+            message: 'The browser could not write to the location you chose, so the project was downloaded instead.',
+            details: [`Look for ${fileName} in this browser's downloads.`],
+          },
+        });
+        return { ok: true, fileName, downloaded: true };
+      }
     },
-    // Restore a settings file. Replace semantics: the destination mirrors the
-    // source. The operator acknowledges a summary dialog first (NoticeModal),
-    // which is what triggers the reload of every window — so the imported
-    // settings are never applied behind a dismissable native alert.
-    async importSettings(file) {
+    // Open Project — replace this browser's project with a saved file.
+    //
+    // Replace semantics: this browser mirrors the file. Linked directories are
+    // resolved by identity BEFORE anything is asked: on the computer the project
+    // came from they are simply resumed. A directory this computer has no handle
+    // for blocks the open (store.projectRelink) until it is linked — missing
+    // *files* inside a linked directory never block, they are marked instead. The
+    // operator acknowledges a summary dialog (NoticeModal) which is what triggers
+    // the reload of every window, so a project is never applied behind a
+    // dismissable native alert.
+    async openProject(file) {
       if (!file || typeof file.text !== 'function') return { ok: false, error: 'No file selected.' };
-      const fileName = file.name || 'the settings file';
+      const fileName = file.name || 'the project file';
       let text = '';
       try { text = await file.text(); } catch { text = ''; }
       const parsed = parseSettingsFile(text);
@@ -3517,9 +3700,9 @@ export function createAppRuntime({
         store.setState({
           notice: {
             tone: 'error',
-            title: 'Import failed',
+            title: 'Open Project failed',
             message: parsed.error,
-            details: ['Your current settings were left untouched.'],
+            details: ['Your current project was left untouched.'],
           },
         });
         return parsed;
@@ -3528,49 +3711,117 @@ export function createAppRuntime({
       try {
         summary = await applySettings(parsed.payload);
       } catch (error) {
-        console.error('[settings] import failed', error);
+        console.error('[project] open failed', error);
         store.setState({
           notice: {
             tone: 'error',
-            title: 'Import failed',
-            message: 'This browser refused to save the settings from that file.',
+            title: 'Open Project failed',
+            message: 'This browser refused to load the project from that file.',
           },
         });
         return { ok: false, error: 'write-failed' };
       }
 
-      const plural = (count) => (count === 1 ? '' : 's');
+      refreshProjectLibraries();
+      const pending = Array.isArray(summary.pendingFolders) ? summary.pendingFolders : [];
+      if (pending.length) {
+        // The project stays open: it is not usable until every linked directory
+        // it names exists here, so no success notice and no peer reload yet.
+        store.setState({
+          projectRelink: { fileName, pending, adopted: [], summary },
+        });
+        return { ok: true, ...summary };
+      }
+      finishProjectOpen(fileName, summary);
+      return { ok: true, ...summary };
+    },
+    // New Project — clear this browser back to a fresh project.
+    //
+    // Deliberately native confirm: this discards the current project, every media
+    // pattern and every linked directory. A staged CUE blocks it, because the CUE
+    // bank references media patterns that are about to disappear.
+    async newProject() {
+      if (store.getState().cue) {
+        store.setState({
+          notice: {
+            tone: 'error',
+            title: 'New Project blocked',
+            message: 'A CUE is staged.',
+            details: ['Play or cancel the CUE before starting a new project.'],
+          },
+        });
+        return { ok: false, error: 'cue-active' };
+      }
+      const confirmed = window.confirm(
+        'Start a new project?\n\n'
+        + 'This clears every saved setting, all media patterns and every linked Scripts, '
+        + 'Node Patterns and Media directory in this browser. Project files on disk are '
+        + 'not touched, and your device choices are kept.',
+      );
+      if (!confirmed) return { ok: false, canceled: true };
+
+      const failed = [];
+      for (const [label, service] of [['Custom Scripts', customScripts], ['Node Patterns', nodePatterns], ['Media', mediaFolder]]) {
+        try {
+          await service.unlink();
+        } catch (error) {
+          console.warn(`[project] unlink ${label} failed`, error);
+          failed.push(label);
+        }
+      }
+      let summary = { storageCleared: 0, mediaCleared: 0 };
+      try {
+        summary = await clearProject();
+      } catch (error) {
+        console.error('[project] clear failed', error);
+      }
       const details = [
-        `${summary.storageWritten} setting${plural(summary.storageWritten)} restored.`,
+        `${summary.storageCleared} saved setting${summary.storageCleared === 1 ? '' : 's'} cleared.`,
+        summary.mediaCleared ? `${summary.mediaCleared} media pattern${summary.mediaCleared === 1 ? '' : 's'} removed.` : 'No media patterns to remove.',
+        'Linked Scripts, Node Patterns and Media directories were unlinked.',
       ];
-      if (summary.storageRemoved > 0) {
-        details.push(`${summary.storageRemoved} local setting${plural(summary.storageRemoved)} cleared to match the file.`);
-      }
-      if (summary.mediaRestored > 0) {
-        details.push(`${summary.mediaRestored} media pattern${plural(summary.mediaRestored)} restored (files are not copied).`);
-      }
-      if (summary.folderReferences) details.push('Relink each imported folder in its Linked details (or Relink Folder). Names are not directory identities. Open trusted scripts explicitly; files are never copied.');
-      const unlinked = Array.isArray(summary.unlinkedMedia) ? summary.unlinkedMedia : [];
-      // Cap the list so a large library cannot push the button off-screen.
-      const shown = unlinked.slice(0, 8);
-      if (shown.length < unlinked.length) {
-        const rest = unlinked.length - shown.length;
-        details.push(`+${rest} more media pattern${plural(rest)} need re-linking.`);
-      }
+      if (failed.length) details.push(`${failed.join(', ')} could not be unlinked here — unlink from Linked after the reload.`);
+      details.push('Device choices and the setup state are kept.');
       store.setState({
         notice: {
           tone: 'success',
-          title: 'Settings imported',
-          message: `${fileName} was written to this browser. Reload to apply it.`,
+          title: 'New project',
+          message: 'This browser is empty again. Reload to start from a clean project.',
           details,
-          items: shown,
           reload: true,
         },
       });
-      // The other windows re-read persisted state immediately (bus.post = no
-      // local echo); this window shows the dialog and reloads on acknowledge.
       bus.post({ type: 'settings-imported' });
       return { ok: true, ...summary };
+    },
+    // Link one directory the current project expects (from the blocking relink
+    // dialog). Runs the section's ordinary Link Folder path — same name checks,
+    // same stores — then binds the directory to the project's identity here.
+    async linkProjectFolder(section) {
+      const entry = (store.getState().projectRelink?.pending || []).find((item) => item.section === section);
+      if (!entry) return null;
+      if (section === 'scripts') await customScripts.choose();
+      else if (section === 'nodes') await nodePatterns.link();
+      else if (section === 'media') await mediaFolder.link();
+      else throw new Error('Unknown directory.');
+      const handle = section === 'scripts' ? customScripts.handle
+        : section === 'nodes' ? nodePatterns.state.folder?.handle
+          : mediaFolder.handle;
+      await adoptProjectFolder(section, handle, entry);
+      return { ok: true };
+    },
+    // Renew browser access to a directory the project already remembers here
+    // (an expired grant) without re-picking it.
+    async reconnectProjectFolder(section) {
+      const entry = (store.getState().projectRelink?.pending || []).find((item) => item.section === section);
+      if (!entry) return null;
+      const record = entry.folderId ? await recallProjectFolder(entry.folderId) : null;
+      const handle = record?.handle;
+      if (!handle) throw new Error(`${sectionLabel(section)}: this directory is not remembered on this computer. Link it instead.`);
+      const permission = await handle.requestPermission({ mode: 'read' });
+      if (permission !== 'granted') throw new Error(`${sectionLabel(section)}: access was not granted. Allow read access in the browser, or link the folder again.`);
+      await adoptProjectFolder(section, handle, entry);
+      return { ok: true };
     },
   };
 

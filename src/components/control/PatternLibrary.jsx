@@ -48,6 +48,7 @@ export function PatternLibrary() {
   const liveSelection = useVizStore(store, (s) => s.liveSelection);
   const cue = useVizStore(store, (s) => s.cue);
   const mediaRevision = useVizStore(store, (s) => s.mediaRevision);
+  const missingMedia = useVizStore(store, (s) => s.missingMedia);
   useVizStore(store, (s) => s.projectionRevision);
   const [collapsedGroups, setCollapsedGroups] = useState(loadCollapsedGroups);
   const [query, setQuery] = useState('');
@@ -120,7 +121,11 @@ export function PatternLibrary() {
   // selects, cues or drags the pattern.
   const renderPattern = (sketch) => {
     const slotIdx = slotOf.get(sketch.id);
-    const classes = ['pattern-btn', 'library-btn', ...selectionClassesFor({ id: sketch.id, isSlot: false, liveSelection, cueSelection, slotOrder: ordered })];
+    // A media pattern whose file this browser cannot reach (a project saved on
+    // another computer, a file that moved) stays listed but is marked red, so a
+    // missing file is visible without selecting the pattern.
+    const missingFile = Boolean(sketch.media && missingMedia.includes(sketch.id));
+    const classes = ['pattern-btn', 'library-btn', ...(missingFile ? ['is-missing-file'] : []), ...selectionClassesFor({ id: sketch.id, isSlot: false, liveSelection, cueSelection, slotOrder: ordered })];
     const isFavourite = favouriteIds.includes(sketch.id);
     return (
       <div className="library-cell" key={sketch.id}>
@@ -129,7 +134,7 @@ export function PatternLibrary() {
           data-id={sketch.id}
           draggable
           disabled={takePending}
-          title={`${sketch.description ? `${sketch.description} ` : ''}Click to play live. Shift-click to stage this pattern as CUE.`}
+          title={`${sketch.description ? `${sketch.description} ` : ''}${missingFile ? 'File not available on this computer — select it and use Relink File. ' : ''}Click to play live. Shift-click to stage this pattern as CUE.`}
           onClick={(event) => {
             if (takePending) return;
             if (slotIdx !== undefined) {
@@ -148,6 +153,7 @@ export function PatternLibrary() {
           onDrop={(e) => { e.preventDefault(); if (slotIdx !== undefined) commitDrop(slotIdx); }}
         >
           <span className="pattern-label"><span className="pattern-name">{sketch.name}</span><PerformanceBudget patternId={sketch.id} compact /></span>
+          {missingFile && <span className="missing-file-badge" title="File not available on this computer — use Relink File">!</span>}
           {sketch.projection && <span className="media-badge" title="Projection mapping">▱</span>}
           {sketch.camera && <span className="camera-badge" title="Uses camera input">📷</span>}
           {sketch.media && sketch.kind === 'image' && <span className="media-badge" title="Loaded image">🖼️</span>}
