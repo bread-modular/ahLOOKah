@@ -1129,9 +1129,9 @@ export const GROUP_ORDER = [
   'Basics',
   'Alphas',
   'Media',
-  'Projection Mapping',
   'Custom Scripts',
   NODE_PATTERNS_GROUP,
+  'Projection Mapping',
 ];
 
 // Group names present in SKETCHES, in GROUP_ORDER (unknown groups appended).
