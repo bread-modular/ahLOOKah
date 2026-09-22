@@ -3,7 +3,7 @@ import { IconControl } from '../components/control/IconControl.jsx';
 import { ModulatedParameter } from './ModulatedParameter.jsx';
 import { BANDS, definitions, numeric, clampStep, SIGNAL_DRAG } from './modulation.js';
 import { AUDIO_CHANNEL_LABELS } from '../audio-routing.js';
-import { MATH_OPS, MATH_LABELS, MATH_INPUTS, MATH_PORT_LABELS, SCRIPT_INPUTS, SCRIPT_PORT_LABELS, SCRIPT_LITERAL_FIELDS, defaultNode, isSignalSource, isVisualSource, isScalarConsumer, isModulationTarget, activeInputs, mathPorts } from './definitions.js';
+import { MATH_OPS, MATH_LABELS, MATH_INPUTS, MATH_PORT_LABELS, SCRIPT_INPUTS, SCRIPT_PORT_LABELS, SCRIPT_LITERAL_FIELDS, SIGNAL_TYPES, defaultNode, isSignalSource, isVisualSource, isScalarConsumer, isModulationTarget, activeInputs, mathPorts } from './definitions.js';
 import { inputAnchor, outputAnchor, signalAnchor, wirePath, BUNDLE_BOW } from './geometry.js';
 import { SCRIPT_VARIABLES, compileScript, helpForLanguage, limitForLanguage, scriptLanguageLabel } from './script.js';
 import { approveScript, isScriptApproved } from './script-approval.js';
@@ -44,6 +44,13 @@ function labelFor(n) {
     : n.type === 'blend' ? 'Blend' : n.type === 'audio' ? `Audio · ${n.band}` : n.type === 'color' ? 'Color'
       : n.type === 'math' ? `Math · ${n.op || 'add'}` : n.type === 'script' ? 'Script' : 'Output';
 }
+// Presentation-only level read straight from SIGNAL_TYPES (the single source of
+// truth already shared by the model and runtime): violet for signal-level
+// sources (Audio/Math/Script), cool blue-gray for image-level nodes
+// (Pattern/Blend/Color/Output, i.e. everything else). The palette buttons, the
+// canvas cards and the inspector header tint from this one classifier so the two
+// classes always read the same; the graph itself never stores a level.
+const levelOf = type => SIGNAL_TYPES.includes(type) ? 'signal' : 'image';
 // One description for a connection, shared by the wire itself and the sidebar
 // panel that explains what Delete/Backspace will remove.
 export function describeConnection(graph, ref, link) {
@@ -445,7 +452,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
       <aside className="nodes-palette" aria-label="Pattern palette">
         <div className="nodes-palette-create">
           <span className="nodes-palette-label">Nodes</span>
-          {CREATE_NODES.map(n => <button className="btn" key={n.type} title={n.title} draggable onDragStart={e => { e.dataTransfer.effectAllowed = 'copy'; e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ version: 1, nodeType: n.type })); }}>{n.label}</button>)}
+          {CREATE_NODES.map(n => <button className={`btn level-${levelOf(n.type)}`} key={n.type} title={n.title} draggable onDragStart={e => { e.dataTransfer.effectAllowed = 'copy'; e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ version: 1, nodeType: n.type })); }}>{n.label}</button>)}
         </div>
         <div className="nodes-palette-patterns">
           <span className="nodes-palette-label">Patterns</span>
@@ -473,7 +480,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
             const ref = connectionRef('modulation', m);
             return <Wire key={`signal-${ref.key}`} kind="modulation" link={m} from={outputAnchor(a)} to={signalAnchor(b)} bow={bundleBow(m)} selected={sameConnection(selection.wire, ref)} description={describeConnection(graph, ref, m)} onSelect={pickConnection} />;
           })}</svg>
-          {graph.nodes.map(n => <article key={n.id} className={`nodes-node ${selection.ids.includes(n.id) ? 'is-selected' : ''}`} data-node-id={n.id} data-primary={selected === n.id || undefined} style={{ left: n.x, top: n.y }} onClick={e => selection.nodeClick(n.id, e)}>
+          {graph.nodes.map(n => <article key={n.id} className={`nodes-node level-${levelOf(n.type)} ${selection.ids.includes(n.id) ? 'is-selected' : ''}`} data-node-id={n.id} data-primary={selected === n.id || undefined} style={{ left: n.x, top: n.y }} onClick={e => selection.nodeClick(n.id, e)}>
             <button className="nodes-node-title" title={`Select or drag ${label(n)}`} aria-label={`Select ${label(n)}`} aria-pressed={selection.ids.includes(n.id)} {...selection.titleHandlers(n)}>{label(n)}</button>
             <div className="nodes-ports">{activeInputs(n).map(name => <button key={name} className="nodes-input" title={`Connect to ${label(n)} ${name} input`} aria-label={`${n.id} input ${name}`} onClick={() => port(n.id, name)}>● {name}</button>)}
               {n.type !== 'output' && <button className={`nodes-output ${pending === n.id ? 'active' : ''}`} title={`Connect from ${label(n)} output`} aria-label={`${n.id} output`} onClick={() => { setPending(n.id); setMessage(''); }}>out ●</button>}
@@ -497,7 +504,13 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
           <IconControl icon="zoomIn" label="Zoom in" disabled={navigation.view.zoom >= 2.5} onClick={() => navigation.zoomAt(1.2)} />
         </div>
       </section>
-      <aside className="nodes-inspector"><h2>{node ? label(node) : selectedLink ? 'Connection' : 'Preview'}</h2><Preview graph={graph} dependencies={dependencies} selected={selected} revision={revision} current={previewRuntime} sharedRuntime={sharedRuntime} audioProvider={audioProvider} providerReady={providerReady} visible={!(node?.type === 'audio' || node?.type === 'script')} />
+      <aside className="nodes-inspector">
+        {/* The level pill rides beside, never inside, the heading: it names the
+            node's level at a glance while the h2 keeps the node's exact name. */}
+        <div className="nodes-inspector-head"><h2>{node ? label(node) : selectedLink ? 'Connection' : 'Preview'}</h2>
+          {node && <span className={`nodes-level-tag level-${levelOf(node.type)}`} title={levelOf(node.type) === 'signal'
+            ? 'Signal-level node (Audio, Math, Script): emits numbers, never pictures.'
+            : 'Image-level node (Pattern, Blend, Color, Output): carries pixels.'}>{levelOf(node.type)}</span>}</div><Preview graph={graph} dependencies={dependencies} selected={selected} revision={revision} current={previewRuntime} sharedRuntime={sharedRuntime} audioProvider={audioProvider} providerReady={providerReady} visible={!(node?.type === 'audio' || node?.type === 'script')} />
         {selectedLink && <section className="nodes-connections" aria-label="Selected connection">
           <output className="nodes-connection-name" data-testid="selected-connection">{describeConnection(graph, selection.wire, selectedLink)}</output>
           <button className="btn btn--danger" title="Remove only this wire; both endpoint nodes stay" onClick={remove}>Delete connection</button>
