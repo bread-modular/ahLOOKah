@@ -344,13 +344,20 @@ test('a project saved elsewhere blocks until every directory is linked; missing 
 test('node palette scrollbar has a stable themed gutter, separated from items @core', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto('/?role=nodes');
-  const list = page.locator('.nodes-pattern-list');
+  const palette = page.locator('.nodes-palette');
+  const list = palette.locator('.nodes-pattern-list');
   await expect(list.locator('.btn').first()).toBeVisible();
-  await expect(list).toHaveCSS('padding-inline-end', '8px');
-  await expect(list).toHaveCSS('scrollbar-gutter', 'stable');
-  await expect(list).toHaveCSS('scrollbar-width', 'thin');
-  const metrics = await list.evaluate(el => {
-    const item = el.querySelector('.btn').getBoundingClientRect();
+  // The palette owns the one scroll container (nodes.css:40–42): a themed thin
+  // edge scrollbar over the panel padding. The pattern list itself never scrolls
+  // or pads, so rows stay clear of that gutter.
+  await expect(palette).toHaveCSS('overflow-y', 'auto');
+  await expect(palette).toHaveCSS('overflow-x', 'hidden');
+  await expect(palette).toHaveCSS('scrollbar-gutter', 'auto');
+  await expect(palette).toHaveCSS('scrollbar-width', 'thin');
+  await expect(list).toHaveCSS('overflow-y', 'visible');
+  await expect(list).toHaveCSS('padding-inline-end', '0px');
+  const metrics = await palette.evaluate(el => {
+    const item = el.querySelector('.nodes-pattern-list .btn').getBoundingClientRect();
     const box = el.getBoundingClientRect();
     const style = getComputedStyle(el);
     return { gap: box.right - item.right, overflows: el.scrollHeight > el.clientHeight, horizontal: el.scrollWidth > el.clientWidth, colors: style.scrollbarColor };

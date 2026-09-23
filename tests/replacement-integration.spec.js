@@ -98,7 +98,9 @@ test('actual Web Audio capture → analyser → noise floor → engine → packe
   await writeFile(`${output}/integration.json`, JSON.stringify({ ...result, alphas: result.alphas.map(({ images, ...a }) => a) }, null, 2));
   expect(result.rms).toBeGreaterThan(.03);
   expect(result.scans).toBe(48);
-  expect(result.accepted).toBe(48 * 10);
+  // 48 accepted frames × the 8 retained replacement patterns
+  // (pinned by replacement-inventory.spec.js).
+  expect(result.accepted).toBe(48 * 8);
   expect(result.silenceControls).toEqual({ bass: 0, mid: 0, high: 0, kick: 0, snare: 0, hat: 0, beat: 0, energy: 0 });
   for (const key of ['bass', 'mid', 'high', 'energy']) expect(result.finalControls[key], key).toBeGreaterThan(.1);
   // Steady oscillator drone: percussion envelopes relax toward zero but stay valid.
