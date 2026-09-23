@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-const GROUPS = { 'Video FX': ['video-slit-scan', 'video-facet-fold'] };
+const CAMERA_IDS = ['video-edge-glow', 'video-thermal'];
 
 // Isolated real-p5 renderer, with a deterministic camera frame. Unlike a fake
 // webcam's moving clock this allows exact audio-on/off pixel comparisons.
@@ -124,14 +124,14 @@ test('checkerboard stays identical with audio, legacy pulse, audio loss and cach
   await page.evaluate(() => window.__expanded.dispose());
 });
 
-test('new camera FX share one real capture across CUE, keep control placeholders, and release it', async ({ context, page }) => {
+test('remaining camera FX share one real capture across CUE, keep control placeholders, and release it', async ({ context, page }) => {
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 480, height: 300 });
   await page.goto('/?role=screen');
   const control = await context.newPage();
   await control.goto('/?role=control');
   await control.waitForFunction(() => window.__viz.screenOnline);
-  const cameras = GROUPS['Video FX'];
+  const cameras = CAMERA_IDS;
   for (let i = 0; i < cameras.length; i++) {
     await control.locator(`#pattern-library [data-id="${cameras[i]}"]`).click({ modifiers: i ? ['Shift'] : [] });
     if (i) {
@@ -167,7 +167,7 @@ test('denied camera permission leaves the previous LIVE picture intact without l
       return Promise.reject(new DOMException('Camera denied for regression test', 'NotAllowedError'));
     };
   });
-  await control.locator('#pattern-library [data-id="video-slit-scan"]').click({ modifiers: ['Shift'] });
+  await control.locator('#pattern-library [data-id="video-edge-glow"]').click({ modifiers: ['Shift'] });
   await page.waitForFunction(() => window.__deniedCameraRequests > 0 && window.__viz.cue?.phase === 'error');
   expect(await page.evaluate(() => window.__viz.programs.live.children)).toEqual(['truchet-relay']);
   await control.keyboard.press('Escape');

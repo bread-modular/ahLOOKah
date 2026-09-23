@@ -4,8 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { GRAPHIC_PATTERNS } from '../src/sketches/replacements/graphic.js';
 import { FIELD_PATTERNS } from '../src/sketches/replacements/fields.js';
 import { SPATIAL_PATTERNS } from '../src/sketches/replacements/spatial.js';
-import { VIDEO_PATTERNS } from '../src/sketches/replacements/video.js';
-const OWNED = [...GRAPHIC_PATTERNS, ...FIELD_PATTERNS, ...SPATIAL_PATTERNS, ...VIDEO_PATTERNS];
+const OWNED = [...GRAPHIC_PATTERNS, ...FIELD_PATTERNS, ...SPATIAL_PATTERNS];
 const root = 'test-results/replacement-strength';
 const bands = ['bass', 'mid', 'high'];
 let recordings;
@@ -15,7 +14,7 @@ test.use({ viewport: { width: 320, height: 180 }, launchOptions: { args: ['--use
 test.beforeAll(async ({ browser }) => {
   test.setTimeout(60_000);
   fs.mkdirSync(`${root}/before`, { recursive: true });
-  for (const name of ['runtime', 'graphic', 'fields', 'spatial', 'video']) {
+  for (const name of ['runtime', 'graphic', 'fields', 'spatial']) {
     const source = execFileSync('git', ['show', `9f707fe:src/sketches/replacements/${name}.js`], { encoding: 'utf8' })
       .replaceAll("'../band-reactive.js'", "'/src/sketches/band-reactive.js'").replaceAll("'../shader-utils.js'", "'/src/sketches/shader-utils.js'");
     // Avoid notifying Vite's watcher when a failed test restarts its worker.

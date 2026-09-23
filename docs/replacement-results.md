@@ -1,5 +1,7 @@
 # Replacement results — workspace 123
 
+> Historical measurements: some patterns named below have since been removed from the live catalog.
+
 Final wrap-up of **existing evidence**, not a new test run. See [design, provenance, concepts and method](replacement-mission.md). Registry: **60 removed, 50 older retained, 18 added = 68 built-ins**; Checkerboard and Ion Tempest retained; category labels/order, Media and custom Projection Mapping unchanged. No merge or advisor.
 
 ## Actual completed runs

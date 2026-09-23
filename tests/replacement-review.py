@@ -13,7 +13,7 @@ OUT = Path('docs/replacement-strength-assets')
 OUT.mkdir(parents=True, exist_ok=True)
 IDS = ['riso-misprint',
        'iris-diaphragm', 'truchet-relay', 'membrane-modes', 'schlieren-flow', 'tidal-glass', 'bitplane-rewire',
-       'cellular-gate', 'video-slit-scan', 'video-facet-fold']
+       'cellular-gate']
 BANDS = ['neutral', 'bass', 'mid', 'high']
 font = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', 16)
 small = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', 12)
@@ -42,7 +42,7 @@ for id, result in results.items():
     strip(result['stills'], name).save(OUT / f'{id}.png')
     rows.append(f'<section id="{id}"><h2>{name}</h2><picture><source media="(prefers-reduced-motion: reduce)" srcset="replacement-strength-assets/{id}.png"><img loading="lazy" src="replacement-strength-assets/{id}.webp" alt="{name}: silence, bass, mid, high animated comparison"></picture><details><summary>Before, same actual analyzer recording</summary><img loading="lazy" src="replacement-strength-assets/{id}-before.webp" alt="Before {name}"></details></section>')
 
-for batch in range(3):
+for batch in range((len(IDS) + 5) // 6):
     sheet = Image.new('RGB', (1024, 1200), '#0c111c')
     draw = ImageDraw.Draw(sheet)
     draw.text((12, 10), 'REAL ANALYZER -60 dBFS | AFTER | SILENCE / BASS / MID / HIGH', font=font, fill='white')
@@ -60,4 +60,4 @@ html = '''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewp
 <p><a href="replacement-strength.md">Signal findings, mappings, validation and limitations</a> · <a href="replacement-strength-assets/metrics.json">Full geometry / temporal metrics</a></p>
 '''
 Path('docs/replacement-strength-review.html').write_text(html + '\n'.join(rows) + '</html>')
-print(f'Created {len(IDS)} before/after animations, stills, 3 contact sheets and metrics in {OUT}')
+print(f'Created {len(IDS)} before/after animations, stills, {(len(IDS) + 5) // 6} contact sheets and metrics in {OUT}')

@@ -156,7 +156,7 @@ by accident. Move focus out of the field first for those CUE gestures.
 ### Replacement VJ patterns and camera FX
 
 The library ships the older entries (including Ion Tempest and Checkerboard)
-plus Simple Circle, 10 replacements, and 9 expansion patterns with 2 restored
+plus Simple Circle, 8 replacements, and 7 expansion patterns with 2 restored
 legacy camera looks. The rejected 60-pattern expansion is removed, not hidden.
 Category labels/order, Media, custom Projection Mapping, and older
 controls/renderers are unchanged. (Historical inventory digests from that
@@ -176,7 +176,7 @@ calibration target when aligning a projector.
 | 3D | Voxel Cascade, Gyro Lattice |
 | Cinematic / Shaders | Schlieren Flow, Tidal Glass, Godray Forge |
 | Neon / Lasers | — |
-| Video FX | Video Slit Scan, Video Facet Fold, Video Datamosh, Video Rolling Shutter |
+| Video FX | — (older camera effects and the restored pair remain) |
 | Glitch / Effects | Bitplane Rewire, Riso Misprint, VHS Head Switch, DCT Blocks |
 | Basics | Test Card |
 | Alphas | Iris Diaphragm, Cellular Gate, Blinder Matrix |
@@ -187,11 +187,10 @@ scale capture-side bands before bounded geometric mapping; they are not brightne
 knobs. Hover a pattern for its three structural mappings. Baseline animation has
 its own Motion Speed and never fabricates audio during silence.
 
-The implementations combine Canvas2D mechanisms, projected 3D faces, independent
-shader fields, a bounded glass raymarch, and camera time slicing / triangular
-folding. Video Slit Scan retains only 16 frames at 320×180; both camera effects
-share the existing output-window capture lease and use a mirrored cover crop.
-They remain placeholders in the control preview, not additional camera captures.
+The retained replacements combine Canvas2D mechanisms, projected 3D faces,
+independent shader fields, and a bounded glass raymarch. The remaining camera
+effects use the existing output-window capture lease and remain placeholders in
+the control preview, not additional camera captures.
 Alphas output opaque white/gray-on-black; the existing projection **Alpha Blend**
 keys black out (it is not a proportional luminance-to-opacity conversion).
 
@@ -203,8 +202,8 @@ PLAYWRIGHT_PORT=5273 npx playwright test tests/replacement-*.spec.js --workers=2
 python3 scripts/replacement-contact-sheets.py # optional, requires Pillow
 ```
 
-Artifacts live in `test-results/replacement-evidence/` (ignored by Git): three
-contact sheets, three short silent A/B/difference GIFs, per-pattern PNGs, metrics,
+Artifacts live in `test-results/replacement-evidence/` (ignored by Git): two
+contact sheets, two short silent A/B/difference GIFs, per-pattern PNGs, metrics,
 and an HTML gallery. `REPLACEMENT_ARTIFACTS` overrides the test evidence directory.
 
 **Checkerboard is deliberately not audio reactive.** It defaults to stationary

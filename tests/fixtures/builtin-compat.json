@@ -1798,64 +1798,6 @@
   ]
  },
  {
-  "id": "video-slit-scan",
-  "name": "Video Slit Scan",
-  "group": "Video FX",
-  "audioReactive": true,
-  "camera": true,
-  "params": [
-   [
-    "detail",
-    1
-   ],
-   [
-    "speed",
-    0.6
-   ],
-   [
-    "bass",
-    1
-   ],
-   [
-    "mid",
-    1
-   ],
-   [
-    "high",
-    1
-   ]
-  ]
- },
- {
-  "id": "video-facet-fold",
-  "name": "Video Facet Fold",
-  "group": "Video FX",
-  "audioReactive": true,
-  "camera": true,
-  "params": [
-   [
-    "detail",
-    1
-   ],
-   [
-    "speed",
-    0.6
-   ],
-   [
-    "bass",
-    1
-   ],
-   [
-    "mid",
-    1
-   ],
-   [
-    "high",
-    1
-   ]
-  ]
- },
- {
   "id": "bitplane-rewire",
   "name": "Bitplane Rewire",
   "group": "Glitch / Effects",
@@ -2059,64 +2001,6 @@
    [
     "hue",
     0.53
-   ],
-   [
-    "bass",
-    1
-   ],
-   [
-    "mid",
-    1
-   ],
-   [
-    "high",
-    1
-   ]
-  ]
- },
- {
-  "id": "video-datamosh",
-  "name": "Video Datamosh",
-  "group": "Video FX",
-  "audioReactive": true,
-  "camera": true,
-  "params": [
-   [
-    "detail",
-    1
-   ],
-   [
-    "speed",
-    0.6
-   ],
-   [
-    "bass",
-    1
-   ],
-   [
-    "mid",
-    1
-   ],
-   [
-    "high",
-    1
-   ]
-  ]
- },
- {
-  "id": "video-rolling-shutter",
-  "name": "Video Rolling Shutter",
-  "group": "Video FX",
-  "audioReactive": true,
-  "camera": true,
-  "params": [
-   [
-    "detail",
-    1
-   ],
-   [
-    "speed",
-    0.6
    ],
    [
     "bass",
