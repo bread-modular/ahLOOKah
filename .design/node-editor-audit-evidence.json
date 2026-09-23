@@ -1,0 +1,134 @@
+{
+  "commit": "5a50ac3836bdf81aca1e0669825fcce0ae8d201e",
+  "probes": {
+    "empty-name-embedded-editor": {
+      "result": {
+        "rootChildren": 0
+      },
+      "pageErrors": [
+        "Name must contain 1–80 characters",
+        "Failed to execute 'postMessage' on 'BroadcastChannel': Channel is closed"
+      ]
+    },
+    "script-drafts-overwrite-each-other": {
+      "result": {
+        "expectedUnappliedText": "return 111;",
+        "actualText": "return x;"
+      },
+      "pageErrors": []
+    },
+    "single-parameter-recreates-every-source": {
+      "result": {
+        "graphDisposals": 1,
+        "sourcePreparations": 2
+      },
+      "pageErrors": []
+    },
+    "connection-error-only-in-data-attribute": {
+      "result": {
+        "message": "Scalar outputs connect to Math/Script inputs or a signal endpoint, not image inputs.",
+        "visibleInPageText": false
+      },
+      "pageErrors": []
+    },
+    "unreachable-sources-are-prepared-and-drawn": {
+      "result": {
+        "sources": 10,
+        "setups": 10,
+        "draws": 10,
+        "neededSourcesForOutput": 1
+      },
+      "pageErrors": []
+    },
+    "unconnected-invalid-pattern-blocks-healthy-output": {
+      "result": {
+        "sources": 0,
+        "pixel": [
+          41,
+          23,
+          34,
+          255
+        ],
+        "diagnostics": [
+          "Missing pattern: deleted-pattern"
+        ]
+      },
+      "pageErrors": []
+    },
+    "same-name-folders-rebind-saved-project": {
+      "result": {
+        "sameIdentity": true,
+        "originalNowResolvesToA": false,
+        "originalNowResolvesToB": true,
+        "resolved": [
+          "nodes"
+        ],
+        "pending": []
+      },
+      "pageErrors": []
+    },
+    "new-project-retains-individually-opened-node-files": {
+      "result": {
+        "before": [
+          "Old project individual"
+        ],
+        "after": {
+          "opened": 1,
+          "records": [
+            "Old project individual"
+          ]
+        },
+        "afterReload": [
+          "Old project individual"
+        ]
+      },
+      "pageErrors": []
+    },
+    "project-import-swallows-quota-failure": {
+      "result": {
+        "returnedNormally": true,
+        "params": "{\"oldProject\":{}}",
+        "camera": "new-camera",
+        "summary": {
+          "storageWritten": 1,
+          "storageRemoved": 1,
+          "mediaRestored": 0,
+          "mediaRelinked": 0,
+          "unlinkedMedia": [],
+          "folderReferences": null,
+          "resolvedFolders": [],
+          "pendingFolders": [],
+          "reconnectFolders": []
+        }
+      },
+      "pageErrors": []
+    },
+    "nonstandard-output-id-initially-previews-nothing": {
+      "result": {
+        "before": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "selectedBefore": 0,
+        "after": [
+          204,
+          0,
+          0,
+          255
+        ]
+      },
+      "pageErrors": []
+    },
+    "input-range-overflow-throws-without-visible-error": {
+      "result": {
+        "field": "1000001",
+        "status": null
+      },
+      "pageErrors": [
+        "Invalid modulation input range"
+      ]
+    }
+  }
+}
