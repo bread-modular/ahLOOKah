@@ -279,6 +279,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   };
   const node = graph.nodes.find(n => n.id === selected);
   const sketch = SKETCHES.find(s => s.id === node?.patternId);
+  const sourceDefault = descriptor => descriptor?.camera ? 'Camera default' : 'Source default';
   const imageWired = id => graph.edges.some(edge => edge.to === id && edge.port === 'image');
   // Image FX has a visible optional socket even before it has a wire. Until the
   // shared definitions understand descriptor-driven optional inputs, append it
@@ -588,7 +589,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
             <button className="nodes-node-title" title={`Select or drag ${label(n)}${n.type === 'pattern' && acceptsImage(SKETCHES.find(s => s.id === n.patternId)) ? ' — accepts an image input' : ''}`} aria-label={`Select ${label(n)}`} aria-describedby={n.type === 'pattern' && acceptsImage(SKETCHES.find(s => s.id === n.patternId)) ? `fx-capability-${n.id}` : undefined} aria-pressed={selection.ids.includes(n.id)} {...selection.titleHandlers(n)}><span className="nodes-title-name">{label(n)}</span>{n.type === 'pattern' && acceptsImage(SKETCHES.find(s => s.id === n.patternId)) && <span id={`fx-capability-${n.id}`} className="nodes-fx-badge" title="Accepts an image input">◇ FX <span className="nodes-visually-hidden">Accepts an image input</span></span>}</button>
             <div className="nodes-ports">{visibleInputs(n).map(name => <button key={name} className="nodes-input" title={`Connect to ${label(n)} ${name} input`} aria-label={`${n.id} input ${name}`} onClick={() => port(n.id, name)}>● {name}</button>)}
               {n.type !== 'output' && <button className={`nodes-output ${pending === n.id ? 'active' : ''}`} title={`Connect from ${label(n)} output`} aria-label={`${n.id} output`} onClick={() => { setPending(n.id); setMessage(''); }}>out ●</button>}
-            </div><small className="nodes-node-detail">{n.type === 'blend' ? `${n.mode} · ${Math.round(n.opacity * 100)}%` : n.type === 'output' ? 'Final image' : n.type === 'audio' ? `${deviceLabel(n.deviceId)} · ${AUDIO_CHANNEL_LABELS[n.channel] || 'Mono'} · ${n.band} activity · 0…1` : n.type === 'camera' ? `${cameraLabel(n.deviceId)} · image out` : n.type === 'color' ? 'image → filtered image' : n.type === 'math' ? `${n.op} · scalar out` : n.type === 'script' ? (compileScript(n.source, scriptNodeLanguage(n)).ok ? (scriptNodeLanguage(n) === 'body' ? 'script body' : 'restricted expression') : 'script error') : n.type === 'pattern' && visibleInputs(n).includes('image') ? `${imageWired(n.id) ? 'Image wired' : 'Camera default'} · ${n.patternId}` : n.patternId}</small>
+            </div><small className="nodes-node-detail">{n.type === 'blend' ? `${n.mode} · ${Math.round(n.opacity * 100)}%` : n.type === 'output' ? 'Final image' : n.type === 'audio' ? `${deviceLabel(n.deviceId)} · ${AUDIO_CHANNEL_LABELS[n.channel] || 'Mono'} · ${n.band} activity · 0…1` : n.type === 'camera' ? `${cameraLabel(n.deviceId)} · image out` : n.type === 'color' ? 'image → filtered image' : n.type === 'math' ? `${n.op} · scalar out` : n.type === 'script' ? (compileScript(n.source, scriptNodeLanguage(n)).ok ? (scriptNodeLanguage(n) === 'body' ? 'script body' : 'restricted expression') : 'script error') : n.type === 'pattern' && visibleInputs(n).includes('image') ? `${imageWired(n.id) ? 'Image wired' : sourceDefault(SKETCHES.find(s => s.id === n.patternId))} · ${n.patternId}` : n.patternId}</small>
             {isModulationTarget(n) && <button className="nodes-signal-endpoint" aria-label={`${n.id} signal endpoint`} onClick={e => {
               e.stopPropagation();
               if (pending) signalPort(n.id);
@@ -670,10 +671,10 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
           <p>{helpForLanguage(scriptLanguage)} Ctrl+Enter or Apply stores and approves it; plain Enter adds a line. A disk-loaded source must be reviewed and applied in this browser before it runs. Unwired x/y use their literals and time is seconds.</p></>}
         {node?.type === 'blend' && <label>Blend mode<Select aria-label="Blend mode" title="Choose pixel blend mode" value={node.mode} onChange={e => patch({ mode: e.target.value })}>{Object.keys(MODES).map(mode => <option key={mode}>{mode}</option>)}</Select></label>}
         {node?.type === 'pattern' && visibleInputs(node).includes('image') && <div className="nodes-pattern-image-status">
-          <p>Camera by default; connect image for FX.</p>
-          <output data-testid="node-image-input-status" aria-live="polite">Image input: {imageWired(node.id) ? 'wired' : 'not connected (camera default)'}</output>
+          <p>{sketch?.camera ? 'Camera' : 'Source'} by default; connect image for FX.</p>
+          <output data-testid="node-image-input-status" aria-live="polite">Image input: {imageWired(node.id) ? 'wired' : `not connected (${sourceDefault(sketch).toLowerCase()})`}</output>
           {!acceptsImage(sketch) && <p className="nodes-fx-warning" role="status">FX capability unavailable. Restore an FX-capable version of this pattern; the existing image wire is retained for repair.</p>}
-          {acceptsImage(sketch) && <p>Editor preview uses a generated sample clip, not a real camera.</p>}
+          {acceptsImage(sketch) && (sketch.camera ? <p>Editor preview uses a generated sample clip, not a real camera.</p> : <p>Unconnected editor preview uses this pattern's own source, not camera capture.</p>)}
         </div>}
         {node?.type === 'pattern' && !sketch && <p>Missing pattern. Delete and replace this node, or restore its dependency.</p>}
         {signalNode && (graph.modulations || []).some(m => m.to === signalNode.id) && <section className="nodes-signals" aria-label="Connected signals"><h2>Connected signals</h2>

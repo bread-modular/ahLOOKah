@@ -214,7 +214,7 @@ test('real shared analyser drives internal preview and mapping; no new channel, 
   expect(context.pages()).toHaveLength(1);
 });
 
-test('internal video uses the existing media store; camera stays on the output screen', async ({ page }) => {
+test('internal video uses the existing media store; camera FX previews a generated sample without capture', async ({ page }) => {
   await page.goto('/');
   const video = (await readFile(new URL('./fixtures/green.webm', import.meta.url))).toString('base64');
   await page.evaluate(async video => {
@@ -242,7 +242,15 @@ test('internal video uses the existing media store; camera stays on the output s
   await backToMain(page);
   const camera = graph(); camera.nodes[0].patternId = 'video-chroma'; camera.nodes[0].params = {};
   await seed(page, camera); await openFile(page);
-  await expect(editor(page).locator('.nodes-diagnostics')).toContainText('Camera is available only on the output screen');
+  await editor(page).locator('[data-node-id=color] .nodes-node-title').click();
+  await expect(editor(page).getByText('Editor preview uses a generated sample clip, not a real camera.')).toBeVisible();
+  await expect(editor(page).locator('.nodes-diagnostics')).toBeEmpty();
+  await expect.poll(() => editor(page).getByTestId('node-preview').evaluate(c => {
+    const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    const colors = new Set();
+    for (let i = 0; i < data.length; i += 400) if (data[i + 3]) colors.add(`${data[i]},${data[i + 1]},${data[i + 2]}`);
+    return colors.size;
+  })).toBeGreaterThan(3);
   expect(await page.evaluate(() => window.captureCalls.length)).toBe(0);
 });
 

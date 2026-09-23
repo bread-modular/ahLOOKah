@@ -147,6 +147,11 @@ test('Custom Scripts reference and every complete example are inline with valid 
   }
   const blocks = await article.locator('pre code').allTextContents();
   const markdown = await (await request.get('/docs/custom-scripts-api.md')).text();
+  for (const contract of ['optional ● image input', 'Source default', 'Camera default', 'generated sample clip, not real camera capture', 'runtime.inputMode']) {
+    expect(markdown).toContain(contract);
+  }
+  expect(markdown).not.toContain('Add as FX');
+  expect(markdown).not.toContain('choose **FX** in its inspector');
   for (const contract of ['createFeatureController()', 'response(value)', 'accent(value)', 'shared.getFeatures()', 'frame', 'within-band dB', 'No existing script must migrate']) {
     await expect(article).toContainText(contract);
     expect(markdown).toContain(contract);

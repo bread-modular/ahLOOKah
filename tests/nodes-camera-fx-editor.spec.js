@@ -126,10 +126,31 @@ test('FX-only filter intersects search, includes live script descriptors, but of
   await expect(page.locator('.nodes-pattern-row')).toHaveCount(0);
   await expect(page.getByText('No matching patterns with image-input FX capability.')).toBeVisible();
   await search.fill('video');
-  await expect(page.locator('.nodes-pattern-row').filter({ hasText: 'Video Kaleidoscope' })).toHaveCount(0);
+  const kaleido = page.locator('.nodes-pattern-row').filter({ hasText: 'Video Kaleidoscope' });
+  await expect(kaleido.locator('.nodes-fx-badge')).toHaveText('◇ FX');
   await expect(fxRow(page).locator('.nodes-fx-badge')).toHaveText('◇ FX');
   await page.getByLabel('FX only').uncheck();
-  await expect(page.locator('.nodes-pattern-row').filter({ hasText: 'Video Kaleidoscope' })).toHaveCount(1);
+  await expect(kaleido).toHaveCount(1);
+});
+
+test('FX-capable custom script without camera uses Source default, not camera sample messaging', async ({ page }) => {
+  await openFixture(page);
+  await page.evaluate(async () => {
+    const { SKETCHES } = await import('/src/sketch-registry.js');
+    SKETCHES.push({ ...SKETCHES.find(s => s.id === 'solid-color'), id: 'custom-source-fx',
+      name: 'Custom source FX', group: 'Custom', customScript: true, fx: { input: 'image' } });
+  });
+  await page.getByLabel('Search patterns').fill('custom source fx');
+  await page.locator('.nodes-pattern-row').filter({ hasText: 'Custom source FX' }).locator('.nodes-pattern-source')
+    .dragTo(page.getByLabel('Graph workspace'), { targetPosition: { x: 310, y: 300 } });
+  const card = newPattern(page);
+  await expect(card.locator('.nodes-fx-badge')).toHaveText(/◇ FX/);
+  await expect(card.locator('.nodes-input')).toHaveCount(1);
+  await expect(card.locator('.nodes-node-detail')).toContainText('Source default');
+  await expect(page.getByTestId('node-image-input-status')).toHaveText('Image input: not connected (source default)');
+  await expect(page.getByText('Source by default; connect image for FX.')).toBeVisible();
+  await expect(page.getByText("Unconnected editor preview uses this pattern's own source, not camera capture.")).toBeVisible();
+  await expect(page.getByText('Editor preview uses a generated sample clip, not a real camera.')).toHaveCount(0);
 });
 
 test('drag-to-add has an optional image socket; connect/disconnect automatically toggles camera default and FX', async ({ page }) => {
@@ -166,7 +187,7 @@ test('drag-to-add has an optional image socket; connect/disconnect automatically
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(async () => (await diskGraph(page)).version).toBe(2);
   await expect.poll(async () => (await diskGraph(page)).edges.find(e => e.to === id)).toEqual({ from: 'source', to: id, port: 'image' });
-  expect((await diskGraph(page)).nodes.find(n => n.id === id)?.inputMode).toBe('fx');
+  expect((await diskGraph(page)).nodes.find(n => n.id === id)?.inputMode).toBeUndefined(); // image edge, not a saved flag
   await wire.click();
   await page.getByRole('button', { name: 'Delete connection' }).click();
   await expect(wire).toHaveCount(0);

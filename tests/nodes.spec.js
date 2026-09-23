@@ -171,7 +171,15 @@ test('missing dependencies and camera preview are visible and never acquire capt
   await page.goto('/?role=nodes');
   const cameraGraph = graph(); cameraGraph.nodes[0].patternId = 'video-chroma'; cameraGraph.nodes[0].params = {};
   await openFixture(page, cameraGraph);
-  await expect(page.locator('.nodes-diagnostics')).toContainText('Camera is available only');
+  await page.locator('[data-node-id=red] .nodes-node-title').click();
+  await expect(page.getByText('Editor preview uses a generated sample clip, not a real camera.')).toBeVisible();
+  await expect(page.locator('.nodes-diagnostics')).toBeEmpty();
+  await expect.poll(() => page.getByTestId('node-preview').evaluate(c => {
+    const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    const colors = new Set();
+    for (let i = 0; i < data.length; i += 400) if (data[i + 3]) colors.add(`${data[i]},${data[i + 1]},${data[i + 2]}`);
+    return colors.size;
+  })).toBeGreaterThan(3);
   expect(await page.evaluate(() => window.captureCalls)).toBe(0);
   const missing = graph(); missing.nodes[0].patternId = 'missing-file'; missing.nodes[0].params = {};
   await openFixture(page, missing);

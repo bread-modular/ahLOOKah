@@ -2,16 +2,18 @@ import { test, expect } from '@playwright/test';
 import { BUILTIN_PATTERNS } from '../src/patterns/builtins.js';
 
 const PILOTS = ['video-chroma', 'video-dots-gpu'];
+const IMAGE_FX = [
+  'video-chroma', 'video-kaleido', 'video-pixelate', 'video-trails',
+  'video-dots-gpu', 'video-high-contrast', 'video-edge-glow', 'video-thermal',
+];
 
-test('only converted camera built-ins declare image FX capability', { tag: '@core' }, () => {
-  expect(BUILTIN_PATTERNS.filter((pattern) => pattern.fx).map((pattern) => pattern.id)).toEqual(PILOTS);
-  for (const id of PILOTS) {
-    const pattern = BUILTIN_PATTERNS.find((item) => item.id === id);
+test('all eight viable Video FX built-ins declare image capability and retain camera sources', { tag: '@core' }, () => {
+  expect(BUILTIN_PATTERNS.filter(pattern => pattern.fx).map(pattern => pattern.id)).toEqual(IMAGE_FX);
+  for (const id of IMAGE_FX) {
+    const pattern = BUILTIN_PATTERNS.find(item => item.id === id);
     expect(pattern.camera).toBe(true); // source mode still owns a camera
     expect(pattern.fx).toEqual({ input: 'image' });
   }
-  expect(BUILTIN_PATTERNS.find((pattern) => pattern.id === 'video-kaleido').fx).toBeUndefined();
-  expect(BUILTIN_PATTERNS.find((pattern) => pattern.id === 'video-high-contrast').fx).toBeUndefined();
 });
 
 for (const id of PILOTS) {

@@ -112,19 +112,19 @@ test('linked editor v2 camera and image-FX chain play through the screen', async
     (await import('/src/sketch-registry.js')).SKETCHES.some(s => s.id === 'custom-linked-fx' && s.fx?.input === 'image'))).toBe(true);
 
   await page.getByRole('button', { name: 'Edit Pattern', exact: true }).click();
-  const addFx = async (search, name, x) => {
+  const addFx = async (search, name, x, fallback = 'camera') => {
     await page.locator('.nodes-palette').getByLabel('Search patterns').fill(search);
     await page.locator('.nodes-pattern-row').filter({ hasText: name }).locator('.nodes-pattern-source')
       .dragTo(workspace, { targetPosition: { x, y: 165 } });
     const card = page.locator('.nodes-node[data-primary=true]');
     const nodeId = await card.getAttribute('data-node-id');
     await expect(card.getByRole('button', { name: `${nodeId} input image` })).toBeVisible();
-    await expect(page.getByTestId('node-image-input-status')).toHaveText('Image input: not connected (camera default)');
+    await expect(page.getByTestId('node-image-input-status')).toHaveText(`Image input: not connected (${fallback} default)`);
     return nodeId;
   };
   const chroma = await addFx('video chroma', 'Video Chroma Key', 350);
   const dots = await addFx('video dots', 'Video Dots GPU', 600);
-  const script = await addFx('linked image', 'Linked Image FX', 850);
+  const script = await addFx('linked image', 'Linked Image FX', 850, 'source');
   const connect = async (from, to) => {
     await page.locator(`[data-node-id="${from}"] .nodes-output`).click();
     await page.locator(`[data-node-id="${to}"] .nodes-input`).click();
@@ -142,10 +142,13 @@ test('linked editor v2 camera and image-FX chain play through the screen', async
   expect(await page.evaluate(() => window.captureCalls)).toEqual([]);
   page.once('dialog', d => d.accept());
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect.poll(async () => (await diskGraph()).nodes.filter(n => n.inputMode === 'fx').length).toBe(3);
+  await expect.poll(async () => (await diskGraph()).edges.some(e => e.from === script && e.to === 'output')).toBe(true);
   const disk = await diskGraph();
+  expect(disk.version).toBe(2);
   expect(disk.nodes.find(n => n.id === cameraId)).toMatchObject({ type: 'camera', deviceId: null });
-  expect(disk.nodes.filter(n => n.inputMode === 'fx').map(n => n.patternId).sort()).toEqual(['custom-linked-fx', 'video-chroma', 'video-dots-gpu']);
+  const effects = disk.nodes.filter(n => [chroma, dots, script].includes(n.id));
+  expect(effects.map(n => n.patternId).sort()).toEqual(['custom-linked-fx', 'video-chroma', 'video-dots-gpu']);
+  expect(effects.every(n => n.inputMode === undefined)).toBe(true); // mode inferred from image edges, not saved flags
   expect(disk.edges).toEqual(expect.arrayContaining([
     { from: 'source', to: chroma, port: 'image' }, { from: chroma, to: dots, port: 'image' },
     { from: dots, to: script, port: 'image' }, { from: script, to: 'output', port: 'image' },

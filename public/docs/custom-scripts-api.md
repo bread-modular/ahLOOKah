@@ -61,7 +61,7 @@ All six fields required. `key`: starts with ASCII letter, then letters/digits/un
 | Member | Meaning |
 |---|---|
 | `p` | Actual VizCore instance, full existing rendering API, no proxy/security membrane. In FX mode its supported `p.createCapture` entry point throws instead of opening a camera. |
-| `inputMode` | Read-only for this renderer instance: `'source'` by default, `'fx'` only when an FX-capable graph instance explicitly requests it. Switching modes recreates the renderer. |
+| `inputMode` | Read-only for this renderer instance: `'source'` by default, `'fx'` when an FX-capable graph node has a connected image input (or a host explicitly requests FX). It is a per-instance runtime value, not a saved graph mode selector. Switching modes recreates the renderer. |
 | `imageInput` | Current borrowed graph image frame during a synchronous FX `draw`, otherwise `null`. Refreshed before every draw and cleared on return, error or disposal. This is **not** the audio `frame`. |
 | `params` | Current host-owned parameter object. |
 | `state` | Fresh mutable object for this renderer instance; separate for each output, CUE, preview and projection child. |
@@ -88,9 +88,9 @@ setup({state, onCleanup, signal}) {
 
 ### Image-input FX (opt-in graph contract)
 
-`fx: { input: 'image' }` is **capability metadata**, not a mode switch. Existing scripts, standalone playback and old graph instances remain sources; `camera: true` retains its source-mode behavior. In the Node Patterns editor, an FX-capable script appears with a ◇ FX badge and **Add as FX** action; alternatively add it as Source and choose **FX** in its inspector. Wire a Pattern or Camera image output to its image input, then wire its output onward. Only a graph instance explicitly set to `runtime.inputMode === 'fx'` receives that upstream image. Camera nodes are preview-restricted and capture only on the output screen.
+`fx: { input: 'image' }` is **capability metadata**, not a mode switch. Existing scripts, standalone playback and old graph instances remain sources; `camera: true` retains its source-mode camera behavior. In the Node Patterns editor, an FX-capable script has a ◇ FX badge and an **optional ● image input** even before it is wired. Drag it onto the graph as a source, then connect a Pattern or Camera image output to that socket and wire its output onward. Connecting the image automatically selects FX at runtime and upgrades a v1 graph to v2; deleting the wire returns to source behavior. New wires do not save an `inputMode: 'fx'` flag; older explicit flags can still round-trip for repair, but the image edge determines the active mode. A script without `camera: true` shows **Source default** while unwired; camera effects show **Camera default**. `runtime.inputMode`/`ctx.inputMode` remains the per-renderer-instance value passed to the script, not a graph editor selector. In the editor, Camera nodes and unwired camera-capable FX patterns preview a **generated sample clip, not real camera capture**; live capture runs only on the output screen.
 
-For each synchronous FX draw, the host calls `runtime.getImageInput()` and exposes the result as `ctx.imageInput`. `null` means disconnected, pending or otherwise unusable input. A non-null frame has this shape:
+For each synchronous FX draw, the host calls `runtime.getImageInput()` and exposes the result as `ctx.imageInput`. `null` means pending or otherwise unusable input (or no input supplied by a non-graph FX host); in a graph, removing the image wire switches that node back to source mode. A non-null frame has this shape:
 
 ```js
 { source, width, height, frameId, timestampMs, generation }
@@ -99,7 +99,7 @@ For each synchronous FX draw, the host calls `runtime.getImageInput()` and expos
 - `source` is the **graph-owned HTMLCanvasElement**, not a camera/video wrapper or cross-context WebGL texture. `width`/`height` are its positive pixel dimensions. `frameId` identifies the graph evaluation, `timestampMs` is monotonic render time, and `generation` invalidates old views on rebuild, resize or disposal. These values describe an image, not the capture-side `audio.update({ frame })` analysis data.
 - The graph owns and pins input for the current draw/tick. Read or sample it synchronously; do **not** resize, draw into, remove, dispose, mutate or retain the canvas/view for async work or future draws. Make an effect-owned copy only for intentional, bounded history. `ctx.imageInput` is `null` outside the draw and on dispose, but your own stored reference cannot be revoked by the adapter. Keep output distinct from input to avoid feedback.
 - In FX mode `ctx.createCapture()` and `p.createCapture()` explicitly throw, including when the input is absent. Never write `ctx.createCapture(...) || p.createCapture(...)` as an FX fallback. Source-mode capture is unchanged; only an upstream camera-source node should acquire a camera for a camera → FX chain. These guards cover the supported VizCore paths, **not** arbitrary trusted JavaScript calling browser media APIs directly.
-- Handle `null` by clearing to transparent, not opening a camera or retaining an old output. The graph host diagnoses missing/unsupported input and clears failed outputs; saved FX mode and wires remain for repair if a script reload removes its capability. FX preview does not request an effect-owned camera; an upstream Camera node remains unavailable in the editor and works on the output screen. `preload` and `setup` must not assume a frame exists.
+- Handle `null` during an FX draw by clearing to transparent, not opening a camera or retaining an old output. A disconnected image socket runs the source branch instead; pending/otherwise unusable connected input can still be `null`. The graph host diagnoses missing/unsupported input and clears failed outputs; saved image wires and any legacy mode hints remain for repair if a script reload removes its capability. FX preview does not request an effect-owned camera; an upstream Camera node supplies a generated sample clip in the editor and real capture only on the output screen. `preload` and `setup` must not assume a frame exists.
 
 **Canvas2D source/FX example** (the source branch is deliberately useful on its own):
 
@@ -179,7 +179,7 @@ api.create({
 });
 ```
 
-The scripting API remains **version 1**: these optional fields are additive. Older app versions reject unknown `fx` definitions rather than guessing what to render; a failing reload keeps the last-good registration. A successful reload that removes `fx` changes the registry capability; the graph host preserves saved FX mode/wires and reports an unavailable capability instead of switching them to cameras. Cross-window generations independently validate the new definition, then recreate affected renderers.
+The scripting API remains **version 1**: these optional fields are additive. Older app versions reject unknown `fx` definitions rather than guessing what to render; a failing reload keeps the last-good registration. A successful reload that removes `fx` changes the registry capability; the graph host preserves saved image wires and any legacy `inputMode` hints and reports an unavailable capability instead of silently changing the connection. Cross-window generations independently validate the new definition, then recreate affected renderers.
 
 ### Existing VizCore capabilities (not full p5)
 
