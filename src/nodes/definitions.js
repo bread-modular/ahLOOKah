@@ -3,9 +3,14 @@
 // can never drift between validation, wiring and controls. One import: the
 // dependency-free audio-routing route defaults (which must never import back).
 import { DEFAULT_AUDIO_INPUT } from '../audio-routing.js';
-export const TYPES = Object.freeze(['pattern', 'blend', 'output', 'audio', 'color', 'math', 'script']);
-export const VISUAL_TYPES = Object.freeze(['pattern', 'blend', 'color', 'output']);
-export const VISUAL_SOURCES = Object.freeze(['pattern', 'blend', 'color']);
+export const TYPES = Object.freeze(['pattern', 'blend', 'output', 'audio', 'color', 'math', 'script', 'camera']);
+export const VISUAL_TYPES = Object.freeze(['pattern', 'blend', 'color', 'output', 'camera']);
+export const VISUAL_SOURCES = Object.freeze(['pattern', 'blend', 'color', 'camera']);
+// A descriptor advertises capability, never the mode of a saved instance.
+// Missing inputMode is always source, even after a descriptor gains FX support.
+export const inputModeOf = node => node?.inputMode === 'fx' ? 'fx' : 'source';
+export const supportsImageFx = sketch => !!sketch?.fx && sketch.fx.input === 'image'
+  && Object.keys(sketch.fx).length === 1;
 export const SIGNAL_TYPES = Object.freeze(['audio', 'math', 'script']);
 export const SCALAR_TYPES = Object.freeze(['math', 'script']);
 export const MODULATION_TARGETS = Object.freeze(['pattern', 'blend', 'color']);
@@ -45,7 +50,7 @@ const ports = {
   math: MATH_INPUTS,
   script: SCRIPT_INPUTS,
 };
-export const inputs = (node) => node?.type === 'pattern' ? [] : (ports[node?.type] || []).slice();
+export const inputs = (node) => node?.type === 'pattern' ? (inputModeOf(node) === 'fx' ? ['image'] : []) : (ports[node?.type] || []).slice();
 // Only clamp consumes c: add/subtract/multiply/divide/min/max/abs read a and b at
 // most, and abs ignores b as well but keeps the port so an operation change never
 // rewires a saved graph. `inputs()` stays the stored contract (all three Math
@@ -72,6 +77,7 @@ export function defaultNode(type, x = 0, y = 0, id = newId()) {
   const base = { id, type, x, y };
   if (type === 'blend') return { ...base, mode: 'Normal', opacity: 1 };
   if (type === 'audio') return { ...base, band: 'bass', ...DEFAULT_AUDIO_INPUT };
+  if (type === 'camera') return { ...base, deviceId: null };
   if (type === 'color') return { ...base, params: Object.fromEntries(COLOR_PARAMS.map(p => [p.key, p.default])) };
   if (type === 'math') return { ...base, op: 'add', ...MATH_LITERALS };
   if (type === 'script') return { ...base, language: DEFAULT_LANGUAGE, source: DEFAULT_BODY, ...SCRIPT_LITERALS };
