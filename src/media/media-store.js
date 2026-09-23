@@ -241,6 +241,20 @@ export async function replaceMediaRecords(records) {
   });
 }
 
+// Project rollback restores the original full records, including local handles
+// and blobs that are intentionally absent from a portable project file.
+export async function restoreMediaRecords(records) {
+  await withStore('readwrite', (store) => {
+    store.clear();
+    for (const record of records) store.put(record);
+  });
+  liveSources.clear();
+  for (const record of records) {
+    if (record.handle) liveSources.set(record.id, { handle: record.handle });
+    else if (record.blob) liveSources.set(record.id, { file: record.blob });
+  }
+}
+
 export async function deleteMediaRecord(id) {
   liveSources.delete(id);
   await withStore('readwrite', (store) => {
@@ -276,7 +290,7 @@ export function isLiveSource(id) {
 // False means the pattern only has metadata left — it was imported from a
 // settings file, or its file disappeared from disk — so the UI offers
 // Relink File to point it at a local file again.
-export async function isMediaLinked(id) {
+export async function isMediaLinked(id, { strict = false } = {}) {
   if (typeof id !== 'string' || !id) return false;
   const cached = liveSources.get(id);
   if (cached?.handle || cached?.file) return true;
@@ -284,7 +298,8 @@ export async function isMediaLinked(id) {
   let record = null;
   try {
     record = await getMediaRecord(id);
-  } catch {
+  } catch (error) {
+    if (strict) throw error;
     return false;
   }
   if (!record) return false;

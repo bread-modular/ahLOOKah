@@ -54,6 +54,7 @@ import {
   clearProject,
   parseSettingsFile,
   applySettings,
+  recoverProjectState,
   listUnlinkedMediaIds,
 } from '../platform/settings-portability.js';
 import { relinkImportedMedia } from '../platform/folder-portability.js';
@@ -3213,6 +3214,7 @@ export function createAppRuntime({
   // Projects (Save Project / Open Project / New Project)
   // ---------------------------------------------------------------------------
   const sectionLabel = (section) => ({ scripts: 'Custom Scripts', nodes: 'Node Patterns', media: 'Media' }[section] || section);
+  let projectMutationBusy = false;
 
   // Re-read everything a project change touches without a reload, so the blocking
   // relink dialog keeps working on the live window.
@@ -3657,8 +3659,11 @@ export function createAppRuntime({
         return { ok: false, error: 'collect-failed' };
       }
       if (!handle) {
-        downloadSettingsFile(text, fileName);
-        return { ok: true, fileName, downloaded: true };
+        try { downloadSettingsFile(text, fileName); return { ok: true, fileName, downloaded: true }; }
+        catch (error) {
+          store.setState({ notice: { tone: 'error', title: 'Save Project failed', message: `Download could not start: ${error.message}` } });
+          return { ok: false, error: 'download-failed' };
+        }
       }
       const savedName = handle.name || fileName;
       try {
@@ -3674,7 +3679,11 @@ export function createAppRuntime({
         return { ok: true, fileName: savedName, written: true };
       } catch (error) {
         console.error('[project] write failed', error);
-        downloadSettingsFile(text, fileName);
+        try { downloadSettingsFile(text, fileName); }
+        catch (downloadError) {
+          store.setState({ notice: { tone: 'error', title: 'Save Project failed', message: `File write and fallback download failed: ${downloadError.message}` } });
+          return { ok: false, error: 'write-and-download-failed' };
+        }
         store.setState({
           notice: {
             tone: 'error',
@@ -3697,49 +3706,56 @@ export function createAppRuntime({
     // the reload of every window, so a project is never applied behind a
     // dismissable native alert.
     async openProject(file) {
+      if (projectMutationBusy || store.getState().projectRelink) return { ok: false, error: 'A project change is already in progress.' };
       if (!file || typeof file.text !== 'function') return { ok: false, error: 'No file selected.' };
-      const fileName = file.name || 'the project file';
-      let text = '';
-      try { text = await file.text(); } catch { text = ''; }
-      const parsed = parseSettingsFile(text);
-      if (!parsed.ok) {
-        store.setState({
-          notice: {
-            tone: 'error',
-            title: 'Open Project failed',
-            message: parsed.error,
-            details: ['Your current project was left untouched.'],
-          },
-        });
-        return parsed;
-      }
-      let summary;
+      projectMutationBusy = true;
       try {
-        summary = await applySettings(parsed.payload);
-      } catch (error) {
-        console.error('[project] open failed', error);
-        store.setState({
-          notice: {
-            tone: 'error',
-            title: 'Open Project failed',
-            message: 'This browser refused to load the project from that file.',
-          },
-        });
-        return { ok: false, error: 'write-failed' };
-      }
+        const fileName = file.name || 'the project file';
+        let text = '';
+        try { text = await file.text(); } catch { text = ''; }
+        const parsed = parseSettingsFile(text);
+        if (!parsed.ok) {
+          store.setState({
+            notice: {
+              tone: 'error',
+              title: 'Open Project failed',
+              message: parsed.error,
+              details: ['Your current project was left untouched.'],
+            },
+          });
+          return parsed;
+        }
+        let summary;
+        try {
+          summary = await applySettings(parsed.payload);
+        } catch (error) {
+          console.error('[project] open failed', error);
+          const incomplete = error.rollbackFailures?.length > 0;
+          store.setState({
+            notice: {
+              tone: 'error',
+              title: 'Open Project failed',
+              message: incomplete ? 'Rollback could not finish; the current project may be incomplete. Keep this tab open; retry Open once storage works to recover first. Do not reload yet.'
+                : 'The browser could not load that file. The previous project was restored (or no changes were made).',
+              details: [error.message, ...(error.rollbackFailures || [])],
+            },
+          });
+          return { ok: false, error: 'write-failed', rollbackFailures: error.rollbackFailures || [] };
+        }
 
-      refreshProjectLibraries();
-      const pending = Array.isArray(summary.pendingFolders) ? summary.pendingFolders : [];
-      if (pending.length) {
-        // The project stays open: it is not usable until every linked directory
-        // it names exists here, so no success notice and no peer reload yet.
-        store.setState({
-          projectRelink: { fileName, pending, adopted: [], summary },
-        });
+        refreshProjectLibraries();
+        const pending = Array.isArray(summary.pendingFolders) ? summary.pendingFolders : [];
+        if (pending.length) {
+          // The project stays open: it is not usable until every linked directory
+          // it names exists here, so no success notice and no peer reload yet.
+          store.setState({
+            projectRelink: { fileName, pending, adopted: [], summary },
+          });
+          return { ok: true, ...summary };
+        }
+        finishProjectOpen(fileName, summary);
         return { ok: true, ...summary };
-      }
-      finishProjectOpen(fileName, summary);
-      return { ok: true, ...summary };
+      } finally { projectMutationBusy = false; }
     },
     // New Project — clear this browser back to a fresh project.
     //
@@ -3747,6 +3763,7 @@ export function createAppRuntime({
     // pattern and every linked directory. A staged CUE blocks it, because the CUE
     // bank references media patterns that are about to disappear.
     async newProject() {
+      if (projectMutationBusy || store.getState().projectRelink) return { ok: false, error: 'A project change is already in progress.' };
       if (store.getState().cue) {
         store.setState({
           notice: {
@@ -3765,40 +3782,46 @@ export function createAppRuntime({
         + 'not touched, and your device choices are kept.',
       );
       if (!confirmed) return { ok: false, canceled: true };
-
-      const failed = [];
-      for (const [label, service] of [['Custom Scripts', customScripts], ['Node Patterns', nodePatterns], ['Media', mediaFolder]]) {
-        try {
-          await service.unlink();
-        } catch (error) {
-          console.warn(`[project] unlink ${label} failed`, error);
-          failed.push(label);
-        }
-      }
-      let summary = { storageCleared: 0, mediaCleared: 0 };
+      projectMutationBusy = true;
+      let step = 'pending project recovery';
       try {
-        summary = await clearProject();
+        const recovery = await recoverProjectState();
+        if (!recovery.ok) throw new Error(`Previous project recovery failed: ${recovery.failures.join('; ')}`);
+        step = 'Custom Scripts';
+        await customScripts.unlink();
+        step = 'Node Patterns';
+        await nodePatterns.resetProject();
+        step = 'Media folder';
+        await mediaFolder.unlink();
+        step = 'project settings and media';
+        const summary = await clearProject();
+        const details = [
+          `${summary.storageCleared} saved setting${summary.storageCleared === 1 ? '' : 's'} cleared.`,
+          summary.mediaCleared ? `${summary.mediaCleared} media pattern${summary.mediaCleared === 1 ? '' : 's'} removed.` : 'No media patterns to remove.',
+          'Linked Scripts, Node Patterns and Media directories were unlinked.',
+        ];
+        details.push('Individually opened and hidden node patterns were forgotten; older projects can still recall remembered folders.');
+        details.push('Device choices and the setup state are kept.');
+        store.setState({
+          notice: {
+            tone: 'success',
+            title: 'New project',
+            message: 'This browser is empty again. Reload to start from a clean project.',
+            details,
+            reload: true,
+          },
+        });
+        bus.post({ type: 'settings-imported' });
+        return { ok: true, ...summary };
       } catch (error) {
-        console.error('[project] clear failed', error);
-      }
-      const details = [
-        `${summary.storageCleared} saved setting${summary.storageCleared === 1 ? '' : 's'} cleared.`,
-        summary.mediaCleared ? `${summary.mediaCleared} media pattern${summary.mediaCleared === 1 ? '' : 's'} removed.` : 'No media patterns to remove.',
-        'Linked Scripts, Node Patterns and Media directories were unlinked.',
-      ];
-      if (failed.length) details.push(`${failed.join(', ')} could not be unlinked here — unlink from Linked after the reload.`);
-      details.push('Device choices and the setup state are kept.');
-      store.setState({
-        notice: {
-          tone: 'success',
-          title: 'New project',
-          message: 'This browser is empty again. Reload to start from a clean project.',
-          details,
-          reload: true,
-        },
-      });
-      bus.post({ type: 'settings-imported' });
-      return { ok: true, ...summary };
+        console.error(`[project] new failed at ${step}`, error);
+        store.setState({ notice: {
+          tone: 'error', title: 'New Project failed',
+          message: `Could not clear ${step}. Some earlier steps may already have changed; no reload was requested.`,
+          details: [error.message, ...(error.rollbackFailures || [])],
+        } });
+        return { ok: false, error: 'clear-failed', failedStep: step };
+      } finally { projectMutationBusy = false; }
     },
     // Link one directory the current project expects (from the blocking relink
     // dialog). Runs the section's ordinary Link Folder path — same name checks,
