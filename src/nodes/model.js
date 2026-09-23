@@ -12,6 +12,12 @@ import {
 } from './definitions.js';
 import { normalizeAudioRoute, isValidAudioDeviceId } from '../audio-routing.js';
 import { MAX_EXPRESSION, MAX_BODY, LANGUAGES } from './script.js';
+import { TRANSFORM_PARAMS, transformDefaults } from './transform.js';
+import { MODES } from './blend-modes.js';
+// Blend modes are defined in blend-modes.js (canvas-native operations plus the
+// shader-only TouchDesigner modes); a graph stores only the mode name. Re-exported
+// here because this module is the public contract for saved graphs.
+export { MODES };
 
 export const VERSION = 2;
 export const LEGACY_VERSION = 1;
@@ -23,7 +29,6 @@ export const LEGACY_VERSION = 1;
 // expression language, MAX_BODY for the body language) and the JSON payload size
 // (MAX_BYTES) that keeps one pattern file loadable.
 export const MAX_BYTES = 200000;
-export const MODES = { Normal: 'source-over', Multiply: 'multiply', Screen: 'screen', Overlay: 'overlay', Difference: 'difference', Add: 'lighter' };
 export { inputs };
 const idOK = (id) => typeof id === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(id);
 const reserved = (key) => ['__proto__', 'constructor', 'prototype'].includes(key);
@@ -68,6 +73,18 @@ export function validateGraph(raw, { complete = false } = {}) {
       for (const [k, v] of Object.entries(n.params)) {
         const def = COLOR_PARAMS.find(p => p.key === k);
         if (!def || !number(v) || v < def.min || v > def.max) fail(`Invalid color parameter: ${k}`);
+        params[k] = v;
+      }
+      node.params = params;
+    }
+    if (n.type === 'transform') {
+      // Same contract as Color: only the documented controls exist, inside their
+      // own ranges, and omitted fields fall back to the identity defaults.
+      if (!n.params || typeof n.params !== 'object' || Array.isArray(n.params)) fail('Invalid transform parameters');
+      const params = transformDefaults();
+      for (const [k, v] of Object.entries(n.params)) {
+        const def = TRANSFORM_PARAMS.find(p => p.key === k);
+        if (!def || !number(v) || v < def.min || v > def.max) fail(`Invalid transform parameter: ${k}`);
         params[k] = v;
       }
       node.params = params;
@@ -121,7 +138,7 @@ export function validateGraph(raw, { complete = false } = {}) {
     const key = `${e?.to}:${e?.port}`;
     // Image wires only ever reach image ports of visual nodes; scalar inputs
     // (Math/Script) are wired exclusively by signalEdges.
-    if (!isVisualSource(from) || !to || !['pattern', 'blend', 'color', 'output'].includes(to.type) || !inputs(to).includes(e.port) || occupied.has(key)) fail('Invalid reference, port, or duplicate input wire');
+    if (!isVisualSource(from) || !to || !['pattern', 'blend', 'color', 'transform', 'output'].includes(to.type) || !inputs(to).includes(e.port) || occupied.has(key)) fail('Invalid reference, port, or duplicate input wire');
     if (to.type === 'pattern' && raw.version !== VERSION) fail('Pattern image input requires graph version 2');
     occupied.add(key);
     return { from: e.from, to: e.to, port: e.port };
@@ -255,7 +272,7 @@ export const DRAG_TYPE = 'application/x-viz-pattern+json';
 // Every palette drag shares this one versioned payload type: either a structural
 // node kind from the fixed create allowlist (never math/output) or a validated
 // non-recursive Pattern source id.
-const CREATE_TYPES = Object.freeze(['blend', 'color', 'script', 'audio', 'camera']);
+const CREATE_TYPES = Object.freeze(['blend', 'color', 'transform', 'script', 'audio', 'camera']);
 export function readPaletteDrag(transfer, sketches) {
   try {
     const text = transfer.getData(DRAG_TYPE);

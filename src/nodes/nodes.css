@@ -126,7 +126,7 @@
 .nodes-node-detail { display:block; padding:0 10px 9px; font-size:10px; line-height:11px; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 /* Routed audio status: plain text, never color-only; a block row that wraps
    long device/fallback guidance instead of pushing the panel wide. */
-.nodes-inspector .nodes-audio-status,.nodes-inspector .nodes-camera-status { float:none; display:block; margin:10px 0; font-size:.75rem; line-height:1.35; color:var(--text-dim); }
+.nodes-inspector .nodes-audio-status,.nodes-inspector .nodes-camera-status,.nodes-inspector .nodes-blend-status,.nodes-inspector .nodes-transform-status { float:none; display:block; margin:10px 0; font-size:.75rem; line-height:1.35; color:var(--text-dim); }
 .nodes-pattern-image-status { margin:12px 0; }
 .nodes-inspector .nodes-pattern-image-status p { margin:4px 0; }
 .nodes-inspector .nodes-pattern-image-status output { float:none; display:block; font-size:.72rem; color:var(--text-main); }

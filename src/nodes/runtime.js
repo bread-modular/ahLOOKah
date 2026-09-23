@@ -3,7 +3,10 @@ import { createSignalConsumers } from './audio-provider.js';
 import VizCore from '../core/index.js';
 import { ProgramRuntime } from '../program-runtime.js';
 import { PreviewAudio } from '../preview-audio.js';
-import { MODES, validateGraph } from './model.js';
+import { validateGraph } from './model.js';
+import { canvasOperation, isExtendedMode } from './blend-modes.js';
+import { glBlend, glTransform } from './gl-compositor.js';
+import { isIdentityTransform } from './transform.js';
 import { graphDiagnostics } from './portability.js';
 import { isVisualType, imageInputConnected, patternInputMode, canAcceptImageFx } from './definitions.js';
 import { CAMERA_NODE_PATTERN } from './camera-source.js';
@@ -11,15 +14,28 @@ import { createPreviewClip } from './preview-clip.js';
 import { mathValue, mathIssue, scriptValue, scriptProgram, scriptLanguageOf, scriptSource } from './scalar.js';
 import { isScriptApproved, SCRIPT_APPROVAL_MESSAGE } from './script-approval.js';
 
-export function composite(ctx, base, layer, mode, opacity) {
+// Composites base + layer into ctx. Native modes keep the original Canvas2D path
+// (identical pixels, alpha handling and cost); the shader-only modes run in the
+// shared WebGL2 compositor and fall back to Normal with a returned warning when no
+// GPU can render them, so the caller can surface that instead of shipping
+// different pixels silently.
+export function composite(ctx, base, layer, mode, opacity = 1) {
   const { width, height } = ctx.canvas;
+  const shader = isExtendedMode(mode);
+  const image = shader ? glBlend(base, layer, mode, opacity, width, height) : null;
   ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
   ctx.clearRect(0, 0, width, height);
-  if (base) ctx.drawImage(base, 0, 0, width, height);
-  ctx.globalAlpha = opacity; ctx.globalCompositeOperation = MODES[mode];
-  if (layer) ctx.drawImage(layer, 0, 0, width, height);
+  if (image) {
+    // The compositor canvas is shared and only valid until the next call.
+    ctx.drawImage(image, 0, 0, width, height, 0, 0, width, height);
+  } else {
+    if (base) ctx.drawImage(base, 0, 0, width, height);
+    ctx.globalAlpha = opacity; ctx.globalCompositeOperation = canvasOperation(mode);
+    if (layer) ctx.drawImage(layer, 0, 0, width, height);
+  }
   ctx.restore();
+  return shader && !image ? `Blend mode ${mode} needs WebGL2; rendering Normal instead.` : null;
 }
 const colorParam = (params, key, fallback) => Number.isFinite(params?.[key]) ? params[key] : fallback;
 // Filter order is fixed (saturate → brightness → contrast → hue) and identity
@@ -44,6 +60,27 @@ export function applyColor(ctx, source, params = {}) {
     ctx.drawImage(source, 0, 0, width, height);
   }
   ctx.restore();
+}
+// The Transform (image) node. Identity is a pixel-exact copy that needs no GPU at
+// all; any real move/scale/rotation runs in the shared WebGL2 compositor (the only
+// path that has true perspective). Without a GPU the picture still passes through
+// unchanged and the node reports why, so a transform can never go black silently.
+export function applyTransform(ctx, source, params = {}) {
+  const { width, height } = ctx.canvas;
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  ctx.filter = 'none'; ctx.clearRect(0, 0, width, height);
+  let warning = null;
+  if (source) {
+    const identity = isIdentityTransform(params);
+    // The compositor canvas is shared and only valid until the next call.
+    const image = identity ? null : glTransform(source, params, width, height);
+    if (!identity && image) ctx.drawImage(image, 0, 0, width, height, 0, 0, width, height);
+    else ctx.drawImage(source, 0, 0, width, height);
+    if (!identity && !image) warning = 'Transform needs WebGL2; the image passes through unchanged.';
+  }
+  ctx.restore();
+  return warning;
 }
 const sizeFor = (width, height) => {
   const ratio = Math.min(1, 1280 / Math.max(1, width), 720 / Math.max(1, height));
@@ -82,7 +119,7 @@ export class GraphRuntime {
     this.scriptCache = new Map();
     this.scriptPrograms = new Map();
     this.startedAt = performance.now();
-    this.params = new Map(this.graph.nodes.filter(n => ['pattern', 'blend', 'color'].includes(n.type))
+    this.params = new Map(this.graph.nodes.filter(n => ['pattern', 'blend', 'color', 'transform'].includes(n.type))
       .map(n => [n.id, parameterView(this.graph, n, sketches, this.readContinuous, id => this.signalValue(id))]));
     this.size = sizeFor(width, height);
     // No media request, video element or MediaStream exists in the editor.
@@ -91,6 +128,10 @@ export class GraphRuntime {
     this.pendingSize = null;
     this.disposed = false;
     this.sources = new Map(); this.buffers = new Map(); this.messages = new Map();
+    // Warnings are real, reported conditions that are NOT an error card: the node
+    // still renders its image (a shader mode degrades to Normal, a transform passes
+    // through), so they never replace the canvas the way this.messages does.
+    this.warnings = new Map();
     this.work = new Map(); this.staging = new Map(); this.sourceRevision = new Map();
     this.inFlight = null;
     const diagnostic = graphDiagnostics(this.graph, sketches, dependencies);
@@ -245,8 +286,15 @@ export class GraphRuntime {
       const node = this.graph.nodes.find(n => n.id === id), canvas = this.buffers.get(id);
       if (!node || !canvas) return null;
       const source = port => { const edge = this.graph.edges.find(e => e.to === id && e.port === port); return edge ? visit(edge.from) : null; };
-      if (node.type === 'color') applyColor(canvas.getContext('2d'), source('image'), this.params.get(id) || {});
-      else if (node.type !== 'pattern' && node.type !== 'camera') composite(canvas.getContext('2d'), source(node.type === 'blend' ? 'base' : 'image'), node.type === 'blend' ? source('layer') : null, node.mode || 'Normal', this.params.get(id)?.opacity ?? 1);
+      const params = this.params.get(id) || {};
+      if (node.type === 'color') applyColor(canvas.getContext('2d'), source('image'), params);
+      else if (node.type === 'transform') {
+        const warning = applyTransform(canvas.getContext('2d'), source('image'), params);
+        if (warning) this.warnings.set(id, warning); else this.warnings.delete(id);
+      } else if (node.type !== 'pattern' && node.type !== 'camera') {
+        const warning = composite(canvas.getContext('2d'), source(node.type === 'blend' ? 'base' : 'image'), node.type === 'blend' ? source('layer') : null, node.mode || 'Normal', params.opacity ?? 1);
+        if (warning) this.warnings.set(id, warning); else this.warnings.delete(id);
+      }
       const runtime = this.sources.get(id);
       const message = this.diagnostics[0] || this.messages.get(id) || runtime?.error?.message;
       if (message) {
@@ -353,9 +401,16 @@ export class GraphRuntime {
             applyColor(canvas.getContext('2d'), upstream, this.params.get(id) || {});
             return upstream ? canvas : null;
           }
+          if (node.type === 'transform') {
+            const upstream = await source('image');
+            const warning = applyTransform(canvas.getContext('2d'), upstream, this.params.get(id) || {});
+            if (warning) this.warnings.set(id, warning); else this.warnings.delete(id);
+            return upstream ? canvas : null;
+          }
           if (node.type === 'blend') {
             const base = await source('base'), layer = await source('layer');
-            composite(canvas.getContext('2d'), base, layer, node.mode || 'Normal', this.params.get(id)?.opacity ?? 1);
+            const warning = composite(canvas.getContext('2d'), base, layer, node.mode || 'Normal', this.params.get(id)?.opacity ?? 1);
+            if (warning) this.warnings.set(id, warning); else this.warnings.delete(id);
             return base || layer ? canvas : null;
           }
           const upstream = await source('image');
@@ -381,7 +436,9 @@ export class GraphRuntime {
     }
     return this.buffers.get(targetId) || null;
   }
-  getDiagnostics() { return [...new Set([...this.diagnostics, ...this.messages.values(), ...[...this.sources.values()].filter(r => r.error).map(r => r.error.message)])]; }
+  // Warnings are reported like diagnostics (they are visible text in the editor)
+  // but never painted onto a node canvas: a degraded mode still shows its picture.
+  getDiagnostics() { return [...new Set([...this.diagnostics, ...this.warnings.values(), ...this.messages.values(), ...[...this.sources.values()].filter(r => r.error).map(r => r.error.message)])]; }
   _applySize(next) {
     this.pendingSize = null;
     this.size = next;

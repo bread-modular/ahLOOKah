@@ -3,9 +3,10 @@
 // can never drift between validation, wiring and controls. One import: the
 // dependency-free audio-routing route defaults (which must never import back).
 import { DEFAULT_AUDIO_INPUT } from '../audio-routing.js';
-export const TYPES = Object.freeze(['pattern', 'blend', 'output', 'audio', 'color', 'math', 'script', 'camera']);
-export const VISUAL_TYPES = Object.freeze(['pattern', 'blend', 'color', 'output', 'camera']);
-export const VISUAL_SOURCES = Object.freeze(['pattern', 'blend', 'color', 'camera']);
+import { TRANSFORM_PARAMS, transformDefaults } from './transform.js';
+export const TYPES = Object.freeze(['pattern', 'blend', 'output', 'audio', 'color', 'math', 'script', 'camera', 'transform']);
+export const VISUAL_TYPES = Object.freeze(['pattern', 'blend', 'color', 'output', 'camera', 'transform']);
+export const VISUAL_SOURCES = Object.freeze(['pattern', 'blend', 'color', 'camera', 'transform']);
 // `inputMode` is a legacy saved hint, not a switch. The presence of an image
 // wire determines a pattern's runtime mode; without one it remains a source.
 export const inputModeOf = node => node?.inputMode === 'fx' ? 'fx' : 'source';
@@ -17,7 +18,7 @@ export const canAcceptImageFx = sketch => supportsImageFx(sketch)
   && !sketch.projection && !sketch.nodesGraph && !sketch.surfaces?.length;
 export const SIGNAL_TYPES = Object.freeze(['audio', 'math', 'script']);
 export const SCALAR_TYPES = Object.freeze(['math', 'script']);
-export const MODULATION_TARGETS = Object.freeze(['pattern', 'blend', 'color']);
+export const MODULATION_TARGETS = Object.freeze(['pattern', 'blend', 'color', 'transform']);
 
 // Identity defaults: an untouched Color node is a pixel-exact copy of its input.
 export const COLOR_PARAMS = Object.freeze([
@@ -50,6 +51,9 @@ export const DEFAULT_BODY = 'return x;';
 const ports = {
   blend: ['base', 'layer'],
   color: ['image'],
+  // The Transform (image) node: one picture in, the same picture out, moved,
+  // scaled and rotated in X/Y/Z.
+  transform: ['image'],
   output: ['image'],
   math: MATH_INPUTS,
   script: SCRIPT_INPUTS,
@@ -80,7 +84,8 @@ export const isVisualSource = (node) => !!node && VISUAL_SOURCES.includes(node.t
 export const isModulationTarget = (node) => !!node && MODULATION_TARGETS.includes(node.type);
 export const isVisualType = (node) => !!node && VISUAL_TYPES.includes(node.type);
 // Numeric controls rendered by the shared parameter UI for a node's own fields.
-export const parameters = (node) => node?.type === 'color' ? COLOR_PARAMS.slice() : [];
+export const parameters = (node) => node?.type === 'color' ? COLOR_PARAMS.slice()
+  : node?.type === 'transform' ? TRANSFORM_PARAMS.slice() : [];
 
 export function newId() { return `n${crypto.randomUUID().slice(0, 8)}`; }
 // Structural defaults for a fresh node. Pattern nodes additionally need a
@@ -91,6 +96,7 @@ export function defaultNode(type, x = 0, y = 0, id = newId()) {
   if (type === 'audio') return { ...base, band: 'bass', ...DEFAULT_AUDIO_INPUT };
   if (type === 'camera') return { ...base, deviceId: null };
   if (type === 'color') return { ...base, params: Object.fromEntries(COLOR_PARAMS.map(p => [p.key, p.default])) };
+  if (type === 'transform') return { ...base, params: transformDefaults() };
   if (type === 'math') return { ...base, op: 'add', ...MATH_LITERALS };
   if (type === 'script') return { ...base, language: DEFAULT_LANGUAGE, source: DEFAULT_BODY, ...SCRIPT_LITERALS };
   if (type === 'output') return base;

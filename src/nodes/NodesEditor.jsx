@@ -19,7 +19,10 @@ import { SKETCHES } from '../sketch-registry.js';
 import { MEDIA_STORAGE_KEY, registerMediaSketches } from '../media/media-registry.js';
 import { PROJECTION_STORAGE_KEY, registerProjectionSketches } from '../projection/projection-registry.js';
 import { CustomScripts } from '../custom-scripts/service.js';
-import { MODES, newGraph, validateGraph, connect, deleteNodes, connectionRef, findConnection, removeConnection, DRAG_TYPE, readPaletteDrag, connectSignal, connectSignalEdge, mapSignal, mapSignalInput } from './model.js';
+import { MODE_NAMES, isExtendedMode } from './blend-modes.js';
+import { glCompositorAvailable } from './gl-compositor.js';
+import { isIdentityTransform } from './transform.js';
+import { newGraph, validateGraph, connect, deleteNodes, connectionRef, findConnection, removeConnection, DRAG_TYPE, readPaletteDrag, connectSignal, connectSignalEdge, mapSignal, mapSignalInput } from './model.js';
 import { GraphRuntime } from './runtime.js';
 import { nodePatterns, watchGraphs } from './repository.js';
 import { graphDiagnostics, manifestFor, pruneManifest, serializeGraph } from './portability.js';
@@ -43,7 +46,21 @@ function initialParams(sketch) {
 function labelFor(n) {
   return n.type === 'pattern' ? SKETCHES.find(s => s.id === n.patternId)?.name || n.patternId
     : n.type === 'blend' ? 'Blend' : n.type === 'audio' ? `Audio · ${n.band}` : n.type === 'camera' ? 'Camera' : n.type === 'color' ? 'Color'
-      : n.type === 'math' ? `Math · ${n.op || 'add'}` : n.type === 'script' ? 'Script' : 'Output';
+      : n.type === 'transform' ? 'Transform'
+        : n.type === 'math' ? `Math · ${n.op || 'add'}` : n.type === 'script' ? 'Script' : 'Output';
+}
+// Blend inspector status. Canvas modes always exist; the shader modes depend on
+// the shared WebGL2 compositor this window can actually create, so the note never
+// promises a mode the runtime would fall back from.
+function blendModeNote(mode, available = glCompositorAvailable()) {
+  if (!isExtendedMode(mode)) return `${mode} runs as the browser's own canvas blend operation.`;
+  return available ? `${mode} renders in the graph's WebGL2 compositor.` : `${mode} needs WebGL2; this browser renders Normal instead.`;
+}
+// Transform inspector status: identity never needs the GPU, and a real transform
+// must say plainly when this browser cannot run it instead of looking broken.
+function transformNote(params, available = glCompositorAvailable()) {
+  if (isIdentityTransform(params)) return 'Identity: the input is copied pixel for pixel.';
+  return available ? 'WebGL2 perspective transform.' : 'WebGL2 is unavailable: the image passes through unchanged.';
 }
 // Capability belongs to the live descriptor (also for custom scripts). Wiring,
 // not a pattern-node selector or its camera/group name, activates image FX.
@@ -69,6 +86,7 @@ const sameConnection = (a, b) => !!a && !!b && a.kind === b.kind && a.key === b.
 const CREATE_NODES = [
   { type: 'blend', label: '+ Blend', title: 'Drag Blend onto the canvas to create a node' },
   { type: 'color', label: '+ Color', title: 'Drag Color onto the canvas to create a node (saturation, brightness, contrast, hue shift)' },
+  { type: 'transform', label: '+ Transform', title: 'Drag Transform onto the canvas to create an image node (move, scale and rotate the picture in X, Y and Z)' },
   { type: 'camera', label: '+ Camera', title: 'Drag Camera onto the canvas to create an image source (Global Settings video input or a pinned camera)' },
   { type: 'script', label: '+ Script', title: 'Drag Script onto the canvas to create a node (restricted scalar expression and compiled body)' },
   { type: 'audio', label: '+ Audio', title: 'Drag Audio onto the canvas to create a node (bass, mid or high activity)' },
@@ -589,7 +607,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
             <button className="nodes-node-title" title={`Select or drag ${label(n)}${n.type === 'pattern' && acceptsImage(SKETCHES.find(s => s.id === n.patternId)) ? ' — accepts an image input' : ''}`} aria-label={`Select ${label(n)}`} aria-describedby={n.type === 'pattern' && acceptsImage(SKETCHES.find(s => s.id === n.patternId)) ? `fx-capability-${n.id}` : undefined} aria-pressed={selection.ids.includes(n.id)} {...selection.titleHandlers(n)}><span className="nodes-title-name">{label(n)}</span>{n.type === 'pattern' && acceptsImage(SKETCHES.find(s => s.id === n.patternId)) && <span id={`fx-capability-${n.id}`} className="nodes-fx-badge" title="Accepts an image input">◇ FX <span className="nodes-visually-hidden">Accepts an image input</span></span>}</button>
             <div className="nodes-ports">{visibleInputs(n).map(name => <button key={name} className="nodes-input" title={`Connect to ${label(n)} ${name} input`} aria-label={`${n.id} input ${name}`} onClick={() => port(n.id, name)}>● {name}</button>)}
               {n.type !== 'output' && <button className={`nodes-output ${pending === n.id ? 'active' : ''}`} title={`Connect from ${label(n)} output`} aria-label={`${n.id} output`} onClick={() => { setPending(n.id); setMessage(''); }}>out ●</button>}
-            </div><small className="nodes-node-detail">{n.type === 'blend' ? `${n.mode} · ${Math.round(n.opacity * 100)}%` : n.type === 'output' ? 'Final image' : n.type === 'audio' ? `${deviceLabel(n.deviceId)} · ${AUDIO_CHANNEL_LABELS[n.channel] || 'Mono'} · ${n.band} activity · 0…1` : n.type === 'camera' ? `${cameraLabel(n.deviceId)} · image out` : n.type === 'color' ? 'image → filtered image' : n.type === 'math' ? `${n.op} · scalar out` : n.type === 'script' ? (compileScript(n.source, scriptNodeLanguage(n)).ok ? (scriptNodeLanguage(n) === 'body' ? 'script body' : 'restricted expression') : 'script error') : n.type === 'pattern' && visibleInputs(n).includes('image') ? `${imageWired(n.id) ? 'Image wired' : sourceDefault(SKETCHES.find(s => s.id === n.patternId))} · ${n.patternId}` : n.patternId}</small>
+            </div><small className="nodes-node-detail">{n.type === 'blend' ? `${n.mode} · ${Math.round(n.opacity * 100)}%` : n.type === 'output' ? 'Final image' : n.type === 'audio' ? `${deviceLabel(n.deviceId)} · ${AUDIO_CHANNEL_LABELS[n.channel] || 'Mono'} · ${n.band} activity · 0…1` : n.type === 'camera' ? `${cameraLabel(n.deviceId)} · image out` : n.type === 'color' ? 'image → filtered image' : n.type === 'transform' ? 'image → transformed image' : n.type === 'math' ? `${n.op} · scalar out` : n.type === 'script' ? (compileScript(n.source, scriptNodeLanguage(n)).ok ? (scriptNodeLanguage(n) === 'body' ? 'script body' : 'restricted expression') : 'script error') : n.type === 'pattern' && visibleInputs(n).includes('image') ? `${imageWired(n.id) ? 'Image wired' : sourceDefault(SKETCHES.find(s => s.id === n.patternId))} · ${n.patternId}` : n.patternId}</small>
             {isModulationTarget(n) && <button className="nodes-signal-endpoint" aria-label={`${n.id} signal endpoint`} onClick={e => {
               e.stopPropagation();
               if (pending) signalPort(n.id);
@@ -650,6 +668,10 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
           <output className="nodes-camera-status" data-testid="node-camera-status" aria-live="polite">{cameraCatalog.error && `${cameraCatalog.error} `}{node.deviceId && !cameraOptions.some(d => d.deviceId === node.deviceId) ? 'Pinned camera unavailable; select another input or reconnect it. ' : ''}Editor preview shows a generated sample clip, not your real camera; live capture runs only on the output screen. Connect Camera out to an image input (FX, Blend, Color or Output). Global follows Settings; a pinned camera requests that exact device on the output screen.</output></>}
         {node?.type === 'output' && <p>Output has no numeric controls. Image mapping is not supported here.</p>}
         {node?.type === 'color' && <p>Color filters its image input in place: saturation → brightness → contrast → hue-rotate. Identity defaults (1 / 1 / 1 / 0) copy the input pixels unchanged; every numeric slider maps like Pattern and Blend. Without an image input it renders transparent, and it still saves.</p>}
+        {node?.type === 'transform' && <>
+          <p>Transform is the image node: Move, Scale and Rotate in X, Y and Z, with true perspective. The picture is a unit plane half a frame in front of the camera, so Move X/Y of 1 shifts it by half the frame, Move Z of +0.5 doubles it, and Rotate X/Y tilt it into a real trapezoid instead of a squashed rectangle. All nine sliders default to identity, which copies the input pixels exactly, and they map like Pattern, Blend and Color sliders. Rotation happens in the frame's own space, so a non-square output frame stretches a rotated picture. Scale Z squashes the depth axis after rotation: it bends the perspective of a tilted picture and does nothing on a flat, unrotated one. Without an image input it renders transparent, and it still saves.</p>
+          <output className="nodes-transform-status" data-testid="node-transform-status" aria-live="polite">{transformNote(node.params)}</output>
+        </>}
         {node?.type === 'math' && <><label>Operation<Select aria-label="Math operation" title="Choose the scalar operation" value={node.op} onChange={e => changeMathOp(e.target.value)}>{MATH_OPS.map(op => <option key={op} value={op}>{MATH_LABELS[op]}</option>)}</Select></label>
           {MATH_INPUTS.map(port => {
             // Value C exists only for clamp. Outside clamp the row is hidden and
@@ -669,7 +691,12 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
           {SCRIPT_INPUTS.map(port => <label key={port}>{SCRIPT_PORT_LABELS[port]} literal<input className="control-input" type="number" step="0.01" aria-label={`Script ${port} literal`} title={`Literal used when ${port} has no wire`} value={node[SCRIPT_LITERAL_FIELDS[port]]} onChange={e => { const next = e.target.valueAsNumber; if (Number.isFinite(next)) patch({ [SCRIPT_LITERAL_FIELDS[port]]: next }); }} /></label>)}
           <SignalReadout runtime={previewRuntime} nodeId={node.id} />
           <p>{helpForLanguage(scriptLanguage)} Ctrl+Enter or Apply stores and approves it; plain Enter adds a line. A disk-loaded source must be reviewed and applied in this browser before it runs. Unwired x/y use their literals and time is seconds.</p></>}
-        {node?.type === 'blend' && <label>Blend mode<Select aria-label="Blend mode" title="Choose pixel blend mode" value={node.mode} onChange={e => patch({ mode: e.target.value })}>{Object.keys(MODES).map(mode => <option key={mode}>{mode}</option>)}</Select></label>}
+        {node?.type === 'blend' && <><label>Blend mode<Select aria-label="Blend mode" title="Choose the pixel blend operation (TouchDesigner's Composite TOP list)" value={node.mode} onChange={e => patch({ mode: e.target.value })}>
+          <optgroup label="Canvas blend modes">{MODE_NAMES.filter(mode => !isExtendedMode(mode)).map(mode => <option key={mode}>{mode}</option>)}</optgroup>
+          <optgroup label="WebGL2 blend modes">{MODE_NAMES.filter(isExtendedMode).map(mode => <option key={mode}>{mode}</option>)}</optgroup>
+        </Select></label>
+          <output className="nodes-blend-status" data-testid="node-blend-status" aria-live="polite">{blendModeNote(node.mode)}</output>
+          <p>Base is the first input and layer the second, so the ordered modes (Under, Inside, Outside, Subtract, Divide) change meaning when the wires swap. Opacity scales the layer only. Canvas modes are exact 2D-canvas operations; WebGL2 modes follow the same alpha rules but need a GPU. TouchDesigner operations with no published formula are not offered: inverse, subtractive, chroma/luminance difference, inside/outside/stencil luminance, y film, z film.</p></>}
         {node?.type === 'pattern' && visibleInputs(node).includes('image') && <div className="nodes-pattern-image-status">
           <p>{sketch?.camera ? 'Camera' : 'Source'} by default; connect image for FX.</p>
           <output data-testid="node-image-input-status" aria-live="polite">Image input: {imageWired(node.id) ? 'wired' : `not connected (${sourceDefault(sketch).toLowerCase()})`}</output>

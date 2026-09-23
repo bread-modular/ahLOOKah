@@ -390,8 +390,24 @@ Scripts are trusted JavaScript, **not a sandbox**. The complete tutorial is
 
 Choose **ADD** (New Node Pattern) in the main **Node Patterns** category. The
 dependency-free React/DOM + SVG editor composes source pixels through chained Blend
-nodes and Color filters, and wires scalar Script nodes into any numeric parameter
+nodes, Color filters and a Transform image node, and wires scalar Script nodes into
+any numeric parameter
 (existing files that contain legacy Math nodes keep loading, rendering and saving).
+Blend nodes offer TouchDesigner's Composite TOP operation list in two groups: 21
+canvas modes the browser composites itself (Normal/Over, Add, Multiply, Screen,
+Overlay, Darken, Lighten, Color Dodge, Color Burn, Hard Light, Soft Light,
+Difference, Exclusion, Under, Inside, Outside, Xor, Hue, Saturation, Color,
+Luminosity) and 15 modes with no canvas equivalent that run in the graph's shared
+WebGL2 compositor (Subtract, Divide, Average, Linear Burn, Vivid Light, Linear
+Light, Pin Light, Hard Mix, Negate, Reflect, Glow, Freeze, Heat, Darker Color,
+Lighter Color). Opacity scales the layer only; a transparent base passes the layer
+through instead of blending it against black; a mode without a GPU falls back to
+Normal with a visible note rather than quietly rendering something else. The
+**Transform** node moves, scales and rotates its input in X, Y and Z with true
+perspective (nine mappable sliders, identity by default as a pixel-exact copy), and
+blends its transparent surroundings like any other layer. See
+[the mode and transform reference](docs/blend-modes-and-transform.md) for the
+formulas, units and failure behavior.
 Script nodes offer two languages: the new **body** language (`return`, `let`/`const`
 locals with lexical block scope, `if`/`else`, comparisons, short-circuit `&&`/`||` and
 `?:`, compiled once by Acorn-checked bytecode — no `eval`/`Function`, no loops, no
@@ -434,9 +450,14 @@ stream resets, without accepting stale packets or controls that have not drawn.
 PLAYWRIGHT_PORT=5186 npx playwright test tests/nodes.spec.js tests/nodes-scalar.spec.js tests/nodes-script-body.spec.js --no-deps
 # Deterministic cross-window disk/render race regressions, including output pixels:
 PLAYWRIGHT_PORT=5186 npx playwright test tests/nodes-output-selection.spec.js --workers=2 --repeat-each=3
+# Blend-mode table/shaders and the Transform node (identity, perspective, no-GPU fallback):
+PLAYWRIGHT_PORT=5186 npx playwright test tests/nodes-blend-transform.spec.js --no-deps
 ```
 
-The graph tests cover blend pixels, Color filter pixels (identity/alpha/chaining),
+The graph tests cover blend pixels (every canvas mode plus the exact WebGL2 mode
+formulas, transparent operands and opacity), the Transform node (identity copy,
+perspective projection, save/reload and a no-WebGL2 fallback that still draws the
+picture), Color filter pixels (identity/alpha/chaining),
 chained DAGs, scalar Script wiring with per-frame fanout and safe fallbacks, legacy
 Math graphs (including clamp's third input) still loading/rendering/saving,
 Script body language safety/budgets/scope/short-circuits, save/reload approval binding,
