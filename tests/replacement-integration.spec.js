@@ -1,9 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { REPLACEMENT_PATTERNS } from '../src/sketches/replacements/index.js';
 const output = process.env.REPLACEMENT_ARTIFACTS || 'test-results/replacement-evidence';
 test.use({ viewport: { width: 320, height: 180 }, launchOptions: { args: ['--autoplay-policy=no-user-gesture-required', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] } });
 
-test('actual Web Audio capture → analyser → noise floor → engine → packet/store → all 10 renderers; real alpha compositing', { tag: '@patterns' }, async ({ page }) => {
+test('actual Web Audio capture → analyser → noise floor → engine → packet/store → all 8 retained renderers; real alpha compositing', { tag: '@patterns' }, async ({ page }) => {
   test.setTimeout(120_000);
   await page.goto('/tests/fixtures/render.html');
   const result = await page.evaluate(async () => {
@@ -45,7 +46,8 @@ test('actual Web Audio capture → analyser → noise floor → engine → packe
         scans += update.shared.diagnostics.featureBuilds;
         const received = store.acceptPacket(update.packets[0]); if (!received.accepted) throw new Error('Store rejected real audio packet'); accepted += received.slots;
         timelines[mode].push(structuredClone(store.createBinding(slots[0].runtimeId).read()));
-        // All 18 default band controllers must deliver the same accepted values.
+        // Every retained slot must deliver the same accepted values (the plan is
+        // built from REPLACEMENT_PATTERNS, not from a stale catalog count).
         for (const s of slots) if (JSON.stringify(store.read(s.runtimeId).continuous) !== JSON.stringify(timelines[mode].at(-1).continuous)) throw new Error('Band transport differs by slot');
       }
     } finally {
@@ -101,6 +103,9 @@ test('actual Web Audio capture → analyser → noise floor → engine → packe
   // 48 accepted frames × the 8 retained replacement patterns
   // (pinned by replacement-inventory.spec.js).
   expect(result.accepted).toBe(48 * 8);
+  // That literal is the corrected retired-catalogue count; keep it pinned to the
+  // live catalogue so a future retire/add cannot drift this contract silently.
+  expect(REPLACEMENT_PATTERNS).toHaveLength(8);
   expect(result.silenceControls).toEqual({ bass: 0, mid: 0, high: 0, kick: 0, snare: 0, hat: 0, beat: 0, energy: 0 });
   for (const key of ['bass', 'mid', 'high', 'energy']) expect(result.finalControls[key], key).toBeGreaterThan(.1);
   // Steady oscillator drone: percussion envelopes relax toward zero but stay valid.
