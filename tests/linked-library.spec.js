@@ -46,14 +46,10 @@ async function openSelected(page, s) {
   await picker.getByRole('button', { name: 'Open', exact: true }).click();
   await expect(picker).toHaveCount(0);
 }
-// Opening a node pattern from the picker hands the screen to its editor, so the
-// export/reference tests add one through the same repository call instead.
-async function addNodePattern(page, name) {
-  await page.evaluate(async name => {
-    const { nodePatterns } = await import('/src/nodes/repository.js');
-    await nodePatterns.open(name);
-  }, name);
-}
+// OPEN is the explicit add gesture for every category: it lists the linked
+// folder (or the native picker when nothing is linked) and adds the one file the
+// operator picks. For node patterns it only adds the pattern to the library — the
+// editor is entered later through the selected pattern's Edit Pattern.
 
 async function fileDigests(page) {
   return page.evaluate(async sections => {
@@ -146,7 +142,7 @@ test('project export roundtrip: wrong-folder diagnostics, deliberate replacement
   await page.goto('/'); await seed(page); await linkAll(page);
   // Only explicitly added files travel: linking a directory never lists it.
   await openSelected(page, sections[0]);
-  await addNodePattern(page, sections[1].file);
+  await openSelected(page, sections[1]);
   await openSelected(page, sections[2]);
   const originalFiles = await fileDigests(page);
   const exported = await page.evaluate(async () => (await import('/src/platform/settings-portability.js')).collectSettings());
@@ -288,7 +284,7 @@ test('a project saved elsewhere blocks until every directory is linked; missing 
   await page.goto('/'); await seed(page); await linkAll(page);
   // A project records the files it has, not the directory: add one of each.
   await openSelected(page, sections[0]);
-  await addNodePattern(page, sections[1].file);
+  await openSelected(page, sections[1]);
   await openSelected(page, sections[2]);
   const payload = await page.evaluate(async () => (await import('/src/platform/settings-portability.js')).collectSettings());
   const context = await browser.newContext({ baseURL: new URL(page.url()).origin, storageState: { cookies: [], origins: [{ origin: new URL(page.url()).origin, localStorage: [{ name: 'viz2_device_setup_done', value: '1' }] }] } });
