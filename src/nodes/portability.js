@@ -1,6 +1,6 @@
 import { mappingDiagnostics } from './modulation.js';
 import { validateGraph, MAX_BYTES, LEGACY_VERSION, VERSION } from './model.js';
-import { inputModeOf, supportsImageFx } from './definitions.js';
+import { inputModeOf, imageInputConnected, supportsImageFx } from './definitions.js';
 import { validateScript } from './script.js';
 import { scriptLanguageOf } from './scalar.js';
 // Manifests deliberately do NOT execute imported scripts or claim that local
@@ -70,9 +70,11 @@ export function graphDiagnostics(graph, sketches, manifest = []) {
   for (const n of patternNodes) {
     const s = sketches.find(s => s.id === n.patternId);
     if (!s) { report(n.id, `Missing pattern: ${n.patternId}`); continue; }
-    if (inputModeOf(n) === 'fx') {
+    // A connected image is an FX request even in a legacy node with no mode
+    // flag. A stranded legacy `fx` flag is a source fallback, not an incomplete
+    // graph; unsupported capabilities are *still* diagnosed for repair.
+    if (imageInputConnected(graph, n.id) || inputModeOf(n) === 'fx') {
       if (!supportsImageFx(s)) report(n.id, `Pattern ${s.name || n.patternId} does not support image FX; saved input and wire retained for repair`);
-      if (!(graph.edges || []).some(e => e.to === n.id && e.port === 'image')) report(n.id, `Image input required for FX pattern ${n.id}`);
       if (s.projection || s.nodesGraph || s.surfaces?.length) report(n.id, `Nested/composite pattern ${n.patternId} is not supported as image FX`);
     }
     for (const surface of s.surfaces || []) {

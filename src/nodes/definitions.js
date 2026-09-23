@@ -6,11 +6,15 @@ import { DEFAULT_AUDIO_INPUT } from '../audio-routing.js';
 export const TYPES = Object.freeze(['pattern', 'blend', 'output', 'audio', 'color', 'math', 'script', 'camera']);
 export const VISUAL_TYPES = Object.freeze(['pattern', 'blend', 'color', 'output', 'camera']);
 export const VISUAL_SOURCES = Object.freeze(['pattern', 'blend', 'color', 'camera']);
-// A descriptor advertises capability, never the mode of a saved instance.
-// Missing inputMode is always source, even after a descriptor gains FX support.
+// `inputMode` is a legacy saved hint, not a switch. The presence of an image
+// wire determines a pattern's runtime mode; without one it remains a source.
 export const inputModeOf = node => node?.inputMode === 'fx' ? 'fx' : 'source';
+export const imageInputConnected = (graph, nodeId) => !!graph?.edges?.some(e => e.to === nodeId && e.port === 'image');
+export const patternInputMode = (node, graph) => node?.type === 'pattern' && imageInputConnected(graph, node.id) ? 'fx' : 'source';
 export const supportsImageFx = sketch => !!sketch?.fx && sketch.fx.input === 'image'
   && Object.keys(sketch.fx).length === 1;
+export const canAcceptImageFx = sketch => supportsImageFx(sketch)
+  && !sketch.projection && !sketch.nodesGraph && !sketch.surfaces?.length;
 export const SIGNAL_TYPES = Object.freeze(['audio', 'math', 'script']);
 export const SCALAR_TYPES = Object.freeze(['math', 'script']);
 export const MODULATION_TARGETS = Object.freeze(['pattern', 'blend', 'color']);
@@ -50,7 +54,10 @@ const ports = {
   math: MATH_INPUTS,
   script: SCRIPT_INPUTS,
 };
-export const inputs = (node) => node?.type === 'pattern' ? (inputModeOf(node) === 'fx' ? ['image'] : []) : (ports[node?.type] || []).slice();
+// Stored graph validation cannot consult a live registry (which might be
+// missing after import), so every Pattern has a *potential*, optional image
+// port. Only the editor's activeInputs and model.connect gate new connections.
+export const inputs = (node) => node?.type === 'pattern' ? ['image'] : (ports[node?.type] || []).slice();
 // Only clamp consumes c: add/subtract/multiply/divide/min/max/abs read a and b at
 // most, and abs ignores b as well but keeps the port so an operation change never
 // rewires a saved graph. `inputs()` stays the stored contract (all three Math
@@ -60,7 +67,12 @@ export const inputs = (node) => node?.type === 'pattern' ? (inputModeOf(node) ==
 export const MATH_OP_PORTS = Object.freeze({ clamp: Object.freeze(['a', 'b', 'c']) });
 const MATH_DEFAULT_PORTS = Object.freeze(['a', 'b']);
 export const mathPorts = (op) => (MATH_OP_PORTS[op] || MATH_DEFAULT_PORTS).slice();
-export const activeInputs = (node) => node?.type === 'math' ? mathPorts(node.op) : inputs(node);
+// Editor socket: visible for a capable live descriptor, and retained for a
+// legacy FX node or a saved wire whose descriptor went missing/changed. Pass the
+// graph as third argument to keep even implicit-mode orphaned wires visible.
+export const activeInputs = (node, sketch, graph) => node?.type === 'math' ? mathPorts(node.op)
+  : node?.type === 'pattern' ? (canAcceptImageFx(sketch) || inputModeOf(node) === 'fx' || imageInputConnected(graph, node.id) ? ['image'] : [])
+    : inputs(node);
 export const inactiveMathPort = (node, port) => node?.type === 'math' && inputs(node).includes(port) && !mathPorts(node.op).includes(port);
 export const isSignalSource = (node) => !!node && SIGNAL_TYPES.includes(node.type);
 export const isScalarConsumer = (node) => !!node && SCALAR_TYPES.includes(node.type);

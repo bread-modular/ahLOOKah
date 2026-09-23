@@ -8,7 +8,7 @@
 import {
   TYPES, COLOR_PARAMS, MATH_OPS, MATH_LITERALS, SCRIPT_LITERALS,
   inputs, isSignalSource, isScalarConsumer, isModulationTarget, inactiveMathPort,
-  isVisualSource, inputModeOf, supportsImageFx,
+  isVisualSource, canAcceptImageFx, imageInputConnected,
 } from './definitions.js';
 import { normalizeAudioRoute, isValidAudioDeviceId } from '../audio-routing.js';
 import { MAX_EXPRESSION, MAX_BODY, LANGUAGES } from './script.js';
@@ -122,6 +122,7 @@ export function validateGraph(raw, { complete = false } = {}) {
     // Image wires only ever reach image ports of visual nodes; scalar inputs
     // (Math/Script) are wired exclusively by signalEdges.
     if (!isVisualSource(from) || !to || !['pattern', 'blend', 'color', 'output'].includes(to.type) || !inputs(to).includes(e.port) || occupied.has(key)) fail('Invalid reference, port, or duplicate input wire');
+    if (to.type === 'pattern' && raw.version !== VERSION) fail('Pattern image input requires graph version 2');
     occupied.add(key);
     return { from: e.from, to: e.to, port: e.port };
   });
@@ -175,7 +176,11 @@ export function validateGraph(raw, { complete = false } = {}) {
     const required = new Set();
     const walk = id => { if (required.has(id)) return; required.add(id); edges.filter(e => e.to === id).forEach(e => walk(e.from)); };
     walk(nodes.find(n => n.type === 'output').id);
-    for (const id of required) for (const port of inputs(ids.get(id))) if (!occupied.has(`${id}:${port}`)) fail(`Connect ${id} ${port} before saving`);
+    for (const id of required) for (const port of inputs(ids.get(id))) {
+      // Pattern image inputs are optional even with complete=true; an explicit
+      // legacy FX hint with no wire falls back to its ordinary source path.
+      if (ids.get(id).type !== 'pattern' && !occupied.has(`${id}:${port}`)) fail(`Connect ${id} ${port} before saving`);
+    }
   }
   return { version: raw.version, name: raw.name.trim(), nodes, edges,
     ...(signalEdges.length ? { signalEdges } : {}), ...(modulations.length ? { modulations } : {}) };
@@ -183,16 +188,24 @@ export function validateGraph(raw, { complete = false } = {}) {
 export function newGraph() {
   return { version: LEGACY_VERSION, name: 'Untitled graph', nodes: [{ id: 'output', type: 'output', x: 650, y: 220 }], edges: [] };
 }
-// For NEW image wires into an FX instance the caller supplies the live registry;
-// validation of loaded graphs deliberately does not need it (missing definitions
-// must leave the saved socket and wire intact for repair).
+// A new Pattern image wire needs a capable *live* descriptor, while validation
+// of imported graphs deliberately doesn't: missing definitions and saved wires
+// must remain editable/repairable. A v1 graph upgrades atomically when wired.
 export function connect(graph, from, to, port, { sketches } = {}) {
   const target = graph.nodes.find(n => n.id === to);
-  if (target?.type === 'pattern' && inputModeOf(target) === 'fx') {
-    if (!sketches || !supportsImageFx(sketches.find(s => s.id === target.patternId)))
-      fail('Connect an image only to a known FX-capable pattern');
-  }
-  return validateGraph({ ...graph, edges: [...graph.edges.filter(e => e.to !== to || e.port !== port), { from, to, port }] });
+  if (target?.type === 'pattern' && (!sketches || !canAcceptImageFx(sketches.find(s => s.id === target.patternId))))
+    fail('Connect an image only to a known FX-capable pattern');
+  return validateGraph({ ...graph, version: target?.type === 'pattern' ? VERSION : graph.version,
+    edges: [...graph.edges.filter(e => e.to !== to || e.port !== port), { from, to, port }] });
+}
+// Only explicit legacy `fx` hints on sockets *just disconnected* are removed.
+// Existing imported no-wire FX nodes survive validation and can be repaired.
+function resetDisconnectedFx(nodes, edges, affectedIds) {
+  return nodes.map(node => {
+    if (!affectedIds.has(node.id) || node.type !== 'pattern' || node.inputMode !== 'fx' || imageInputConnected({ edges }, node.id)) return node;
+    const { inputMode: _old, ...source } = node;
+    return source;
+  });
 }
 // Scalar input port wiring (Math/Script). One wire per input; new wires replace.
 export function connectSignalEdge(graph, from, to, port) {
@@ -205,7 +218,9 @@ export function deleteNodes(graph, ids) {
   const removed = new Set(graph.nodes.filter(n => n.type !== 'output' && selected.has(n.id)).map(n => n.id));
   if (!removed.size) return graph;
   const keepLink = e => !removed.has(e.from) && !removed.has(e.to);
-  return { ...graph, nodes: graph.nodes.filter(n => !removed.has(n.id)), edges: graph.edges.filter(keepLink),
+  const edges = graph.edges.filter(keepLink);
+  const affected = new Set(graph.edges.filter(e => removed.has(e.from)).map(e => e.to));
+  return { ...graph, nodes: resetDisconnectedFx(graph.nodes.filter(n => !removed.has(n.id)), edges, affected), edges,
     ...(graph.signalEdges ? { signalEdges: graph.signalEdges.filter(keepLink) } : {}),
     ...(graph.modulations ? { modulations: graph.modulations.filter(keepLink) } : {}) };
 }
@@ -228,8 +243,11 @@ export function removeConnection(graph, ref) {
   if (!findConnection(graph, ref)) return graph;
   const keep = link => connectionRef(ref.kind, link).key !== ref.key;
   const next = { ...graph };
-  if (ref.kind === 'image') next.edges = graph.edges.filter(keep);
-  else if (ref.kind === 'signal') next.signalEdges = (graph.signalEdges || []).filter(keep);
+  if (ref.kind === 'image') {
+    const removed = findConnection(graph, ref);
+    next.edges = graph.edges.filter(keep);
+    next.nodes = resetDisconnectedFx(graph.nodes, next.edges, new Set([removed.to]));
+  } else if (ref.kind === 'signal') next.signalEdges = (graph.signalEdges || []).filter(keep);
   else next.modulations = (graph.modulations || []).filter(keep);
   return validateGraph(next);
 }
