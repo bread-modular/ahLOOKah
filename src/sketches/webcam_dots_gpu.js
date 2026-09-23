@@ -59,6 +59,7 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
   let capture;
   let theShader;
   let isCaptureReady = false;
+  const fxMode = runtimeContext?.inputMode === 'fx';
   const audioControls = runtimeContext?.audioControls || null;
 
   const vert = `
@@ -85,20 +86,34 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
     uniform float uSpacing;
     uniform float uGlitch;
     uniform vec2 uResolution;
+    uniform vec2 uFxFit;
+    uniform float uFxMode;
 
     float random(vec2 st) {
       return fract(sin(dot(st, vec2(12.9898, 78.233))) * 43758.5453);
     }
 
     void main() {
-      // Flip UVs for correct webcam orientation
-      vec2 uv = vec2(1.0 - vTexCoord.x, 1.0 - vTexCoord.y);
-      
+      // Source keeps its existing selfie transform. FX contains the upstream
+      // image without mirroring, flipping Y for unflipped canvas uploads.
+      vec2 uv = vec2(uFxMode > 0.5 ? vTexCoord.x : 1.0 - vTexCoord.x, 1.0 - vTexCoord.y);
+      if (uFxMode > 0.5) {
+        uv = 0.5 + (uv - 0.5) * uFxFit;
+        if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) {
+          gl_FragColor = vec4(0.0);
+          return;
+        }
+      }
+
       // Subtle horizontal displacement on sub-bass hits
       float blockY = floor(uv.y * 15.0);
       float displace = step(0.5, uSub) * step(0.85, random(vec2(blockY, floor(uTime)))) * 0.03;
       uv.x += displace;
-      
+      if (uFxMode > 0.5 && uv.x > 1.0) {
+        gl_FragColor = vec4(0.0);
+        return;
+      }
+
       // Dot grid spacing - denser with higher mids
       float dotSpacing = mix(uSpacing, 5.0, uMid);
       
@@ -106,9 +121,10 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
       vec2 gridPos = floor(uv * uResolution / dotSpacing);
       vec2 cellCenter = (gridPos + 0.5) * dotSpacing / uResolution;
       
-      // Sample texture at cell center
-      vec4 texColor = texture2D(uTex, cellCenter);
-      float brightness = (texColor.r + texColor.g + texColor.b) / 3.0;
+      // Sample texture at cell center (the last partial FX cell is clamped).
+      vec4 texColor = texture2D(uTex, uFxMode > 0.5 ? clamp(cellCenter, vec2(0.0), vec2(1.0)) : cellCenter);
+      vec3 sampleRgb = uFxMode > 0.5 ? texColor.rgb / max(texColor.a, 0.00001) : texColor.rgb;
+      float brightness = (sampleRgb.r + sampleRgb.g + sampleRgb.b) / 3.0;
       
       // Position within cell (0 to 1)
       vec2 cellUV = fract(uv * uResolution / dotSpacing);
@@ -149,7 +165,9 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
       float scanline = step(0.4, uMid) * step(0.98, random(vec2(0.0, floor(uv.y * 50.0) + uTime)));
       color += scanline * 0.15;
       
-      gl_FragColor = vec4(color, 1.0);
+      // Keep the original opaque camera look; FX respects the sampled cell's
+      // alpha, including transparent source pixels and letterbox borders.
+      gl_FragColor = vec4(color, uFxMode > 0.5 ? texColor.a : 1.0);
     }
   `;
 
@@ -158,6 +176,8 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
     p.noStroke();
     theShader = p.createShader(vert, frag);
 
+    // FX borrows a graph-owned image; do not try shared OR raw capture.
+    if (fxMode) return;
     const constraints = {
       video: {
         deviceId: videoDeviceId ? { exact: videoDeviceId } : undefined,
@@ -167,7 +187,7 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
       audio: false
     };
 
-    capture = runtimeContext?.createCapture(p, constraints, () => {
+    capture = runtimeContext?.createCapture?.(p, constraints, () => {
       isCaptureReady = true;
       runtimeContext?.reportMediaReady?.();
     }) || p.createCapture(constraints, () => {
@@ -177,70 +197,63 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
     capture.hide();
   };
 
-  function drawMigrated() {
-    p.background(0);
-    if (!isCaptureReady || !capture?.loadedmetadata) return;
-
-    const controls = audioControls.read();
-    const C = { ...AUDIO_CONTROL_SCHEMA.neutral.continuous, ...(controls.continuous || {}) };
-
-    // Read live params every frame so slider changes apply immediately
-    const P = params || {};
-    const spacing = P.spacing ?? 12;
-    const glitch = P.glitch ?? 1;
-
-    p.shader(theShader);
-    theShader.setUniform('uTex', capture);
-    theShader.setUniform('uTime', p.frameCount * 0.05);
-    // Boosted band levels already include the legacy 2x + reactivity mapping
-    theShader.setUniform('uSub', C.sub);
-    theShader.setUniform('uMid', C.mid);
-    theShader.setUniform('uHigh', C.high);
-    theShader.setUniform('uSpacing', spacing);
-    theShader.setUniform('uGlitch', glitch);
-    theShader.setUniform('uResolution', [p.width, p.height]);
-
-    p.rect(0, 0, p.width, p.height);
+  function imageFrame() {
+    if (!fxMode) {
+      return isCaptureReady && capture?.loadedmetadata ? { source: capture } : null;
+    }
+    const frame = runtimeContext?.getImageInput?.();
+    return frame?.source && frame.width > 0 && frame.height > 0
+      && frame.source.width === frame.width && frame.source.height === frame.height
+      ? frame : null;
   }
 
-  // Preserved raw-frame implementation for non-migrated/standalone callers.
-  function drawLegacy() {
-    p.background(0);
-    if (!isCaptureReady || !capture?.loadedmetadata) return;
-
-    if (!audio || !audio.isStarted) {
-      p.fill(255);
-      p.textAlign(p.CENTER, p.CENTER);
-      p.text("CLICK TO START AUDIO", 0, 0);
-      return;
-    }
-
-    const freqs = audio.getFrequencies();
-    const b = analyzeBands(freqs ? freqs.left : null);
-
-    // Read live params every frame so slider changes apply immediately
-    const P = params || {};
-    const spacing = P.spacing ?? 12;
-    const glitch = P.glitch ?? 1;
-    const react = P.react ?? 1;
+  function drawEffect(frame, bands, P) {
+    const A = p.width / Math.max(1, p.height);
+    const T = fxMode ? frame.width / frame.height : A;
+    const fit = fxMode ? (A > T ? [A / T, 1] : [1, T / A]) : [1, 1];
 
     p.shader(theShader);
-    theShader.setUniform('uTex', capture);
+    // The core re-uploads a canvas texture on each uniform bind, including
+    // when the graph reuses the same canvas for successive frame IDs.
+    theShader.setUniform('uTex', frame.source);
+    theShader.setUniform('uFxMode', fxMode ? 1 : 0);
+    theShader.setUniform('uFxFit', fit);
     theShader.setUniform('uTime', p.frameCount * 0.05);
-    // Boost the values a bit to make effects more visible
-    theShader.setUniform('uSub', b.sub * 2.0 * react);
-    theShader.setUniform('uMid', b.mid * 2.0 * react);
-    theShader.setUniform('uHigh', b.high * 2.0 * react);
-    theShader.setUniform('uSpacing', spacing);
-    theShader.setUniform('uGlitch', glitch);
-    theShader.setUniform('uResolution', [p.width, p.height]);
-
+    theShader.setUniform('uSub', bands.sub);
+    theShader.setUniform('uMid', bands.mid);
+    theShader.setUniform('uHigh', bands.high);
+    theShader.setUniform('uSpacing', P.spacing ?? 12);
+    theShader.setUniform('uGlitch', P.glitch ?? 1);
+    theShader.setUniform('uResolution', fxMode ? [frame.width, frame.height] : [p.width, p.height]);
     p.rect(0, 0, p.width, p.height);
   }
 
   p.draw = () => {
-    if (audioControls) drawMigrated();
-    else drawLegacy();
+    if (fxMode) p.clear();
+    else p.background(0);
+    const frame = imageFrame();
+    if (!frame) return;
+
+    const P = params || {};
+    let bands;
+    if (audioControls) {
+      const controls = audioControls.read();
+      bands = { ...AUDIO_CONTROL_SCHEMA.neutral.continuous, ...(controls.continuous || {}) };
+    } else {
+      // The standalone camera prompt remains source-only: FX renders its image
+      // with neutral levels when audio has not yet started.
+      if ((!audio || !audio.isStarted) && !fxMode) {
+        p.fill(255);
+        p.textAlign(p.CENTER, p.CENTER);
+        p.text("CLICK TO START AUDIO", 0, 0);
+        return;
+      }
+      const freqs = audio?.isStarted ? audio.getFrequencies() : null;
+      const b = analyzeBands(freqs ? freqs.left : null);
+      const react = P.react ?? 1;
+      bands = { sub: b.sub * 2.0 * react, mid: b.mid * 2.0 * react, high: b.high * 2.0 * react };
+    }
+    drawEffect(frame, bands, P);
   };
 
   p.windowResized = () => {

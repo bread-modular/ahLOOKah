@@ -31,6 +31,31 @@ test.describe('builtin catalog assembler', { tag: '@core' }, () => {
     expect(onlyDiscovered.id).toBe('discovered-ok');
   });
 
+  test('validates optional image FX capability on both descriptor paths without changing camera', () => {
+    for (const origin of [legacy, discovered]) {
+      const assemble = (overrides) => origin === legacy
+        ? assembleBuiltinCatalog([origin(descriptor(overrides))], [])
+        : assembleBuiltinCatalog([], [origin(descriptor(overrides))]);
+      const sourceOnly = assemble({ camera: true })[0];
+      expect(sourceOnly.camera).toBe(true);
+      expect(sourceOnly.fx).toBeUndefined();
+      const fx = { input: 'image' };
+      const adapted = assemble({ camera: true, fx })[0];
+      expect(adapted.fx).toBe(fx);
+      expect(adapted.camera).toBe(true);
+
+      for (const invalid of [null, false, 'image', [], {}, { input: 'video' },
+        { input: 'image', output: 'image' }]) {
+        expect(() => assemble({ fx: invalid }), JSON.stringify(invalid))
+          .toThrow(/Invalid built-in pattern.*fx/);
+      }
+      expect(() => assemble({ fx: { input: 'video' } }))
+        .toThrow(/fx\.input must be "image"/);
+      expect(() => assemble({ fx: { input: 'image', extra: true } }))
+        .toThrow(/fx\.extra is not supported/);
+    }
+  });
+
   test('rejects duplicate ids across sources and reports both origins', () => {
     const dupe = () => assembleBuiltinCatalog(
       [legacy(descriptor({ id: 'same-id' }))],

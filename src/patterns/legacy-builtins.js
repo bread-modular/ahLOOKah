@@ -878,6 +878,7 @@ export const LEGACY_BUILTINS = [
     ],
     group: 'Video FX',
     camera: true,
+    fx: { input: 'image' },
   }, // 49
   {
     id: 'video-kaleido',
@@ -1009,6 +1010,7 @@ export const LEGACY_BUILTINS = [
     ],
     group: 'Video FX',
     camera: true,
+    fx: { input: 'image' },
   }, // 58
   {
     id: 'video-high-contrast',
