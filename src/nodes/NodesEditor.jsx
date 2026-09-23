@@ -658,20 +658,14 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
             <option value="mono">Mono</option>
           </Select></label>
           <AudioRouteStatus runtime={previewRuntime} nodeId={node.id} channelNote={channelNoteFor(node.id)} />
-          <SignalReadout runtime={previewRuntime} nodeId={node.id} />
-          <p>Normalized custom-script activity (0…1) from this node's own input route. Uses the control window's shared audio inputs; no input means zero. Mono combines both channels' activity; it does not phase-cancel stereo. Connect out to one or many ◇ signal endpoints.</p></>}
+          <SignalReadout runtime={previewRuntime} nodeId={node.id} /></>}
         {node?.type === 'camera' && <><label>Camera input device<Select aria-label="Camera input device" title="Global follows the Settings video input; a pinned entry requests that exact camera on the output screen" value={node.deviceId ?? ''} onChange={e => patch({ deviceId: e.target.value || null })}>
           <option value="">Global input (Settings){globalCameraLabel ? ` — ${globalCameraLabel}` : ''}</option>
           {cameraOptions.map((d, i) => <option key={d.deviceId} value={d.deviceId}>{d.label || `Camera input ${i + 1}`}</option>)}
           {node.deviceId && !cameraOptions.some(d => d.deviceId === node.deviceId) && <option value={node.deviceId}>{`Unavailable camera (…${node.deviceId.slice(-6)})`}</option>}
         </Select></label>
           <output className="nodes-camera-status" data-testid="node-camera-status" aria-live="polite">{cameraCatalog.error && `${cameraCatalog.error} `}{node.deviceId && !cameraOptions.some(d => d.deviceId === node.deviceId) ? 'Pinned camera unavailable; select another input or reconnect it. ' : ''}Editor preview shows a generated sample clip, not your real camera; live capture runs only on the output screen. Connect Camera out to an image input (FX, Blend, Color or Output). Global follows Settings; a pinned camera requests that exact device on the output screen.</output></>}
-        {node?.type === 'output' && <p>Output has no numeric controls. Image mapping is not supported here.</p>}
-        {node?.type === 'color' && <p>Color filters its image input in place: saturation → brightness → contrast → hue-rotate. Identity defaults (1 / 1 / 1 / 0) copy the input pixels unchanged; every numeric slider maps like Pattern and Blend. Without an image input it renders transparent, and it still saves.</p>}
-        {node?.type === 'transform' && <>
-          <p>Transform is the image node: Move, Scale and Rotate in X, Y and Z, with true perspective. The picture is a unit plane half a frame in front of the camera, so Move X/Y of 1 shifts it by half the frame, Move Z of +0.5 doubles it, and Rotate X/Y tilt it into a real trapezoid instead of a squashed rectangle. All nine sliders default to identity, which copies the input pixels exactly, and they map like Pattern, Blend and Color sliders. Rotation happens in the frame's own space, so a non-square output frame stretches a rotated picture. Scale Z squashes the depth axis after rotation: it bends the perspective of a tilted picture and does nothing on a flat, unrotated one. Without an image input it renders transparent, and it still saves.</p>
-          <output className="nodes-transform-status" data-testid="node-transform-status" aria-live="polite">{transformNote(node.params)}</output>
-        </>}
+        {node?.type === 'transform' && <output className="nodes-transform-status" data-testid="node-transform-status" aria-live="polite">{transformNote(node.params)}</output>}
         {node?.type === 'math' && <><label>Operation<Select aria-label="Math operation" title="Choose the scalar operation" value={node.op} onChange={e => changeMathOp(e.target.value)}>{MATH_OPS.map(op => <option key={op} value={op}>{MATH_LABELS[op]}</option>)}</Select></label>
           {MATH_INPUTS.map(port => {
             // Value C exists only for clamp. Outside clamp the row is hidden and
@@ -679,8 +673,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
             const active = mathPorts(node.op).includes(port);
             return <label key={port} hidden={!active}>{MATH_PORT_LABELS[port]} literal<input className="control-input" type="number" step="0.01" disabled={!active} aria-label={`Math ${port} literal`} title={active ? `Literal used when ${port} has no wire` : `${MATH_PORT_LABELS[port]} is only used by clamp`} value={node[port]} onChange={e => { const next = e.target.valueAsNumber; if (Number.isFinite(next)) patch({ [port]: next }); }} /></label>;
           })}
-          <SignalReadout runtime={previewRuntime} nodeId={node.id} />
-          <p>Scalar inputs stay signed floats — nothing is normalized here. Each port takes a wire from an Audio/Math/Script output, otherwise its literal applies. {node.op === 'clamp' ? 'Clamp keeps a between the sorted b/c bounds. ' : 'Value C and its wire exist only for clamp. '}Wires carry values, not pictures.</p></>}
+          <SignalReadout runtime={previewRuntime} nodeId={node.id} /></>}
         {node?.type === 'script' && <><label>Language<Select aria-label="Script language" title="Expression is the original single-value language; Body is a compiled statement list with return" value={scriptLanguage} onChange={e => setScriptDraft({ id: node.id, language: e.target.value, text: scriptText })}>
           {['body', 'expression'].map(value => <option key={value} value={value}>{scriptLanguageLabel(value)}</option>)}
         </Select></label>
@@ -689,19 +682,15 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
           {!scriptCheck?.ok && <p className="nodes-script-error" role="alert">Script: {scriptCheck?.error}</p>}
           <p className="nodes-script-status" role="status" data-testid="script-status">{!scriptCheck?.ok ? 'Not applied' : `${scriptApplied ? (isScriptApproved(nodeLanguage, node.source) ? 'Applied and approved' : 'Applied · review required to run') : 'Not applied'} · ${scriptLanguage} · uses ${SCRIPT_VARIABLES.filter(name => scriptCheck.uses?.[name]).join(', ') || 'no inputs'}`}</p>
           {SCRIPT_INPUTS.map(port => <label key={port}>{SCRIPT_PORT_LABELS[port]} literal<input className="control-input" type="number" step="0.01" aria-label={`Script ${port} literal`} title={`Literal used when ${port} has no wire`} value={node[SCRIPT_LITERAL_FIELDS[port]]} onChange={e => { const next = e.target.valueAsNumber; if (Number.isFinite(next)) patch({ [SCRIPT_LITERAL_FIELDS[port]]: next }); }} /></label>)}
-          <SignalReadout runtime={previewRuntime} nodeId={node.id} />
-          <p>{helpForLanguage(scriptLanguage)} Ctrl+Enter or Apply stores and approves it; plain Enter adds a line. A disk-loaded source must be reviewed and applied in this browser before it runs. Unwired x/y use their literals and time is seconds.</p></>}
+          <SignalReadout runtime={previewRuntime} nodeId={node.id} /></>}
         {node?.type === 'blend' && <><label>Blend mode<Select aria-label="Blend mode" title="Choose the pixel blend operation (TouchDesigner's Composite TOP list)" value={node.mode} onChange={e => patch({ mode: e.target.value })}>
           <optgroup label="Canvas blend modes">{MODE_NAMES.filter(mode => !isExtendedMode(mode)).map(mode => <option key={mode}>{mode}</option>)}</optgroup>
           <optgroup label="WebGL2 blend modes">{MODE_NAMES.filter(isExtendedMode).map(mode => <option key={mode}>{mode}</option>)}</optgroup>
         </Select></label>
-          <output className="nodes-blend-status" data-testid="node-blend-status" aria-live="polite">{blendModeNote(node.mode)}</output>
-          <p>Base is the first input and layer the second, so the ordered modes (Under, Inside, Outside, Subtract, Divide) change meaning when the wires swap. Opacity scales the layer only. Canvas modes are exact 2D-canvas operations; WebGL2 modes follow the same alpha rules but need a GPU. TouchDesigner operations with no published formula are not offered: inverse, subtractive, chroma/luminance difference, inside/outside/stencil luminance, y film, z film.</p></>}
+          <output className="nodes-blend-status" data-testid="node-blend-status" aria-live="polite">{blendModeNote(node.mode)}</output></>}
         {node?.type === 'pattern' && visibleInputs(node).includes('image') && <div className="nodes-pattern-image-status">
-          <p>{sketch?.camera ? 'Camera' : 'Source'} by default; connect image for FX.</p>
           <output data-testid="node-image-input-status" aria-live="polite">Image input: {imageWired(node.id) ? 'wired' : `not connected (${sourceDefault(sketch).toLowerCase()})`}</output>
           {!acceptsImage(sketch) && <p className="nodes-fx-warning" role="status">FX capability unavailable. Restore an FX-capable version of this pattern; the existing image wire is retained for repair.</p>}
-          {acceptsImage(sketch) && (sketch.camera ? <p>Editor preview uses a generated sample clip, not a real camera.</p> : <p>Unconnected editor preview uses this pattern's own source, not camera capture.</p>)}
         </div>}
         {node?.type === 'pattern' && !sketch && <p>Missing pattern. Delete and replace this node, or restore its dependency.</p>}
         {signalNode && (graph.modulations || []).some(m => m.to === signalNode.id) && <section className="nodes-signals" aria-label="Connected signals"><h2>Connected signals</h2>
@@ -721,7 +710,6 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
             connection button, owns connection removal, and Delete/Backspace on a
             node selection owns node removal. The inspector carries no destructive
             buttons of its own. */}
-        <details><summary>Dependencies & limits</summary><p>No node, Pattern source or wire budget is imposed: practical graph size follows your hardware. 1280×720 internal image, no recursive graphs, camera capture stays on output, and local files or custom assets are not embedded. A pattern file stays under 200 KB so it remains loadable.</p>{dependencies.map(d => <p key={d.id}>{d.name || d.id} · {d.kind}</p>)}<button className="btn" title="Refresh dependency fingerprints from available patterns" onClick={() => attempt(() => { setDraft({ ...draft, dependencies: manifestFor(graph, SKETCHES) }); setMessage('Dependency manifest refreshed explicitly. Save when ready.'); })}>Refresh dependencies</button></details>
       </aside>
     </div>
   </main>;

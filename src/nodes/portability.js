@@ -51,8 +51,8 @@ export function referencedIds(graph, sketches) {
 // a stale entry (a removed or changed custom script, say) blocks Save forever,
 // even after the node that used it is gone — while the stored fingerprints of
 // surviving entries are preserved: "changed dependency" detection must stay
-// until an explicit Refresh dependencies, so a signature is only ever derived
-// fresh for an id the manifest does not know yet.
+// until the node that consumes it is deleted and re-added, so a signature is
+// only ever derived fresh for an id the manifest does not know yet.
 export function pruneManifest(graph, sketches, manifest = []) {
   const required = referencedIds(graph, sketches);
   const kept = manifest.filter(d => required.has(d.id)).map(d => ({ ...d }));
@@ -101,7 +101,7 @@ export function graphDiagnostics(graph, sketches, manifest = []) {
   for (const dep of manifest) {
     const s = sketches.find(s => s.id === dep.id);
     const message = !s ? `Missing dependency: ${dep.name || dep.id}`
-      : dep.signature && dep.signature !== dependencySignature(s) ? `Changed dependency: ${dep.name || dep.id}; restore it or explicitly refresh dependencies` : null;
+      : dep.signature && dep.signature !== dependencySignature(s) ? `Changed dependency: ${dep.name || dep.id}; restore the source or delete and re-add this pattern node` : null;
     if (!message) continue;
     // Attribute the message to every node that still consumes this source; a
     // manifest entry no node references has no owner and stays a graph-level note.
