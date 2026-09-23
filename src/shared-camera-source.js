@@ -28,7 +28,6 @@ function isCameraOwner() {
 export class SharedCameraSource {
   constructor() {
     this.sources = new Map();
-    this.epoch = 0;
   }
 
   _ensureSource(deviceId, constraints) {
@@ -36,7 +35,6 @@ export class SharedCameraSource {
     let source = this.sources.get(key);
     if (source) return source;
 
-    const epoch = ++this.epoch;
     source = {
       key,
       deviceId: deviceId || null,
@@ -44,11 +42,12 @@ export class SharedCameraSource {
       stream: null,
       stopped: false,
       promise: null,
-      epoch,
     };
     source.promise = navigator.mediaDevices.getUserMedia(videoConstraints(deviceId, constraints))
       .then((stream) => {
-        if (source.stopped || this.sources.get(key) !== source || this.epoch !== epoch) {
+        // Only this device's lease lifetime may retire its pending capture;
+        // another device starting must not invalidate it.
+        if (source.stopped || this.sources.get(key) !== source) {
           stream.getTracks().forEach((track) => track.stop());
           throw new Error('Camera source was released before it became ready.');
         }
@@ -233,7 +232,6 @@ export class SharedCameraSource {
       this._stopSource(source);
     });
     this.sources.clear();
-    this.epoch++;
   }
 
   diagnostics() {
