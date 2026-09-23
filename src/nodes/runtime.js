@@ -94,6 +94,24 @@ const canvasFor = size => {
   return canvas;
 };
 
+// Only these fields can change without changing a source's identity, execution
+// plan, input mode or scalar wiring. Mapping endpoints change the conversion,
+// not the dependency; adding/removing or retargeting a mapping changes the plan.
+const mutableFields = {
+  pattern: ['params'], blend: ['opacity', 'mode'], color: ['params'], transform: ['params'],
+  audio: ['band'], math: ['a', 'b', 'c'], script: ['inputX', 'inputY'],
+};
+export function graphLifecycleKey(graph, sketches, dependencies = []) {
+  const nodes = graph.nodes.map(node => Object.fromEntries(Object.entries(node)
+    .filter(([key]) => key !== 'x' && key !== 'y' && !mutableFields[node.type]?.includes(key))));
+  const modulations = (graph.modulations || []).map(({ from, to, param }) => ({ from, to, param: param ?? null }));
+  // A formerly invalid source was never prepared. Crossing its diagnostic
+  // boundary must activate/retire it rather than treating it as a slider edit.
+  const invalid = [...graphDiagnostics(graph, sketches, dependencies).byNode.keys()].sort();
+  return JSON.stringify({ version: graph.version, nodes, edges: graph.edges,
+    signalEdges: graph.signalEdges || [], modulations, invalid });
+}
+
 export class GraphRuntime {
   constructor({ graph, sketches, dependencies = [], width = 480, height = 270, audio = new PreviewAudio(), context = {}, videoDeviceId = null, preview = true }) {
     this.graph = validateGraph(graph);
@@ -117,6 +135,8 @@ export class GraphRuntime {
     this.targetReady = new Map();
     this.cameraReady = Promise.resolve();
     this.preview = preview; this.sketches = sketches; this.context = context;
+    this.dependencies = dependencies;
+    this.lifecycleKey = graphLifecycleKey(this.graph, sketches, dependencies);
     this.audio = audio; this.videoDeviceId = videoDeviceId;
     // An unused FX branch must not switch LIVE to the async renderer. Editor
     // previews can select that branch later, so keep their FX clock available.
@@ -164,6 +184,37 @@ export class GraphRuntime {
     // Output is the only eager target. A disconnected editor selection expands
     // this plan on first request; LIVE never expands past Output.
     this.ready = this._activate(this.outputId);
+  }
+  // An editor parameter commit keeps the graph, sources and their clocks alive.
+  // In particular ProgramRuntime's factory receives the *object* returned by
+  // getParams during _prepareSource, not a fresh lookup each draw. Redefine that
+  // same object's properties so both captured factories and future audio slot
+  // snapshots see new bases and mapping getters. Structural edits return false:
+  // the owner must dispose this graph and construct one with a new plan.
+  updateGraph(graph) {
+    if (this.disposed) return false;
+    const next = validateGraph(graph);
+    if (graphLifecycleKey(next, this.sketches, this.dependencies) !== this.lifecycleKey) return false;
+    if (JSON.stringify(next) === JSON.stringify(this.graph)) return true;
+    // An async FX tick already underway must not commit a mix of old and new
+    // parameters. Its child is retained, but its graph commit is retired.
+    if (this.inFlight) this.generation = ++graphGeneration;
+    this.graph = next;
+    this.nodeById = new Map(next.nodes.map(node => [node.id, node]));
+    this.frameSignals.clear();
+    for (const [id, view] of this.params) {
+      const fresh = parameterView(next, this.nodeById.get(id), this.sketches,
+        this.readContinuous, sourceId => this.signalValue(sourceId));
+      for (const key of Object.keys(view)) delete view[key];
+      Object.defineProperties(view, Object.getOwnPropertyDescriptors(fresh));
+    }
+    const diagnostic = graphDiagnostics(next, this.sketches, this.dependencies);
+    this.diagnostics = diagnostic.messages;
+    this.nodeDiagnostics = diagnostic.byNode;
+    // Publishing the plan refreshes ProgramRuntime's parameter fingerprint and
+    // paramsRevision without retiring the child's audio slot or controller.
+    this.context.onAudioSlotsChanged?.();
+    return true;
   }
   dependenciesFor(targetId) {
     const used = new Set();
@@ -227,7 +278,6 @@ export class GraphRuntime {
     if (camera && (preview || !context.cameraSource)) {
       this.messages.set(node.id, 'Camera is available only on the output screen (shared capture).'); return Promise.resolve();
     }
-    const params = this.params.get(node.id);
     const layer = document.createElement('div');
     const capture = canvas => {
       if (this.disposed) return;
@@ -242,7 +292,7 @@ export class GraphRuntime {
     const runtime = new ProgramRuntime({ coreConstructor: VizCore, selection: { ids: [sketch.id], merge: false },
       sketches: node.type === 'camera' ? [...sketches, CAMERA_NODE_PATTERN] : sketches,
       audio, videoDeviceId: node.type === 'camera' ? (node.deviceId ?? videoDeviceId) : videoDeviceId,
-      getParams: () => params || {}, layer, inputMode: fx ? 'fx' : 'source',
+      getParams: () => this.params.get(node.id) || {}, layer, inputMode: fx ? 'fx' : 'source',
       includeAudioSlots: node.type !== 'camera',
       cameraSource: fx ? null : context.cameraSource || null, getSize: () => this.size,
       preview, audioControlStore: context.audioControlStore || null,
