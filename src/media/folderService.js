@@ -34,9 +34,31 @@ export class MediaFolder {
     await requireFolderPermission(handle);
     return (await scanFolder(handle, { accepts: mediaKindForName, limit: 256 })).map(entry => ({ ...entry, kind: mediaKindForName(entry.name), mime: mimeForName(entry.name), folderName: handle.name }));
   }
+  // The files this library expects inside a linked directory, resolved BY NAME from
+  // the project's own media references — never by listing the whole folder, whose
+  // picker cap (256) would otherwise stop a project restoring its own media from a
+  // directory full of other clips. Nothing is created here: ADD / OPEN do that.
+  async expectedFiles(handle) {
+    const ref = folderReference('media');
+    const expected = (ref?.needsRelink ? [] : ref?.files || []).filter(file => file.linked && file.fileName);
+    const sources = [];
+    for (const file of expected) {
+      let entry;
+      try { entry = await handle.getFileHandle(file.fileName); await entry.getFile(); }
+      catch { continue; } // Absent or not readable as a file: reported as missing below.
+      sources.push({ handle: entry, name: file.fileName, kind: mediaKindForName(file.fileName), mime: mimeForName(file.fileName), folderName: handle.name });
+    }
+    return sources;
+  }
+  // Re-point the records this library already has; a scan never adopts a directory.
+  async syncExpected(handle) {
+    const sources = await this.expectedFiles(handle);
+    this.publish({ errors: missingFolderFiles('media', sources.map(source => source.name)) });
+    if (sources.length) await this.onFiles(sources, { adoptNew: false });
+  }
   async link() {
     const handle = await chooseFolder({ id: 'viz2-media-folder', label: 'Media' });
-    const files = await this.scan(handle, true); // canceled/denied/invalid folder leaves the previous link intact
+    await requireFolderPermission(handle); // A directory that cannot be read is never linked.
     await this.lock(async () => {
       const previousHandle = await this.storage('folder');
       await this.storage('folder', handle);
@@ -44,10 +66,9 @@ export class MediaFolder {
       // even if its basename matches the previous link.
       await registerLinkedProjectFolder('media', handle, previousHandle);
       await this.restore();
-      this.publish({ errors: missingFolderFiles('media', files.map(file => file.name)) });
       // Linking grants access; it does not load the directory. Files already in
       // this library are re-pointed (ADD/OPEN are what bring new ones in).
-      try { await this.onFiles(files, { adoptNew: false }); }
+      try { await this.syncExpected(handle); }
       finally { this.channel?.postMessage('changed'); }
     });
   }
@@ -59,9 +80,7 @@ export class MediaFolder {
       assertFolderReference('media', this.handle);
       if (!this.handle) return;
       if (!request && this.status.permission !== 'granted') await requireFolderPermission(this.handle);
-      const files = await this.scan(this.handle);
-      this.publish({ errors: missingFolderFiles('media', files.map(file => file.name)) });
-      await this.onFiles(files, { adoptNew: false });
+      await this.syncExpected(this.handle);
     });
   }
   async browse() {

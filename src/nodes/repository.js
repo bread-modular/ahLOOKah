@@ -84,15 +84,21 @@ export class NodePatterns {
         if (folder) {
           try {
             await permission(folder.handle);
-            const files = await scanFolder(folder.handle, { accepts: name => name.endsWith(SUFFIX), limit: 64, onLimit: () => errors.push('Folder limit: 64 node patterns') });
-            errors.push(...missingFolderFiles('nodes', files.map(file => file.name)));
-            // Linking (or relinking) a directory never imports it: only files the
-            // library already holds, or that a project names, are read here.
+            // Resolve the files this library holds BY NAME. A directory holding more
+            // unadded files than the folder cap must still reopen every pattern a
+            // project recorded, so no whole-folder listing is involved here (the
+            // picker lists the directory; a scan would be capped at 64 files).
             added = this.addedFiles(include);
-            for (const { name, handle } of files) {
-              if (hidden.includes(name) || !added.has(name)) continue;
-              await add(handle, added.get(name) || referencedFileId('nodes', name, true) || await nodeFileId(folder.id, name), folder.id);
+            const present = [];
+            for (const [name, id] of added.entries()) {
+              let handle;
+              try { handle = await folder.handle.getFileHandle(name); await handle.getFile(); }
+              catch { continue; } // Absent or not readable as a file: reported below.
+              present.push(name);
+              if (hidden.includes(name)) continue;
+              await add(handle, id || referencedFileId('nodes', name, true) || await nodeFileId(folder.id, name), folder.id);
             }
+            errors.push(...missingFolderFiles('nodes', present));
           } catch (e) { added = null; errors.push(e.message); }
         }
         for (const entry of opened) {

@@ -162,6 +162,47 @@ test('the same computer resumes every linked directory of a saved project withou
   await expect(page.locator('#media-relink-btn')).toBeHidden();
 });
 
+test('a project restores its own files even when the linked directories hold more files than the picker caps @core', async ({ page }) => {
+  test.setTimeout(180_000);
+  await page.goto('/');
+  await seed(page);
+  await linkAll(page);
+  // Add this project's own files first: the OPEN/ADD pickers are the ones bounded
+  // by the folder caps (64 node patterns, 256 media files), so a directory past
+  // them can no longer be listed — but a project reopen must not be affected.
+  await addMediaFromFolder(page, 'one.PNG');
+  await openScript(page);
+  await addNodePattern(page);
+  await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory();
+    const nodes = await root.getDirectoryHandle('nodes');
+    const graph = await (await (await nodes.getFileHandle('demo.nodes.json')).getFile()).text();
+    for (let i = 0; i < 70; i++) {
+      const writer = await (await nodes.getFileHandle(`filler-${i}.nodes.json`, { create: true })).createWritable();
+      await writer.write(graph); await writer.close();
+    }
+    const media = await root.getDirectoryHandle('media');
+    const image = await (await (await media.getFileHandle('one.PNG')).getFile()).arrayBuffer();
+    for (let i = 0; i < 260; i++) {
+      const writer = await (await media.getFileHandle(`filler-${i}.PNG`, { create: true })).createWritable();
+      await writer.write(image); await writer.close();
+    }
+  });
+  const project = await projectFor(page);
+  // The project records the files it has, never the 330 files it does not.
+  expect(project.folders.nodes.files.map(f => f.fileName)).toEqual(['demo.nodes.json']);
+  expect(project.media.map(m => m.fileName)).toEqual(['one.PNG']);
+  await saveProject(page, project);
+  await expect(page.locator('#project-relink-modal')).toHaveCount(0);
+  await page.locator('#notice-modal-reload').click();
+  await expect(page.locator(`.library-btn[data-id="${project.folders.nodes.files[0].id}"]`)).toHaveCount(1);
+  await expect(page.locator('.library-btn[data-id^="nodes-"]')).toHaveCount(1);
+  await expect(page.locator('.library-btn[data-id^="media-"]')).toHaveCount(1);
+  await expect(page.locator('.library-btn[data-id^="media-"]', { hasText: 'filler' })).toHaveCount(0);
+  await expect(page.locator('.library-btn[data-id="custom-dir-demo"]')).toBeVisible();
+  expect(await page.evaluate(() => window.scriptRuns || 0)).toBe(1);
+});
+
 test('a project from another computer blocks on its directories, and a missing file is marked red instead @core', async ({ page, browser }) => {
   test.setTimeout(150_000);
   await page.goto('/');

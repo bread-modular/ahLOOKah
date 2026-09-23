@@ -182,7 +182,7 @@ test('Media: explicit ADD only, disk playback, refresh dedup, persistence and un
   await other.close();
 });
 
-test('Media backend: no background permission prompts, storage rollback and scan limit @core', async ({ page }) => {
+test('Media backend: no background permission prompts, storage rollback and picker scan limit @core', async ({ page }) => {
   await page.goto('/tests/fixtures/render.html');
   const result = await page.evaluate(async () => {
     const { MediaFolder } = await import('/src/media/folderService.js');
@@ -200,13 +200,17 @@ test('Media backend: no background permission prompts, storage rollback and scan
     fail = true; let storageError; try { await service.link(); } catch (e) { storageError = e.message; }
     const retained = service.status.folder;
     fail = false;
+    // A directory larger than the picker cap is still linkable (nothing is loaded);
+    // only the ADD/OPEN picker is bounded, because it has to list every file.
     window.showDirectoryPicker = async () => ({ name: 'large', queryPermission: async () => 'granted', async *entries() { for (let i = 0; i < 257; i++) yield [`${i}.png`, { kind: 'file' }]; } });
-    let limit; try { await service.link(); } catch (e) { limit = e.message; }
-    service.close(); return { background, denied, storageError, retained, limit, calls };
+    let linked = 'ok'; try { await service.link(); } catch (e) { linked = e.message; }
+    let limit; try { await service.browse(); } catch (e) { limit = e.message; }
+    service.close(); return { background, denied, storageError, retained, linked, limit, calls };
   });
   expect(result.background).toEqual({ requests: 0, calls: 0, permission: 'prompt' });
   expect(result.denied).toContain('Permission denied'); expect(result.storageError).toBe('storage full');
-  expect(result.retained).toBe('held'); expect(result.limit).toContain('maximum 256'); expect(result.calls).toBe(0);
+  expect(result.retained).toBe('held'); expect(result.linked).toBe('ok');
+  expect(result.limit).toContain('maximum 256'); expect(result.calls).toBe(0);
 });
 
 test('Folder headers visual verification @core', async ({ page }) => {

@@ -545,7 +545,9 @@ project file carries and how another computer re-links it, is the
     stay out until **ADD**/**OPEN**. Media is matched by recorded name and id —
     never read or hashed — and a linked folder is never scanned into the library
     (`platform/folder-portability.js`, `nodes/repository.js`,
-    `media/folderService.js`).
+    `media/folderService.js`). Restoration resolves each recorded name directly, so
+    a directory holding more files than the OPEN/ADD picker caps (64 node patterns,
+    256 media files) still reopens a project's own files.
   - **Permission lapse** — if the browser wants the folder re-granted at startup
     (common after a restart), the startup message names the scripts waiting and
     **Linked → Refresh** both renews access and finishes the reopen; no second save
