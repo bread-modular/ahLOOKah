@@ -133,7 +133,7 @@ test('FX-only filter intersects search, includes live script descriptors, but of
   await expect(kaleido).toHaveCount(1);
 });
 
-test('FX-capable custom script without camera uses Source default, not camera sample messaging', async ({ page }) => {
+test('FX-capable custom script without camera reports Source default and inspector status only', async ({ page }) => {
   await openFixture(page);
   await page.evaluate(async () => {
     const { SKETCHES } = await import('/src/sketch-registry.js');
@@ -148,9 +148,9 @@ test('FX-capable custom script without camera uses Source default, not camera sa
   await expect(card.locator('.nodes-input')).toHaveCount(1);
   await expect(card.locator('.nodes-node-detail')).toContainText('Source default');
   await expect(page.getByTestId('node-image-input-status')).toHaveText('Image input: not connected (source default)');
-  await expect(page.getByText('Source by default; connect image for FX.')).toBeVisible();
-  await expect(page.getByText("Unconnected editor preview uses this pattern's own source, not camera capture.")).toBeVisible();
-  await expect(page.getByText('Editor preview uses a generated sample clip, not a real camera.')).toHaveCount(0);
+  // The inspector keeps status only: the removed description and preview-hint
+  // paragraphs must not come back.
+  await expect(page.locator('.nodes-pattern-image-status p')).toHaveCount(0);
 });
 
 test('drag-to-add has an optional image socket; connect/disconnect automatically toggles camera default and FX', async ({ page }) => {
@@ -159,7 +159,6 @@ test('drag-to-add has an optional image socket; connect/disconnect automatically
   await expect(card.locator('.nodes-fx-badge')).toContainText('◇ FX');
   await expect(card.locator('.nodes-node-title')).toHaveAccessibleDescription(/Accepts an image input/);
   await expect(card.getByRole('button', { name: `${id} input image` })).toBeVisible();
-  await expect(page.getByText('Camera by default; connect image for FX.')).toBeVisible();
   await expect(page.getByTestId('node-image-input-status')).toHaveText('Image input: not connected (camera default)');
   await expect(card.locator('.nodes-node-detail')).toContainText('Camera default');
   await expect(page.getByLabel('Pattern input mode')).toHaveCount(0);

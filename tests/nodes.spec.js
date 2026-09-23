@@ -172,7 +172,7 @@ test('missing dependencies and camera preview are visible and never acquire capt
   const cameraGraph = graph(); cameraGraph.nodes[0].patternId = 'video-chroma'; cameraGraph.nodes[0].params = {};
   await openFixture(page, cameraGraph);
   await page.locator('[data-node-id=red] .nodes-node-title').click();
-  await expect(page.getByText('Editor preview uses a generated sample clip, not a real camera.')).toBeVisible();
+  await expect(page.getByTestId('node-image-input-status')).toHaveText('Image input: not connected (camera default)');
   await expect(page.locator('.nodes-diagnostics')).toBeEmpty();
   await expect.poll(() => page.getByTestId('node-preview').evaluate(c => {
     const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
@@ -200,9 +200,9 @@ test('dependency manifests follow the graph: stale entries prune, stored fingerp
   expect(sourceDiagnostics(graph, sketches, [stored, stale])).toEqual(['Missing dependency: Ghost script']);
   expect(pruneManifest(graph, sketches, [stored, stale])).toEqual([stored]);
   // A still-referenced entry keeps the fingerprint loaded from disk, so a source
-  // changed outside the editor is still reported until an explicit refresh.
+  // changed outside the editor is still reported until its node is re-added.
   const changed = [{ ...sketches[0], params: [] }];
-  expect(sourceDiagnostics(graph, changed, pruneManifest(graph, sketches, [stored]))).toEqual(['Changed dependency: Solid Color; restore it or explicitly refresh dependencies']);
+  expect(sourceDiagnostics(graph, changed, pruneManifest(graph, sketches, [stored]))).toEqual(['Changed dependency: Solid Color; restore the source or delete and re-add this pattern node']);
   // A newly referenced source is added with its current fingerprint.
   expect(pruneManifest(graph, sketches, [])).toEqual([stored]);
   // Projection surfaces count as consumed dependencies too.

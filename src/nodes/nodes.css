@@ -84,8 +84,6 @@
 .nodes-inspector label input,.nodes-inspector label select { display:block; width:100%; margin-top:6px; }
 .nodes-inspector output { float:right; }
 .nodes-inspector > .btn { margin:5px 5px 5px 0; }
-.nodes-inspector details { margin-top:20px; padding-top:16px; border-top:1px solid var(--border-gray); }
-.nodes-inspector summary { cursor:pointer; color:var(--text-dim); font-size:.75rem; }
 .nodes-diagnostics p { color:#ff6b6b; }
 /* A failed Save/Reload is the one editor failure that must be readable on screen. */
 .nodes-toolbar .nodes-disk-error { flex-basis:100%; margin:0; color:#ffb5a4; font-size:12px; overflow-wrap:anywhere; }

@@ -289,6 +289,10 @@ test('the blend inspector lists both mode groups and an extended mode renders en
   await expect(page.locator('optgroup[label="Canvas blend modes"] option')).toHaveCount(Object.keys(NATIVE_MODES).length);
   await expect(page.locator('optgroup[label="WebGL2 blend modes"] option')).toHaveCount(Object.keys(EXTENDED_MODES).length);
   await expect(page.getByTestId('node-blend-status')).toContainText('canvas blend operation');
+  // The inspector is controls, live status and warnings only: the node-description
+  // prose and the dependency details panel stay removed.
+  await expect(page.locator('.nodes-inspector > p')).toHaveCount(0);
+  await expect(page.locator('.nodes-inspector details')).toHaveCount(0);
   await page.getByLabel('Blend mode').selectOption('Screen');
   await expect.poll(() => pixel(page)).toEqual([255, 255, 0, 255]);
   // Shader modes composite the same graph through the shared WebGL2 compositor.

@@ -243,7 +243,7 @@ test('internal video uses the existing media store; camera FX previews a generat
   const camera = graph(); camera.nodes[0].patternId = 'video-chroma'; camera.nodes[0].params = {};
   await seed(page, camera); await openFile(page);
   await editor(page).locator('[data-node-id=color] .nodes-node-title').click();
-  await expect(editor(page).getByText('Editor preview uses a generated sample clip, not a real camera.')).toBeVisible();
+  await expect(editor(page).getByTestId('node-image-input-status')).toHaveText('Image input: not connected (camera default)');
   await expect(editor(page).locator('.nodes-diagnostics')).toBeEmpty();
   await expect.poll(() => editor(page).getByTestId('node-preview').evaluate(c => {
     const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
