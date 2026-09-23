@@ -9,7 +9,10 @@ const rectangle = (a, b) => ({ x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), wid
 // as {kind, key} (see model.js connectionRef) and never implies its endpoint
 // nodes, so Delete can remove one wire without deleting a node.
 export function useNodeSelection(graph, setDraft, navigation) {
-  const [selection, setSelection] = useState({ ids: ['output'], primary: 'output' });
+  const [selection, setSelection] = useState(() => {
+    const output = graph.nodes.find(node => node.type === 'output')?.id ?? null;
+    return { ids: output ? [output] : [], primary: output };
+  });
   const [wire, setWire] = useState(null);
   const [box, setBox] = useState(null);
   const gesture = useRef(null), suppressClick = useRef(null);

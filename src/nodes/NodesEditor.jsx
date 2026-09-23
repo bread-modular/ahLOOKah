@@ -1,7 +1,7 @@
 import { RuntimeContext } from '../app/RuntimeContext.jsx';
 import { IconControl } from '../components/control/IconControl.jsx';
 import { ModulatedParameter } from './ModulatedParameter.jsx';
-import { BANDS, definitions, numeric, clampStep, SIGNAL_DRAG } from './modulation.js';
+import { BANDS, definitions, numeric, clampStep, mappingEndpoint, SIGNAL_DRAG } from './modulation.js';
 import { AUDIO_CHANNEL_LABELS } from '../audio-routing.js';
 import { STORAGE } from '../platform/constants.js';
 import { MATH_OPS, MATH_LABELS, MATH_INPUTS, MATH_PORT_LABELS, SCRIPT_INPUTS, SCRIPT_PORT_LABELS, SCRIPT_LITERAL_FIELDS, SIGNAL_TYPES, defaultNode, isSignalSource, isVisualSource, isScalarConsumer, isModulationTarget, activeInputs, mathPorts } from './definitions.js';
@@ -25,7 +25,7 @@ import { isIdentityTransform } from './transform.js';
 import { newGraph, validateGraph, connect, deleteNodes, connectionRef, findConnection, removeConnection, DRAG_TYPE, readPaletteDrag, connectSignal, connectSignalEdge, mapSignal, mapSignalInput } from './model.js';
 import { GraphRuntime } from './runtime.js';
 import { nodePatterns, watchGraphs } from './repository.js';
-import { graphDiagnostics, manifestFor, pruneManifest, serializeGraph } from './portability.js';
+import { graphDiagnostics, manifestFor, pruneManifest } from './portability.js';
 import { confirmDiscard } from './leave-guard.js';
 import './nodes.css';
 
@@ -230,9 +230,13 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   const [pending, setPending] = useState(null);
   const [signalEndpoint, setSignalEndpoint] = useState(null);
   const [query, setQuery] = useState(''), [fxOnly, setFxOnly] = useState(false), [message, setMessage] = useState('');
+  const [actionError, setActionError] = useState('');
+  // The graph stays structurally valid while a name is being replaced character
+  // by character. Only Save submits this raw text to strict graph validation.
+  const [nameDraft, setNameDraft] = useState(null);
   const cameraCatalog = useCameraInputs();
   const [revision, setRevision] = useState(0);
-  const [scriptDraft, setScriptDraft] = useState({ id: null, language: null, text: '' });
+  const [scriptDrafts, setScriptDrafts] = useState({});
   const [routeId, setRouteId] = useState(() => graphId !== undefined ? graphId : new URLSearchParams(location.search).get('graph'));
   const [loadState, setLoadState] = useState('loading');
   const navigation = useCanvasNavigation(loadState === 'ready');
@@ -275,23 +279,32 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   };
   const globalActiveLabel = inputsSnapshot?.globalActiveId
     ? (inputOptions.find(d => d.deviceId === inputsSnapshot.globalActiveId)?.label || null) : null;
-  const baseline = useRef(serializeGraph(newGraph(), []));
-  const dirty = () => serializeGraph(graph, dependencies) !== baseline.current;
-  // Both guards are consulted by every abandon path (Back to Main, Reload from
-  // Disk): unapplied script text is invisible to `dirty`, so it needs its own
-  // confirmation instead of being dropped silently.
-  const discard = () => (!unappliedScript() || window.confirm('Discard unapplied script text?')) && (!dirty() || confirmDiscard());
-  // Shared guard: Back to Main and Reload from Disk abandon the same draft.
-  const leave = () => { if (discard()) onBack?.(); };
+  const name = nameDraft ?? graph.name;
+  const nameError = !name.trim() || name.length > 80 ? 'Name must contain 1–80 characters' : '';
+  // Compare editable data, not a strict serialization of an intermediate name.
+  // The baseline is the loaded/saved graph, including its dependency manifest.
+  const snapshot = (value, manifest) => JSON.stringify({ graph: value, dependencies: manifest });
+  const baseline = useRef(snapshot(newGraph(), []));
+  const dirty = () => snapshot({ ...graph, name }, dependencies) !== baseline.current;
+  const unappliedScripts = () => graph.nodes.filter(target => {
+    if (target.type !== 'script' || !scriptDrafts[target.id]) return false;
+    const { text, language } = scriptDrafts[target.id];
+    return text !== target.source || language !== scriptNodeLanguage(target);
+  });
+  // Both guards inspect every pending Script, not just the selected one.
+  const discard = () => (!unappliedScripts().length || window.confirm('Discard unapplied script text?')) && (!dirty() || confirmDiscard());
+  const leave = () => { if (!discard()) return; onBack?.(); };
+  const reportError = text => { setMessage(text); setActionError(text); };
+  const clearMessage = () => { setMessage(''); setActionError(''); };
   const diskAction = async fn => {
     if (busy) return;
-    setBusy(true); setDiskError('');
+    setBusy(true); setDiskError(''); setActionError('');
     try { await fn(); }
     catch (e) {
       // Cancel is an operator decision; anything else is a real failure and must
       // be visible, not only recorded in the workspace's data-status attribute.
       if (e.name === 'AbortError') setMessage('Canceled. Draft retained.');
-      else { setMessage(e.message); setDiskError(e.message); }
+      else { reportError(e.message); setDiskError(e.message); }
     }
     finally { setBusy(false); }
   };
@@ -327,24 +340,15 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   // graph through Apply, which also approves that exact source for this browser.
   const scriptNode = node?.type === 'script' ? node : null;
   const nodeLanguage = scriptNode ? scriptNodeLanguage(scriptNode) : 'expression';
-  const drafting = !!scriptNode && scriptDraft.id === scriptNode.id;
-  const scriptLanguage = drafting && scriptDraft.language ? scriptDraft.language : nodeLanguage;
-  const scriptText = scriptNode ? (drafting ? scriptDraft.text : scriptNode.source) : '';
+  const scriptDraft = scriptNode ? scriptDrafts[scriptNode.id] : null;
+  const scriptLanguage = scriptDraft?.language ?? nodeLanguage;
+  const scriptText = scriptNode ? (scriptDraft?.text ?? scriptNode.source) : '';
   const scriptCheck = scriptNode ? compileScript(scriptText, scriptLanguage) : null;
   const scriptApplied = !!scriptNode && scriptText === scriptNode.source && scriptLanguage === nodeLanguage;
-  // The draft of ANY script node that is not in the graph yet (not only the
-  // selected one), so Save and Back to Main can warn before it is discarded.
-  // Switching nodes preserves the draft instead of dropping it.
-  const unappliedScript = () => {
-    if (!scriptDraft.id) return null;
-    const target = graph.nodes.find(n => n.id === scriptDraft.id);
-    if (!target || target.type !== 'script') return null;
-    const language = scriptDraft.language || scriptNodeLanguage(target);
-    return scriptDraft.text !== target.source || language !== scriptNodeLanguage(target) ? target : null;
-  };
+  const updateScriptDraft = values => setScriptDrafts(previous => ({ ...previous, [scriptNode.id]: { language: scriptLanguage, text: scriptText, ...values } }));
   useEffect(() => {
     const refresh = () => { setRevision(v => v + 1); };
-    const stop = watchGraphs(() => { if (nodePatterns.errors.length) setMessage(nodePatterns.errors.join('; ')); });
+    const stop = watchGraphs(() => { if (nodePatterns.errors.length) reportError(nodePatterns.errors.join('; ')); });
     const sync = event => {
       // Control/screen leases and LIVE parameter writes are NOT draft changes.
       if (event.key !== null && ![MEDIA_STORAGE_KEY, PROJECTION_STORAGE_KEY].includes(event.key)) return;
@@ -357,11 +361,14 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
       });
       return () => { stop(); unsubscribe(); window.removeEventListener('storage', sync); };
     }
-    const scripts = new CustomScripts({ role: 'nodes', onChange: refresh, onStatus: status => { if (status.errors.length) setMessage(status.errors.join('; ')); } });
+    const scripts = new CustomScripts({ role: 'nodes', onChange: refresh, onStatus: status => { if (status.errors.length) reportError(status.errors.join('; ')); } });
     scripts.start();
     return () => { stop(); window.removeEventListener('storage', sync); scripts.close(); };
   }, []);
-  const attempt = fn => { try { fn(); } catch (e) { setMessage(e.message); } };
+  const attempt = fn => {
+    try { fn(); setActionError(''); return { ok: true }; }
+    catch (e) { reportError(e.message); return { ok: false, error: e.message }; }
+  };
   // The dependency manifest follows the graph: deleting the last node that used a
   // source also drops its manifest entry, so a removed/changed source (a custom
   // script, say) cannot keep blocking Save after its node is gone. Stored
@@ -378,7 +385,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
       const n = defaultNode(type, x, y);
       if (type === 'script') approveScript(n.language, n.source);
       edit({ ...graph, ...(type === 'camera' ? { version: 2 } : {}), nodes: [...graph.nodes, n] });
-      setSelected(n.id); setMessage('');
+      setSelected(n.id); clearMessage();
     });
   }
   function add(patternId = null, x = 70, y = 60 + graph.nodes.length * 35) {
@@ -391,7 +398,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
       const fresh = manifestFor(next, SKETCHES);
       // Preserve opened dependency fingerprints until explicit refresh.
       setDraft({ graph: next, dependencies: fresh.map(d => dependencies.find(old => old.id === d.id) || d) });
-      setSelected(n.id); setMessage('');
+      setSelected(n.id); clearMessage();
     });
   }
   // Focusing a signal endpoint keeps the target node selected, because its
@@ -407,11 +414,11 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   // Scalar targets (Pattern numeric sliders, Blend opacity, Color parameters).
   function signalPort(to) {
     if (!isSignalSource(graph.nodes.find(n => n.id === pending))) return;
-    attempt(() => { edit(connectSignal(graph, pending, to)); focusSignal(pending, to); setPending(null); setMessage(''); });
+    attempt(() => { edit(connectSignal(graph, pending, to)); focusSignal(pending, to); setPending(null); clearMessage(); });
   }
   function assignSignal(from, def) {
-    if (!numeric(def)) { setMessage('Unsupported: only numeric sliders can map; enum, bool and text cannot.'); return; }
-    if (!(graph.modulations || []).some(m => m.from === from && m.to === node.id)) { setMessage('Connect this Audio signal to the target node first.'); return; }
+    if (!numeric(def)) { reportError('Unsupported: only numeric sliders can map; enum, bool and text cannot.'); return; }
+    if (!(graph.modulations || []).some(m => m.from === from && m.to === node.id)) { reportError('Connect this signal to the target node first.'); return; }
     const existing = (graph.modulations || []).find(m => m.to === node.id && m.param === def.key);
     if (existing && !window.confirm(`Replace the existing ${def.label} mapping?`)) return;
     const base = clampStep(node.type === 'blend' ? node.opacity : node.params[def.key] ?? def.default, def);
@@ -420,28 +427,25 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   function port(to, name) {
     if (!pending) return;
     const from = graph.nodes.find(n => n.id === pending), target = graph.nodes.find(n => n.id === to);
-    if (isSignalSource(from) && !isScalarConsumer(target)) { setMessage('Scalar outputs connect to Math/Script inputs or a signal endpoint, not image inputs.'); return; }
-    if (isVisualSource(from) && isScalarConsumer(target)) { setMessage('Image outputs connect to image inputs (Blend/Color/FX/Output), not scalar ports.'); return; }
+    if (isSignalSource(from) && !isScalarConsumer(target)) { reportError('Scalar outputs connect to Math/Script inputs or a signal endpoint, not image inputs.'); return; }
+    if (isVisualSource(from) && isScalarConsumer(target)) { reportError('Image outputs connect to image inputs (Blend/Color/FX/Output), not scalar ports.'); return; }
     if (target?.type === 'pattern' && !acceptsImage(SKETCHES.find(s => s.id === target.patternId))) {
-      setMessage('This pattern cannot accept an image input; choose an FX-capable pattern.'); return;
+      reportError('This pattern cannot accept an image input; choose an FX-capable pattern.'); return;
     }
     // The model atomically infers FX/v2 from the new image wire. Removing that
     // wire via removeConnection restores the camera/default source behavior.
-    attempt(() => { edit(isSignalSource(from) ? connectSignalEdge(graph, pending, to, name) : connect(graph, pending, to, name, { sketches: SKETCHES })); setPending(null); setMessage(''); });
+    attempt(() => { edit(isSignalSource(from) ? connectSignalEdge(graph, pending, to, name) : connect(graph, pending, to, name, { sketches: SKETCHES })); setPending(null); clearMessage(); });
   }
   const applyScript = () => {
     if (node?.type !== 'script') return;
-    const drafting = scriptDraft.id === node.id;
-    const text = drafting ? scriptDraft.text : node.source;
-    const language = drafting && scriptDraft.language ? scriptDraft.language : scriptNodeLanguage(node);
+    const { text, language } = scriptDraft || { text: node.source, language: scriptNodeLanguage(node) };
     const check = compileScript(text, language);
-    // Nothing reaches the graph (or the approval store) unless the source both
-    // validates and is stored: a failed Apply leaves the last applied code
-    // running untouched.
-    if (!check.ok) { setMessage(`Script: ${check.error}`); return; }
+    // A failed Apply leaves both the approved/running source and this node's
+    // pending text untouched; other Script drafts are never affected.
+    if (!check.ok) { reportError(`Script: ${check.error}`); return; }
+    if (!attempt(() => edit({ ...graph, nodes: graph.nodes.map(n => n.id === node.id ? { ...n, source: text, language } : n) })).ok) return;
     approveScript(language, text);
-    patch({ source: text, language });
-    setScriptDraft({ id: null, language: null, text: '' });
+    setScriptDrafts(previous => { const next = { ...previous }; delete next[node.id]; return next; });
     setMessage(language === 'body'
       ? 'Script body applied and approved for this exact source.'
       : 'Restricted expression applied and approved for this exact source.');
@@ -463,7 +467,8 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   // node each one belongs to. They outline the editor and the offending nodes
   // instead of only failing the write silently.
   const diagnostics = graphDiagnostics(graph, SKETCHES, dependencies);
-  const blocked = diagnostics.messages.length > 0;
+  const saveProblems = [...(nameError ? [nameError] : []), ...diagnostics.messages];
+  const blocked = saveProblems.length > 0;
   const nodeError = id => (diagnostics.byNode.get(id) || []).join('; ');
   // The connection the sidebar describes. A selection whose link disappeared with
   // an edit (operation change, upstream delete) resolves to null and is simply
@@ -487,26 +492,34 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
     if (selection.wire) {
       if (selectedLink) attempt(() => {
         setDraft(d => ({ ...d, graph: removeConnection(d.graph, selection.wire) }));
-        selection.clearWire(); setPending(null); setSignalEndpoint(null); setMessage('');
+        selection.clearWire(); setPending(null); setSignalEndpoint(null); clearMessage();
       });
       else selection.clearWire();
       return;
     }
     const protectsOutput = graph.nodes.some(n => n.type === 'output' && selection.ids.includes(n.id));
     if (removable.length) {
+      const abandoned = removable.filter(n => n.type === 'script' && unappliedScripts().some(d => d.id === n.id));
+      if (abandoned.length && !window.confirm(`Delete ${abandoned.length} Script node${abandoned.length === 1 ? '' : 's'} and discard unapplied script text?`)) return;
       setGraph(deleteNodes(graph, selection.ids));
-      if (scriptDraft.id && selection.ids.includes(scriptDraft.id)) setScriptDraft({ id: null, language: null, text: '' });
+      setScriptDrafts(previous => {
+        const next = { ...previous };
+        for (const n of removable) delete next[n.id];
+        return next;
+      });
       setSelected(graph.nodes.find(n => n.type === 'output').id);
       setPending(null); setSignalEndpoint(null);
     }
-    setMessage(protectsOutput ? (removable.length ? 'Output is required and was kept. Other selected nodes and their connections were deleted.' : 'Output is required and cannot be deleted.') : '');
+    if (protectsOutput) reportError(removable.length ? 'Output is required and was kept. Other selected nodes and their connections were deleted.' : 'Output is required and cannot be deleted.');
+    else clearMessage();
   };
   function load(record) {
     const data = { graph: structuredClone(record.graph), dependencies: structuredClone(record.dependencies || []) };
-    setDraft(data); setCurrent(record); baseline.current = serializeGraph(data.graph, data.dependencies);
+    setDraft(data); setCurrent(record); baseline.current = snapshot(data.graph, data.dependencies);
+    setNameDraft(null);
     // A reload shows disk state only: stale script drafts are dropped.
-    setScriptDraft({ id: null, language: null, text: '' });
-    setSelected('output'); setPending(null); setMessage('');
+    setScriptDrafts({});
+    setSelected(data.graph.nodes.find(n => n.type === 'output').id); setPending(null); clearMessage();
   }
   // Resolve exactly this ID after restoring shared handles. Never fall back to
   // another record (or an editable empty graph) if disk access fails.
@@ -521,7 +534,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
         load(record);
       }
       setLoadState('ready');
-    } catch (e) { setMessage(e.message); setLoadState('error'); }
+    } catch (e) { reportError(e.message); setLoadState('error'); }
   }
   useEffect(() => { resolveRoute(); }, []);
   function updateRoute(id) {
@@ -530,38 +543,43 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
     setRouteId(id ?? null);
   }
   useEffect(() => {
-    const warn = e => { if (dirty() || unappliedScript()) { e.preventDefault(); e.returnValue = ''; } };
+    const warn = e => { if (dirty() || unappliedScripts().length) { e.preventDefault(); e.returnValue = ''; } };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
-  }, [draft, scriptDraft]);
-  useEffect(() => { onState?.({ name: graph.name, dirty: dirty(), busy }); }, [draft, busy, current]);
+  }, [draft, nameDraft, scriptDrafts]);
+  useEffect(() => { onState?.({ name, dirty: dirty() || !!unappliedScripts().length, busy }); }, [draft, nameDraft, scriptDrafts, busy, current]);
   if (loadState !== 'ready') return <main className={`nodes-app${loadState === 'error' ? ' has-errors' : ''}`}>
     <header className="nodes-toolbar"><h1>Pattern editor</h1><BackToMain onBack={onBack} /></header>
     {loadState === 'loading' ? <p role="status">Loading selected node pattern from disk…</p> : <section role="alert"><p>{message}</p><button className="btn" onClick={() => resolveRoute(true)}>Retry loading</button></section>}
   </main>;
-  return <main className={`nodes-app${blocked ? ' has-errors' : ''}`} data-errors={diagnostics.messages.join(' | ') || undefined} onKeyDown={e => {
+  return <main className={`nodes-app${blocked ? ' has-errors' : ''}`} data-errors={saveProblems.join(' | ') || undefined} onKeyDown={e => {
     if (busy || e.target.closest('input,select,textarea,[contenteditable]:not([contenteditable="false"]),[role="textbox"]')) return;
     if (e.key === 'Escape') { setPending(null); selection.cancel(); }
     if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); remove(); }
   }}>
     <header className="nodes-toolbar">
       <BackToMain onBack={onBack && leave} busy={busy} />
-      <input className="control-input" aria-label="Graph name" title="Edit pattern name" disabled={busy} value={graph.name} maxLength={80} onChange={e => setDraft({ ...draft, graph: { ...graph, name: e.target.value } })} />
+      <input className="control-input" aria-label="Graph name" aria-invalid={!!nameError} aria-describedby={nameError ? 'nodes-name-error' : undefined} title="Edit pattern name" disabled={busy} value={name} maxLength={80} onChange={e => {
+        setNameDraft(e.target.value);
+        if (e.target.value.trim()) setDiskError(previous => previous === 'Name must contain 1–80 characters' ? '' : previous);
+      }} />
       <div className="nodes-toolbar-actions">
         {current && <IconControl className="btn--status-size" icon="reload" label="Reload from Disk" title="Discard edits and reload this pattern from disk" disabled={busy} onClick={() => { if (discard()) diskAction(async () => { await nodePatterns.reconnect(); load(await nodePatterns.load(current.id)); }); }} />}
-        <button className="btn btn--solid btn--status-size nodes-save" title={blocked ? `Save is blocked: ${diagnostics.messages.join('; ')}` : 'Save pattern to the linked folder'} disabled={busy} onClick={() => diskAction(async () => {
-          if (unappliedScript() && !window.confirm('Script text has not been applied. Save without it?')) throw new DOMException('Canceled', 'AbortError');
-          if (blocked) throw new Error(diagnostics.messages.join('; '));
-          const record = await nodePatterns.save(graph, dependencies, current);
-          setCurrent(record); baseline.current = serializeGraph(graph, dependencies); updateRoute(record.id);
-          setMessage('');
+        <button className="btn btn--solid btn--status-size nodes-save" title={blocked ? `Save is blocked: ${saveProblems.join('; ')}` : 'Save pattern to the linked folder'} disabled={busy} onClick={() => diskAction(async () => {
+          if (unappliedScripts().length && !window.confirm('Script text has not been applied. Save without it?')) throw new DOMException('Canceled', 'AbortError');
+          if (blocked) throw new Error(saveProblems.join('; '));
+          const record = await nodePatterns.save({ ...graph, name }, dependencies, current);
+          setCurrent(record); setDraft({ graph: record.graph, dependencies: record.dependencies });
+          setNameDraft(null); baseline.current = snapshot(record.graph, record.dependencies); updateRoute(record.id);
+          clearMessage();
         })}>Save</button>
       </div>
+      {nameError && <p id="nodes-name-error" className="nodes-name-error" role="alert">{nameError}</p>}
       {diskError && <p className="nodes-disk-error" role="alert">{diskError}</p>}
     </header>
-    {/* No status strip: guidance and error text never render as a bar. Guidance
-        stays on the workspace's data-status attribute for diagnostics and tests;
-        only a failed Save/Reload surfaces the alert above. */}
+    {/* Only failures are displayed in this small action alert. Successful edits
+        keep the workspace quiet; data-status retains diagnostic compatibility. */}
+    {actionError && !diskError && <p className="nodes-action-error" role="alert" data-testid="nodes-action-error">{actionError}</p>}
     <div className="nodes-layout" inert={busy}>
       <aside className="nodes-palette" aria-label="Pattern palette">
         <div className="nodes-palette-create">
@@ -583,9 +601,9 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
           })()}</div>
         </div>
       </aside>
-      <section ref={navigation.workspace} {...selection.workspaceHandlers} className="nodes-workspace" aria-label="Graph workspace" tabIndex={0} data-status={message || undefined} title={blocked ? diagnostics.messages.join('; ') : undefined} onDragOver={e => { if (e.dataTransfer.types.includes(DRAG_TYPE)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }} onDrop={e => {
+      <section ref={navigation.workspace} {...selection.workspaceHandlers} className="nodes-workspace" aria-label="Graph workspace" tabIndex={0} data-status={message || undefined} title={blocked ? saveProblems.join('; ') : undefined} onDragOver={e => { if (e.dataTransfer.types.includes(DRAG_TYPE)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }} onDrop={e => {
         e.preventDefault(); const drag = readPaletteDrag(e.dataTransfer, SKETCHES);
-        if (!drag) { setMessage('Invalid palette drag payload'); return; }
+        if (!drag) { reportError('Invalid palette drag payload'); return; }
         const point = navigation.toGraph(e.clientX, e.clientY);
         if (drag.nodeType) create(drag.nodeType, point.x, point.y); else add(drag.patternId, point.x, point.y);
       }}>
@@ -606,7 +624,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
           {graph.nodes.map(n => <article key={n.id} className={`nodes-node level-${levelOf(n.type)} ${selection.ids.includes(n.id) ? 'is-selected' : ''}${nodeError(n.id) ? ' is-invalid' : ''}`} data-node-id={n.id} data-primary={selected === n.id || undefined} data-node-error={nodeError(n.id) || undefined} title={nodeError(n.id) || undefined} style={{ left: n.x, top: n.y }} onClick={e => selection.nodeClick(n.id, e)}>
             <button className="nodes-node-title" title={`Select or drag ${label(n)}${n.type === 'pattern' && acceptsImage(SKETCHES.find(s => s.id === n.patternId)) ? ' — accepts an image input' : ''}`} aria-label={`Select ${label(n)}`} aria-describedby={n.type === 'pattern' && acceptsImage(SKETCHES.find(s => s.id === n.patternId)) ? `fx-capability-${n.id}` : undefined} aria-pressed={selection.ids.includes(n.id)} {...selection.titleHandlers(n)}><span className="nodes-title-name">{label(n)}</span>{n.type === 'pattern' && acceptsImage(SKETCHES.find(s => s.id === n.patternId)) && <span id={`fx-capability-${n.id}`} className="nodes-fx-badge" title="Accepts an image input">◇ FX <span className="nodes-visually-hidden">Accepts an image input</span></span>}</button>
             <div className="nodes-ports">{visibleInputs(n).map(name => <button key={name} className="nodes-input" title={`Connect to ${label(n)} ${name} input`} aria-label={`${n.id} input ${name}`} onClick={() => port(n.id, name)}>● {name}</button>)}
-              {n.type !== 'output' && <button className={`nodes-output ${pending === n.id ? 'active' : ''}`} title={`Connect from ${label(n)} output`} aria-label={`${n.id} output`} onClick={() => { setPending(n.id); setMessage(''); }}>out ●</button>}
+              {n.type !== 'output' && <button className={`nodes-output ${pending === n.id ? 'active' : ''}`} title={`Connect from ${label(n)} output`} aria-label={`${n.id} output`} onClick={() => { setPending(n.id); clearMessage(); }}>out ●</button>}
             </div><small className="nodes-node-detail">{n.type === 'blend' ? `${n.mode} · ${Math.round(n.opacity * 100)}%` : n.type === 'output' ? 'Final image' : n.type === 'audio' ? `${deviceLabel(n.deviceId)} · ${AUDIO_CHANNEL_LABELS[n.channel] || 'Mono'} · ${n.band} activity · 0…1` : n.type === 'camera' ? `${cameraLabel(n.deviceId)} · image out` : n.type === 'color' ? 'image → filtered image' : n.type === 'transform' ? 'image → transformed image' : n.type === 'math' ? `${n.op} · scalar out` : n.type === 'script' ? (compileScript(n.source, scriptNodeLanguage(n)).ok ? (scriptNodeLanguage(n) === 'body' ? 'script body' : 'restricted expression') : 'script error') : n.type === 'pattern' && visibleInputs(n).includes('image') ? `${imageWired(n.id) ? 'Image wired' : sourceDefault(SKETCHES.find(s => s.id === n.patternId))} · ${n.patternId}` : n.patternId}</small>
             {isModulationTarget(n) && <button className="nodes-signal-endpoint" aria-label={`${n.id} signal endpoint`} onClick={e => {
               e.stopPropagation();
@@ -634,13 +652,11 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
           {node && <span className={`nodes-level-tag level-${levelOf(node.type)}`} title={levelOf(node.type) === 'signal'
             ? 'Signal-level node (Audio, Math, Script): emits numbers, never pictures.'
             : 'Image-level node (Camera, Pattern, Blend, Color, Output): carries pixels.'}>{levelOf(node.type)}</span>}</div>
-        {/* The draft's blocking diagnostics, as text: the red editor outline and the
-            outlined nodes show *that* and *where* something is wrong, and this list
-            says what. No role="alert": the Script inspector already owns that live
-            region for its own validation message. */}
-        {blocked && <section className="nodes-blocked" aria-label="Editor errors" data-testid="nodes-blocked">
+        {/* Blocking graph errors remain readable and announced when they change;
+            the name also has its own field-level error in the toolbar. */}
+        {blocked && <section className="nodes-blocked" aria-label="Editor errors" aria-live="polite" data-testid="nodes-blocked">
           <h2>Cannot save yet</h2>
-          <ul>{diagnostics.messages.map(problem => <li key={problem}>{problem}</li>)}</ul>
+          <ul>{saveProblems.map(problem => <li key={problem}>{problem}</li>)}</ul>
         </section>}<Preview graph={graph} dependencies={dependencies} selected={selected} revision={revision} current={previewRuntime} sharedRuntime={sharedRuntime} audioProvider={audioProvider} providerReady={providerReady} visible={!(node?.type === 'audio' || node?.type === 'script')} />
         {selectedLink && <section className="nodes-connections" aria-label="Selected connection">
           <output className="nodes-connection-name" data-testid="selected-connection">{describeConnection(graph, selection.wire, selectedLink)}</output>
@@ -674,10 +690,10 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
             return <label key={port} hidden={!active}>{MATH_PORT_LABELS[port]} literal<input className="control-input" type="number" step="0.01" disabled={!active} aria-label={`Math ${port} literal`} title={active ? `Literal used when ${port} has no wire` : `${MATH_PORT_LABELS[port]} is only used by clamp`} value={node[port]} onChange={e => { const next = e.target.valueAsNumber; if (Number.isFinite(next)) patch({ [port]: next }); }} /></label>;
           })}
           <SignalReadout runtime={previewRuntime} nodeId={node.id} /></>}
-        {node?.type === 'script' && <><label>Language<Select aria-label="Script language" title="Expression is the original single-value language; Body is a compiled statement list with return" value={scriptLanguage} onChange={e => setScriptDraft({ id: node.id, language: e.target.value, text: scriptText })}>
+        {node?.type === 'script' && <><label>Language<Select aria-label="Script language" title="Expression is the original single-value language; Body is a compiled statement list with return" value={scriptLanguage} onChange={e => updateScriptDraft({ language: e.target.value })}>
           {['body', 'expression'].map(value => <option key={value} value={value}>{scriptLanguageLabel(value)}</option>)}
         </Select></label>
-          <label>Script source<textarea className="control-input nodes-script-source" aria-label="Script source" title={helpForLanguage(scriptLanguage)} maxLength={limitForLanguage(scriptLanguage)} rows={scriptLanguage === 'body' ? 6 : 2} spellCheck={false} value={scriptText} onChange={e => setScriptDraft({ id: node.id, language: scriptLanguage, text: e.target.value })} onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); applyScript(); } }} /></label>
+          <label>Script source<textarea className="control-input nodes-script-source" aria-label="Script source" title={helpForLanguage(scriptLanguage)} maxLength={limitForLanguage(scriptLanguage)} rows={scriptLanguage === 'body' ? 6 : 2} spellCheck={false} value={scriptText} onChange={e => updateScriptDraft({ text: e.target.value })} onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); applyScript(); } }} /></label>
           <button className="btn" aria-label="Apply script" title="Validate, store and approve this exact source" disabled={!scriptCheck?.ok} onClick={applyScript}>Apply</button>
           {!scriptCheck?.ok && <p className="nodes-script-error" role="alert">Script: {scriptCheck?.error}</p>}
           <p className="nodes-script-status" role="status" data-testid="script-status">{!scriptCheck?.ok ? 'Not applied' : `${scriptApplied ? (isScriptApproved(nodeLanguage, node.source) ? 'Applied and approved' : 'Applied · review required to run') : 'Not applied'} · ${scriptLanguage} · uses ${SCRIPT_VARIABLES.filter(name => scriptCheck.uses?.[name]).join(', ') || 'no inputs'}`}</p>
@@ -700,10 +716,21 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
           const mapping = (graph.modulations || []).find(m => m.to === node.id && m.param === def.key);
           return <ModulatedParameter key={`${node.id}:${def.key}`} node={node} def={def} value={node.type === 'blend' ? node.opacity : node.params[def.key] ?? def.default}
             onChange={value => node.type === 'blend' ? patch({ opacity: value }) : patch({ params: { ...node.params, [def.key]: value } })}
-            readEffective={() => previewRuntime.current?.params.get(node.id)?.[def.key]} mapping={mapping} onMap={assignSignal} onRange={(min, max) => edit(mapSignal(graph, mapping.from, node.id, def.key, min, max, true))}
+            readEffective={() => previewRuntime.current?.params.get(node.id)?.[def.key]} mapping={mapping} onMap={assignSignal} onRange={(min, max) => attempt(() => edit(mapSignal(graph, mapping.from, node.id, def.key, min, max, true)))}
             sourceLabel={mapping ? signalSourceName(mapping.from) : null}
-            onInputRange={(inputMin, inputMax) => { if (inputMax <= inputMin) { setMessage('Signal input range needs a max greater than its min.'); return; } edit(mapSignalInput(graph, mapping.from, node.id, def.key, inputMin, inputMax)); }}
-            onRemove={() => edit({ ...graph, modulations: graph.modulations.filter(m => m !== mapping) })} />;
+            onInputRange={(inputMin, inputMax, changed) => {
+              const low = mappingEndpoint(inputMin), high = mappingEndpoint(inputMax);
+              if (high <= low) {
+                const error = 'Signal input range needs a max greater than its min.';
+                reportError(error); return { error };
+              }
+              const result = attempt(() => edit(mapSignalInput(graph, mapping.from, node.id, def.key, low, high)));
+              if (!result.ok) return { error: result.error };
+              const original = changed === 'inputMin' ? inputMin : inputMax;
+              const accepted = changed === 'inputMin' ? low : high;
+              return { note: original !== accepted ? `Signal in ${changed === 'inputMin' ? 'min' : 'max'} clamped to ${accepted}.` : '' };
+            }}
+            onRemove={() => attempt(() => edit({ ...graph, modulations: graph.modulations.filter(m => m !== mapping) }))} />;
         })}
         {/* Wires and nodes are removed from the graph itself: clicking a wire (or a
             ◇ endpoint) and pressing Delete/Backspace, or the sidebar Delete

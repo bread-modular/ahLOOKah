@@ -12,11 +12,26 @@ import { numeric, mappingEndpoint, mappedValue, SIGNAL_DRAG } from './modulation
 function MappingNumberField({ ariaLabel, label, value, onCommit }) {
   const ref = useRef(null);
   const [editing, setEditing] = useState(false);
+  const [feedback, setFeedback] = useState(null);
+  const feedbackId = `${ariaLabel.replace(/[^a-zA-Z0-9_-]/g, '-')}-feedback`;
+  // On blur (including rejected/partial input), show the last accepted value.
   useEffect(() => { const el = ref.current; if (el && !editing) el.value = String(value); }, [value, editing]);
   return <label>{label}<input ref={ref} className="control-input" type="number" step="any" inputMode="decimal"
-    aria-label={ariaLabel} defaultValue={String(value)}
+    aria-label={ariaLabel} aria-invalid={!!feedback?.error} aria-describedby={feedback ? feedbackId : undefined} defaultValue={String(value)}
     onFocus={() => setEditing(true)} onBlur={() => setEditing(false)}
-    onChange={e => { const next = e.target.valueAsNumber; if (Number.isFinite(next)) onCommit(next); }} /></label>;
+    onChange={e => {
+      const next = e.target.valueAsNumber;
+      // A blank, partial negative, or incomplete exponent is not a committed
+      // number. An overflowing exponent is an error, never an accepted value.
+      // Blur restores the last accepted endpoint in either case.
+      if (!Number.isFinite(next)) {
+        if (e.target.value) setFeedback({ error: 'Enter a finite range value.' });
+        return;
+      }
+      const result = onCommit(next);
+      setFeedback(result?.error ? { error: result.error } : result?.note ? { note: result.note } : null);
+    }} />
+    {feedback && <small id={feedbackId} className={`nodes-mapping-feedback${feedback.error ? ' is-error' : ''}`} role={feedback.error ? 'alert' : 'status'}>{feedback.error || feedback.note}</small>}</label>;
 }
 
 export function ModulatedParameter({ node, def, value, onChange, mapping, readEffective, onMap, onRange, onInputRange, onRemove, sourceLabel = null }) {
@@ -107,7 +122,7 @@ export function ModulatedParameter({ node, def, value, onChange, mapping, readEf
       <div>{[['min', 'Mapping min', min], ['max', 'Mapping max', max]].map(([key, label, v]) => <MappingNumberField key={key} ariaLabel={`${def.label} ${label}`} label={label} value={v}
         onCommit={next => onRange(key === 'min' ? mappingEndpoint(next, v) : min, key === 'max' ? mappingEndpoint(next, v) : max)} />)}</div>
       {onInputRange && <div>{[['inputMin', 'Signal in min', inputMin], ['inputMax', 'Signal in max', inputMax]].map(([key, label, v]) => <MappingNumberField key={key} ariaLabel={`${def.label} ${label}`} label={label} value={v}
-        onCommit={next => onInputRange(key === 'inputMin' ? next : inputMin, key === 'inputMax' ? next : inputMax)} />)}</div>}
+        onCommit={next => onInputRange(key === 'inputMin' ? next : inputMin, key === 'inputMax' ? next : inputMax, key)} />)}</div>}
       <button className="btn btn--sm" onClick={onRemove}>Remove mapping</button>
       </div>}
     </>}
