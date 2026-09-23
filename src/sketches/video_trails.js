@@ -52,31 +52,45 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
   let isCaptureReady = false;
   let smoothSub = 0;
   let trailBuffer = null;
+  let borrowedImage = null;
+  let lastFrameId = null;
+  let lastGeneration = null;
+  let lastInputWidth = 0;
+  let lastInputHeight = 0;
+  const fxMode = runtimeContext?.inputMode === 'fx';
   const audioControls = runtimeContext?.audioControls || null;
 
   p.setup = () => {
+    if (fxMode) p.pixelDensity(1);
     p.createCanvas(p.windowWidth, p.windowHeight);
     p.colorMode(p.HSB, 360, 100, 100, 255);
-    p.background(0);
+    if (fxMode) {
+      // The feedback surface is separate from the output: a disconnected FX
+      // can clear both without resurrecting old trails on a later draw.
+      p.clear();
+      trailBuffer = p.createGraphics(p.width, p.height);
+    } else p.background(0);
     p.noStroke();
 
-    const constraints = {
-      video: {
-        deviceId: videoDeviceId ? { exact: videoDeviceId } : undefined,
-        width: { ideal: 640 },
-        height: { ideal: 480 },
-      },
-      audio: false,
-    };
+    if (!fxMode) {
+      const constraints = {
+        video: {
+          deviceId: videoDeviceId ? { exact: videoDeviceId } : undefined,
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+        },
+        audio: false,
+      };
 
-    capture = runtimeContext?.createCapture(p, constraints, () => {
-      isCaptureReady = true;
-      runtimeContext?.reportMediaReady?.();
-    }) || p.createCapture(constraints, () => {
-      isCaptureReady = true;
-      runtimeContext?.reportMediaReady?.();
-    });
-    capture.hide();
+      capture = runtimeContext?.createCapture?.(p, constraints, () => {
+        isCaptureReady = true;
+        runtimeContext?.reportMediaReady?.();
+      }) || p.createCapture(constraints, () => {
+        isCaptureReady = true;
+        runtimeContext?.reportMediaReady?.();
+      });
+      capture.hide();
+    }
 
     if (runtimeContext?.addCleanup) {
       runtimeContext.addCleanup(() => {
@@ -87,6 +101,11 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
           try { trailBuffer.remove(); } catch {}
           trailBuffer = null;
         }
+        borrowedImage = null;
+        lastFrameId = null;
+        lastGeneration = null;
+        lastInputWidth = 0;
+        lastInputHeight = 0;
       });
     }
   };
@@ -192,14 +211,96 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
     p.blendMode(p.BLEND);
   }
 
+  function drawFx() {
+    const frame = runtimeContext?.getImageInput?.();
+    p.clear();
+    if (!frame?.source || frame.width <= 0 || frame.height <= 0
+      || frame.source.width !== frame.width || frame.source.height !== frame.height) {
+      trailBuffer?.clear();
+      lastFrameId = null;
+      lastGeneration = null;
+      lastInputWidth = 0;
+      lastInputHeight = 0;
+      return;
+    }
+    if (!trailBuffer || trailBuffer.width !== p.width || trailBuffer.height !== p.height) {
+      trailBuffer?.remove();
+      trailBuffer = p.createGraphics(p.width, p.height);
+      lastFrameId = null;
+    }
+    // A different input aspect must not leave trails where the new image has
+    // transparent contain bars. Preserve feedback across same-sized frames.
+    if (frame.width !== lastInputWidth || frame.height !== lastInputHeight) {
+      trailBuffer.clear();
+      lastFrameId = null;
+      lastInputWidth = frame.width;
+      lastInputHeight = frame.height;
+    }
+
+    // The graph can ask for the same frame more than once (e.g. multiple
+    // consumers). A temporal effect must fade/stamp it only once, while still
+    // republishing the accumulated image on each draw.
+    if (frame.frameId == null || frame.frameId !== lastFrameId || frame.generation !== lastGeneration) {
+      const P = params || {};
+      const decay = P.decay ?? 0.6;
+      const tintHue = ((P.tintHue ?? 0.6) % 1 + 1) % 1;
+      const blendSel = Math.round(P.blend ?? 0);
+      let sub = 0;
+      if (audioControls) {
+        const controls = audioControls.read();
+        sub = { ...AUDIO_CONTROL_SCHEMA.neutral.continuous, ...(controls.continuous || {}) }.subLevel;
+      } else {
+        smoothSub = p.lerp(smoothSub, subLevel(), 0.2);
+        sub = smoothSub;
+      }
+      const fade = p.map(decay, 0, 1, 110, 5)
+        * (1 - Math.min(0.85, sub * (P.audioDecay ?? 1)));
+      const ctx = trailBuffer.drawingContext;
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-in';
+      ctx.fillStyle = `rgba(255, 255, 255, ${Math.max(0, 1 - fade / 255)})`;
+      ctx.fillRect(0, 0, p.width, p.height);
+      ctx.restore();
+
+      const scale = Math.min(p.width / frame.width, p.height / frame.height);
+      const zoom = 1 + sub * (P.audioDecay ?? 1) * 0.035;
+      const w = frame.width * scale * zoom;
+      const h = frame.height * scale * zoom;
+      trailBuffer.blendMode(blendSel === 1 ? p.LIGHTEST : blendSel === 2 ? p.DARKEST : p.ADD);
+      trailBuffer.tint(tintHue * 360, 72, 100, 255);
+      // Wrapping only the canvas reference enables the 2D tint pipeline; the
+      // graph still owns the actual source and may repaint it in the next frame.
+      if (!borrowedImage) borrowedImage = { canvas: frame.source };
+      borrowedImage.canvas = frame.source;
+      borrowedImage.width = frame.width;
+      borrowedImage.height = frame.height;
+      ctx.save();
+      ctx.globalAlpha = 210 / 255; // stamp opacity, including upstream alpha
+      trailBuffer.image(borrowedImage, (p.width - w) / 2, (p.height - h) / 2, w, h);
+      ctx.restore();
+      trailBuffer.noTint();
+      trailBuffer.blendMode(p.BLEND);
+      lastFrameId = frame.frameId;
+      lastGeneration = frame.generation;
+    }
+    p.image(trailBuffer, 0, 0, p.width, p.height);
+  }
+
   p.draw = () => {
-    if (audioControls) drawMigrated();
+    if (fxMode) drawFx();
+    else if (audioControls) drawMigrated();
     else drawLegacy();
   };
 
   p.windowResized = () => {
     p.resizeCanvas(p.windowWidth, p.windowHeight);
-    p.background(0);
+    if (fxMode) {
+      trailBuffer?.resize(p.width, p.height);
+      trailBuffer?.clear();
+      lastFrameId = null;
+      lastGeneration = null;
+      p.clear();
+    } else p.background(0);
   };
 
   p.mousePressed = () => {

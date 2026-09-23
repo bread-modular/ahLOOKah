@@ -64,6 +64,7 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
   let capture;
   let theShader;
   let isCaptureReady = false;
+  const fxMode = runtimeContext?.inputMode === 'fx';
   const audioControls = runtimeContext?.audioControls || null;
 
   const vert = `
@@ -91,6 +92,8 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
     uniform float uThresh;
     uniform float uContrast;
     uniform vec2 uRes;
+    uniform vec2 uFxFit;
+    uniform float uFxMode;
 
     float rand(vec2 n) { 
       return fract(sin(dot(n, vec2(12.9898, 4.1414))) * 43758.5453);
@@ -98,8 +101,15 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
 
     void main() {
       vec2 uv = vTexCoord;
-      uv.x = 1.0 - uv.x;
+      // Keep the source selfie mirror, but a borrowed canvas arrives in its
+      // original orientation. Both texture paths need a Y flip.
+      uv.x = uFxMode > 0.5 ? uv.x : 1.0 - uv.x;
       uv.y = 1.0 - uv.y;
+      if (uFxMode > 0.5) uv = 0.5 + (uv - 0.5) * uFxFit;
+      if (uFxMode > 0.5 && (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0))))) {
+        gl_FragColor = vec4(0.0);
+        return;
+      }
 
       // 1. DYNAMIC SLICE GLITCH
       // Shift random horizontal slices based on high frequency peaks
@@ -111,8 +121,15 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
       // Sub-bass jitter
       uv.x += (rand(vec2(uTime)) - 0.5) * uSub * 0.05;
 
+      // Displacement may push a graph sample beyond the image; never pick up
+      // clamped edge pixels (or make a transparent bar opaque).
+      if (uFxMode > 0.5 && (uv.x < 0.0 || uv.x > 1.0)) {
+        gl_FragColor = vec4(0.0);
+        return;
+      }
       vec4 tex = texture2D(uTex, uv);
-      float lum = (tex.r * 0.3 + tex.g * 0.59 + tex.b * 0.11);
+      vec3 rgb = uFxMode > 0.5 ? tex.rgb / max(tex.a, 0.00001) : tex.rgb;
+      float lum = (rgb.r * 0.3 + rgb.g * 0.59 + rgb.b * 0.11);
 
       // 3. BIT-CRUSH / QUANTIZATION
       // Mid-range energy reduces the tonal range
@@ -151,7 +168,7 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
         finalColor.r += 0.05;
       }
 
-      gl_FragColor = vec4(finalColor, 1.0);
+      gl_FragColor = vec4(finalColor, uFxMode > 0.5 ? tex.a : 1.0);
     }
   `;
 
@@ -161,6 +178,7 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
 
     theShader = p.createShader(vert, frag);
 
+    if (fxMode) return; // no camera acquisition or metadata gate in FX mode
     const constraints = {
       video: {
         deviceId: videoDeviceId ? { exact: videoDeviceId } : undefined,
@@ -170,7 +188,7 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
       audio: false
     };
 
-    capture = runtimeContext?.createCapture(p, constraints, () => {
+    capture = runtimeContext?.createCapture?.(p, constraints, () => {
       isCaptureReady = true;
       runtimeContext?.reportMediaReady?.();
     }) || p.createCapture(constraints, () => {
@@ -180,69 +198,54 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
     capture.hide();
   };
 
-  function drawMigrated() {
-    p.background(0);
-    if (!isCaptureReady || !capture?.loadedmetadata) return;
-
-    const controls = audioControls.read();
-    const C = { ...AUDIO_CONTROL_SCHEMA.neutral.continuous, ...(controls.continuous || {}) };
-
-    // Read live params every frame so slider changes apply immediately
-    const P = params || {};
-    const threshold = P.threshold ?? 0.35;
-    const contrast = P.contrast ?? 1;
-
-    p.shader(theShader);
-
-    theShader.setUniform('uTex', capture);
-    theShader.setUniform('uTime', p.frameCount * 0.1);
-    theShader.setUniform('uSub', C.sub);
-    theShader.setUniform('uMid', C.mid);
-    theShader.setUniform('uHigh', C.high);
-    theShader.setUniform('uNoise', C.noise);
-    theShader.setUniform('uThresh', threshold);
-    theShader.setUniform('uContrast', contrast);
-    theShader.setUniform('uRes', [p.width, p.height]);
-
-    p.rect(0, 0, p.width, p.height);
-  }
-
-  // Preserved raw-frame implementation for non-migrated/standalone callers.
-  function drawLegacy() {
-    p.background(0);
-    if (!isCaptureReady || !capture?.loadedmetadata) return;
-
-    const freqs = audio.getFrequencies();
-    const amps = audio.getAmplitudes();
-    const b1 = analyzeBands(freqs ? freqs.left : null);
-    const b2 = analyzeBands(freqs ? freqs.right : null);
-
-    // Read live params every frame so slider changes apply immediately
-    const P = params || {};
-    const threshold = P.threshold ?? 0.35;
-    const contrast = P.contrast ?? 1;
-    const react = P.react ?? 1;
-
-    p.shader(theShader);
-
-    const noiseLevel = (b2.mid + b2.high) * 0.5;
-
-    theShader.setUniform('uTex', capture);
-    theShader.setUniform('uTime', p.frameCount * 0.1);
-    theShader.setUniform('uSub', (b1.sub || 0) * react);
-    theShader.setUniform('uMid', (b1.mid || 0) * react);
-    theShader.setUniform('uHigh', (b1.high || 0) * react);
-    theShader.setUniform('uNoise', noiseLevel * react || 0);
-    theShader.setUniform('uThresh', threshold);
-    theShader.setUniform('uContrast', contrast);
-    theShader.setUniform('uRes', [p.width, p.height]);
-
-    p.rect(0, 0, p.width, p.height);
+  function imageFrame() {
+    if (!fxMode) {
+      return isCaptureReady && capture?.loadedmetadata ? { source: capture } : null;
+    }
+    const frame = runtimeContext?.getImageInput?.();
+    return frame?.source && frame.width > 0 && frame.height > 0
+      && frame.source.width === frame.width && frame.source.height === frame.height
+      ? frame : null;
   }
 
   p.draw = () => {
-    if (audioControls) drawMigrated();
-    else drawLegacy();
+    if (fxMode) p.clear();
+    else p.background(0);
+    const image = imageFrame();
+    if (!image) return;
+
+    let bands;
+    if (audioControls) {
+      const controls = audioControls.read();
+      bands = { ...AUDIO_CONTROL_SCHEMA.neutral.continuous, ...(controls.continuous || {}) };
+    } else {
+      // Preserve standalone stereo analysis and source-mode rendering.
+      const freqs = audio?.getFrequencies?.();
+      audio?.getAmplitudes?.();
+      const b1 = analyzeBands(freqs ? freqs.left : null);
+      const b2 = analyzeBands(freqs ? freqs.right : null);
+      const react = (params || {}).react ?? 1;
+      bands = { sub: (b1.sub || 0) * react, mid: (b1.mid || 0) * react,
+        high: (b1.high || 0) * react, noise: ((b2.mid + b2.high) * 0.5 * react) || 0 };
+    }
+
+    const A = p.width / Math.max(1, p.height);
+    const T = fxMode ? image.width / image.height : A;
+    const fit = fxMode ? (A > T ? [A / T, 1] : [1, T / A]) : [1, 1];
+    const P = params || {};
+    p.shader(theShader);
+    theShader.setUniform('uTex', image.source);
+    theShader.setUniform('uFxMode', fxMode ? 1 : 0);
+    theShader.setUniform('uFxFit', fit);
+    theShader.setUniform('uTime', p.frameCount * 0.1);
+    theShader.setUniform('uSub', bands.sub);
+    theShader.setUniform('uMid', bands.mid);
+    theShader.setUniform('uHigh', bands.high);
+    theShader.setUniform('uNoise', bands.noise);
+    theShader.setUniform('uThresh', P.threshold ?? 0.35);
+    theShader.setUniform('uContrast', P.contrast ?? 1);
+    theShader.setUniform('uRes', [p.width, p.height]);
+    p.rect(0, 0, p.width, p.height);
   };
 
   p.windowResized = () => {
