@@ -1,5 +1,6 @@
 import { mappingDiagnostics } from './modulation.js';
-import { validateGraph, MAX_BYTES } from './model.js';
+import { validateGraph, MAX_BYTES, LEGACY_VERSION, VERSION } from './model.js';
+import { inputModeOf, supportsImageFx } from './definitions.js';
 import { validateScript } from './script.js';
 import { scriptLanguageOf } from './scalar.js';
 // Manifests deliberately do NOT execute imported scripts or claim that local
@@ -69,6 +70,11 @@ export function graphDiagnostics(graph, sketches, manifest = []) {
   for (const n of patternNodes) {
     const s = sketches.find(s => s.id === n.patternId);
     if (!s) { report(n.id, `Missing pattern: ${n.patternId}`); continue; }
+    if (inputModeOf(n) === 'fx') {
+      if (!supportsImageFx(s)) report(n.id, `Pattern ${s.name || n.patternId} does not support image FX; saved input and wire retained for repair`);
+      if (!(graph.edges || []).some(e => e.to === n.id && e.port === 'image')) report(n.id, `Image input required for FX pattern ${n.id}`);
+      if (s.projection || s.nodesGraph || s.surfaces?.length) report(n.id, `Nested/composite pattern ${n.patternId} is not supported as image FX`);
+    }
     for (const surface of s.surfaces || []) {
       const child = sketches.find(x => x.id === surface.patternId);
       if (!child) report(n.id, `Missing projection source: ${surface.patternId}`);
@@ -108,8 +114,10 @@ export function sourceDiagnostics(graph, sketches, manifest = []) {
   return graphDiagnostics(graph, sketches, manifest).messages;
 }
 export function serializeGraph(graph, dependencies) {
-  return JSON.stringify({ format: 'viz2-nodes', version: 1, graph: validateGraph(graph), dependencies,
-    portability: 'Local media files/permissions and matching custom scripts/projection definitions are required on the destination. No files or executable code are embedded. Audio nodes pinned to a specific input device keep that browser device id, which is origin/profile-specific and may need reselection on another machine or after clearing site data; Global input (the default) always follows the destination Settings.' }, null, 2);
+  const validated = validateGraph(graph);
+  const portable = 'Local media files/permissions and matching custom scripts/projection definitions are required on the destination. No files or executable code are embedded. Audio nodes pinned to a specific input device keep that browser device id, which is origin/profile-specific and may need reselection on another machine or after clearing site data; Global input (the default) always follows the destination Settings.';
+  return JSON.stringify({ format: 'viz2-nodes', version: validated.version, graph: validated, dependencies,
+    portability: validated.version === LEGACY_VERSION ? portable : `${portable} Camera device ids are also origin/profile-specific; Global camera follows Settings/videoDeviceId.` }, null, 2);
 }
 export function validateManifest(value) {
   if (!Array.isArray(value) || value.length > 80 || value.some(d => !d || typeof d.id !== 'string' || d.id.length > 80 || (d.signature !== null && typeof d.signature !== 'string'))) throw new Error('Invalid dependency manifest');
@@ -118,9 +126,10 @@ export function validateManifest(value) {
 export function parseGraph(text) {
   if (text.length > MAX_BYTES) throw new Error('Pattern exceeds 200 KB');
   const raw = JSON.parse(text);
-  if (raw.format !== 'viz2-nodes' || raw.version !== 1) throw new Error('Unsupported graph file');
+  if (raw.format !== 'viz2-nodes' || ![LEGACY_VERSION, VERSION].includes(raw.version)) throw new Error('Unsupported graph file');
   raw.dependencies = validateManifest(raw.dependencies);
   const graph = validateGraph(raw.graph);
+  if (raw.version !== graph.version) throw new Error('Graph file and graph versions do not match');
   if (graph.nodes.some(n => n.type === 'pattern' && !raw.dependencies.some(d => d.id === n.patternId))) throw new Error('Missing required dependency manifest');
   return { graph, dependencies: raw.dependencies };
 }

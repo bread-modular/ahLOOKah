@@ -56,7 +56,16 @@ export class ProgramRuntime {
     getSize = null,
     preview = false,
     getScreenMapping = null,
+    // FX children are clocked by their graph, never by an autonomous loop.
+    inputMode = 'source',
+    includeAudioSlots = true,
   }) {
+    this.includeAudioSlots = includeAudioSlots;
+    if (!['source', 'fx'].includes(inputMode)) throw new Error('Invalid runtime input mode');
+    this.inputMode = inputMode;
+    this.graphDriven = inputMode === 'fx';
+    this.graphInput = null;
+    this.graphCaptured = false;
     this.getSize = getSize || (() => [window.innerWidth, window.innerHeight]);
     this.preview = preview;
     this.getScreenMapping = getScreenMapping;
@@ -152,7 +161,7 @@ export class ProgramRuntime {
     const mixedMapping = !this.preview && this.getScreenMapping && selected.some((sketch) => sketch.projection);
     this.nodes = selected.flatMap((sketch, topIndex) => {
       if (!sketch.projection) {
-        if (this.preview && sketch.camera) {
+        if (this.preview && !this.graphDriven && sketch.camera) {
           return [{ sketch: this.sketches.find((s) => s.id === 'solid-color'), topIndex, host: this.layer,
             getParams: () => ({ hue: 0, saturation: 0, brightness: 0, pulse: 0 }) }];
         }
@@ -176,7 +185,7 @@ export class ProgramRuntime {
       projection.element.style.zIndex = String(topIndex);
       const children = sketch.surfaces.map((surface) => {
         const child = this.sketches.find((entry) => entry.id === surface.patternId && !entry.projection);
-        if (!child || (this.preview && child.camera)) {
+        if (!child || (this.preview && !this.graphDriven && child.camera)) {
           return { sketch: this.sketches.find((s) => s.id === 'solid-color'), surface,
             topIndex, projection, host: projection.sources,
             getParams: () => ({ hue: 0, saturation: 0, brightness: 0, pulse: 0 }) };
@@ -198,10 +207,10 @@ export class ProgramRuntime {
     // Create stable child identities and their bindings before factories run.
     // A CUE promotion changes role metadata only; its runtime generation and
     // therefore controller identity remain intact.
-    this._prepareAudioSlots(this.nodes.map((node) => node.sketch));
+    if (this.includeAudioSlots) this._prepareAudioSlots(this.nodes.map((node) => node.sketch));
 
     this.cameraIndices = new Set(this.nodes
-      .map((node, index) => ((node.sketch.camera || (node.projection && node.sketch.media)) ? index : -1))
+      .map((node, index) => (!this.graphDriven && (node.sketch.camera || (node.projection && node.sketch.media)) ? index : -1))
       .filter((index) => index >= 0));
     this.preparedAt = performance.now();
     this._mark('runtime-construction-started', { ids: this.selection.ids });
@@ -305,7 +314,10 @@ export class ProgramRuntime {
     const audioSlot = this.audioSlots[index] || null;
     const runtimeContext = {
       preview: this.preview,
-      cameraSource: this.cameraSource,
+      inputMode: this.inputMode,
+      // Borrowed input: null outside a controlled FX draw (including setup).
+      getImageInput: () => this.graphDriven && !this.disposed ? this.graphInput : null,
+      cameraSource: this.graphDriven ? null : this.cameraSource,
       audioControlStore: this.audioControlStore,
       audioRole: this.audioRole,
       onAudioSlotsChanged: () => this._notifyAudioSlotsChanged(),
@@ -320,6 +332,7 @@ export class ProgramRuntime {
       // Camera sketches use this instead of p.createCapture when the runtime is
       // on the output screen. It gives LIVE and CUE consumers one MediaStream.
       createCapture: (p, constraints, callback) => {
+        if (this.graphDriven) throw new Error('FX patterns cannot acquire a camera');
         if (!this.cameraSource) return p.createCapture(constraints, callback);
         const consumer = this.cameraSource.acquire({
           p,
@@ -407,6 +420,17 @@ export class ProgramRuntime {
           };
         }
 
+        if (this.graphDriven) {
+          // Install BEFORE factory/setup, not only on runtimeContext: legacy
+          // camera sketches use `createCapture(...) || p.createCapture(...)`.
+          // This is an API guard for trusted patterns, not a browser sandbox.
+          const rawCapture = p.createCapture;
+          p.createCapture = () => { throw new Error('FX patterns cannot acquire a camera'); };
+          this.cleanup.push(() => { p.createCapture = rawCapture; });
+          const rawResize = p.resizeCanvas?.bind(p);
+          if (rawResize) p.resizeCanvas = (width, height, _noRedraw) => rawResize(width, height, true);
+          p.loop = () => {}; // including attempts from setup/draw, not just host resume
+        }
         factory(p);
 
         const originalSetup = p.setup;
@@ -414,6 +438,7 @@ export class ProgramRuntime {
           p.setup = (...args) => {
             try {
               const result = originalSetup.apply(p, args);
+              if (this.graphDriven) p.noLoop?.();
               if (p.width === 100 && p.height === 100 && typeof p.resizeCanvas === 'function') {
                 const [viewportWidth, viewportHeight] = viewportSize();
                 p.resizeCanvas(viewportWidth, viewportHeight);
@@ -436,13 +461,20 @@ export class ProgramRuntime {
             if (this.disposed || p._removed) return result;
             if (node.projection) node.projection.capture(node, p.canvas, result !== false);
             else if (node.mapping) node.mapping.capture(p.canvas, result !== false);
-            else this.onDraw?.(p.canvas, result !== false);
+            else if (result !== false) {
+              this.onDraw?.(p.canvas, true);
+              if (this.graphDriven) this.graphCaptured = true;
+            }
             audioSlot?.binding?.noteDraw();
             this._noteDraw(index);
             return result;
           };
           try {
-            const result = typeof originalDraw === 'function' ? originalDraw.apply(p, args) : undefined;
+            // VizCore always runs one initial draw after setup even with noLoop.
+            // It acknowledges setup readiness, but must not invoke an FX effect
+            // before its upstream image is bound by the graph.
+            const result = this.graphDriven && !this.graphInput ? false
+              : typeof originalDraw === 'function' ? originalDraw.apply(p, args) : undefined;
             if (result && typeof result.then === 'function') {
               return Promise.resolve(result).then(complete).catch(error => this._fail(error)).finally(reportCost);
             }
@@ -735,6 +767,31 @@ export class ProgramRuntime {
     });
   }
 
+  // Only the graph invokes this for an FX child. `VizCore.redraw()` awaits the
+  // user draw and renderer.finishDraw(); onDraw copies WebGL pixels *inside* the
+  // completed user callback, before a discardable buffer can disappear. No rAF,
+  // polling or guessed delay stands in for draw completion.
+  async requestGraphFrame(frame) {
+    if (!this.graphDriven) throw new Error('Only FX runtimes accept graph frames');
+    await this.readyPromise;
+    if (this.disposed) throw new Error('Program runtime was disposed.');
+    if (this.error) throw this.error;
+    if (!frame?.source || !frame.width || !frame.height) throw new Error('Image input required');
+    const instance = this.primary;
+    if (!instance || instance._redrawing) throw new Error('FX renderer is still drawing');
+    this.graphInput = frame;
+    this.graphCaptured = false;
+    try {
+      const finished = await instance.redraw();
+      if (this.disposed) throw new Error('Program runtime was disposed.');
+      if (this.error || instance._error) throw this.error || instance._error;
+      if (finished !== instance || !this.graphCaptured) throw new Error('FX did not produce a frame');
+      return this;
+    } finally {
+      this.graphInput = null;
+    }
+  }
+
   pause() {
     if (this.disposed) return;
     if (!this.paused) {
@@ -764,6 +821,7 @@ export class ProgramRuntime {
     }
     this.instances.forEach((instance) => {
       try {
+        if (this.graphDriven) return;
         instance?.loop?.();
       } catch {
         // Ignore an instance that is in the middle of removal.
@@ -844,13 +902,13 @@ export class ProgramRuntime {
   }
 
   _fail(error) {
-    if (this.disposed || this.error || this.ready) return;
+    if (this.disposed || this.error || (this.ready && !this.graphDriven)) return;
     this.error = error instanceof Error ? error : new Error(String(error || 'Program warm-up failed.'));
     if (this.timeoutId) clearTimeout(this.timeoutId);
     this.timeoutId = 0;
     this._rejectFreshRequests(this.error);
     this._mark('runtime-error', { message: this.error.message });
-    this._rejectReady(this.error);
+    if (!this.ready) this._rejectReady(this.error);
   }
 
   // Camera permission denied must settle readiness immediately; otherwise
@@ -865,6 +923,7 @@ export class ProgramRuntime {
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    this.graphInput = null;
     const disposeError = new Error('Program runtime was disposed.');
     if (!this.ready && !this.error) {
       this.error = disposeError;

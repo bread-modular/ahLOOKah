@@ -8,11 +8,13 @@
 import {
   TYPES, COLOR_PARAMS, MATH_OPS, MATH_LITERALS, SCRIPT_LITERALS,
   inputs, isSignalSource, isScalarConsumer, isModulationTarget, inactiveMathPort,
+  isVisualSource, inputModeOf, supportsImageFx,
 } from './definitions.js';
-import { normalizeAudioRoute } from '../audio-routing.js';
+import { normalizeAudioRoute, isValidAudioDeviceId } from '../audio-routing.js';
 import { MAX_EXPRESSION, MAX_BODY, LANGUAGES } from './script.js';
 
-export const VERSION = 1;
+export const VERSION = 2;
+export const LEGACY_VERSION = 1;
 // Graph size is not budgeted here. Node count, Pattern source count and wire
 // counts are limited only by the machine that edits and renders them, because a
 // fixed node/source cap cannot know the hardware. What stays enforced is
@@ -28,7 +30,7 @@ const reserved = (key) => ['__proto__', 'constructor', 'prototype'].includes(key
 const number = (value) => Number.isFinite(value) && Math.abs(value) <= 1000000;
 const fail = (message) => { throw new Error(message); };
 export function validateGraph(raw, { complete = false } = {}) {
-  if (!raw || raw.version !== VERSION) fail('Unsupported graph version');
+  if (!raw || ![LEGACY_VERSION, VERSION].includes(raw.version)) fail('Unsupported graph version');
   if (JSON.stringify(raw).length > MAX_BYTES) fail('Graph exceeds 200 KB');
   if (typeof raw.name !== 'string' || !raw.name.trim() || raw.name.length > 80) fail('Name must contain 1–80 characters');
   if (!Array.isArray(raw.nodes) || !raw.nodes.length) fail('Graph needs at least one node');
@@ -43,7 +45,20 @@ export function validateGraph(raw, { complete = false } = {}) {
       if (!idOK(n.patternId) || n.patternId.startsWith('nodes-')) fail('Graph sources cannot recursively reference graphs; use ordinary patterns');
       if (!n.params || typeof n.params !== 'object' || Array.isArray(n.params) || Object.keys(n.params).length > 256) fail('Invalid pattern parameters');
       for (const [k, v] of Object.entries(n.params)) if (k.length > 80 || reserved(k) || !number(v)) fail('Invalid parameter value');
+      if (n.inputMode !== undefined) {
+        if (!['source', 'fx'].includes(n.inputMode)) fail('Invalid pattern input mode');
+        if (n.inputMode === 'fx' && raw.version !== VERSION) fail('FX pattern requires graph version 2');
+        // Explicit source survives a round trip, but omission retains v1 identity.
+        node.inputMode = n.inputMode;
+      }
       Object.assign(node, { patternId: n.patternId, params: { ...n.params } });
+    }
+    if (n.type === 'camera') {
+      if (raw.version !== VERSION) fail('Camera node requires graph version 2');
+      // Opaque browser device ids follow Audio's 512-char/control-character
+      // guard. null follows Settings/videoDeviceId at runtime, never at save.
+      if (n.deviceId !== undefined && n.deviceId !== null && !isValidAudioDeviceId(n.deviceId)) fail('Invalid camera input device');
+      node.deviceId = n.deviceId ?? null;
     }
     if (n.type === 'color') {
       if (!n.params || typeof n.params !== 'object' || Array.isArray(n.params)) fail('Invalid color parameters');
@@ -106,7 +121,7 @@ export function validateGraph(raw, { complete = false } = {}) {
     const key = `${e?.to}:${e?.port}`;
     // Image wires only ever reach image ports of visual nodes; scalar inputs
     // (Math/Script) are wired exclusively by signalEdges.
-    if (!from || !to || !['pattern', 'blend', 'color'].includes(from.type) || !['blend', 'color', 'output'].includes(to.type) || !inputs(to).includes(e.port) || occupied.has(key)) fail('Invalid reference, port, or duplicate input wire');
+    if (!isVisualSource(from) || !to || !['pattern', 'blend', 'color', 'output'].includes(to.type) || !inputs(to).includes(e.port) || occupied.has(key)) fail('Invalid reference, port, or duplicate input wire');
     occupied.add(key);
     return { from: e.from, to: e.to, port: e.port };
   });
@@ -162,13 +177,21 @@ export function validateGraph(raw, { complete = false } = {}) {
     walk(nodes.find(n => n.type === 'output').id);
     for (const id of required) for (const port of inputs(ids.get(id))) if (!occupied.has(`${id}:${port}`)) fail(`Connect ${id} ${port} before saving`);
   }
-  return { version: VERSION, name: raw.name.trim(), nodes, edges,
+  return { version: raw.version, name: raw.name.trim(), nodes, edges,
     ...(signalEdges.length ? { signalEdges } : {}), ...(modulations.length ? { modulations } : {}) };
 }
 export function newGraph() {
-  return { version: VERSION, name: 'Untitled graph', nodes: [{ id: 'output', type: 'output', x: 650, y: 220 }], edges: [] };
+  return { version: LEGACY_VERSION, name: 'Untitled graph', nodes: [{ id: 'output', type: 'output', x: 650, y: 220 }], edges: [] };
 }
-export function connect(graph, from, to, port) {
+// For NEW image wires into an FX instance the caller supplies the live registry;
+// validation of loaded graphs deliberately does not need it (missing definitions
+// must leave the saved socket and wire intact for repair).
+export function connect(graph, from, to, port, { sketches } = {}) {
+  const target = graph.nodes.find(n => n.id === to);
+  if (target?.type === 'pattern' && inputModeOf(target) === 'fx') {
+    if (!sketches || !supportsImageFx(sketches.find(s => s.id === target.patternId)))
+      fail('Connect an image only to a known FX-capable pattern');
+  }
   return validateGraph({ ...graph, edges: [...graph.edges.filter(e => e.to !== to || e.port !== port), { from, to, port }] });
 }
 // Scalar input port wiring (Math/Script). One wire per input; new wires replace.
@@ -214,7 +237,7 @@ export const DRAG_TYPE = 'application/x-viz-pattern+json';
 // Every palette drag shares this one versioned payload type: either a structural
 // node kind from the fixed create allowlist (never math/output) or a validated
 // non-recursive Pattern source id.
-const CREATE_TYPES = Object.freeze(['blend', 'color', 'script', 'audio']);
+const CREATE_TYPES = Object.freeze(['blend', 'color', 'script', 'audio', 'camera']);
 export function readPaletteDrag(transfer, sketches) {
   try {
     const text = transfer.getData(DRAG_TYPE);
