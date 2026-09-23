@@ -50,8 +50,14 @@ export async function auditStrength(id, recordings, baselineRoot = '/test-result
   const options = { dt: 1 / 30 };
   const neutral = await renderTimeline(id, undefined, {}, null, false, options);
   const zero = await renderTimeline(id, () => ({ sub: .9, mid: .9, high: .9 }), { bass: 0, mid: 0, high: 0 }, null, false, options);
-  const baselineModules = await Promise.all(['graphic', 'fields', 'spatial', 'video'].map(name => import(`${baselineRoot}/${name}.js`)));
+  // Only the module files the strength spec regenerates from 9f707fe. The Video
+  // FX module was retired from the product in eac457c, so there is no baseline
+  // file for it any more; importing it here just rejected the audit.
+  const baselineModules = await Promise.all(['graphic', 'fields', 'spatial'].map(name => import(`${baselineRoot}/${name}.js`)));
   const beforeSketch = baselineModules.flatMap(m => Object.values(m).flat()).find(s => s.id === id);
+  // Every retained sketch must still be compared against its 9f707fe pass, so a
+  // missing/renamed baseline stays a loud failure instead of a silent skip.
+  if (!beforeSketch) throw new Error(`No 9f707fe baseline implementation found for ${id} in ${baselineRoot}`);
   const beforeOptions = { ...options, sketch: beforeSketch };
   const beforeNeutral = await renderTimeline(id, undefined, {}, null, false, beforeOptions);
   const rendered = {}, before = {}, weak = {}, result = { zero: metrics(neutral, zero), bands: {}, pairwise: {} };
