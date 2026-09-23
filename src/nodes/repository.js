@@ -1,5 +1,5 @@
-import { assertFolderReference, confirmFolderReference, missingFolderFiles, referencedFileId, folderReference } from '../platform/folderReferences.js';
-import { ensureProjectFolder } from '../platform/project-folders.js';
+import { assertFolderReference, missingFolderFiles, referencedFileId, folderReference } from '../platform/folderReferences.js';
+import { registerLinkedProjectFolder } from '../platform/project-folders.js';
 import { chooseFolder, requireFolderPermission as permission, scanFolder, linkedFile } from '../platform/folderAccess.js';
 import { parseGraph, serializeGraph } from './portability.js';
 import { validateGraph, MAX_BYTES } from './model.js';
@@ -98,10 +98,14 @@ export class NodePatterns {
   }
   async link() {
     const handle = await chooseFolder({ id: 'viz2-node-patterns', mode: 'readwrite', label: 'Node patterns' });
-    assertFolderReference('nodes', handle, true);
+    // An unresolved import requires its expected name; an ordinary relink may
+    // deliberately choose a differently named directory instead.
+    if (folderReference('nodes')?.needsRelink) assertFolderReference('nodes', handle, true);
     let folderId = null;
+    let previousHandle = null;
     await lock(async () => {
       const state = await this.store('handles') || empty();
+      previousHandle = state.folder?.handle || null;
       const same = state.folder && await state.folder.handle.isSameEntry(handle);
       // Relinking is an explicit reset: the folder is re-listed in full. A new
       // directory always gets a new folder id, which retires drafts opened from
@@ -109,11 +113,9 @@ export class NodePatterns {
       folderId = same ? state.folder.id : crypto.randomUUID();
       await this.store('handles', { folder: { handle, id: folderId }, opened: [], hidden: [] });
     });
-    confirmFolderReference('nodes');
-    // Remember the directory identity so a project reopened on this computer
-    // resolves Node Patterns without a re-link. Node pattern ids come from the
-    // references a project carries (see refresh), so the identity stays a label.
-    await ensureProjectFolder('nodes', handle);
+    // Remember the directory without changing an older project's identity.
+    // File references from another directory cannot follow a same-named link.
+    await registerLinkedProjectFolder('nodes', handle, previousHandle);
     await this.refresh(); this.changed();
   }
   async unlink() {

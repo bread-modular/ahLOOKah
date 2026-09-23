@@ -216,6 +216,243 @@ test('a project from another computer blocks on its directories, and a missing f
   }
 });
 
+test('OPFS directory identities survive same-named and differently-named relinks in all sections @core', async ({ page }) => {
+  await page.goto('/');
+  const cases = await page.evaluate(async () => {
+    const folders = await import('/src/platform/project-folders.js');
+    const { applyFolderReferences } = await import('/src/platform/folder-portability.js');
+    const { createHandleStorage } = await import('/src/platform/handleStorage.js');
+    const { scriptStorage } = await import('/src/custom-scripts/storage.js');
+    const root = await navigator.storage.getDirectory();
+    const sections = ['scripts', 'nodes', 'media'];
+    const results = [];
+    for (const variant of ['same-name', 'different-name']) {
+      folders.clearProjectFolders();
+      const baseA = await root.getDirectoryHandle(`f03-${variant}-a`, { create: true });
+      const baseB = await root.getDirectoryHandle(`f03-${variant}-b`, { create: true });
+      const originals = {}, replacements = {}, first = {}, second = {};
+      for (const section of sections) {
+        const a = await baseA.getDirectoryHandle(section, { create: true });
+        const b = await baseB.getDirectoryHandle(variant === 'same-name' ? section : `${section}-other`, { create: true });
+        originals[section] = a;
+        replacements[section] = b;
+        first[section] = (await folders.ensureProjectFolder(section, a)).id;
+        const anotherHandleForA = await baseA.getDirectoryHandle(section);
+        if ((await folders.ensureProjectFolder(section, anotherHandleForA)).id !== first[section]) throw Error('same handle changed identity');
+        second[section] = (await folders.ensureProjectFolder(section, b)).id;
+        if (first[section] === second[section]) throw Error('different handles shared identity');
+        if (await folders.rememberProjectFolder(first[section], section, b)) throw Error('remember overwrote a different handle');
+        try { await folders.ensureProjectFolder(section, b, first[section]); throw Error('explicit adoption overwrote a different handle'); }
+        catch (error) { if (!/already belongs/.test(error.message)) throw error; }
+        if (!await (await folders.recallProjectFolder(first[section])).handle.isSameEntry(a)) throw Error('old handle was replaced');
+        if (!await (await folders.recallProjectFolder(second[section])).handle.isSameEntry(b)) throw Error('new handle was lost');
+      }
+      // Relink the first directory after the second was current. The bounded
+      // remembered registry, not its basename, finds the original identity.
+      for (const section of sections) {
+        if ((await folders.ensureProjectFolder(section, originals[section])).id !== first[section]) throw Error('old handle got a new identity');
+      }
+      const reference = (which, handles) => Object.fromEntries(sections.map(section => [section, {
+        folderName: handles[section].name, folderId: which[section], files: [],
+      }]));
+      const aOpen = await applyFolderReferences(reference(first, originals));
+      const scriptA = (await scriptStorage('active')).folder;
+      const nodeA = (await createHandleStorage('viz2-node-patterns')('handles')).folder.handle;
+      const mediaA = await createHandleStorage('viz2-media-folder')('folder');
+      const bOpen = await applyFolderReferences(reference(second, replacements));
+      const scriptB = (await scriptStorage('active')).folder;
+      const nodeB = (await createHandleStorage('viz2-node-patterns')('handles')).folder.handle;
+      const mediaB = await createHandleStorage('viz2-media-folder')('folder');
+      results.push({
+        variant, first, second,
+        aOpen: { resolved: aOpen.resolved, pending: aOpen.pending },
+        bOpen: { resolved: bOpen.resolved, pending: bOpen.pending },
+        adoptedA: [await scriptA.isSameEntry(originals.scripts), await nodeA.isSameEntry(originals.nodes), await mediaA.isSameEntry(originals.media)],
+        adoptedB: [await scriptB.isSameEntry(replacements.scripts), await nodeB.isSameEntry(replacements.nodes), await mediaB.isSameEntry(replacements.media)],
+      });
+    }
+    return results;
+  });
+  for (const result of cases) {
+    for (const section of ['scripts', 'nodes', 'media']) expect(result.second[section], result.variant).not.toBe(result.first[section]);
+    expect(result.aOpen).toEqual({ resolved: ['scripts', 'nodes', 'media'], pending: [] });
+    expect(result.bOpen).toEqual({ resolved: ['scripts', 'nodes', 'media'], pending: [] });
+    expect(result.adoptedA).toEqual([true, true, true]);
+    expect(result.adoptedB).toEqual([true, true, true]);
+  }
+});
+
+test('ordinary Relink Folder in each service keeps older same-named project handles @core', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory();
+    for (const location of ['old', 'new']) {
+      const parent = await root.getDirectoryHandle(`f03-service-${location}`, { create: true });
+      for (const section of ['scripts', 'nodes', 'media']) await parent.getDirectoryHandle(section, { create: true });
+    }
+    const media = await (await root.getDirectoryHandle('f03-service-old')).getDirectoryHandle('media');
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 8;
+    const image = await new Promise(resolve => canvas.toBlob(resolve));
+    const writer = await (await media.getFileHandle('one.PNG', { create: true })).createWritable();
+    await writer.write(image); await writer.close();
+    window.f03Location = 'old';
+    window.showDirectoryPicker = async ({ id }) => {
+      const section = id.includes('custom') ? 'scripts' : id.includes('node') ? 'nodes' : 'media';
+      return (await root.getDirectoryHandle(`f03-service-${window.f03Location}`)).getDirectoryHandle(section);
+    };
+  });
+  await linkAll(page);
+  await addMediaFromFolder(page, 'one.PNG');
+  const older = await projectFor(page);
+  expect(older.folders.media.files.find(file => file.fileName === 'one.PNG').linked).toBe(true);
+  await page.evaluate(() => { window.f03Location = 'new'; });
+  for (const section of SECTIONS) await folderAction(page, section.label, 'Relink Folder');
+  const newer = await projectFor(page);
+  expect(newer.folders.media.files.find(file => file.fileName === 'one.PNG')?.linked).toBe(false);
+  for (const section of SECTIONS) {
+    expect(newer.folders[section.key].folderName).toBe(older.folders[section.key].folderName);
+    expect(newer.folders[section.key].folderId).not.toBe(older.folders[section.key].folderId);
+  }
+  await saveProject(page, older);
+  await expect(page.locator('#project-relink-modal')).toHaveCount(0);
+  await expect(page.locator('#notice-modal')).toContainText('Project opened');
+  const physical = await page.evaluate(async (saved) => {
+    const { createHandleStorage } = await import('/src/platform/handleStorage.js');
+    const { scriptStorage } = await import('/src/custom-scripts/storage.js');
+    const { recallProjectFolder } = await import('/src/platform/project-folders.js');
+    const root = await navigator.storage.getDirectory();
+    const parent = await root.getDirectoryHandle('f03-service-old');
+    const current = {
+      scripts: (await scriptStorage('active')).folder,
+      nodes: (await createHandleStorage('viz2-node-patterns')('handles')).folder.handle,
+      media: await createHandleStorage('viz2-media-folder')('folder'),
+    };
+    return Promise.all(['scripts', 'nodes', 'media'].map(async section => {
+      const expected = await parent.getDirectoryHandle(section);
+      const remembered = (await recallProjectFolder(saved.folders[section].folderId)).handle;
+      return await current[section].isSameEntry(expected) && await remembered.isSameEntry(expected);
+    }));
+  }, older);
+  expect(physical).toEqual([true, true, true]);
+});
+
+test('after opening a project, an ordinary different-name relink retires old references but not its handle @core', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.goto('/');
+  await seed(page);
+  await linkAll(page);
+  const older = await projectFor(page);
+  await saveProject(page, older);
+  await expect(page.locator('#project-relink-modal')).toHaveCount(0);
+  await page.locator('#notice-modal-reload').click();
+  // Re-picking the actual old handles (new JS handle objects) keeps both ids and
+  // file references, unlike replacing them with another same/different name.
+  await seed(page);
+  for (const section of SECTIONS) await folderAction(page, section.label, 'Relink Folder');
+  const sameEntry = await projectFor(page);
+  for (const section of SECTIONS) {
+    expect(sameEntry.folders[section.key].folderId).toBe(older.folders[section.key].folderId);
+    if (section.key !== 'media') expect(sameEntry.folders[section.key].files).toEqual(older.folders[section.key].files);
+  }
+  // The Media service may discover additional files on a subsequent scan;
+  // that does not change the directory identity.
+  await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory();
+    for (const section of ['scripts', 'nodes', 'media']) await root.getDirectoryHandle(`${section}-next`, { create: true });
+    window.showDirectoryPicker = async ({ id }) => root.getDirectoryHandle(
+      `${id.includes('custom') ? 'scripts' : id.includes('node') ? 'nodes' : 'media'}-next`);
+  });
+  for (const section of SECTIONS) await folderAction(page, section.label, 'Relink Folder');
+  const newer = await projectFor(page);
+  for (const section of SECTIONS) {
+    expect(newer.folders[section.key].folderName).toBe(`${section.key}-next`);
+    expect(newer.folders[section.key].folderId).not.toBe(older.folders[section.key].folderId);
+  }
+  expect(newer.folders.scripts.files).toEqual([]);
+  expect(newer.folders.nodes.files).toEqual([]);
+  await saveProject(page, older);
+  await expect(page.locator('#project-relink-modal')).toHaveCount(0);
+  await expect(page.locator('#notice-modal')).toContainText('Linked directories resumed on this computer: Custom Scripts, Node Patterns, Media.');
+  const retained = await page.evaluate(async (saved) => {
+    const { recallProjectFolder } = await import('/src/platform/project-folders.js');
+    const root = await navigator.storage.getDirectory();
+    return Promise.all(['scripts', 'nodes', 'media'].map(async section =>
+      (await recallProjectFolder(saved.folders[section].folderId)).handle.isSameEntry(await root.getDirectoryHandle(section))));
+  }, older);
+  expect(retained).toEqual([true, true, true]);
+});
+
+test('an unresolved imported id binds only after confirmation and cannot claim an old handle @core', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const { ensureProjectFolder, recallProjectFolder, projectFolderId } = await import('/src/platform/project-folders.js');
+    const { applyFolderReferences, collectFolderReferences } = await import('/src/platform/folder-portability.js');
+    const { folderReference, confirmFolderReference } = await import('/src/platform/folderReferences.js');
+    const { createHandleStorage } = await import('/src/platform/handleStorage.js');
+    const { scriptStorage } = await import('/src/custom-scripts/storage.js');
+    const root = await navigator.storage.getDirectory();
+    const old = await root.getDirectoryHandle('f03-import-old', { create: true });
+    const next = await root.getDirectoryHandle('f03-import-new', { create: true });
+    const sections = ['scripts', 'nodes', 'media'];
+    const oldIds = {}, remoteIds = {}, handles = {};
+    for (const section of sections) {
+      const previous = await old.getDirectoryHandle(section, { create: true });
+      const incoming = await next.getDirectoryHandle(section, { create: true });
+      oldIds[section] = (await ensureProjectFolder(section, previous)).id;
+      remoteIds[section] = `remote-f03-${section}`;
+      handles[section] = incoming;
+      if (section === 'scripts') await scriptStorage('active', { selectionVersion: 1, revision: Date.now(), folder: previous, sources: [], files: [], changed: [] });
+      if (section === 'nodes') await createHandleStorage('viz2-node-patterns')('handles', { folder: { handle: previous, id: 'old-node-files' }, opened: [] });
+      if (section === 'media') await createHandleStorage('viz2-media-folder')('folder', previous);
+    }
+    const refs = Object.fromEntries(sections.map(section => [section, {
+      folderName: section, folderId: remoteIds[section], files: [],
+    }]));
+    const opened = await applyFolderReferences(refs);
+    // Old native handles are still linked in the section stores until the picker
+    // confirms the imported directory. Even a matching basename is not proof.
+    const before = await collectFolderReferences([]);
+    const unconfirmed = sections.map(section => ({
+      id: before[section].folderId,
+      needsRelink: folderReference(section).needsRelink,
+      stored: projectFolderId(section),
+    }));
+    for (const section of sections) {
+      const ordinary = await ensureProjectFolder(section, handles[section]);
+      if (ordinary.id === remoteIds[section]) throw Error('ordinary relink adopted an unresolved id');
+      await ensureProjectFolder(section, handles[section], remoteIds[section]); // confirmed picker/adoption path
+      confirmFolderReference(section);
+    }
+    const confirmed = sections.map(section => ({ id: projectFolderId(section), needsRelink: folderReference(section).needsRelink }));
+    const preserved = await Promise.all(sections.map(async section =>
+      (await recallProjectFolder(oldIds[section])).handle.isSameEntry(await old.getDirectoryHandle(section))));
+    const adopted = await Promise.all(sections.map(async section =>
+      (await recallProjectFolder(remoteIds[section])).handle.isSameEntry(handles[section])));
+    // A known id with a different name is remapped to a fresh pending id rather
+    // than risking the known directory when the operator later links it.
+    const collision = await applyFolderReferences({
+      scripts: { folderName: 'not-the-old-scripts', folderId: oldIds.scripts, files: [] },
+      nodes: { folderName: null, folderId: null, files: [] },
+      media: { folderName: null, folderId: null, files: [] },
+    });
+    const remapped = folderReference('scripts').folderId;
+    return { opened: { resolved: opened.resolved, pending: opened.pending.map(p => p.section) },
+      unconfirmed, confirmed, preserved, adopted,
+      collision: { pending: collision.pending.map(p => p.reason), remapped, original: oldIds.scripts } };
+  });
+  expect(result.opened).toEqual({ resolved: [], pending: ['scripts', 'nodes', 'media'] });
+  for (let i = 0; i < 3; i++) {
+    const section = ['scripts', 'nodes', 'media'][i];
+    expect(result.unconfirmed[i]).toEqual({ id: `remote-f03-${section}`, needsRelink: true, stored: `remote-f03-${section}` });
+    expect(result.confirmed[i]).toEqual({ id: `remote-f03-${section}`, needsRelink: false });
+  }
+  expect(result.preserved).toEqual([true, true, true]);
+  expect(result.adopted).toEqual([true, true, true]);
+  expect(result.collision.pending).toEqual(['changed']);
+  expect(result.collision.remapped).not.toBe(result.collision.original);
+});
+
 test('a script edited after the project was saved stays closed until OPEN @core', async ({ page }) => {
   test.setTimeout(120_000);
   await page.goto('/');
