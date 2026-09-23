@@ -2099,7 +2099,13 @@ export function createAppRuntime({
       if (cueSession) return;
       currentVideoDeviceId = savedVideoId;
       const selection = currentLiveSelection();
-      const usesCamera = selection.ids.some((id) => SKETCHES.find((sketch) => sketch.id === id)?.camera);
+      const usesCamera = selection.ids.some((id) => {
+        const sketch = SKETCHES.find((entry) => entry.id === id);
+        return sketch?.camera || sketch?.graphRecord?.graph.nodes.some((node) =>
+          (node.type === 'camera' && node.deviceId == null)
+          || (node.type === 'pattern' && node.inputMode !== 'fx'
+            && SKETCHES.find((entry) => entry.id === node.patternId)?.camera));
+      });
       if (usesCamera) prepareThenPromoteLive(selection, { force: true });
     }
   }

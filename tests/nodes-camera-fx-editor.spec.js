@@ -159,7 +159,9 @@ test('explicit Add as FX, edge sockets, and confirmed Source switch never hide a
   await expect(fx.getByRole('button', { name: `${id} input image` })).toBeVisible();
   await expect(page.getByText(/connect an image to this pattern's image input/i)).toBeVisible();
   await page.locator('[data-node-id=source] .nodes-output').click();
-  await fx.locator('.nodes-input').click();
+  // Clicking the upstream port selects that node, so the primary-node locator
+  // no longer points at the FX card. Keep the identity captured at creation.
+  await page.locator(`[data-node-id="${id}"] .nodes-input`).click();
   const wire = page.locator(`.nodes-wires [data-connection="image:${id}:image"]`);
   await expect(wire).toHaveCount(1);
   const ends = await page.evaluate(target => {
