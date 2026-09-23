@@ -69,7 +69,7 @@
           <li><strong>3D</strong> — depth-driven structures, plus Voxel Cascade and Gyro Lattice.</li>
           <li><strong>Cinematic / Shaders</strong> — atmospheric shaders including Ion Tempest, plus Schlieren Flow, Tidal Glass, and Godray Forge.</li>
           <li><strong>Neon / Lasers</strong> — glowing light effects.</li>
-          <li><strong>Video FX</strong> — live camera effects, plus Video Slit Scan, Video Facet Fold, Video Datamosh, and Video Rolling Shutter.</li>
+          <li><strong>Video FX</strong> — live camera effects including Video Chroma, Video Kaleido, Video Edge Glow, and Video Thermal.</li>
           <li><strong>Glitch / Effects</strong> — digital effects, plus Bitplane Rewire, Riso Misprint, VHS Head Switch, and DCT Blocks.</li>
           <li><strong>Basics</strong> — Solid Color, Color Wash, Color Bars, Noise Static, Film Grain, and Test Card.</li>
           <li><strong>Alphas</strong> — Iris Diaphragm, Cellular Gate, and Blinder Matrix: grayscale-on-black mattes for the existing Alpha Blend black key (not proportional luma-to-opacity).</li>
@@ -77,7 +77,7 @@
           <li><strong>Projection Mapping</strong> — the reusable mapping patterns you build, each holding up to eight independently warped surfaces. Empty until you add one; see <a href="/docs/projection-mapping.html">Projection Mapping</a>.</li>
           <li><strong>Custom Scripts</strong> — trusted JavaScript from your local folder; see <a href="/docs/custom-scripts.html">Custom Scripts</a>.</li>
         </ul>
-        <p>69 built-in patterns. All 50 older entries are preserved; the rejected 60-pattern expansion is replaced by the named additions above. <strong>Media</strong> and <strong>Projection Mapping</strong> are dynamic groups: they are always shown so their <strong>ADD</strong> buttons stay available, but their contents are yours.</p>
+        <p>68 built-in patterns. All 50 older entries are preserved; the rejected 60-pattern expansion is replaced by the named additions above. <strong>Media</strong> and <strong>Projection Mapping</strong> are dynamic groups: they are always shown so their <strong>ADD</strong> buttons stay available, but their contents are yours.</p>
 
         <figure class="figure">
           <img src="/docs/shots/patterns.jpg" alt="The ahLOOKah pattern library with a selected pattern and its parameter sliders" />
@@ -85,14 +85,14 @@
         </figure>
 
         <h2>Fast building blocks</h2>
-        <p>The replacements use distinct vector mechanisms, 3D faces, shader fields, and camera constructions. Each has independent bass, mid, and high structural controls; zero disables a band. Motion Speed controls autonomous animation separately, with no simulated audio in silence. Tidal Glass uses a bounded raymarch; Video Slit Scan holds a fixed 16-frame history. Hover a library button for its band mappings.</p>
+        <p>The retained replacements use distinct vector mechanisms, 3D faces, and shader fields. Each has independent bass, mid, and high structural controls; zero disables a band. Motion Speed controls autonomous animation separately, with no simulated audio in silence. Tidal Glass uses a bounded raymarch. Hover a library button for its band mappings.</p>
         <div class="callout tip">
           <p><strong>Checkerboard is not audio reactive.</strong> It starts as stationary black-and-white squares. Change cell size, hues, saturation, lightness, or optional manual drift. Neither audio nor old saved audio-pulse settings can change its size or speed. It stays in <strong>Simple</strong> and is the default source when you add a mapping inside a Projection Mapping pattern; existing mappings keep their sources.</p>
         </div>
-        <p>Camera effects require permission on the output window; the control preview is a placeholder. The two replacement camera effects use a mirrored cover crop and share one camera stream across LIVE and CUE.</p>
+        <p>Camera effects require permission on the output window; the control preview is a placeholder. The remaining camera effects share one camera stream across LIVE and CUE.</p>
 
         <h2>Searching the library</h2>
-        <p>Press <kbd>/</kbd> to jump to the <strong>search box</strong> above the list, then type. Matching ignores case and covers each pattern's name, id, group, description, and type keywords — so <em>camera</em> finds the Video FX patterns, <em>media</em> the loaded images and videos, and <em>mapping</em> the projection patterns. Separate terms all have to match, so <em>video slit</em> narrows the list instead of widening it.</p>
+        <p>Press <kbd>/</kbd> to jump to the <strong>search box</strong> above the list, then type. Matching ignores case and covers each pattern's name, id, group, description, and type keywords — so <em>camera</em> finds the Video FX patterns, <em>media</em> the loaded images and videos, and <em>mapping</em> the projection patterns. Separate terms all have to match, so <em>video edge</em> narrows the list instead of widening it.</p>
         <p>A count line shows how many patterns matched, and a query that matches nothing offers <strong>Clear search</strong>. Groups with results expand automatically while you type; your saved collapsed groups are never changed. <kbd>Esc</kbd> in the field clears the query, then leaves the field.</p>
 
         <h2>Favourites</h2>

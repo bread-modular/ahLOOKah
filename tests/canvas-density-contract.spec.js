@@ -11,15 +11,12 @@ test('Canvas2D factories repaint their own surface at backing density 1 and 2, i
     const { SKETCHES, defaultParamValues } = await import('/src/sketch-registry.js');
     const { disposeVizInstance } = await import('/src/program-runtime.js');
     const rows=[];
-    for (const id of ['truchet-relay','membrane-modes','video-slit-scan','video-facet-fold','video-datamosh','video-rolling-shutter']) {
+    for (const id of ['riso-misprint','iris-diaphragm','test-card','blinder-matrix']) {
       const entry=SKETCHES.find(s=>s.id===id);
       let instance;
       await new Promise(resolve => {
         instance = new VizCore(p => {
           entry.factory(null, null, defaultParamValues(id), {
-            // Not-ready capture covers the early opaque placeholder; the live
-            // camera pipeline and populated histories are tested in the UI suite.
-            createCapture: () => ({ elt: null, hide() {} }),
             audioControls: { read: () => ({ continuous: {} }) },
           })(p);
           const setup=p.setup, redraw=p.redraw.bind(p); let initial=true;
@@ -45,7 +42,7 @@ test('Canvas2D factories repaint their own surface at backing density 1 and 2, i
     }
     return rows;
   });
-  expect(results).toHaveLength(36);
+  expect(results).toHaveLength(24);
   for(const row of results) {
     expect(row,`${row.id}: ${row.density}× ${row.w}×${row.h}`).toMatchObject({
       width:row.w,height:row.h,backing:[row.w*row.density,row.h*row.density],

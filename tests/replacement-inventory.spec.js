@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { BUILTIN_PATTERNS } from '../src/patterns/builtins.js';
 import { REPLACEMENT_PATTERNS } from '../src/sketches/replacements/index.js';
 
-// Scoped replacement-cohort contract: the 10 named replacements are present in
+// Scoped replacement-cohort contract: the 8 retained replacements are present in
 // the catalog with their intended distribution and bindings. This spec owns the
 // replacement cohort only — it asserts nothing about the whole-app total,
 // source layout, or group order (see tests/catalog/ for those contracts).
@@ -32,8 +32,8 @@ const RETIRED_IDS = [
 // looks; every other retired id stays absent unless explicitly re-adopted.
 const RESTORED_IDS = new Set(['video-thermal', 'video-edge-glow']);
 
-test('replacement cohort: 10 named patterns present with intended distribution and bindings', { tag: '@core' }, () => {
-  expect(REPLACEMENT_PATTERNS).toHaveLength(10);
+test('replacement cohort: 8 retained patterns present with intended distribution and bindings', { tag: '@core' }, () => {
+  expect(REPLACEMENT_PATTERNS).toHaveLength(8);
   const byId = new Map(BUILTIN_PATTERNS.map((s) => [s.id, s]));
   for (const s of REPLACEMENT_PATTERNS) {
     expect(byId.get(s.id), s.id).toBe(s);
@@ -42,7 +42,7 @@ test('replacement cohort: 10 named patterns present with intended distribution a
     expect(typeof s.createAudioController, s.id).toBe('function');
     expect(s.audioControlSchema && typeof s.audioControlSchema, s.id).toBe('object');
   }
-  const expected = { Simple: 1, Rhythmic: 1, '3D': 0, 'Cinematic / Shaders': 2, 'Neon / Lasers': 0, 'Video FX': 2, 'Glitch / Effects': 2, Basics: 0, Alphas: 2 };
+  const expected = { Simple: 1, Rhythmic: 1, '3D': 0, 'Cinematic / Shaders': 2, 'Neon / Lasers': 0, 'Video FX': 0, 'Glitch / Effects': 2, Basics: 0, Alphas: 2 };
   for (const [group, count] of Object.entries(expected)) {
     expect(REPLACEMENT_PATTERNS.filter((s) => s.group === group), group).toHaveLength(count);
   }

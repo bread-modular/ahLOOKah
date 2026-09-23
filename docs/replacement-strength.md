@@ -1,5 +1,7 @@
 # Replacement audio structure — workspace 125
 
+> Historical review: some patterns named below have since been removed from the live catalog.
+
 **Scope:** improve only the existing replacement designs from `9f707fe`. Production changes are confined to `src/sketches/replacements/{runtime,graphic,fields,spatial,video}.js`. No registry, replacement index, shared inventory, older renderer, category, Media, or Mapping implementation changes. No advisor and no merge.
 
 ## Review the actual pictures

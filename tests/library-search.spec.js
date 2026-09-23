@@ -35,6 +35,18 @@ function search(control) {
 }
 
 test.describe('pattern library search', () => {
+  test('retired video patterns stay out of the library, search, and saved favourites', async ({ context }) => {
+    const removed = ['video-slit-scan', 'video-facet-fold', 'video-datamosh', 'video-rolling-shutter'];
+    const control = await openControl(context);
+    await control.evaluate(([key, ids]) => localStorage.setItem(key, JSON.stringify(ids)), [FAVOURITES_KEY, removed]);
+    await control.reload();
+    for (const id of removed) {
+      await expect(control.locator(`#pattern-library [data-id="${id}"]`)).toHaveCount(0);
+      await search(control).fill(id);
+      await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(0);
+    }
+  });
+
   test('filters by name, reports the match count, and clearing restores every group', async ({ context }) => {
     const control = await openControl(context);
     const { patterns, groups } = await catalogCounts(control);
@@ -138,7 +150,7 @@ test.describe('pattern library search', () => {
     // exactly the patterns that carry the camera badge.
     await search(control).fill('camera');
     await expect(control.locator('#pattern-library .pattern-btn')).toHaveCount(cameraBadges);
-    await expect(control.locator('#pattern-library [data-id="video-slit-scan"]')).toBeVisible();
+    await expect(control.locator('#pattern-library [data-id="video-edge-glow"]')).toBeVisible();
     await expect(control.locator('.library-group-toggle', { hasText: 'Video FX' })).toHaveAttribute('aria-expanded', 'true');
 
     // Group names are searchable too.

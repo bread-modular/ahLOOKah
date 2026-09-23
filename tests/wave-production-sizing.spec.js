@@ -3,7 +3,7 @@ import { REPLACEMENT_PATTERNS } from '../src/sketches/replacements/index.js';
 import { EXPANSION_PATTERNS, RESTORED_CAMERA_PATTERNS } from '../src/sketches/expansion/index.js';
 
 const wave = [...REPLACEMENT_PATTERNS, ...EXPANSION_PATTERNS];
-expect(wave).toHaveLength(19);
+expect(wave).toHaveLength(15);
 const cases = [...wave, ...RESTORED_CAMERA_PATTERNS, { id: 'circles' }, { id: 'glitch-slices' }];
 const output = '.program-layer-live canvas.program-canvas';
 const preview = '#preview-stage canvas.preview-canvas';

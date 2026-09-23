@@ -5,7 +5,7 @@ import { createExpansionController } from '../src/sketches/expansion/runtime.js'
 import { BAND_PARAMS } from '../src/sketches/band-reactive.js';
 import { FEATURE_SCHEMA } from '../src/sketches/feature-controls.js';
 
-// Scoped expansion-cohort contract: the 9 researched patterns plus the 2
+// Scoped expansion-cohort contract: the 7 retained patterns plus the 2
 // restored legacy camera looks are present with their intended distribution,
 // params, and controller bindings. This spec owns the expansion cohort only —
 // it asserts nothing about the whole-app total or group order (see
@@ -13,19 +13,19 @@ import { FEATURE_SCHEMA } from '../src/sketches/feature-controls.js';
 
 const ALL = [...EXPANSION_PATTERNS, ...RESTORED_CAMERA_PATTERNS];
 
-test('expansion cohort: 9 new + 2 restored present with intended distribution', { tag: '@core' }, () => {
-  expect(EXPANSION_PATTERNS).toHaveLength(9);
+test('expansion cohort: 7 retained + 2 restored present with intended distribution', { tag: '@core' }, () => {
+  expect(EXPANSION_PATTERNS).toHaveLength(7);
   expect(RESTORED_CAMERA_PATTERNS.map((s) => s.id)).toEqual(['video-edge-glow', 'video-thermal']);
   expect(ALL.every(Boolean)).toBe(true);
   const byId = new Map(BUILTIN_PATTERNS.map((s) => [s.id, s]));
   for (const s of ALL) expect(byId.get(s.id), s.id).toBe(s);
   // Remaining entries per existing visual category. No Media/Projection Mapping additions.
-  const expected = { Simple: 0, Rhythmic: 0, '3D': 2, 'Cinematic / Shaders': 1, 'Neon / Lasers': 0, 'Video FX': 2, 'Glitch / Effects': 2, Basics: 1, Alphas: 1 };
+  const expected = { Simple: 0, Rhythmic: 0, '3D': 2, 'Cinematic / Shaders': 1, 'Neon / Lasers': 0, 'Video FX': 0, 'Glitch / Effects': 2, Basics: 1, Alphas: 1 };
   for (const [group, count] of Object.entries(expected)) {
     expect(EXPANSION_PATTERNS.filter((s) => s.group === group), group).toHaveLength(count);
   }
   expect(RESTORED_CAMERA_PATTERNS.every((s) => s.group === 'Video FX' && s.camera)).toBe(true);
-  expect(EXPANSION_PATTERNS.filter((s) => s.camera).map((s) => s.id)).toEqual(['video-datamosh', 'video-rolling-shutter']);
+  expect(EXPANSION_PATTERNS.filter((s) => s.camera)).toEqual([]);
 });
 
 test('expansion cohort: shared controller identity, band schema, and param contracts', { tag: '@core' }, () => {

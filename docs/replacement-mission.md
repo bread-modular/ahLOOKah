@@ -1,5 +1,7 @@
 # Replacement mission — workspace 123
 
+> Historical design record: some patterns named below have since been removed from the live catalog.
+
 ## Scope and provenance
 
 Base: `01e798a`. Inspected **addition diffs** of `7ebcd47` (20 entries) and `cbee609` (40 entries); the intervening reactivity work added none. The [superseded audit](recent-audio-reactivity.md) retains the exact historical ID list. `docs/history/replacement-inventory-62617ff.json` (archived from `tests/fixtures/replacement-inventory.json`) pins all 60 removed IDs, the 50 retained registry signatures, and SHA-256 digests of the older implementation files.

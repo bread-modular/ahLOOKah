@@ -6,11 +6,10 @@ import { createReplacementController, makeReplacementReader, measuredSupport, re
 import { GRAPHIC_PATTERNS } from '../src/sketches/replacements/graphic.js';
 import { FIELD_PATTERNS } from '../src/sketches/replacements/fields.js';
 import { SPATIAL_PATTERNS } from '../src/sketches/replacements/spatial.js';
-import { VIDEO_PATTERNS } from '../src/sketches/replacements/video.js';
 import { makeAudioFeatures, setBandSplit } from '../src/sketches/audio-features.js';
 import { PatternAudioControlEngine, SharedAudioAnalysisView } from '../src/pattern-audio-engine.js';
 import { PatternAudioControlStore } from '../src/pattern-audio-controls.js';
-const OWNED = [...GRAPHIC_PATTERNS, ...FIELD_PATTERNS, ...SPATIAL_PATTERNS, ...VIDEO_PATTERNS];
+const OWNED = [...GRAPHIC_PATTERNS, ...FIELD_PATTERNS, ...SPATIAL_PATTERNS];
 const bands = ['bass', 'mid', 'high'];
 const defaults = s => Object.fromEntries(s.params.map(p => [p.key, p.default]));
 const spectrum = (hz = 0, { sampleRate = 48000, rightOnly = false, rms = .001, db = -72 } = {}) => {

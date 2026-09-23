@@ -1,5 +1,7 @@
 # Expansion Wave: 21 New VJ/VFX Patterns + 2 Restored Camera Looks
 
+> Historical expansion record: some patterns named below have since been removed from the live catalog.
+
 Date: 2026-09-11. Branch: okbrain/bread-viz/126. Built-ins: **68 → 91**
 (50 preserved older + 18 replacements + 21 new expansion + 2 restored).
 

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-const CAMERA_IDS = ['video-datamosh', 'video-rolling-shutter', 'video-edge-glow', 'video-thermal'];
+const CAMERA_IDS = ['video-edge-glow', 'video-thermal'];
 
 // Isolated real-p5 renderer with a deterministic camera frame (same protocol as
 // the replacement lifecycle suite): exact audio-on/off pixel comparisons,
@@ -89,7 +89,7 @@ async function mount(page, id) {
   }, id);
 }
 
-test('expansion camera FX consume shared capture, react independently per band, and dispose cleanly', { tag: '@patterns' }, async ({ page }) => {
+test('restored camera FX consume shared capture, react independently per band, and dispose cleanly', { tag: '@patterns' }, async ({ page }) => {
   test.setTimeout(120_000);
   for (const id of CAMERA_IDS) {
     await mount(page, id);
@@ -107,10 +107,7 @@ test('expansion camera FX consume shared capture, react independently per band, 
       const silenceA = await h.sample({});
       const silenceB = await h.sample({});
       const bands = {};
-      // Static fixture frames legitimately hide datamosh bass at modest levels
-      // (stale blocks of a still image are identical), so bass is driven at a
-      // strong-but-realistic level there; mid/high use moderate levels.
-      const level = id === 'video-datamosh' ? { sub: 1.6, mid: 0.3, high: 0.3 } : { sub: 0.3, mid: 0.3, high: 0.3 };
+      const level = { sub: 0.3, mid: 0.3, high: 0.3 };
       for (const [band, feature] of [['bass', 'sub'], ['mid', 'mid'], ['high', 'high']]) {
         const driven = await h.sample({ [feature]: level[feature] });
         const muted = await h.sample({ [feature]: 0.9 }, { [band]: 0 });

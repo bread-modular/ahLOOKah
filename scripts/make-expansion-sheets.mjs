@@ -15,7 +15,7 @@ const ids = fs.readdirSync(root, { withFileTypes: true })
 const groups = {
   '3D': ['voxel-cascade', 'gyro-lattice'],
   'Cinematic / Glitch': ['godray-forge', 'vhs-head-switch', 'dct-blocks'],
-  'Video FX / Basics / Alphas': ['video-datamosh', 'video-rolling-shutter', 'test-card', 'blinder-matrix'],
+  'Basics / Alphas': ['test-card', 'blinder-matrix'],
 };
 
 const browser = await chromium.launch();
@@ -68,7 +68,7 @@ for (const [title, ids2] of Object.entries(groups)) {
 }
 // One animated (pulse-locked) sheet across representative patterns.
 await sheet('Expansion wave — pulse-locked animation frames (beat on/off)', [
-  'voxel-cascade', 'godray-forge', 'video-datamosh', 'blinder-matrix',
+  'voxel-cascade', 'godray-forge', 'test-card', 'blinder-matrix',
 ], 'sheet-animated-pulse.png', { animated: true });
 
 // Restored camera pair: from the integration/lifecycle run render them now via the audit harness format.

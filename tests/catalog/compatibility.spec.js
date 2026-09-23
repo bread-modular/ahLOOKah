@@ -1,7 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { BUILTIN_PATTERNS } from '../../src/patterns/builtins.js';
 import { COMPATIBILITY_ORDER } from '../../src/patterns/compatibility-order.js';
-import { DEFAULT_PAD_IDS, GROUP_ORDER, SHORTCUT_COUNT } from '../../src/sketch-registry.js';
+import { DEFAULT_PAD_IDS, GROUP_ORDER, SHORTCUT_COUNT, SKETCHES } from '../../src/sketch-registry.js';
+import { manifestFor, graphDiagnostics, parseGraph, serializeGraph } from '../../src/nodes/portability.js';
+
+const REMOVED_VIDEO_IDS = ['video-slit-scan', 'video-facet-fold', 'video-datamosh', 'video-rolling-shutter'];
 
 test.describe('builtin catalog compatibility', { tag: '@core' }, () => {
   test('every compatibility id still resolves; extra ids are allowed, missing ids fail', () => {
@@ -11,6 +14,35 @@ test.describe('builtin catalog compatibility', { tag: '@core' }, () => {
     }
     // New ids beyond the closed list are ordinary additions, not failures.
     expect(BUILTIN_PATTERNS.length).toBeGreaterThanOrEqual(COMPATIBILITY_ORDER.length);
+  });
+
+  test('retired video IDs are absent from catalog, UI registry, and compatibility order', () => {
+    const builtins = new Set(BUILTIN_PATTERNS.map((pattern) => pattern.id));
+    const available = new Set(SKETCHES.map((pattern) => pattern.id));
+    for (const id of REMOVED_VIDEO_IDS) {
+      expect(builtins.has(id), id).toBe(false);
+      expect(available.has(id), id).toBe(false);
+      expect(COMPATIBILITY_ORDER, id).not.toContain(id);
+    }
+  });
+
+  test('serialized graphs retain retired IDs and report missing dependencies for repair', () => {
+    for (const id of REMOVED_VIDEO_IDS) {
+      const graph = {
+        version: 1, name: 'Retired source',
+        nodes: [
+          { id: 'source', type: 'pattern', patternId: id, x: 0, y: 0, params: {} },
+          { id: 'out', type: 'output', x: 200, y: 0 },
+        ],
+        edges: [{ from: 'source', to: 'out', port: 'image' }],
+      };
+      const saved = serializeGraph(graph, manifestFor(graph, BUILTIN_PATTERNS));
+      const parsed = parseGraph(saved);
+      expect(parsed.graph.nodes[0].patternId).toBe(id);
+      const diagnostics = graphDiagnostics(parsed.graph, BUILTIN_PATTERNS, parsed.dependencies);
+      expect(diagnostics.byNode.get('source'), id).toContain(`Missing pattern: ${id}`);
+      expect(diagnostics.byNode.get('source'), id).toContain(`Missing dependency: ${id}`);
+    }
   });
 
   test('compatibility ids keep their relative order; new ids follow in byte order', () => {
