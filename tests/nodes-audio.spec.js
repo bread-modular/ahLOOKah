@@ -209,6 +209,11 @@ test('endpoint selection, accessible mapping, drag-to-slider, range gestures, re
 test('palette uses edge scrollbar, equal row/search widths, overflow only, and drag-only creation', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 }); await page.goto('/?role=nodes');
   const palette = page.locator('.nodes-palette');
+  // The geometry probe below reads the palette, its search field and a row from
+  // a raw page.evaluate(); wait for the editor to mount before measuring so a
+  // slow startup cannot dereference a missing palette.
+  await expect(palette.getByLabel('Search patterns')).toBeVisible();
+  await expect(palette.locator('.nodes-pattern-list button').first()).toBeVisible();
   const geometry = () => page.evaluate(() => {
     const p = document.querySelector('.nodes-palette'), q = p.querySelector('input'), row = p.querySelector('.nodes-pattern-list button');
     return { search: q.getBoundingClientRect().width, row: row.getBoundingClientRect().width, overflow: p.scrollHeight > p.clientHeight, gutter: getComputedStyle(p).scrollbarGutter, overflowY: getComputedStyle(p).overflowY, listOverflow: getComputedStyle(p.querySelector('.nodes-pattern-list')).overflowY };
@@ -216,6 +221,10 @@ test('palette uses edge scrollbar, equal row/search widths, overflow only, and d
   await expect.poll(async () => (await geometry()).overflow).toBe(true);
   let g = await geometry(); expect(g.row).toBeCloseTo(g.search, 1); expect(g.gutter).toBe('auto'); expect(g.overflowY).toBe('auto'); expect(g.listOverflow).toBe('visible');
   await page.getByLabel('Search patterns').fill('checkerboard');
+  // The filter replaced the old rows: wait for the single Checkerboard row
+  // before re-measuring, otherwise the probe could read a stale row.
+  await expect(palette.locator('.nodes-pattern-row')).toHaveCount(1);
+  await expect(palette.locator('.nodes-pattern-row')).toContainText('Checkerboard');
   g = await geometry(); expect(g.overflow).toBe(false); expect(g.row).toBeCloseTo(g.search, 1);
   await page.locator('.nodes-pattern-list button').click(); await expect(page.locator('.nodes-node')).toHaveCount(1);
   await page.locator('.nodes-pattern-list button').dragTo(page.getByLabel('Graph workspace'), { targetPosition: { x: 80, y: 100 } });
