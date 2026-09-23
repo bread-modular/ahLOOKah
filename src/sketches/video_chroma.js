@@ -51,6 +51,7 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
   let isCaptureReady = false;
   let keyer;
   let elapsed = 0;
+  const fxMode = runtimeContext?.inputMode === 'fx';
   const audioControls = runtimeContext?.audioControls || null;
   const getFeatures = makeAudioFeatures();
 
@@ -59,6 +60,7 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
     varying vec2 vTexCoord;
     uniform sampler2D uTex;
     uniform vec2 uCover;
+    uniform float uFxMode;
     uniform float uTime;
     uniform float uSub;
     uniform float uMid;
@@ -91,10 +93,18 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
     void main() {
       vec2 uv = vTexCoord;
 
-      // Cover-map the capture onto the screen and mirror it (selfie view)
+      // Source: legacy cover crop + selfie mirror. FX: contain the graph image
+      // without a horizontal flip; both need a Y flip for canvas texture upload.
       vec2 tuv = 0.5 + (uv - 0.5) * uCover;
-      tuv = vec2(1.0 - tuv.x, 1.0 - tuv.y);
-      vec3 vid = texture2D(uTex, tuv).rgb;
+      if (uFxMode > 0.5 && (any(lessThan(tuv, vec2(0.0))) || any(greaterThan(tuv, vec2(1.0))))) {
+        gl_FragColor = vec4(0.0);
+        return;
+      }
+      tuv = vec2(uFxMode > 0.5 ? tuv.x : 1.0 - tuv.x, 1.0 - tuv.y);
+      vec4 texel = texture2D(uTex, tuv);
+      // Canvas uploads are premultiplied; unpremultiply only the FX sample so
+      // keying/colour calculations do not darken partially transparent inputs.
+      vec3 vid = uFxMode > 0.5 ? texel.rgb / max(texel.a, 0.00001) : texel.rgb;
       vec3 hsv = rgb2hsv(vid);
 
       // Hue-distance matte: pixels near the key hue become transparent
@@ -124,7 +134,9 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
       float spill = (1.0 - matte) * gate;
       col = mix(col, vec3(dot(col, vec3(0.333))), spill * 0.25);
 
-      gl_FragColor = vec4(col, 1.0);
+      // The key is composited over the selected background as before; in FX
+      // mode only the incoming image's coverage (including alpha) is retained.
+      gl_FragColor = vec4(col, uFxMode > 0.5 ? texel.a : 1.0);
     }
   `;
 
@@ -134,6 +146,9 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
     p.noStroke();
     keyer = p.createShader(FULLSCREEN_VERT, frag);
 
+    // A graph FX borrows a canvas; it must not even enter capture setup (a
+    // missing shared capture would otherwise fall back to p.createCapture).
+    if (fxMode) return;
     const constraints = {
       video: {
         deviceId: videoDeviceId ? { exact: videoDeviceId } : undefined,
@@ -143,7 +158,7 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
       audio: false,
     };
 
-    capture = runtimeContext?.createCapture(p, constraints, () => {
+    capture = runtimeContext?.createCapture?.(p, constraints, () => {
       isCaptureReady = true;
       runtimeContext?.reportMediaReady?.();
     }) || p.createCapture(constraints, () => {
@@ -153,66 +168,33 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
     capture.hide();
   };
 
-  function drawMigrated() {
-    const P = params || {};
-    const dt = Math.min(p.deltaTime || 16.667, 100) / 1000;
-    elapsed += dt;
-
-    p.background(0);
-    if (!isCaptureReady || !capture?.loadedmetadata || !capture?.width) return;
-
-    const controls = audioControls.read();
-    const C = { ...AUDIO_CONTROL_SCHEMA.neutral.continuous, ...(controls.continuous || {}) };
-    const bands = { sub: C.sub, mid: C.mid, high: C.high };
-
-    // Cover-crop scales so the capture fills the screen without stretching
-    const A = p.width / Math.max(1, p.height);
-    const T = capture.width / Math.max(1, capture.height);
-    const cover = A > T ? [1, T / A] : [A / T, 1];
-
-    p.shader(keyer);
-    keyer.setUniform('uTex', capture);
-    keyer.setUniform('uCover', cover);
-    keyer.setUniform('uTime', elapsed);
-    keyer.setUniform('uSub', bands.sub);
-    keyer.setUniform('uMid', bands.mid);
-    keyer.setUniform('uHigh', bands.high);
-    keyer.setUniform('uKeyHue', (((P.keyHue ?? 120) % 360) + 360) % 360 / 360);
-    keyer.setUniform('uTolerance', P.tolerance ?? 0.16);
-    keyer.setUniform('uSoftness', P.softness ?? 0.12);
-    keyer.setUniform('uBgMode', P.bgMode ?? 1);
-    keyer.setUniform('uBgHue', (((P.bgHue ?? 275) % 360) + 360) % 360 / 360);
-    keyer.setUniform('uBgSat', P.bgSat ?? 0.7);
-    keyer.setUniform('uBgBright', P.bgBright ?? 0.55);
-    keyer.setUniform('uAudioReact', P.audioReact ?? 1);
-    p.rect(0, 0, p.width, p.height);
+  function imageFrame() {
+    if (!fxMode) {
+      return isCaptureReady && capture?.loadedmetadata && capture?.width
+        ? { source: capture, width: capture.width, height: capture.height }
+        : null;
+    }
+    const frame = runtimeContext?.getImageInput?.();
+    // Only an actual, nonempty graph canvas is usable; never consult capture
+    // metadata or cache a borrowed frame across draws.
+    return frame?.source && frame.width > 0 && frame.height > 0
+      && frame.source.width === frame.width && frame.source.height === frame.height
+      ? frame : null;
   }
 
-  // Preserved raw-frame implementation for non-migrated/standalone callers.
-  function drawLegacy() {
-    const P = params || {};
-    const dt = Math.min(p.deltaTime || 16.667, 100) / 1000;
-    elapsed += dt;
-
-    p.background(0);
-    if (!isCaptureReady || !capture?.loadedmetadata || !capture?.width) return;
-
-    const frame = audio && audio.isStarted && typeof audio.getAnalysisFrame === 'function'
-      ? audio.getAnalysisFrame()
-      : null;
-    const measured = getFeatures(frame, P, dt);
-    const bands = frame
-      ? measured
-      : { sub: 0.16 + 0.12 * Math.sin(elapsed * 2.1), mid: 0.12, high: 0.08 };
-
-    // Cover-crop scales so the capture fills the screen without stretching
+  function drawEffect(frame, bands, P) {
     const A = p.width / Math.max(1, p.height);
-    const T = capture.width / Math.max(1, capture.height);
-    const cover = A > T ? [1, T / A] : [A / T, 1];
+    const T = frame.width / Math.max(1, frame.height);
+    // The source cover transform is unchanged. FX instead uses inverse
+    // contain scaling, with transparent bars outside the upstream image.
+    const fit = fxMode
+      ? (A > T ? [A / T, 1] : [1, T / A])
+      : (A > T ? [1, T / A] : [A / T, 1]);
 
     p.shader(keyer);
-    keyer.setUniform('uTex', capture);
-    keyer.setUniform('uCover', cover);
+    keyer.setUniform('uTex', frame.source);
+    keyer.setUniform('uCover', fit);
+    keyer.setUniform('uFxMode', fxMode ? 1 : 0);
     keyer.setUniform('uTime', elapsed);
     keyer.setUniform('uSub', bands.sub);
     keyer.setUniform('uMid', bands.mid);
@@ -229,8 +211,30 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
   }
 
   p.draw = () => {
-    if (audioControls) drawMigrated();
-    else drawLegacy();
+    const P = params || {};
+    const dt = Math.min(p.deltaTime || 16.667, 100) / 1000;
+    elapsed += dt;
+    if (fxMode) p.clear();
+    else p.background(0);
+    const frame = imageFrame();
+    if (!frame) return;
+
+    let bands;
+    if (audioControls) {
+      const controls = audioControls.read();
+      const C = { ...AUDIO_CONTROL_SCHEMA.neutral.continuous, ...(controls.continuous || {}) };
+      bands = { sub: C.sub, mid: C.mid, high: C.high };
+    } else {
+      // Preserved raw-frame analysis/idle mapping for standalone callers.
+      const analysis = audio && audio.isStarted && typeof audio.getAnalysisFrame === 'function'
+        ? audio.getAnalysisFrame()
+        : null;
+      const measured = getFeatures(analysis, P, dt);
+      bands = analysis
+        ? measured
+        : { sub: 0.16 + 0.12 * Math.sin(elapsed * 2.1), mid: 0.12, high: 0.08 };
+    }
+    drawEffect(frame, bands, P);
   };
 
   p.windowResized = () => p.resizeCanvas(p.windowWidth, p.windowHeight);

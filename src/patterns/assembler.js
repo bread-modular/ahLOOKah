@@ -80,6 +80,15 @@ function validateDescriptor(record, { discovered }) {
   if (pattern.camera !== undefined && typeof pattern.camera !== 'boolean') {
     fail(record, 'camera', 'must be a boolean when present.');
   }
+  if (pattern.fx !== undefined) {
+    if (!isRecord(pattern.fx)) fail(record, 'fx', 'must be an object with input: "image".');
+    for (const field of Reflect.ownKeys(pattern.fx)) {
+      if (field !== 'input') fail(record, `fx.${String(field)}`, 'is not supported.');
+    }
+    if (!Object.hasOwn(pattern.fx, 'input') || pattern.fx.input !== 'image') {
+      fail(record, 'fx.input', 'must be "image".');
+    }
+  }
   if (discovered && (typeof pattern.description !== 'string' || !pattern.description.length)) {
     fail(record, 'description', 'is required for new-style patterns and must be non-empty.');
   }
