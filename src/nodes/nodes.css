@@ -23,8 +23,8 @@
 /* Single-view editor: "Back to Main" leads the toolbar (both the hosted button
    and the legacy standalone link) and must never be pushed to the right edge. */
 .nodes-toolbar .nodes-back { margin-left:0; flex:none; white-space:nowrap; text-decoration:none; }
-/* The editor renders no status strip: guidance and errors never appear as a bar
-   (see data-status on .nodes-workspace). */
+/* No success strip; actionable failures use a compact, readable live alert. */
+.nodes-app .nodes-action-error { margin:0; padding:6px 18px; color:#ffb5a4; background:#2a1414; border-bottom:1px solid #6d2a2a; font-size:12px; overflow-wrap:anywhere; }
 .nodes-layout { display:grid; grid-template-columns:215px minmax(250px,1fr) 280px; min-height:0; flex:1; }
 .nodes-palette,.nodes-inspector { min-width:0; overflow:auto; padding:0 14px 20px; background:var(--panel-bg); }
 .nodes-palette { border-right:1px solid var(--border-gray); display:flex; flex-direction:column; }
@@ -85,8 +85,12 @@
 .nodes-inspector output { float:right; }
 .nodes-inspector > .btn { margin:5px 5px 5px 0; }
 .nodes-diagnostics p { color:#ff6b6b; }
-/* A failed Save/Reload is the one editor failure that must be readable on screen. */
-.nodes-toolbar .nodes-disk-error { flex-basis:100%; margin:0; color:#ffb5a4; font-size:12px; overflow-wrap:anywhere; }
+/* The invalid name lives beside its field; disk failures stay in the toolbar. */
+.nodes-toolbar :is(.nodes-disk-error,.nodes-name-error) { flex-basis:100%; margin:0; color:#ffb5a4; font-size:12px; overflow-wrap:anywhere; }
+.nodes-app .nodes-toolbar input[aria-invalid="true"],
+.nodes-app .nodes-toolbar input[aria-invalid="true"]:focus,
+.nodes-app .nodes-mapping-fields input[aria-invalid="true"],
+.nodes-app .nodes-mapping-fields input[aria-invalid="true"]:focus { border-color:#ff6b6b; }
 .nodes-workspace { overflow:hidden; touch-action:none; position:relative; background-color:var(--bg-dark); background-image:radial-gradient(var(--border-gray) 1px,transparent 1px); background-size:20px 20px; }
 .nodes-plane { position:absolute; transform-origin:0 0; }
 .nodes-wires { position:absolute; width:100%; height:100%; pointer-events:none; overflow:visible; }
@@ -189,6 +193,8 @@
 .nodes-inspector .param-head { justify-content:flex-start; }
 .nodes-inspector .param-head .param-value { margin-left:auto; }
 .nodes-mapping-fields label { flex:1; min-width:0; margin:8px 0; font-size:10px; }
+.nodes-mapping-fields .nodes-mapping-feedback { display:block; margin-top:4px; color:#cdb6ed; line-height:1.35; overflow-wrap:anywhere; }
+.nodes-mapping-fields .nodes-mapping-feedback.is-error { color:#ffb5a4; }
 .nodes-mapping-fields .btn { margin:3px 4px 0 0; }
 /* A mapping value is typed, never stepped: the browser's spinner arrows are
    removed and the field keeps symmetric padding now that no glyph sits in the
