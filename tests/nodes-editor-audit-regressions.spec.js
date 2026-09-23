@@ -17,10 +17,16 @@ const base = (nodes, edges = [], modulations = []) => ({ version: 1, name: 'Audi
 const select = (page, id) => page.locator(`[data-node-id="${id}"] .nodes-node-title`).click();
 const errorsOf = page => { const errors = []; page.on('pageerror', error => errors.push(error.message)); return errors; };
 
-async function openGraph(page, graph) {
+async function openGraph(page, graph, mediaMeta = null) {
   await page.goto('/?role=nodes');
-  const id = await page.evaluate(async graph => {
+  const id = await page.evaluate(async ({ graph, mediaMeta }) => {
     const { SKETCHES } = await import('/src/sketch-registry.js');
+    // Persisted media metadata (no blob needed) is enough for the registry to
+    // expose that pattern's descriptor — including its option parameters.
+    if (mediaMeta) {
+      localStorage.setItem('viz2_media_patterns', JSON.stringify(mediaMeta));
+      (await import('/src/media/media-registry.js')).registerMediaSketches(SKETCHES);
+    }
     const { manifestFor, serializeGraph } = await import('/src/nodes/portability.js');
     const { nodePatterns } = await import('/src/nodes/repository.js');
     const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('editor-audit-regressions', { create: true });
@@ -31,7 +37,7 @@ async function openGraph(page, graph) {
     await nodePatterns.link();
     // A link grants access; the file is added explicitly (as OPEN does).
     return (await nodePatterns.open('audit.nodes.json')).id;
-  }, graph);
+  }, { graph, mediaMeta });
   await page.goto(`/?role=nodes&graph=${encodeURIComponent(id)}`);
   await expect(page.getByLabel('Graph name')).toHaveValue(graph.name);
   return id;
@@ -235,3 +241,116 @@ test('F11: an arbitrary Output ID is selected and renders on initial open, Reloa
   await expect.poll(pixels).toEqual([255, 0, 0, 255]);
   expect(errors).toEqual([]);
 });
+
+// ---------------------------------------------------------------------------
+// Reset to default (double click). Inspector parameters behave like a photo
+// editor's sliders: double-clicking one parameter writes that parameter's own
+// sketch default through the same onChange path a drag uses, so the edit reaches
+// the draft, the live preview and the saved file — and nothing else moves.
+// ---------------------------------------------------------------------------
+
+// Solid Color's own defaults (hue .6, saturation .7, brightness .9) let each reset
+// be proved by a value the parameter did not already hold.
+const defaultColor = (id = 'red') => ({ id, type: 'pattern', patternId: 'solid-color', x: 40, y: 60,
+  params: { hue: 0.6, saturation: 0.7, brightness: 0.9, pulse: 0 } });
+const setSlider = (slider, value) => slider.evaluate((el, value) => {
+  el.value = value; el.dispatchEvent(new Event('input', { bubbles: true }));
+}, value);
+
+test('F12: double-clicking a parameter resets only that parameter to its default', async ({ page }) => {
+  const errors = errorsOf(page);
+  const id = await openGraph(page, base([defaultColor(), output()], [{ from: 'red', to: 'output', port: 'image' }]));
+  await select(page, 'red');
+  const pixels = () => page.getByTestId('node-preview').evaluate(c => [...c.getContext('2d').getImageData(240, 135, 1, 1).data]);
+  await expect.poll(async () => (await pixels())[3]).toBe(255);
+  const hue = page.locator('#param-nodes-red-hue'), saturation = page.locator('#param-nodes-red-saturation'),
+    brightness = page.locator('#param-nodes-red-brightness');
+  const readout = key => page.locator(`[data-param-target=${key}] .param-value`);
+  const baseline = await pixels();
+  await expect(hue).toHaveValue('0.6');
+  await expect(saturation).toHaveValue('0.7');
+  await expect(brightness).toHaveValue('0.9');
+  // Slider surface: both clicks land on the track near its left end, so the
+  // parameter is only back at its default because the reset ran last.
+  await setSlider(hue, '0');
+  await expect(readout('hue')).toHaveText('0.00');
+  await expect.poll(pixels).not.toEqual(baseline);
+  await hue.dblclick({ position: { x: 4, y: 9 } });
+  await expect(hue).toHaveValue('0.6');
+  await expect(readout('hue')).toHaveText('0.60');
+  await expect.poll(pixels).toEqual(baseline);
+  // Name surface: the label resets its own parameter.
+  await setSlider(saturation, '0.2');
+  await page.locator('[data-param-target=saturation] .param-head label').dblclick();
+  await expect(saturation).toHaveValue('0.7');
+  // Value surface: the readout resets its parameter and leaves the others alone.
+  await setSlider(brightness, '0');
+  await expect(readout('brightness')).toHaveText('0.00');
+  await readout('brightness').dblclick();
+  await expect(brightness).toHaveValue('0.9');
+  await expect(readout('brightness')).toHaveText('0.90');
+  await expect(hue).toHaveValue('0.6');
+  await expect(saturation).toHaveValue('0.7');
+  await expect.poll(pixels).toEqual(baseline);
+  // A reset is an ordinary edit: it is saved with the graph.
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  const saved = await diskGraph(page, id);
+  expect(saved.nodes.find(node => node.id === 'red').params).toMatchObject({ hue: 0.6, saturation: 0.7, brightness: 0.9 });
+  expect(errors).toEqual([]);
+});
+
+test('F12: a mapped parameter resets only its saved base value and keeps its mapping', async ({ page }) => {
+  const errors = errorsOf(page);
+  const id = await openGraph(page, base([defaultColor(), { id: 'audio', type: 'audio', band: 'bass', x: 50, y: 300 }, output()],
+    [{ from: 'red', to: 'output', port: 'image' }],
+    [{ from: 'audio', to: 'red', param: 'brightness', min: .2, max: .8, inputMin: 0, inputMax: 1 }]));
+  await select(page, 'red');
+  const row = page.locator('[data-param-target=brightness]');
+  const brightness = page.locator('#param-nodes-red-brightness');
+  await expect(brightness).toBeDisabled();
+  await expect(row).toHaveClass(/is-mapped/);
+  await setSlider(brightness, '0.5');
+  await expect(brightness).toHaveValue('0.5');
+  await page.getByRole('button', { name: 'Brightness mapping settings' }).click();
+  await expect(page.locator('.nodes-mapping-inline')).toContainText('Base: 0.5');
+  // The mapping's own surfaces keep their gestures: neither the overlay (drag and
+  // click to disclose) nor its number fields is a reset surface.
+  await page.getByLabel('Brightness Mapping min').dblclick();
+  await expect(brightness).toHaveValue('0.5');
+  await row.locator('.nodes-mapping-overlay').dblclick();
+  await expect(brightness).toHaveValue('0.5');
+  // The parameter's own name resets the saved base value; the mapping itself is
+  // left running, and the LIVE value still comes from the signal.
+  await row.locator('.param-head .param-value').dblclick();
+  await expect(brightness).toHaveValue('0.9');
+  await expect(row.locator('.nodes-mapping-overlay')).toHaveCount(1);
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  const saved = await diskGraph(page, id);
+  expect(saved.nodes.find(node => node.id === 'red').params.brightness).toBe(0.9);
+  expect(saved.modulations).toEqual([{ from: 'audio', to: 'red', param: 'brightness', min: .2, max: .8, inputMin: 0, inputMax: 1 }]);
+  expect(errors).toEqual([]);
+});
+
+test('F12: an option parameter resets from its name while its dropdown keeps its own clicks', async ({ page }) => {
+  const errors = errorsOf(page);
+  // Metadata alone is enough for the registry to expose a media pattern's
+  // descriptor, and its Scaling parameter is an option list, not a slider. No blob
+  // is stored: a missing file draws a placeholder instead of failing.
+  const id = await openGraph(page, base([
+    { id: 'clip', type: 'pattern', patternId: 'media-clip1', x: 40, y: 60, params: { scaleMode: 0, zoom: 0.5, panX: 0, panY: 0 } },
+    output(),
+  ], [{ from: 'clip', to: 'output', port: 'image' }]), [{ id: 'clip1', name: 'Stage Clips', kind: 'image' }]);
+  await select(page, 'clip');
+  const scaling = page.locator('[data-param-target=scaleMode] select.param-select');
+  await expect(scaling).toHaveValue('0');
+  await expect(page.locator('[data-param-target=scaleMode] .param-value')).toHaveText('Fit Width');
+  await page.locator('[data-param-target=scaleMode] .param-head label').dblclick();
+  await expect(scaling).toHaveValue('2');
+  await expect(page.locator('[data-param-target=scaleMode] .param-value')).toHaveText('Fit Screen');
+  // Only that parameter moved: the neighbouring sliders keep their values.
+  await expect(page.locator('#param-nodes-clip-zoom')).toHaveValue('0.5');
+  expect(errors).toEqual([]);
+});
+

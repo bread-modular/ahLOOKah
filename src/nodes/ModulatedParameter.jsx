@@ -99,6 +99,21 @@ export function ModulatedParameter({ node, def, value, onChange, mapping, readEf
     if (g?.part === 'box' && !g.moved) toggle();
   };
   const pointer = part => ({ onPointerDown: e => begin(e, part), onPointerMove: move, onPointerUp: end, onPointerCancel: () => { gesture.current = null; } });
+  // Double-clicking a parameter returns that one parameter to the source's
+  // default — the gesture a photo editor's sliders use. Only the parameter's own
+  // stored value is written, so a signal mapping survives untouched: the mapped
+  // slider's saved base value is what resets, never the mapping itself. Surfaces
+  // that already own their pointer gestures are left alone — the mapping overlay
+  // and its handles (drag / click to disclose), the mapping number fields, and the
+  // native option dropdown whose own double click opens its list — so a gesture on
+  // the parameter's name, value readout or slider resets that parameter, and the
+  // double click never selects the label text.
+  const resetGesture = e => {
+    if (def.default === undefined || value === def.default) return;
+    if (e.target.closest?.('select, .nodes-mapping-overlay, .nodes-mapping-fields')) return;
+    e.preventDefault();
+    onChange(def.default);
+  };
   const overlay = mapping && eligible && <div className="nodes-mapping-overlay" role="button" tabIndex={0}
     aria-label={`${def.label} mapping settings`} aria-expanded={showFields} aria-controls={showFields ? fieldsId : undefined}
     title={`Mapped from ${sourceLabel || 'a signal'} · drag the box to move the range or its handles to resize it; click or press Enter for the mapping controls`}
@@ -109,7 +124,7 @@ export function ModulatedParameter({ node, def, value, onChange, mapping, readEf
     <span className="nodes-mapping-handle" title="Drag signal 1 endpoint" style={{ left: `${percent(max)}%` }} {...pointer('max')} />
     <span className="nodes-mapping-live" data-testid={`mapping-live-${def.key}`} title={`LIVE ${effective}`} style={{ left: `${percent(effective)}%` }} />
   </div>;
-  return <div className={`nodes-modulated-param${mapping && eligible ? ' is-mapped' : ''}`} data-param-target={def.key} onDragOver={e => { if (e.dataTransfer.types.includes(SIGNAL_DRAG)) e.preventDefault(); }} onDrop={e => {
+  return <div className={`nodes-modulated-param${mapping && eligible ? ' is-mapped' : ''}`} data-param-target={def.key} onDoubleClick={resetGesture} onDragOver={e => { if (e.dataTransfer.types.includes(SIGNAL_DRAG)) e.preventDefault(); }} onDrop={e => {
     e.preventDefault(); e.stopPropagation(); const source = e.dataTransfer.getData(SIGNAL_DRAG); if (source.length <= 80) onMap(source, def);
   }}>
     <ParameterControl scope="nodes" id={node.id} def={def} value={value} onChange={onChange} disabled={!!mapping && eligible} mappingOverlay={overlay}
