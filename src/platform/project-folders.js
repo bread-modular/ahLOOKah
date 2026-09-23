@@ -87,12 +87,16 @@ async function rememberedIds() {
   } catch { return []; }
 }
 
-export async function recallProjectFolder(id) {
+export async function recallProjectFolder(id, { strict = false } = {}) {
   if (!validFolderId(id)) return null;
   try {
     const record = await storage(id);
     return record && typeof record === 'object' && !Array.isArray(record) ? record : null;
-  } catch { return null; }
+  } catch (error) {
+    // Import must distinguish an unavailable database from an unknown id.
+    if (strict) throw error;
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------

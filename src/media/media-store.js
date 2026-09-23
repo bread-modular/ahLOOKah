@@ -113,6 +113,7 @@ async function withStore(mode, run) {
     try {
       result = run(store);
     } catch (error) {
+      tx.abort(); // Do not commit an earlier clear/put after a synchronous failure.
       reject(error);
       return;
     }
@@ -186,9 +187,7 @@ function describeHandle(handle) {
 // Persist a media record. `handle` (FileSystemFileHandle) or `file`
 // (fallback File object). Handles/files are also cached in memory for the
 // session so activation never depends on an IndexedDB round-trip.
-export async function putMediaRecord(record) {
-  if (record.handle) liveSources.set(record.id, { handle: record.handle });
-  else if (record.file) liveSources.set(record.id, { file: record.file });
+export async function putMediaRecord(record, { strict = false } = {}) {
   const persisted = {
     id: record.id,
     name: record.name,
@@ -208,12 +207,16 @@ export async function putMediaRecord(record) {
       store.put(persisted);
     });
   } catch (error) {
-    // Not every "handle" survives the structured clone (test mocks, exotic
-    // hosts). Keep at least the metadata so the pattern list still persists.
+    // Ordinary file picking supports uncloneable host handles. A project import
+    // must persist the actual handle or roll back, never report a memory-only
+    // relink as durable. Quota/transaction failures are not clone limitations.
+    if (strict || error?.name !== 'DataCloneError') throw error;
     await withStore('readwrite', (store) => {
       store.put({ ...persisted, handle: null, blob: null });
     });
   }
+  if (record.handle) liveSources.set(record.id, { handle: record.handle });
+  else if (record.file) liveSources.set(record.id, { file: record.file });
   return record;
 }
 

@@ -49,7 +49,7 @@ export function createSignalConsumers(store, role = 'preview', audioNodes = []) 
         audioInput: { ...route },
       };
       store?.upsertSlot(descriptor);
-      const entry = { descriptor, binding: store?.createBinding(descriptor.runtimeId) };
+      const entry = { descriptor, binding: store?.createBinding(descriptor.runtimeId), active: true };
       entriesByKey.set(key, entry);
       descriptors.push(entry);
       added = true;
@@ -59,7 +59,10 @@ export function createSignalConsumers(store, role = 'preview', audioNodes = []) 
   addNodes([...audioNodes].sort((a, b) => (isDefaultAudioRoute(a) ? -1 : 0) - (isDefaultAudioRoute(b) ? -1 : 0)));
   // Legacy no-argument reads prefer the default route even if it was added
   // later by a selected, previously disconnected preview branch.
-  const defaultEntry = () => entriesByKey.get(audioRouteKey({ deviceId: null, channel: 'mono' })) || descriptors[0] || null;
+  const defaultEntry = () => {
+    const entry = entriesByKey.get(audioRouteKey({ deviceId: null, channel: 'mono' }));
+    return entry?.active ? entry : descriptors.find(entry => entry.active) || null;
+  };
   const entryFor = (nodeId) => {
     if (nodeId == null) return defaultEntry();
     const key = nodeRoutes.get(nodeId);
@@ -69,18 +72,34 @@ export function createSignalConsumers(store, role = 'preview', audioNodes = []) 
   let disposed = false;
   return {
     addNodes(nodes) { return !disposed && addNodes(nodes); },
+    // Lazy preview activation must not keep every previously inspected pinned
+    // device in the owner's capture plan. Retain route ids/bindings for revisits,
+    // but retire inactive slots so they stop consuming the input-pool budget.
+    setActiveNodes(nodeIds) {
+      if (disposed) return false;
+      const activeKeys = new Set([...nodeIds].map(id => nodeRoutes.get(id)));
+      let changed = false;
+      for (const [key, entry] of entriesByKey) {
+        const active = activeKeys.has(key);
+        if (active === entry.active) continue;
+        entry.active = active; changed = true;
+        if (active) store?.upsertSlot(entry.descriptor);
+        else store?.retireSlots([entry.descriptor.runtimeId]);
+      }
+      return changed;
+    },
     read(nodeId = null) {
       if (disposed) return {};
       // Unknown node ids never fall through to another node's route; only a
       // legacy no-argument read resolves to the default route.
       if (nodeId != null && !nodeRoutes.has(nodeId)) return {};
       const entry = entryFor(nodeId) || defaultEntry();
-      return entry?.binding?.read()?.continuous || {};
+      return entry?.active ? entry.binding?.read()?.continuous || {} : {};
     },
     getNodeStatus(nodeId) {
       if (disposed) return null;
       const entry = entryFor(nodeId);
-      if (!entry) return null;
+      if (!entry?.active) return null;
       const state = entry.binding?.getState();
       if (!state) return null;
       return {
@@ -93,7 +112,7 @@ export function createSignalConsumers(store, role = 'preview', audioNodes = []) 
     },
     getAudioSlotDescriptors(roleOverride = role) {
       if (disposed) return [];
-      return descriptors.map(({ descriptor }) => ({ ...descriptor, role: roleOverride }));
+      return descriptors.filter(entry => entry.active).map(({ descriptor }) => ({ ...descriptor, role: roleOverride }));
     },
     _controlFreshMarkers: () => [],
     dispose() {

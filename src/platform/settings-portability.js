@@ -1,5 +1,5 @@
 import { collectFolderReferences, applyFolderReferences } from './folder-portability.js';
-import { sanitizeFolderReferences, FOLDER_REFERENCES_KEY } from './folderReferences.js';
+import { sanitizeFolderReferences, FOLDER_REFERENCES_KEY, mediaBelongsToFolder } from './folderReferences.js';
 import { PROJECT_FOLDERS_KEY } from './project-folders.js';
 import { createHandleStorage } from './handleStorage.js';
 import { scriptStorage } from '../custom-scripts/storage.js';
@@ -364,13 +364,13 @@ async function relinkMediaStrict(folder) {
   if (!folder || typeof folder.getFileHandle !== 'function') return 0;
   let count = 0;
   for (const record of await listMediaRecords()) {
-    if (record.handle || !record.fileName || record.folderName !== folder.name) continue;
+    if (record.handle || !mediaBelongsToFolder(record, folder.name)) continue;
     let handle;
     try {
       handle = await folder.getFileHandle(record.fileName);
       await handle.getFile();
     } catch { continue; }
-    await putMediaRecord({ ...record, handle });
+    await putMediaRecord({ ...record, handle }, { strict: true });
     count += 1;
   }
   return count;
