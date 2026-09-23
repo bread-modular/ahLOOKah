@@ -88,7 +88,7 @@ setup({state, onCleanup, signal}) {
 
 ### Image-input FX (opt-in graph contract)
 
-`fx: { input: 'image' }` is **capability metadata**, not a mode switch. Existing scripts, standalone playback and old graph instances remain sources; `camera: true` retains its source-mode behavior. Only a graph instance explicitly set to `runtime.inputMode === 'fx'` may receive an upstream image, and only if its registered descriptor declares this capability. The custom-script adapter accepts the mode/provider now; the graph model, scheduler, camera-readiness policy and editor still need integration before FX wiring is available in the app. Do not expect these examples to gain an image input in the current editor just by registering them.
+`fx: { input: 'image' }` is **capability metadata**, not a mode switch. Existing scripts, standalone playback and old graph instances remain sources; `camera: true` retains its source-mode behavior. In the Node Patterns editor, an FX-capable script appears with a ◇ FX badge and **Add as FX** action; alternatively add it as Source and choose **FX** in its inspector. Wire a Pattern or Camera image output to its image input, then wire its output onward. Only a graph instance explicitly set to `runtime.inputMode === 'fx'` receives that upstream image. Camera nodes are preview-restricted and capture only on the output screen.
 
 For each synchronous FX draw, the host calls `runtime.getImageInput()` and exposes the result as `ctx.imageInput`. `null` means disconnected, pending or otherwise unusable input. A non-null frame has this shape:
 
@@ -99,7 +99,7 @@ For each synchronous FX draw, the host calls `runtime.getImageInput()` and expos
 - `source` is the **graph-owned HTMLCanvasElement**, not a camera/video wrapper or cross-context WebGL texture. `width`/`height` are its positive pixel dimensions. `frameId` identifies the graph evaluation, `timestampMs` is monotonic render time, and `generation` invalidates old views on rebuild, resize or disposal. These values describe an image, not the capture-side `audio.update({ frame })` analysis data.
 - The graph owns and pins input for the current draw/tick. Read or sample it synchronously; do **not** resize, draw into, remove, dispose, mutate or retain the canvas/view for async work or future draws. Make an effect-owned copy only for intentional, bounded history. `ctx.imageInput` is `null` outside the draw and on dispose, but your own stored reference cannot be revoked by the adapter. Keep output distinct from input to avoid feedback.
 - In FX mode `ctx.createCapture()` and `p.createCapture()` explicitly throw, including when the input is absent. Never write `ctx.createCapture(...) || p.createCapture(...)` as an FX fallback. Source-mode capture is unchanged; only an upstream camera-source node should acquire a camera for a camera → FX chain. These guards cover the supported VizCore paths, **not** arbitrary trusted JavaScript calling browser media APIs directly.
-- Handle `null` by clearing to transparent, not opening a camera or retaining an old output. The integrated graph host must also diagnose missing/unsupported input and clear failed outputs. FX preview should not request an effect-owned camera; an upstream camera remains subject to the host's normal camera restrictions. `preload` and `setup` must not assume a frame exists.
+- Handle `null` by clearing to transparent, not opening a camera or retaining an old output. The graph host diagnoses missing/unsupported input and clears failed outputs; saved FX mode and wires remain for repair if a script reload removes its capability. FX preview does not request an effect-owned camera; an upstream Camera node remains unavailable in the editor and works on the output screen. `preload` and `setup` must not assume a frame exists.
 
 **Canvas2D source/FX example** (the source branch is deliberately useful on its own):
 
@@ -179,7 +179,7 @@ api.create({
 });
 ```
 
-The scripting API remains **version 1**: these optional fields are additive. Older app versions reject unknown `fx` definitions rather than guessing what to render; a failing reload keeps the last-good registration. A successful reload that removes `fx` changes the registry capability, but the graph host must preserve saved FX mode/wires and report an unavailable capability instead of switching them to cameras. Cross-window generations independently validate the new definition, then recreate affected renderers.
+The scripting API remains **version 1**: these optional fields are additive. Older app versions reject unknown `fx` definitions rather than guessing what to render; a failing reload keeps the last-good registration. A successful reload that removes `fx` changes the registry capability; the graph host preserves saved FX mode/wires and reports an unavailable capability instead of switching them to cameras. Cross-window generations independently validate the new definition, then recreate affected renderers.
 
 ### Existing VizCore capabilities (not full p5)
 

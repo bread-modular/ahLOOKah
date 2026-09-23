@@ -104,7 +104,8 @@
         <p>Drag a row onto the canvas — clicking a palette row deliberately does nothing, so a stray click can never create a node:</p>
 
         <ul>
-          <li><strong>Patterns</strong> — the searchable list at the bottom of the palette. Every built-in sketch, media pattern, custom script and projection pattern can become a source.</li>
+          <li><strong>Patterns</strong> — the searchable list at the bottom of the palette. Every built-in sketch, media pattern, custom script and projection pattern can become a source. A ◇ FX badge marks image-input-capable patterns; <strong>FX only</strong> filters the list, and <strong>Add as FX</strong> adds one with an image input. Dragging a pattern still adds it as a Source by default; select it and change <strong>Pattern input mode</strong> in the inspector to switch.</li>
+          <li><strong>+ Camera</strong> — drag an image source onto the canvas. Select <strong>Global input (Settings)</strong> or pin a specific camera in the inspector; connect its output to FX, Blend, Color or Output. Only the output screen owns capture.</li>
           <li><strong>+ Blend</strong> — composites two images (base and layer).</li>
           <li><strong>+ Color</strong> — filters an image: saturation, brightness, contrast and hue shift, applied in that fixed order. The identity defaults copy the input pixel-for-pixel, alpha included.</li>
           <li><strong>+ Script</strong> — a number from the graph’s inputs or the audio bands.</li>
@@ -123,7 +124,9 @@
             <tr><th>Node</th><th>Inputs</th><th>Output</th></tr>
           </thead>
           <tbody>
-            <tr><td><strong>Pattern</strong></td><td>—</td><td>Image</td></tr>
+            <tr><td><strong>Pattern (Source)</strong></td><td>—</td><td>Image</td></tr>
+            <tr><td><strong>Pattern (FX)</strong></td><td>image</td><td>Image</td></tr>
+            <tr><td><strong>Camera</strong></td><td>—</td><td>Image</td></tr>
             <tr><td><strong>Blend</strong></td><td>base, layer</td><td>Image</td></tr>
             <tr><td><strong>Color</strong></td><td>image</td><td>Image</td></tr>
             <tr><td><strong>Output</strong></td><td>image</td><td>—</td></tr>
@@ -133,9 +136,10 @@
         </table>
 
         <p><strong>Blend</strong> offers Normal, Multiply, Screen, Overlay, Difference and Add, with an opacity for the layer. Blend and Color output real pixels, not CSS overlays, so their results can feed further blends and filters. Exactly one <strong>Output</strong> node exists; the branch that reaches it is what plays.</p>
+        <p><strong>Image FX chain:</strong> connect a procedural Pattern Source to <strong>Video Chroma Key</strong> in FX mode, then to <strong>Video Dots GPU</strong> in FX mode, then Output. Each FX node processes its connected image rather than opening its own camera. A custom script declaring <code>fx: { input: 'image' }</code> can join the same chain; a disconnected or unsupported FX input is flagged for repair. Switching a wired FX node back to Source asks before removing its image wire.</p>
 
         <div class="callout warn">
-          <p><strong>Camera sources</strong> cannot render from the editor — camera capture belongs to the output window. A camera node is clearly labelled in the palette and shows an explanation in the preview instead of a second capture.</p>
+          <p><strong>Camera sources</strong> cannot render from the editor — camera capture belongs to the output window. The Camera node shows an explanation instead of a second capture. Global follows the Settings camera when the output graph is recreated after a Settings change; pinned device IDs stay pinned, may be unavailable on another machine and need reselection there. A Camera → FX chain is visible only on the output screen.</p>
         </div>
 
         <h2>Script nodes</h2>
@@ -184,7 +188,7 @@ return clamp(eased * 0.8, 0, 1);</code></pre>
         <p>Back in the main app a node pattern behaves like any other: click it to play live, <kbd>Shift</kbd>-click to stage it in CUE, drag it to a pad slot, or use it in a merge. Same-origin tabs stay in sync: a confirmed overwrite updates the same pattern id, and a folder refresh is broadcast to the others.</p>
 
         <h2>The pattern file</h2>
-        <p>Files are JSON (<code>format: "viz2-nodes"</code>, version 1) holding the graph, parameter snapshots and a dependency manifest with three independent kinds of link: image <code>edges</code>, scalar <code>signalEdges</code> and terminal <code>modulations</code>.</p>
+        <p>Files are JSON (<code>format: "viz2-nodes"</code>): existing source-only graphs remain version 1; adding a Camera node or FX-mode Pattern saves version 2. Files hold the graph, parameter snapshots and a dependency manifest with three independent kinds of link: image <code>edges</code>, scalar <code>signalEdges</code> and terminal <code>modulations</code>.</p>
 
         <ul>
           <li><strong>Never embedded</strong> — media bytes, file handles, script sources and other external assets. The destination needs the same dependencies, and a changed dependency is detected rather than silently substituted.</li>
