@@ -81,6 +81,25 @@ test('New, Open and Edit share one internal editor view with no rail or popups',
   await page.screenshot({ path: '/tmp/nodes-internal-editor.png' });
 });
 
+test('the embedded editor reads Ctrl/Cmd+A as canvas select-all, never as UI text selection', async ({ page }) => {
+  await page.goto('/');
+  await seed(page);
+  await openFile(page);
+  const selected = () => editor(page).locator('.nodes-node.is-selected').evaluateAll(nodes => nodes.map(n => n.dataset.nodeId));
+  // Focus still belongs to the main-panel button that opened the session, so the
+  // shortcut has to be read from the window rather than from the editor root.
+  await page.keyboard.press('Control+a');
+  await expect.poll(selected).toEqual(['color', 'audio']);
+  await expect(editor(page).locator('[data-node-id=output]')).not.toHaveClass(/is-selected/);
+  expect(await page.evaluate(() => window.getSelection().toString())).toBe('');
+  // Delete removes the group from the embedded canvas and keeps the Output.
+  await editor(page).getByLabel('Graph workspace').focus();
+  await page.keyboard.press('Delete');
+  await expect(editor(page).locator('.nodes-node')).toHaveCount(1);
+  await expect(editor(page).locator('[data-node-id=output]')).toHaveClass(/is-selected/);
+  await expect(mainPanel(page)).toHaveClass(/is-inactive/);
+});
+
 test('leaving a dirty editor confirms; cancel keeps the draft and accept discards it', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'New Node Pattern', exact: true }).click();

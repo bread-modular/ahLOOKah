@@ -1057,6 +1057,79 @@ test('ports and canvas controls do not marquee; port connections retain inspecto
   await expect(page.locator('.nodes-selection-box')).toHaveCount(0);
 });
 
+for (const modifier of ['Control', 'Meta']) {
+  test(`${modifier}+A selects every node except the Output and never the UI text`, async ({ page }) => {
+    await page.setViewportSize({ width: 1536, height: 960 });
+    await page.goto('/?role=nodes'); await openFixture(page);
+    // A freshly opened editor has no focused field, so the shortcut has to be
+    // read before the operator ever clicks the canvas.
+    await page.keyboard.press(`${modifier}+a`);
+    await expect.poll(() => selectedIds(page)).toEqual(['red', 'green', 'mix']);
+    await expect(page.locator('[data-node-id=output]')).not.toHaveClass(/is-selected/);
+    // It must not be Chrome's own select-all over the toolbar and palette text.
+    expect(await page.evaluate(() => window.getSelection().toString())).toBe('');
+    // A busy disk write ignores the group edit but still refuses the browser's
+    // select-all, and a held shortcut repeats without ever selecting UI text.
+    await nodeTitle(page, 'red').click();
+    expect(await selectedIds(page)).toEqual(['red']);
+    await page.evaluate(async () => {
+      const { nodePatterns } = await import('/src/nodes/repository.js');
+      window.__realSave = nodePatterns.save.bind(nodePatterns);
+      nodePatterns.save = async (...args) => { await new Promise(resolve => { window.releaseSave = resolve; }); return window.__realSave(...args); };
+    });
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(page.getByLabel('Graph name')).toBeDisabled();
+    await page.keyboard.press(`${modifier}+a`);
+    expect(await selectedIds(page)).toEqual(['red']);
+    expect(await page.evaluate(() => window.getSelection().toString())).toBe('');
+    await page.keyboard.down(modifier);
+    await page.keyboard.down('a'); await page.keyboard.down('a');
+    expect(await page.evaluate(() => window.getSelection().toString())).toBe('');
+    await page.keyboard.up('a'); await page.keyboard.up(modifier);
+    await page.evaluate(() => window.releaseSave());
+    await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+    await page.evaluate(async () => {
+      const { nodePatterns } = await import('/src/nodes/repository.js');
+      nodePatterns.save = window.__realSave;
+    });
+    // Only a fresh, non-repeated press acts: the busy press and the held repeats
+    // left the selection exactly as it was.
+    expect(await selectedIds(page)).toEqual(['red']);
+    await page.keyboard.press(`${modifier}+a`);
+    await expect.poll(() => selectedIds(page)).toEqual(['red', 'green', 'mix']);
+    // Delete owns the whole group; the structural Output survives it. Because
+    // Ctrl+A never selected the Output, this is an ordinary edit and the
+    // workspace stays quiet instead of reporting a protected node.
+    await page.getByLabel('Graph workspace').focus();
+    await page.keyboard.press('Delete');
+    await expect(page.locator('.nodes-node')).toHaveCount(1);
+    await expect(page.locator('.nodes-wires path')).toHaveCount(0);
+    await expect(page.locator('[data-node-id=output]')).toHaveClass(/is-selected/);
+    await expect(page.locator('.nodes-workspace')).not.toHaveAttribute('data-status', /.+/);
+    await page.keyboard.press('Delete');
+    await expect(page.locator('.nodes-node')).toHaveCount(1);
+    await expect(page.locator('.nodes-workspace')).toHaveAttribute('data-status', /Output is required and cannot be deleted/);
+    // A focused field keeps its own select-all and changes no node selection.
+    // Chromium binds text select-all to Control on Linux, so only that modifier
+    // is expected to select the input's text; the node selection must not change
+    // under either.
+    const name = page.getByLabel('Graph name');
+    await name.click();
+    await page.keyboard.press(`${modifier}+a`);
+    expect(await selectedIds(page)).toEqual(['output']);
+    if (modifier === 'Control') expect(await name.evaluate(el => el.selectionStart === 0 && el.selectionEnd === el.value.length && el.value.length > 0)).toBe(true);
+    // The Output is still the only node once the group delete reaches disk.
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+    const saved = JSON.parse(await diskText(page));
+    expect(saved.graph.nodes.map(n => n.id)).toEqual(['output']);
+    expect(saved.graph.edges).toEqual([]);
+    await page.reload();
+    await expect(page.locator('.nodes-node')).toHaveCount(1);
+    await expect(page.locator('[data-node-id=output]')).toHaveClass(/is-selected/);
+  });
+}
+
 test('Save and Reload reuse actual Open Screen compact dimensions', async ({ page, context }) => {
   const main = await context.newPage(); await main.goto('/');
   const metrics = locator => locator.evaluate(el => { const s = getComputedStyle(el); return { height: el.getBoundingClientRect().height, padding: s.padding, fontSize: s.fontSize, lineHeight: s.lineHeight, radius: s.borderRadius }; });
