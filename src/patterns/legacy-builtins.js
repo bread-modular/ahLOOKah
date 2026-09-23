@@ -897,6 +897,7 @@ export const LEGACY_BUILTINS = [
     ],
     group: 'Video FX',
     camera: true,
+    fx: { input: 'image' },
   }, // 50
   {
     id: 'video-pixelate',
@@ -914,6 +915,7 @@ export const LEGACY_BUILTINS = [
     ],
     group: 'Video FX',
     camera: true,
+    fx: { input: 'image' },
   }, // 51
   {
     id: 'video-trails',
@@ -930,6 +932,7 @@ export const LEGACY_BUILTINS = [
     ],
     group: 'Video FX',
     camera: true,
+    fx: { input: 'image' },
   }, // 52
   {
     id: 'glitch-rgb-split',
@@ -1026,6 +1029,7 @@ export const LEGACY_BUILTINS = [
     ],
     group: 'Video FX',
     camera: true,
+    fx: { input: 'image' },
   }, // 59
   // Preserve all 50 older entries above (including Checkerboard and Ion Tempest).
   ...REPLACEMENT_PATTERNS,

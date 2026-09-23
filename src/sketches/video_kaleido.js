@@ -55,6 +55,7 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
   let kaleido;
   let elapsed = 0;
   let spin = 0;
+  const fxMode = runtimeContext?.inputMode === 'fx';
   const audioControls = runtimeContext?.audioControls || null;
   const getFeatures = makeAudioFeatures();
 
@@ -64,6 +65,7 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
     uniform sampler2D uTex;
     uniform vec2 uResolution;
     uniform vec2 uTexScale;
+    uniform float uFxMode;
     uniform float uTime;
     uniform float uSub;
     uniform float uMid;
@@ -96,16 +98,22 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
 
       vec2 q = vec2(cos(a), sin(a)) * r;
       vec2 tuv = 0.5 + q * uTexScale;
-      tuv = vec2(1.0 - tuv.x, 1.0 - tuv.y);
-
-      vec3 col = texture2D(uTex, tuv).rgb;
+      // The camera retains its selfie mirror; a graph image is not mirrored.
+      // Canvas uploads need the same Y flip in either mode.
+      if (uFxMode > 0.5 && (any(lessThan(tuv, vec2(0.0))) || any(greaterThan(tuv, vec2(1.0))))) {
+        gl_FragColor = vec4(0.0);
+        return;
+      }
+      tuv = vec2(uFxMode > 0.5 ? tuv.x : 1.0 - tuv.x, 1.0 - tuv.y);
+      vec4 texel = texture2D(uTex, tuv);
+      vec3 col = uFxMode > 0.5 ? texel.rgb / max(texel.a, 0.00001) : texel.rgb;
 
       // Subtle shimmer along the folds + soft corner falloff
       col *= 0.95 + 0.05 * cos((a / seg) * 6.2831853 + uTime * 2.0);
       float d = length((uv - 0.5) * vec2(aspect, 1.0));
       col *= 0.8 + 0.2 * (1.0 - smoothstep(0.55, 1.3, d));
 
-      gl_FragColor = vec4(col, 1.0);
+      gl_FragColor = vec4(col, uFxMode > 0.5 ? texel.a : 1.0);
     }
   `;
 
@@ -115,6 +123,8 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
     p.noStroke();
     kaleido = p.createShader(FULLSCREEN_VERT, frag);
 
+    // FX receives a borrowed graph canvas and must never wait for a camera.
+    if (fxMode) return;
     const constraints = {
       video: {
         deviceId: videoDeviceId ? { exact: videoDeviceId } : undefined,
@@ -124,7 +134,7 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
       audio: false,
     };
 
-    capture = runtimeContext?.createCapture(p, constraints, () => {
+    capture = runtimeContext?.createCapture?.(p, constraints, () => {
       isCaptureReady = true;
       runtimeContext?.reportMediaReady?.();
     }) || p.createCapture(constraints, () => {
@@ -134,72 +144,37 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
     capture.hide();
   };
 
-  function drawMigrated() {
-    const P = params || {};
-    const dt = Math.min(p.deltaTime || 16.667, 100) / 1000;
-    elapsed += dt;
-
-    p.background(0);
-    if (!isCaptureReady || !capture?.loadedmetadata || !capture?.width) return;
-
-    const controls = audioControls.read();
-    const C = { ...AUDIO_CONTROL_SCHEMA.neutral.continuous, ...(controls.continuous || {}) };
-
-    // Cover-fit mapping from screen space to texture coords
-    const A = p.width / Math.max(1, p.height);
-    const T = capture.width / Math.max(1, capture.height);
-    const texScale = A > T ? [1 / A, T / A] : [1 / T, 1];
-
-    p.shader(kaleido);
-    kaleido.setUniform('uTex', capture);
-    kaleido.setUniform('uResolution', [p.width, p.height]);
-    kaleido.setUniform('uTexScale', texScale);
-    kaleido.setUniform('uTime', elapsed);
-    kaleido.setUniform('uSub', C.sub);
-    kaleido.setUniform('uMid', C.mid);
-    kaleido.setUniform('uSegments', Math.max(1, Math.round(P.segments ?? 6)));
-    kaleido.setUniform('uSpin', C.spin);
-    kaleido.setUniform('uZoom', Math.max(0.05, P.zoom ?? 1));
-    kaleido.setUniform('uCx', P.cx ?? 0);
-    kaleido.setUniform('uCy', P.cy ?? 0);
-    kaleido.setUniform('uAudioZoom', P.audioZoom ?? 1);
-    p.rect(0, 0, p.width, p.height);
+  function imageFrame() {
+    if (!fxMode) {
+      return isCaptureReady && capture?.loadedmetadata && capture?.width
+        ? { source: capture, width: capture.width, height: capture.height }
+        : null;
+    }
+    const frame = runtimeContext?.getImageInput?.();
+    return frame?.source && frame.width > 0 && frame.height > 0
+      && frame.source.width === frame.width && frame.source.height === frame.height
+      ? frame : null;
   }
 
-  // Preserved raw-frame implementation for non-migrated/standalone callers.
-  function drawLegacy() {
-    const P = params || {};
-    const dt = Math.min(p.deltaTime || 16.667, 100) / 1000;
-    elapsed += dt;
-
-    p.background(0);
-    if (!isCaptureReady || !capture?.loadedmetadata || !capture?.width) return;
-
-    const frame = audio && audio.isStarted && typeof audio.getAnalysisFrame === 'function'
-      ? audio.getAnalysisFrame()
-      : null;
-    const measured = getFeatures(frame, P, dt);
-    const bands = frame
-      ? measured
-      : { sub: 0.14 + 0.1 * Math.sin(elapsed * 1.9), mid: 0.1, high: 0.06 };
-
-    const speed = P.speed ?? 0.6;
-    spin += dt * speed * (0.55 + bands.sub * 1.5);
-
-    // Cover-fit mapping from screen space to texture coords
+  function drawEffect(frame, bands, currentSpin, P) {
     const A = p.width / Math.max(1, p.height);
-    const T = capture.width / Math.max(1, capture.height);
-    const texScale = A > T ? [1 / A, T / A] : [1 / T, 1];
+    const T = frame.width / Math.max(1, frame.height);
+    // q is aspect-corrected screen space. The source keeps its cover crop;
+    // FX maps that space into a contained image with transparent outer wedges.
+    const texScale = fxMode
+      ? (A > T ? [1 / T, 1] : [1 / A, T / A])
+      : (A > T ? [1 / A, T / A] : [1 / T, 1]);
 
     p.shader(kaleido);
-    kaleido.setUniform('uTex', capture);
+    kaleido.setUniform('uTex', frame.source);
     kaleido.setUniform('uResolution', [p.width, p.height]);
     kaleido.setUniform('uTexScale', texScale);
+    kaleido.setUniform('uFxMode', fxMode ? 1 : 0);
     kaleido.setUniform('uTime', elapsed);
     kaleido.setUniform('uSub', bands.sub);
     kaleido.setUniform('uMid', bands.mid);
     kaleido.setUniform('uSegments', Math.max(1, Math.round(P.segments ?? 6)));
-    kaleido.setUniform('uSpin', spin);
+    kaleido.setUniform('uSpin', currentSpin);
     kaleido.setUniform('uZoom', Math.max(0.05, P.zoom ?? 1));
     kaleido.setUniform('uCx', P.cx ?? 0);
     kaleido.setUniform('uCy', P.cy ?? 0);
@@ -208,8 +183,34 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
   }
 
   p.draw = () => {
-    if (audioControls) drawMigrated();
-    else drawLegacy();
+    const P = params || {};
+    const dt = Math.min(p.deltaTime || 16.667, 100) / 1000;
+    elapsed += dt;
+    if (fxMode) p.clear();
+    else p.background(0);
+    const image = imageFrame();
+    if (!image) return;
+
+    let bands, currentSpin;
+    if (audioControls) {
+      const controls = audioControls.read();
+      const C = { ...AUDIO_CONTROL_SCHEMA.neutral.continuous, ...(controls.continuous || {}) };
+      bands = C;
+      currentSpin = C.spin;
+    } else {
+      // Keep standalone source analysis and idle spin; FX uses the same
+      // render-side controls without ever consulting capture metadata.
+      const analysis = audio && audio.isStarted && typeof audio.getAnalysisFrame === 'function'
+        ? audio.getAnalysisFrame()
+        : null;
+      const measured = getFeatures(analysis, P, dt);
+      bands = analysis
+        ? measured
+        : { sub: 0.14 + 0.1 * Math.sin(elapsed * 1.9), mid: 0.1, high: 0.06 };
+      spin += dt * (P.speed ?? 0.6) * (0.55 + bands.sub * 1.5);
+      currentSpin = spin;
+    }
+    drawEffect(image, bands, currentSpin, P);
   };
 
   p.windowResized = () => p.resizeCanvas(p.windowWidth, p.windowHeight);

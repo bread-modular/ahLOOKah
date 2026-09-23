@@ -46,6 +46,7 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
   let isCaptureReady = false;
   let mosaic;
   let elapsed = 0;
+  const fxMode = runtimeContext?.inputMode === 'fx';
   const audioControls = runtimeContext?.audioControls || null;
   const getFeatures = makeAudioFeatures();
 
@@ -55,6 +56,7 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
     uniform sampler2D uTex;
     uniform vec2 uResolution;
     uniform vec2 uCover;
+    uniform float uFxMode;
     uniform float uBlockSize;
     uniform float uLevels;
     uniform float uTint;
@@ -84,8 +86,14 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
       vec2 uv = cell / uResolution;
 
       vec2 tuv = 0.5 + (uv - 0.5) * uCover;
-      tuv = vec2(1.0 - tuv.x, 1.0 - tuv.y);
-      vec3 c = texture2D(uTex, tuv).rgb;
+      if (uFxMode > 0.5 && (any(lessThan(tuv, vec2(0.0))) || any(greaterThan(tuv, vec2(1.0))))) {
+        gl_FragColor = vec4(0.0);
+        return;
+      }
+      // Preserve the source selfie mirror; don't add one to borrowed images.
+      tuv = vec2(uFxMode > 0.5 ? tuv.x : 1.0 - tuv.x, 1.0 - tuv.y);
+      vec4 texel = texture2D(uTex, tuv);
+      vec3 c = uFxMode > 0.5 ? texel.rgb / max(texel.a, 0.00001) : texel.rgb;
 
       // Optional color quantization (posterize)
       if (uLevels > 1.5) {
@@ -100,7 +108,7 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
         c = hsv2rgb(hsv);
       }
 
-      gl_FragColor = vec4(c * uBright, 1.0);
+      gl_FragColor = vec4(c * uBright, uFxMode > 0.5 ? texel.a : 1.0);
     }
   `;
 
@@ -110,6 +118,7 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
     p.noStroke();
     mosaic = p.createShader(FULLSCREEN_VERT, frag);
 
+    if (fxMode) return; // borrowed image: no shared or raw camera request
     const constraints = {
       video: {
         deviceId: videoDeviceId ? { exact: videoDeviceId } : undefined,
@@ -119,7 +128,7 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
       audio: false,
     };
 
-    capture = runtimeContext?.createCapture(p, constraints, () => {
+    capture = runtimeContext?.createCapture?.(p, constraints, () => {
       isCaptureReady = true;
       runtimeContext?.reportMediaReady?.();
     }) || p.createCapture(constraints, () => {
@@ -129,63 +138,31 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
     capture.hide();
   };
 
-  function drawMigrated() {
-    const P = params || {};
-    const dt = Math.min(p.deltaTime || 16.667, 100) / 1000;
-    elapsed += dt;
-
-    p.background(0);
-    if (!isCaptureReady || !capture?.loadedmetadata || !capture?.width) return;
-
-    const controls = audioControls.read();
-    const C = { ...AUDIO_CONTROL_SCHEMA.neutral.continuous, ...(controls.continuous || {}) };
-
-    const A = p.width / Math.max(1, p.height);
-    const T = capture.width / Math.max(1, capture.height);
-    const cover = A > T ? [1, T / A] : [A / T, 1];
-
-    // Bass swells the blocks when audio-reactive blocks are enabled
-    const block = (P.block ?? 14) * (1 + (P.audioBlocks ?? 0.8) * C.sub * 1.6);
-
-    p.shader(mosaic);
-    mosaic.setUniform('uTex', capture);
-    mosaic.setUniform('uResolution', [p.width, p.height]);
-    mosaic.setUniform('uCover', cover);
-    mosaic.setUniform('uBlockSize', Math.min(block, Math.max(1.5, p.height / 4)));
-    mosaic.setUniform('uLevels', Math.round(P.levels ?? 8));
-    mosaic.setUniform('uTint', P.tint ?? 0);
-    mosaic.setUniform('uBright', P.bright ?? 1);
-    p.rect(0, 0, p.width, p.height);
+  function imageFrame() {
+    if (!fxMode) {
+      return isCaptureReady && capture?.loadedmetadata && capture?.width
+        ? { source: capture, width: capture.width, height: capture.height }
+        : null;
+    }
+    const frame = runtimeContext?.getImageInput?.();
+    return frame?.source && frame.width > 0 && frame.height > 0
+      && frame.source.width === frame.width && frame.source.height === frame.height
+      ? frame : null;
   }
 
-  // Preserved raw-frame implementation for non-migrated/standalone callers.
-  function drawLegacy() {
-    const P = params || {};
-    const dt = Math.min(p.deltaTime || 16.667, 100) / 1000;
-    elapsed += dt;
-
-    p.background(0);
-    if (!isCaptureReady || !capture?.loadedmetadata || !capture?.width) return;
-
-    const frame = audio && audio.isStarted && typeof audio.getAnalysisFrame === 'function'
-      ? audio.getAnalysisFrame()
-      : null;
-    const measured = getFeatures(frame, P, dt);
-    const bands = frame
-      ? measured
-      : { sub: 0.15 + 0.12 * Math.sin(elapsed * 2.3), mid: 0.1, high: 0.07 };
-
+  function drawEffect(frame, sub, P) {
     const A = p.width / Math.max(1, p.height);
-    const T = capture.width / Math.max(1, capture.height);
-    const cover = A > T ? [1, T / A] : [A / T, 1];
-
-    // Bass swells the blocks when audio-reactive blocks are enabled
-    const block = (P.block ?? 14) * (1 + (P.audioBlocks ?? 0.8) * bands.sub * 1.6);
+    const T = frame.width / Math.max(1, frame.height);
+    const fit = fxMode
+      ? (A > T ? [A / T, 1] : [1, T / A]) // contain, transparent outside
+      : (A > T ? [1, T / A] : [A / T, 1]); // original camera cover
+    const block = (P.block ?? 14) * (1 + (P.audioBlocks ?? 0.8) * sub * 1.6);
 
     p.shader(mosaic);
-    mosaic.setUniform('uTex', capture);
+    mosaic.setUniform('uTex', frame.source);
     mosaic.setUniform('uResolution', [p.width, p.height]);
-    mosaic.setUniform('uCover', cover);
+    mosaic.setUniform('uCover', fit);
+    mosaic.setUniform('uFxMode', fxMode ? 1 : 0);
     mosaic.setUniform('uBlockSize', Math.min(block, Math.max(1.5, p.height / 4)));
     mosaic.setUniform('uLevels', Math.round(P.levels ?? 8));
     mosaic.setUniform('uTint', P.tint ?? 0);
@@ -194,8 +171,30 @@ export default (audio, videoDeviceId, params, runtimeContext = {}) => (p) => {
   }
 
   p.draw = () => {
-    if (audioControls) drawMigrated();
-    else drawLegacy();
+    const P = params || {};
+    const dt = Math.min(p.deltaTime || 16.667, 100) / 1000;
+    elapsed += dt;
+    if (fxMode) p.clear();
+    else p.background(0);
+    const image = imageFrame();
+    if (!image) return;
+
+    let sub;
+    if (audioControls) {
+      const controls = audioControls.read();
+      const C = { ...AUDIO_CONTROL_SCHEMA.neutral.continuous, ...(controls.continuous || {}) };
+      sub = C.sub;
+    } else {
+      const analysis = audio && audio.isStarted && typeof audio.getAnalysisFrame === 'function'
+        ? audio.getAnalysisFrame()
+        : null;
+      const measured = getFeatures(analysis, P, dt);
+      const bands = analysis
+        ? measured
+        : { sub: 0.15 + 0.12 * Math.sin(elapsed * 2.3), mid: 0.1, high: 0.07 };
+      sub = bands.sub;
+    }
+    drawEffect(image, sub, P);
   };
 
   p.windowResized = () => p.resizeCanvas(p.windowWidth, p.windowHeight);
