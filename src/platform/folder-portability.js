@@ -77,23 +77,25 @@ export async function collectFolderReferences(media) {
   const nodes = await nodesStorage('handles');
   const mediaHandle = await mediaStorage('folder');
   const result = {};
-  // Register what is linked right now under its project identity, so an
-  // export/save round-trip on this computer resolves by identity afterwards.
-  // An unlinked section drops its identity, so a stale id is never exported.
-  let scriptsId = null;
-  if (scriptsHandle) scriptsId = (await ensureProjectFolder('scripts', scriptsHandle))?.id || null;
-  else clearProjectFolder('scripts');
-  let nodesId = null;
-  if (nodes?.folder?.handle) {
-    // The project identity — not the folder id that salts node pattern ids — so a
-    // project re-saved from another computer keeps the identity it was given.
+  // Register linked directories, but do not turn a stale pre-import handle into
+  // the identity of an unresolved imported reference (even if names coincide).
+  // Keep that reference's id until the operator confirms the actual directory.
+  const scriptsRef = folderReference('scripts');
+  const nodesRef = folderReference('nodes');
+  const mediaRef = folderReference('media');
+  let scriptsId = scriptsRef?.needsRelink ? scriptsRef.folderId : null;
+  if (!scriptsRef?.needsRelink && scriptsHandle) scriptsId = (await ensureProjectFolder('scripts', scriptsHandle))?.id || null;
+  else if (!scriptsHandle && !scriptsRef?.needsRelink) clearProjectFolder('scripts');
+  let nodesId = nodesRef?.needsRelink ? nodesRef.folderId : null;
+  if (!nodesRef?.needsRelink && nodes?.folder?.handle) {
+    // The project identity — not the folder id that salts node pattern ids.
     nodesId = (await ensureProjectFolder('nodes', nodes.folder.handle))?.id || null;
-  } else clearProjectFolder('nodes');
-  let mediaId = null;
-  if (mediaHandle) mediaId = (await ensureProjectFolder('media', mediaHandle))?.id || null;
-  else clearProjectFolder('media');
+  } else if (!nodes?.folder?.handle && !nodesRef?.needsRelink) clearProjectFolder('nodes');
+  let mediaId = mediaRef?.needsRelink ? mediaRef.folderId : null;
+  if (!mediaRef?.needsRelink && mediaHandle) mediaId = (await ensureProjectFolder('media', mediaHandle))?.id || null;
+  else if (!mediaHandle && !mediaRef?.needsRelink) clearProjectFolder('media');
 
-  const scriptDigests = await scriptDigestsFor(scriptsHandle);
+  const scriptDigests = await scriptDigestsFor(scriptsRef?.needsRelink ? null : scriptsHandle);
   result.scripts = {
     folderName: folderReference('scripts')?.folderName || scriptsHandle?.name || null,
     folderId: scriptsId,
@@ -119,11 +121,26 @@ export async function collectFolderReferences(media) {
     folderId: nodesId,
     files: merge(folderReference('nodes')?.files, [...nodeFiles, ...(nodes?.opened || []).map(file => ({ fileName: file.handle.name, id: file.id, linked: false }))]),
   };
-  const mediaFolderName = folderReference('media')?.folderName || mediaHandle?.name || null;
+  const mediaFolderName = mediaRef?.folderName || mediaHandle?.name || null;
+  const mediaRecords = new Map((await listMediaRecords().catch(() => [])).map(record => [record.id, record]));
+  const mediaFiles = await Promise.all(media.filter(file => file.fileName).map(async file => {
+    const inherited = mediaRef?.folderId === mediaId && !mediaRef?.needsRelink &&
+      mediaRef?.files.find(entry => entry.id === file.id && entry.fileName === file.fileName)?.linked === true;
+    let linked = !!inherited;
+    if (!linked && mediaHandle && !mediaRef?.needsRelink && file.folderName === mediaHandle.name) {
+      // Metadata's folderName is only a label: two physical media directories can
+      // share it. Require the saved file handle to match a child of this folder.
+      try {
+        const original = mediaRecords.get(file.id)?.handle;
+        if (original) linked = await original.isSameEntry(await mediaHandle.getFileHandle(file.fileName));
+      } catch { /* File absent/inaccessible: do not claim it belongs here. */ }
+    }
+    return { fileName: file.fileName, id: file.id, linked };
+  }));
   result.media = {
     folderName: mediaFolderName,
     folderId: mediaId,
-    files: merge(folderReference('media')?.files, media.filter(file => file.fileName).map(file => ({ fileName: file.fileName, id: file.id, linked: !!mediaFolderName && file.folderName === mediaFolderName }))),
+    files: merge(mediaRef?.files, mediaFiles),
   };
   return sanitizeFolderReferences(result);
 }
@@ -148,25 +165,33 @@ export async function applyFolderReferences(references) {
     importFolderReferences(undefined);
     return { resolved, pending, reconnect, mediaFolder: null };
   }
+  // A colliding id whose remembered handle names a different directory cannot
+  // be rebound to the imported directory. Give this import a new pending id and
+  // leave the other project's remembered handle untouched.
+  const localReferences = { ...references };
 
   for (const section of FOLDER_SECTIONS) {
     const ref = references[section];
     if (!ref.folderName) { clearProjectFolder(section); continue; }
     const stored = ref.folderId ? await recallProjectFolder(ref.folderId) : null;
-    const handle = stored?.handle || null;
-    const entry = { section, label: label(section), folderName: ref.folderName, folderId: ref.folderId || null };
-    if (!handle) {
-      // No identity on this computer: a different machine, or a record that could
-      // not keep its native handle. Remember the id so linking binds the project
-      // to this computer under the same identity.
-      bindProjectFolder(section, ref.folderId || newFolderId(), ref.folderName);
-      pending.push({ ...entry, reason: 'missing' });
+    const handle = stored?.section === section ? stored.handle || null : null;
+    let folderId = ref.folderId || newFolderId();
+    const entry = { section, label: label(section), folderName: ref.folderName, folderId };
+    if (stored && (stored.section !== section || (handle && handle.name !== ref.folderName))) {
+      // This id is already claimed by a different remembered directory/section.
+      // A name mismatch is a reason to reject, never evidence for substitution.
+      folderId = newFolderId();
+      localReferences[section] = { ...ref, folderId };
+      bindProjectFolder(section, folderId, ref.folderName);
+      pending.push({ ...entry, folderId, reason: 'changed' });
       continue;
     }
-    if (handle.name !== ref.folderName) {
-      // Identity exists but names a different directory now. Never silently
-      // substitute it: the project keeps asking for “folderName”.
-      pending.push({ ...entry, reason: 'changed' });
+    if (!handle) {
+      // No usable handle here: keep the imported id for confirmed adoption.
+      // Older projects with no id receive a fresh pending id.
+      localReferences[section] = { ...ref, folderId };
+      bindProjectFolder(section, folderId, ref.folderName);
+      pending.push({ ...entry, reason: 'missing' });
       continue;
     }
     let permission = 'granted';
@@ -181,7 +206,7 @@ export async function applyFolderReferences(references) {
     if (permission !== 'granted') reconnect.push({ section, label: label(section), folderName: ref.folderName });
   }
 
-  importFolderReferences(references, resolved);
+  importFolderReferences(localReferences, resolved);
 
   // Scripts: adopt the directory but never its sources. The source text never
   // travels — the project carries a fingerprint per file, and startup reopens only

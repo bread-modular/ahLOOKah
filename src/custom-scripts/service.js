@@ -1,5 +1,5 @@
-import { assertFolderReference, confirmFolderReference, missingFolderFiles, forgetFolderFile, folderReference } from '../platform/folderReferences.js';
-import { ensureProjectFolder } from '../platform/project-folders.js';
+import { assertFolderReference, missingFolderFiles, forgetFolderFile, folderReference } from '../platform/folderReferences.js';
+import { registerLinkedProjectFolder } from '../platform/project-folders.js';
 import { chooseFolder, folderPermission, requireFolderPermission, scanFolder } from '../platform/folderAccess.js';
 import { SKETCHES } from '../sketch-registry.js';
 import { stageSources, SCRIPT_SUFFIX } from './compiler.js';
@@ -126,14 +126,14 @@ export class CustomScripts {
     this.assertControl();
     if (supportError()) throw new Error(supportError());
     const handle = await chooseFolder({ id: 'viz2-custom-scripts', mode: 'read', label: 'Custom Scripts' });
-    assertFolderReference('scripts', handle, true);
+    if (folderReference('scripts')?.needsRelink) assertFolderReference('scripts', handle, true);
     return this.enqueue(async () => {
       const files = await this.listFiles(handle, false);
+      const previousHandle = this.handle;
       await this.commit([], handle, [], files);
-      confirmFolderReference('scripts');
-      // Remember the directory identity so a project reopened on this computer
-      // resolves Custom Scripts without asking for a re-link.
-      await ensureProjectFolder('scripts', handle);
+      // Only an imported, unresolved reference adopts its id. Ordinary relinks
+      // leave the old directory and its remembered handle available to projects.
+      await registerLinkedProjectFolder('scripts', handle, previousHandle);
       this.publish({ permission: 'granted', errors: missingFolderFiles('scripts', files) });
     });
   }

@@ -1,5 +1,5 @@
-import { assertFolderReference, confirmFolderReference, missingFolderFiles } from '../platform/folderReferences.js';
-import { ensureProjectFolder } from '../platform/project-folders.js';
+import { assertFolderReference, missingFolderFiles, folderReference } from '../platform/folderReferences.js';
+import { registerLinkedProjectFolder } from '../platform/project-folders.js';
 import { createHandleStorage } from '../platform/handleStorage.js';
 import { chooseFolder, folderPermission, requireFolderPermission, scanFolder, linkedFile } from '../platform/folderAccess.js';
 import { mediaKindForName, mimeForName } from './media-store.js';
@@ -24,7 +24,7 @@ export class MediaFolder {
     try { await this.refresh(false); } catch (e) { this.publish({ errors: [e.message] }); }
   }
   async scan(handle, choosing = false) {
-    assertFolderReference('media', handle, choosing);
+    if (!choosing || folderReference('media')?.needsRelink) assertFolderReference('media', handle, choosing);
     await requireFolderPermission(handle);
     return (await scanFolder(handle, { accepts: mediaKindForName, limit: 256 })).map(entry => ({ ...entry, kind: mediaKindForName(entry.name), mime: mimeForName(entry.name), folderName: handle.name }));
   }
@@ -32,11 +32,11 @@ export class MediaFolder {
     const handle = await chooseFolder({ id: 'viz2-media-folder', label: 'Media' });
     const files = await this.scan(handle, true); // canceled/denied/invalid folder leaves the previous link intact
     await this.lock(async () => {
+      const previousHandle = await this.storage('folder');
       await this.storage('folder', handle);
-      confirmFolderReference('media');
-      // Remember the directory identity so a project reopened on this computer
-      // resolves Media without asking for a re-link.
-      await ensureProjectFolder('media', handle);
+      // A different directory gets its own identity and fresh file references,
+      // even if its basename matches the previous link.
+      await registerLinkedProjectFolder('media', handle, previousHandle);
       await this.restore();
       this.publish({ errors: missingFolderFiles('media', files.map(file => file.name)) });
       try { await this.onFiles(files); }

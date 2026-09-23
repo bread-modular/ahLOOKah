@@ -14,6 +14,7 @@
 // machine-local bookkeeping and is deliberately NOT part of a settings/project
 // export — the exported `folders[section].folderId` is the transport field.
 import { createHandleStorage } from './handleStorage.js';
+import { folderReference, patchFolderReference, confirmFolderReference } from './folderReferences.js';
 
 export const PROJECT_FOLDERS_KEY = 'viz2_project_folders';
 export const FOLDER_ID_PATTERN = /^[\w-]{1,100}$/;
@@ -21,8 +22,15 @@ export const FOLDER_ID_PATTERN = /^[\w-]{1,100}$/;
 // churn (every relink to a new directory adds a record).
 const MAX_REMEMBERED_FOLDERS = 200;
 const INDEX_KEY = '__index';
+const IDENTITY_LOCK = 'viz2-project-folders-identity';
 
 const storage = createHandleStorage('viz2-project-folders');
+const locked = (work) => globalThis.navigator?.locks?.request(IDENTITY_LOCK, work) || work();
+
+async function sameDirectory(left, right) {
+  if (!left || !right || typeof left.isSameEntry !== 'function') return false;
+  try { return await left.isSameEntry(right); } catch { return false; }
+}
 
 export function newFolderId() {
   try {
@@ -35,21 +43,28 @@ export function validFolderId(value) {
   return typeof value === 'string' && FOLDER_ID_PATTERN.test(value) && value !== INDEX_KEY;
 }
 
-// Remember `handle` under `id`. A handle that cannot be structured-cloned (an
-// exotic host, a test double) is still remembered as an identity without a
-// native handle, so recall can report "remembered here, but not reachable"
-// instead of pretending the directory was never used.
-export async function rememberProjectFolder(id, section, handle) {
-  if (!validFolderId(id) || !handle) return false;
+// Remember `handle` under `id` only if the id is unclaimed or already belongs
+// to this physical directory. A handle that cannot be structured-cloned (an
+// exotic host, a test double) is remembered without a native handle; it must be
+// explicitly adopted on import rather than guessed from its basename later.
+async function rememberUnlocked(id, section, handle) {
+  if (!validFolderId(id) || !SECTIONS.has(section) || !handle) return false;
+  let existing;
+  try { existing = await storage(id); } catch { return false; } // Never overwrite after an uncertain read.
+  if (existing && (existing.section !== section ||
+      (existing.handle && !await sameDirectory(existing.handle, handle)))) return false;
   const record = {
     id,
-    section: typeof section === 'string' ? section : '',
+    section,
     name: typeof handle.name === 'string' ? handle.name.slice(0, 255) : '',
     savedAt: Date.now(),
   };
   try {
     await storage(id, { ...record, handle });
   } catch {
+    // A failed refresh of the SAME entry must not discard its old, usable
+    // remembered handle merely because this write/clone failed.
+    if (existing?.handle) return true;
     try { await storage(id, { ...record, handle: null }); } catch { return false; }
   }
   try {
@@ -59,6 +74,10 @@ export async function rememberProjectFolder(id, section, handle) {
     await storage(INDEX_KEY, next);
   } catch { /* the record itself is what matters; the index only bounds churn */ }
   return true;
+}
+
+export async function rememberProjectFolder(id, section, handle) {
+  return locked(() => rememberUnlocked(id, section, handle));
 }
 
 async function rememberedIds() {
@@ -119,10 +138,9 @@ export function projectFolderId(section) {
   return projectFolderIdentity(section)?.id || null;
 }
 
-// Bind a section to a directory identity — the project file's id on import, or a
-// fresh id the first time a folder is linked. The identity is intentionally NOT
-// regenerated on relink: the project keeps pointing at "this project's scripts
-// directory", which is what makes the same file reusable on another machine.
+// Bind a section to a directory identity — a known handle's id, an explicitly
+// adopted imported id, or a fresh id for an ordinary link to a new directory.
+// The remembered handle for a different physical directory is never overwritten.
 export function bindProjectFolder(section, id, name = '') {
   if (!SECTIONS.has(section) || !validFolderId(id)) return null;
   const identities = loadIdentities();
@@ -146,14 +164,59 @@ export function clearProjectFolders() {
   return saveIdentities({});
 }
 
-// Ensure the section owns an identity and that its handle is reachable by id on
-// this computer. Called when a folder is linked and again on export, so an
-// already-linked folder (from before this feature, or after a pruned record) is
-// registered under the id the project file will carry.
+// Ordinary links reuse an id only after comparing actual handles (including
+// remembered directories from earlier projects). An explicit id is ONLY for the
+// confirmed import/relink flow: an unresolved foreign id may be claimed here, but
+// even confirmation cannot overwrite a different directory's existing handle.
 export async function ensureProjectFolder(section, handle, id = null) {
-  if (!handle) return null;
-  const nextId = validFolderId(id) ? id : projectFolderId(section) || newFolderId();
-  const identity = bindProjectFolder(section, nextId, handle.name);
-  await rememberProjectFolder(nextId, section, handle);
+  if (!SECTIONS.has(section) || !handle) return null;
+  return locked(async () => {
+    let nextId = null;
+    if (validFolderId(id)) {
+      const existing = await recallProjectFolder(id);
+      if (existing && (existing.section !== section ||
+          (existing.handle && !await sameDirectory(existing.handle, handle)))) {
+        throw new Error('Project folder identity already belongs to another directory.');
+      }
+      nextId = id;
+    } else {
+      const current = projectFolderId(section);
+      const remembered = current ? await recallProjectFolder(current) : null;
+      if (remembered?.section === section && await sameDirectory(remembered.handle, handle)) nextId = current;
+      if (!nextId) {
+        for (const candidate of await rememberedIds()) {
+          if (candidate === current) continue;
+          const record = await recallProjectFolder(candidate);
+          if (record?.section === section && await sameDirectory(record.handle, handle)) {
+            nextId = candidate;
+            break;
+          }
+        }
+      }
+      nextId ||= newFolderId();
+    }
+    if (!await rememberUnlocked(nextId, section, handle)) throw new Error('Could not remember project folder identity.');
+    return bindProjectFolder(section, nextId, handle.name);
+  });
+}
+
+// Called only after a section's user-initiated picker succeeds. Pending imports
+// explicitly adopt their id; ordinary replacement may choose any folder name,
+// but must drop file references inherited from a *different* directory. A fresh
+// same-entry handle keeps both its directory id and its file references.
+export async function registerLinkedProjectFolder(section, handle, previousHandle = null) {
+  const ref = folderReference(section);
+  const remembered = ref?.folderId ? await recallProjectFolder(ref.folderId) : null;
+  const referenceHandle = (remembered?.section === section && remembered.handle) || previousHandle;
+  const sameReference = await sameDirectory(referenceHandle, handle);
+  const identity = await ensureProjectFolder(section, handle, ref?.needsRelink ? ref.folderId : null);
+  if (ref && identity) {
+    patchFolderReference(section, {
+      folderName: handle.name,
+      folderId: identity.id,
+      ...(!ref.needsRelink && !sameReference ? { files: [] } : {}),
+    });
+    confirmFolderReference(section);
+  }
   return identity;
 }

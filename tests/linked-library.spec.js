@@ -134,7 +134,7 @@ for (const s of sections) {
   });
 }
 
-test('project export roundtrip: all references, wrong-folder blocking, relink and stable IDs @core', async ({ page }) => {
+test('project export roundtrip: wrong-folder diagnostics, deliberate replacement and old-project recovery @core', async ({ page }) => {
   await page.goto('/'); await seed(page); await linkAll(page);
   await openSelected(page, sections[0]);
   const originalFiles = await fileDigests(page);
@@ -172,13 +172,25 @@ test('project export roundtrip: all references, wrong-folder blocking, relink an
   for (const s of sections) {
     const details = await folderDetails(page, s.label);
     await details.getByRole('button', { name: 'Relink Folder', exact: true }).click();
-    await expect(details.getByRole('alert')).toContainText(`expected folder “${s.key}”`);
+    await expect(details.locator('.folder-details-name')).toHaveText('wrong-folder');
+    await expect(details.getByRole('alert')).toHaveCount(0);
     await page.keyboard.press('Escape');
   }
+  // Once a project is resolved, its operator may deliberately replace a folder.
+  // The saved project's id is not reassigned to that wrong-folder handle.
+  const replaced = await page.evaluate(async () => (await import('/src/platform/settings-portability.js')).collectSettings());
+  for (const s of sections) expect(replaced.folders[s.key].folderId).not.toBe(exported.folders[s.key].folderId);
+  await page.evaluate(async original => {
+    const { applySettings, parseSettingsFile } = await import('/src/platform/settings-portability.js');
+    await applySettings(parseSettingsFile(JSON.stringify(original)).payload);
+  }, exported);
+  await page.reload();
   await page.evaluate(async () => {
     const root = await navigator.storage.getDirectory();
     window.showDirectoryPicker = async ({ id }) => root.getDirectoryHandle(id.includes('custom') ? 'scripts' : id.includes('node') ? 'nodes' : 'media');
   });
+  await expect(page.locator('[data-id="custom-dir-demo"]')).toHaveCount(1);
+  const runsBeforeRelink = await page.evaluate(() => window.scriptRuns || 0);
   for (const s of sections) {
     const details = await folderDetails(page, s.label);
     await details.getByRole('button', { name: 'Relink Folder', exact: true }).click();
@@ -186,8 +198,8 @@ test('project export roundtrip: all references, wrong-folder blocking, relink an
     await expect(details.getByRole('alert')).toHaveCount(0);
     await page.keyboard.press('Escape');
   }
-  // Relinking is not permission to execute JavaScript.
-  expect(await page.evaluate(() => window.scriptRuns || 0)).toBe(0);
+  // Relinking itself is not permission to execute JavaScript.
+  expect(await page.evaluate(() => window.scriptRuns || 0)).toBe(runsBeforeRelink);
   await openSelected(page, sections[0]);
   await expect(page.locator('[data-id="custom-dir-demo"]')).toHaveCount(1);
   const restored = await page.evaluate(async () => (await import('/src/platform/settings-portability.js')).collectSettings());
