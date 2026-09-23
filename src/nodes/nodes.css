@@ -42,13 +42,12 @@
 .nodes-palette { overflow-x:hidden; overflow-y:auto; scrollbar-gutter:auto; scrollbar-width:thin; scrollbar-color:var(--border-gray) var(--panel-bg); }
 .nodes-pattern-list .btn { text-align:left; display:block; width:100%; margin-bottom:6px; white-space:normal; text-transform:none; letter-spacing:normal; font-weight:500; color:var(--text-main); }
 .nodes-pattern-list small { display:block; color:var(--text-dim); font-size:10px; margin-top:4px; }
-/* Capability and operation are different: the badge marks an FX-capable
-   definition, while the node detail/inspector names its active input mode. */
+/* Badge/filter advertise a descriptor's FX capability. The optional image
+   socket is always visible; the presence of its wire controls FX behavior. */
 .nodes-fx-filter { display:flex; align-items:center; gap:7px; cursor:pointer; font-size:11px; color:var(--text-main); }
 .nodes-palette .nodes-fx-filter input { width:auto; margin:0; accent-color:var(--accent); }
 .nodes-pattern-row { margin-bottom:6px; }
 .nodes-pattern-list .nodes-pattern-row .nodes-pattern-source { margin-bottom:0; }
-.nodes-pattern-list .nodes-pattern-row .nodes-add-fx { width:auto; margin:4px 0 0; padding:4px 8px; font-size:10px; }
 .nodes-pattern-name { display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
 .nodes-fx-badge { flex:none; padding:1px 4px; border:1px solid #8aa6c4; border-radius:3px; color:#d8e8f7; background:#1b2a39; font-size:10px; font-weight:700; white-space:nowrap; letter-spacing:0; }
 .nodes-pattern-empty { margin:4px 0; }
@@ -128,6 +127,9 @@
 /* Routed audio status: plain text, never color-only; a block row that wraps
    long device/fallback guidance instead of pushing the panel wide. */
 .nodes-inspector .nodes-audio-status,.nodes-inspector .nodes-camera-status { float:none; display:block; margin:10px 0; font-size:.75rem; line-height:1.35; color:var(--text-dim); }
+.nodes-pattern-image-status { margin:12px 0; }
+.nodes-inspector .nodes-pattern-image-status p { margin:4px 0; }
+.nodes-inspector .nodes-pattern-image-status output { float:none; display:block; font-size:.72rem; color:var(--text-main); }
 .nodes-inspector .nodes-fx-warning { color:#ffb3b3; }
 @media(max-width:1000px) { .nodes-layout { grid-template-columns:175px minmax(250px,1fr) 225px; } }
 

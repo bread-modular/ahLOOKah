@@ -68,7 +68,8 @@ test('linked editor v2 camera and image-FX chain play through the screen', async
   await camera.locator('.nodes-output').click();
   await page.locator('[data-node-id="output"] .nodes-input').click();
   await expect(page.getByTestId('node-preview')).toBeVisible();
-  await expect(page.locator('.nodes-diagnostics')).toContainText('Camera is available only on the output screen');
+  await page.locator(`[data-node-id="${cameraId}"] .nodes-node-title`).click();
+  await expect(page.getByTestId('node-camera-status')).toContainText('generated sample clip, not your real camera');
   expect(await page.evaluate(() => window.captureCalls)).toEqual([]);
   page.once('dialog', d => d.accept());
   await page.getByRole('button', { name: 'Save', exact: true }).click();
@@ -113,10 +114,12 @@ test('linked editor v2 camera and image-FX chain play through the screen', async
   await page.getByRole('button', { name: 'Edit Pattern', exact: true }).click();
   const addFx = async (search, name, x) => {
     await page.locator('.nodes-palette').getByLabel('Search patterns').fill(search);
-    await page.getByRole('button', { name: `Add ${name} as FX` }).click();
+    await page.locator('.nodes-pattern-row').filter({ hasText: name }).locator('.nodes-pattern-source')
+      .dragTo(workspace, { targetPosition: { x, y: 165 } });
     const card = page.locator('.nodes-node[data-primary=true]');
     const nodeId = await card.getAttribute('data-node-id');
-    await card.locator('.nodes-node-title').dragTo(workspace, { targetPosition: { x, y: 165 } });
+    await expect(card.getByRole('button', { name: `${nodeId} input image` })).toBeVisible();
+    await expect(page.getByTestId('node-image-input-status')).toHaveText('Image input: not connected (camera default)');
     return nodeId;
   };
   const chroma = await addFx('video chroma', 'Video Chroma Key', 350);
