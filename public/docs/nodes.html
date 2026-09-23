@@ -83,6 +83,8 @@
 
         <p>Three columns: the <strong>palette</strong> on the left, the <strong>canvas</strong> in the middle, and the <strong>inspector</strong> on the right for the selected node.</p>
 
+        <p>Inspector parameters behave like a photo editor’s sliders: drag one to change it, or <strong>double-click it to return that parameter to its default</strong>. The parameter’s name, value readout, slider and track all reset it; an option dropdown resets from its name, since its own double click belongs to the open list. Nothing else moves — the other parameters, the node’s wires and any signal mapping stay exactly as they are: on a mapped slider the gesture resets the saved base value underneath (double-click the name or value readout, as the violet overlay keeps its own drag and click gestures) while the mapping keeps running.</p>
+
         <figure class="figure">
           <img src="/docs/shots/nodes-editor.jpg" alt="The ahLOOKah node editor: a palette of nodes and patterns on the left, a graph of pattern, blend, colour and script nodes wired to an output node in the middle, and the inspector on the right showing the selected Script node" />
           <figcaption>Two sketches feed a <strong>Blend</strong>, which feeds a <strong>Color</strong> filter and then the <strong>Output</strong>. An <strong>Audio</strong> band is wired into a <strong>Script</strong>, whose value drives the blend opacity.</figcaption>
