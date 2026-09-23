@@ -5,8 +5,9 @@ import { ProgramRuntime } from '../program-runtime.js';
 import { PreviewAudio } from '../preview-audio.js';
 import { MODES, validateGraph } from './model.js';
 import { graphDiagnostics } from './portability.js';
-import { isVisualType, inputModeOf } from './definitions.js';
+import { isVisualType, imageInputConnected, patternInputMode, canAcceptImageFx } from './definitions.js';
 import { CAMERA_NODE_PATTERN } from './camera-source.js';
+import { createPreviewClip } from './preview-clip.js';
 import { mathValue, mathIssue, scriptValue, scriptProgram, scriptLanguageOf, scriptSource } from './scalar.js';
 import { isScriptApproved, SCRIPT_APPROVAL_MESSAGE } from './script-approval.js';
 
@@ -59,7 +60,13 @@ const canvasFor = size => {
 export class GraphRuntime {
   constructor({ graph, sketches, dependencies = [], width = 480, height = 270, audio = new PreviewAudio(), context = {}, videoDeviceId = null, preview = true }) {
     this.graph = validateGraph(graph);
-    this.hasFx = this.graph.nodes.some(n => n.type === 'pattern' && inputModeOf(n) === 'fx');
+    // The edge, not a saved mode flag, switches to FX. An editor preview also
+    // uses the graph-clocked path for its synthetic Camera/implicit video input.
+    this.previewFx = new Set(preview ? this.graph.nodes.filter(n => n.type === 'pattern'
+      && !imageInputConnected(this.graph, n.id) && sketches.find(s => s.id === n.patternId)?.camera
+      && canAcceptImageFx(sketches.find(s => s.id === n.patternId))).map(n => n.id) : []);
+    this.hasFx = this.graph.nodes.some(n => patternInputMode(n, this.graph) === 'fx')
+      || (preview && (this.graph.nodes.some(n => n.type === 'camera') || this.previewFx.size > 0));
     this.signal = this.graph.nodes.some(n => n.type === 'audio')
       ? createSignalConsumers(context.audioControlStore, context.audioRole, this.graph.nodes.filter(n => n.type === 'audio'))
       : null;
@@ -78,6 +85,9 @@ export class GraphRuntime {
     this.params = new Map(this.graph.nodes.filter(n => ['pattern', 'blend', 'color'].includes(n.type))
       .map(n => [n.id, parameterView(this.graph, n, sketches, this.readContinuous, id => this.signalValue(id))]));
     this.size = sizeFor(width, height);
+    // No media request, video element or MediaStream exists in the editor.
+    this.sample = preview && (this.previewFx.size || this.graph.nodes.some(n => n.type === 'camera'))
+      ? createPreviewClip(...this.size) : null;
     this.pendingSize = null;
     this.disposed = false;
     this.sources = new Map(); this.buffers = new Map(); this.messages = new Map();
@@ -89,7 +99,8 @@ export class GraphRuntime {
     this.graph.nodes.filter(n => isVisualType(n)).forEach(n => {
       this.buffers.set(n.id, canvasFor(this.size));
       if (this.hasFx) this.work.set(n.id, canvasFor(this.size));
-      if (this.hasFx && (n.type === 'camera' || (n.type === 'pattern' && inputModeOf(n) === 'source')))
+      if (this.hasFx && ((n.type === 'camera' && !preview)
+        || (n.type === 'pattern' && patternInputMode(n, this.graph) === 'source' && !this.previewFx.has(n.id))))
         this.staging.set(n.id, canvasFor(this.size));
     });
     // A disk-loaded Script source never carries trust with it.
@@ -113,12 +124,13 @@ export class GraphRuntime {
     // bring camera *nodes* online in sequence without blocking noncamera FX.
     let cameraReady = Promise.resolve();
     for (const node of this.graph.nodes.filter(n => n.type === 'pattern' || n.type === 'camera')) {
-      // A dangling Camera card is editable without acquiring unused hardware.
-      if (node.type === 'camera' && !reachable.has(node.id)) continue;
+      // Camera previews use canvas pixels directly, including when the selected
+      // Camera is dangling. Only the output screen instantiates a capture child.
+      if (node.type === 'camera' && (preview || !reachable.has(node.id))) continue;
       if (this.nodeDiagnostics.has(node.id)) continue;
       const sketch = node.type === 'camera' ? CAMERA_NODE_PATTERN : sketches.find(s => s.id === node.patternId);
       if (!sketch) continue;
-      const fx = node.type === 'pattern' && inputModeOf(node) === 'fx';
+      const fx = node.type === 'pattern' && (patternInputMode(node, this.graph) === 'fx' || this.previewFx.has(node.id));
       const camera = node.type === 'camera' || (!fx && (sketch.camera || sketch.surfaces?.some(s => sketches.find(x => x.id === s.patternId)?.camera)));
       if (camera && (preview || !context.cameraSource)) {
         this.messages.set(node.id, 'Camera is available only on the output screen (shared capture).'); continue;
@@ -280,6 +292,19 @@ export class GraphRuntime {
     };
     reach(targetId);
     const available = new Set();
+    // Draw once at the frame boundary before any FX await. This single bounded
+    // canvas is shared by preview Camera nodes and implicit camera-FX inputs;
+    // no next tick can redraw it until this in-flight evaluation has committed.
+    const sample = this.sample?.draw(this.elapsed()) || null;
+    if (sample) for (const node of this.graph.nodes) {
+      if (node.type !== 'camera' || !used.has(node.id)) continue;
+      const canvas = this.work.get(node.id);
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(sample, 0, 0, canvas.width, canvas.height);
+      this.sourceRevision.set(node.id, this.sample.revision);
+      available.add(node.id);
+    }
     for (const [id, staging] of this.staging) {
       if (!used.has(id)) continue;
       const canvas = this.work.get(id);
@@ -303,8 +328,8 @@ export class GraphRuntime {
         };
         try {
           if (this.nodeDiagnostics.has(id)) { clear(canvas); return null; }
-          if (node.type === 'pattern' && inputModeOf(node) === 'fx') {
-            const upstream = await source('image');
+          if (node.type === 'pattern' && (patternInputMode(node, this.graph) === 'fx' || this.previewFx.has(id))) {
+            const upstream = this.previewFx.has(id) ? sample : await source('image');
             if (this.disposed || generation !== this.generation) return null;
             const runtime = this.sources.get(id);
             if (!upstream || !runtime) {
@@ -360,6 +385,7 @@ export class GraphRuntime {
     this.size = next;
     this.generation = ++graphGeneration;
     for (const canvas of [...this.buffers.values(), ...this.work.values(), ...this.staging.values()]) [canvas.width, canvas.height] = next;
+    this.sample?.resize(...next);
     this.sourceRevision.clear();
     for (const source of this.sources.values()) source.resize(...next);
   }
@@ -375,6 +401,7 @@ export class GraphRuntime {
     if (this.disposed) return;
     this.disposed = true; this.generation = ++graphGeneration;
     this.signal?.dispose(); this.sources.forEach(s => s.dispose()); this.sources.clear();
+    this.sample?.dispose(); this.sample = null;
     for (const canvas of [...this.buffers.values(), ...this.work.values(), ...this.staging.values()]) canvas.width = canvas.height = 1;
     this.buffers.clear(); this.work.clear(); this.staging.clear(); this.sourceRevision.clear();
     this.frameSignals.clear(); this.scriptPrograms.clear();

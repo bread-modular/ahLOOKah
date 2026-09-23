@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { inputs, defaultNode } from '../src/nodes/definitions.js';
+import { inputs, activeInputs, defaultNode } from '../src/nodes/definitions.js';
 import { newGraph, connect, validateGraph } from '../src/nodes/model.js';
 import { manifestFor, graphDiagnostics, serializeGraph, parseGraph } from '../src/nodes/portability.js';
 
@@ -12,8 +12,10 @@ const fxSketch = { id: 'effect', name: 'Effect', fx: { input: 'image' }, params:
 
 test('v1 stays source; v2 FX/camera persist, validate ports/cycles/camera selection and file versions', () => {
   expect(newGraph().version).toBe(1);
-  expect(inputs(pattern('old', 'effect'))).toEqual([]);
-  expect(inputs(pattern('a', 'effect', 'fx'))).toEqual(['image']);
+  expect(inputs(pattern('old', 'effect'))).toEqual(['image']); // potential optional port
+  expect(activeInputs(pattern('old', 'effect'))).toEqual([]);
+  expect(activeInputs(pattern('old', 'effect'), fxSketch)).toEqual(['image']);
+  expect(activeInputs(pattern('a', 'effect', 'fx'))).toEqual(['image']);
   const old = { version: 1, name: 'old', nodes: [pattern('old', 'effect'), out], edges: [{ from: 'old', to: 'out', port: 'image' }] };
   expect(validateGraph(old)).toEqual(old);
   expect(parseGraph(serializeGraph(old, [{ id: 'effect', signature: null }])).graph).toEqual(old);
@@ -38,7 +40,7 @@ test('v1 stays source; v2 FX/camera persist, validate ports/cycles/camera select
   expect(() => validateGraph({ ...graph, nodes: graph.nodes.map(n => n.id === 'fx1' ? { ...n, inputMode: 'wrong' } : n) })).toThrow(/input mode/);
   expect(() => validateGraph({ ...graph, edges: [...graph.edges, { from: 'fx2', to: 'fx1', port: 'image' }] })).toThrow(/duplicate/);
   expect(() => connect(graph, 'fx2', 'fx1', 'image', { sketches })).toThrow(/cycle/);
-  expect(() => connect(graph, 'fx1', 'src', 'image')).toThrow(/port/);
+  expect(() => connect(graph, 'fx1', 'src', 'image', { sketches })).toThrow(/FX-capable/);
   expect(() => connect(graph, 'webcam', 'fx1', 'image')).toThrow(/FX-capable/);
   expect(connect(graph, 'webcam', 'fx1', 'image', { sketches }).edges).toContainEqual({ from: 'webcam', to: 'fx1', port: 'image' });
   expect(() => validateGraph({ ...graph, edges: [...graph.edges, { from: 'fx1', to: 'webcam', port: 'image' }] })).toThrow(/port/);
@@ -53,8 +55,8 @@ test('unavailable FX capability or disconnected image is diagnosed, never delete
   expect(missing.byNode.get('fx2').join()).toContain('Missing pattern');
   const disconnected = { ...graph, edges: graph.edges.filter(e => e.to !== 'fx1') };
   expect(validateGraph(disconnected).edges).toHaveLength(2);
-  expect(graphDiagnostics(disconnected, [fxSketch, { id: 'plain', params: [] }]).byNode.get('fx1').join()).toContain('Image input required');
-  expect(() => validateGraph(disconnected, { complete: true })).toThrow(/Connect fx1 image/);
+  expect(graphDiagnostics(disconnected, [fxSketch, { id: 'plain', params: [] }]).byNode.has('fx1')).toBe(false);
+  expect(validateGraph(disconnected, { complete: true }).nodes.find(n => n.id === 'fx1').inputMode).toBe('fx');
 });
 
 test('controlled FX chain reuses completed frames, pins fan-out, coalesces ticks and clears failures', async ({ page }) => {
@@ -131,7 +133,7 @@ test('controlled FX chain reuses completed frames, pins fan-out, coalesces ticks
   expect(result.modes).toEqual(['source', 'fx', 'fx']);
 });
 
-test('FX capture entry points reject before raw fallback, preview and missing input stay transparent', async ({ page }) => {
+test('FX capture entry points reject before raw fallback, unconnected camera FX uses the editor sample', async ({ page }) => {
   await page.goto('/?role=nodes');
   const result = await page.evaluate(async graph => {
     const { GraphRuntime } = await import('/src/nodes/runtime.js');
@@ -165,8 +167,10 @@ test('FX capture entry points reject before raw fallback, preview and missing in
     { from: 'src', to: 'fx1', port: 'image' }, { from: 'fx1', to: 'out', port: 'image' },
   ] });
   expect(result.valid).toEqual([33, 0, 0, 255]);
-  expect(result.blank).toEqual([0, 0, 0, 0]);
-  expect(result.message).toContain('Image input required');
+  expect(result.blank[3]).toBe(255);
+  expect(result.blank.slice(0, 3).some(channel => channel > 0)).toBe(true);
+  expect(result.message).not.toContain('Camera is available only');
+  expect(result.message).not.toContain('Image input required');
   expect(result.noFallback).toEqual([0, 0, 0, 0]);
   expect(result.guarded).toContain('FX patterns cannot acquire a camera');
   expect(result.rawGuarded).toContain('FX patterns cannot acquire a camera');
@@ -175,7 +179,7 @@ test('FX capture entry points reject before raw fallback, preview and missing in
   expect(result.fxCalls).toBeGreaterThan(0);
 });
 
-test('camera source selects Global or pinned device, owns only output lease, and is transparent in preview', async ({ page }) => {
+test('camera source selects Global or pinned device, owns only output lease, and samples in preview', async ({ page }) => {
   await page.goto('/?role=nodes');
   const result = await page.evaluate(async () => {
     const { GraphRuntime } = await import('/src/nodes/runtime.js');
@@ -195,7 +199,9 @@ test('camera source selects Global or pinned device, owns only output lease, and
       leases.push(lease); return lease;
     } };
     const preview = new GraphRuntime({ graph: graph(null), sketches: [], preview: true, context: { cameraSource: manager } });
-    await preview.ready; const blocked = preview.getDiagnostics().join(); preview.dispose();
+    await preview.ready;
+    const previewPixel = [...(await preview.renderFrame()).getContext('2d').getImageData(5, 5, 1, 1).data];
+    const blocked = preview.getDiagnostics().join(); preview.dispose();
     const unavailable = new GraphRuntime({ graph: graph(null), sketches: [], preview: false });
     await unavailable.ready; const missing = unavailable.getDiagnostics().join(); unavailable.dispose();
     const dangling = new GraphRuntime({ graph: { ...graph(null), edges: [] }, sketches: [], preview: false, context: { cameraSource: manager } });
@@ -210,9 +216,11 @@ test('camera source selects Global or pinned device, owns only output lease, and
     dual.edges = [{ from: 'cam', to: 'mix', port: 'base' }, { from: 'cam2', to: 'mix', port: 'layer' }, { from: 'mix', to: 'out', port: 'image' }];
     const together = new GraphRuntime({ graph: dual, sketches: [], preview: false, videoDeviceId: 'settings-device', context: { cameraSource: manager } });
     await together.ready; together.dispose();
-    return { blocked, missing, requested, leases: leases.map(l => l.released), audioSlots, globalPixel, manifest: manifestFor(graph(null), []) };
+    return { blocked, previewPixel, missing, requested, leases: leases.map(l => l.released), audioSlots, globalPixel, manifest: manifestFor(graph(null), []) };
   });
-  expect(result.blocked).toContain('Camera is available only');
+  expect(result.blocked).toBe('');
+  expect(result.previewPixel[3]).toBe(255);
+  expect(result.previewPixel.slice(0, 3).some(channel => channel > 0)).toBe(true);
   expect(result.missing).toContain('Camera is available only');
   expect(result.requested).toEqual(['settings-device', 'specific/device', 'settings-device', 'second/device']);
   expect(result.leases).toEqual([1, 1, 1, 1]);
