@@ -14,6 +14,7 @@ export function adaptPattern({ file, definition: d }, report, asset) {
   };
   return {
     id: d.id, name: d.name, params: d.params || [], camera: !!d.camera,
+    ...(d.fx ? { fx: Object.freeze({ input: d.fx.input }) } : {}),
     group: 'Custom Scripts', customScript: file, audioTransport: 'pattern-controls',
     audioControlSchema: d.audio?.schema || FEATURE_SCHEMA,
     createAudioController: ({ rng } = {}) => {
@@ -61,9 +62,20 @@ export function adaptPattern({ file, definition: d }, report, asset) {
       };
     },
     factory: (audio, videoDeviceId, params, runtime = {}) => (p) => {
+      // Graph instances opt in explicitly; a capable standalone pattern remains a
+      // source, and an unsupported FX request must never fall back to its camera.
+      const inputMode = runtime.inputMode === undefined ? 'source' : runtime.inputMode;
+      if (inputMode !== 'source' && inputMode !== 'fx') throw new Error(`${d.id}: invalid inputMode: ${String(inputMode)}`);
+      if (inputMode === 'fx' && d.fx?.input !== 'image') throw new Error(`${d.id}: FX mode requires fx: { input: 'image' }`);
       const cleanups = [];
       let disposed = false;
+      let imageInput = null;
       const controller = new AbortController();
+      const noFxCapture = () => { throw new Error(`${d.id}: camera capture is unavailable in FX mode`); };
+      // Guard the supported raw entry point too: a script using
+      // ctx.createCapture(...) || p.createCapture(...) must not open a camera.
+      const originalCapture = inputMode === 'fx' ? Object.getOwnPropertyDescriptor(p, 'createCapture') : null;
+      if (inputMode === 'fx') p.createCapture = noFxCapture;
       const ctx = {
         p, params, audio, videoDeviceId, runtime, state: {}, signal: controller.signal,
         controls: runtime.audioControls,
@@ -80,21 +92,33 @@ export function adaptPattern({ file, definition: d }, report, asset) {
           return url;
         },
         createCapture(constraints = {}, callback) {
+          if (inputMode === 'fx') noFxCapture();
           return runtime.createCapture ? runtime.createCapture(p, constraints, callback) : p.createCapture(constraints, callback);
         },
       };
+      Object.defineProperties(ctx, {
+        inputMode: { enumerable: true, value: inputMode },
+        imageInput: { enumerable: true, get: () => imageInput },
+      });
       const remove = p.remove.bind(p);
       p.remove = () => {
-        if (!disposed) {
-          disposed = true;
-          controller.abort();
-          ctx.reactive = { ...SILENT_FEATURES };
+        if (disposed) return remove();
+        disposed = true;
+        controller.abort();
+        imageInput = null;
+        ctx.reactive = { ...SILENT_FEATURES };
+        try {
           try { invoke('dispose', d.dispose, ctx); } catch { /* report, still clean up */ }
           for (const cleanup of cleanups.reverse()) {
             try { cleanup(); } catch (e) { report(`${file}: cleanup: ${e.message}`); }
           }
+          return remove();
+        } finally {
+          if (inputMode === 'fx') {
+            if (originalCapture) Object.defineProperty(p, 'createCapture', originalCapture);
+            else delete p.createCapture;
+          }
         }
-        return remove();
       };
       p.preload = () => invoke('preload', d.preload, ctx);
       p.setup = () => {
@@ -109,9 +133,13 @@ export function adaptPattern({ file, definition: d }, report, asset) {
           ctx.reactive = !d.audio && !disposed
             ? { ...SILENT_FEATURES, ...packet?.continuous }
             : { ...SILENT_FEATURES };
+          // The graph owns this canvas. Only borrow the current view for this
+          // synchronous draw; never retain an old frame on the renderer context.
+          imageInput = !disposed && inputMode === 'fx' ? runtime.getImageInput?.() ?? null : null;
           invoke('draw', d.draw, ctx);
         }
         catch (e) { p.noLoop(); throw e; }
+        finally { imageInput = null; }
       };
       p.windowResized = () => {
         p.resizeCanvas(p.windowWidth, p.windowHeight);
