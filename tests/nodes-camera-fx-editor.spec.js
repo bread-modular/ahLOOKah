@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
-// An old source-only graph keeps its v1 shape. Editor actions, not this fixture,
-// opt patterns into FX and add Camera nodes using the shared model defaults.
+// Start with a v1 source graph; dragging an FX-capable pattern does not opt it
+// into anything. Connecting an image is the only editor action that invokes FX.
 const graph = () => ({ version: 1, name: 'Image input editor', nodes: [
   { id: 'source', type: 'pattern', patternId: 'solid-color', x: 30, y: 55,
     params: { hue: 0, saturation: 1, brightness: 1, pulse: 0 } },
@@ -32,6 +32,14 @@ const diskGraph = page => page.evaluate(async () => {
 });
 const newPattern = page => page.locator('.nodes-node[data-primary=true]');
 const fxRow = page => page.locator('.nodes-pattern-row').filter({ hasText: 'Video Chroma Key' });
+const fxWire = id => `.nodes-wires [data-connection="image:${id}:image"]`;
+
+async function dragFxPattern(page) {
+  await page.getByLabel('Search patterns').fill('video chroma');
+  await fxRow(page).locator('.nodes-pattern-source').dragTo(page.getByLabel('Graph workspace'), { targetPosition: { x: 310, y: 300 } });
+  const id = await newPattern(page).getAttribute('data-node-id');
+  return { id, card: page.locator(`[data-node-id="${id}"]`) };
+}
 
 test.beforeEach(async ({ context }) => {
   await context.addInitScript(() => {
@@ -51,8 +59,20 @@ test.beforeEach(async ({ context }) => {
   });
 });
 
-test('Camera palette drag creates an image source with Global/pinned selection, hotplug and owner-only preview status', async ({ page }) => {
+test('Node Patterns guide describes automatic FX wiring and sample preview, not a mode chooser', async ({ page }) => {
+  await page.goto('/docs/nodes.html');
+  const article = page.locator('.article');
+  await expect(article).toContainText('FX only');
+  await expect(article).toContainText('optional ● image input');
+  await expect(article).toContainText('deleting the wire returns');
+  await expect(article).toContainText('generated sample clip, not a real camera');
+  await expect(article).not.toContainText('Add as FX');
+  await expect(article).not.toContainText('Pattern input mode');
+});
+
+test('Camera sits immediately above Script; dragging it keeps the Global/pinned picker and previews a generated clip without capture', async ({ page }) => {
   await openFixture(page);
+  await expect(page.locator('.nodes-palette-create button')).toHaveText(['+ Blend', '+ Color', '+ Camera', '+ Script', '+ Audio']);
   await page.getByRole('button', { name: '+ Camera' }).dragTo(page.getByLabel('Graph workspace'), { targetPosition: { x: 260, y: 320 } });
   const camera = page.locator('.nodes-node').filter({ has: page.getByRole('button', { name: 'Select Camera', exact: true }) });
   await expect(camera).toHaveCount(1);
@@ -61,7 +81,7 @@ test('Camera palette drag creates an image source with Global/pinned selection, 
   await expect(camera.locator('.nodes-input')).toHaveCount(0);
   await expect(page.getByLabel('Camera input device')).toHaveValue('');
   await expect(page.getByLabel('Camera input device')).toContainText('Global input (Settings) — Front Camera');
-  await expect(page.getByTestId('node-camera-status')).toContainText('only on the output screen');
+  await expect(page.getByTestId('node-camera-status')).toContainText('generated sample clip, not your real camera');
   await expect(page.getByTestId('node-camera-status')).toContainText('Connect Camera out');
   await expect(page.getByTestId('node-preview')).toBeVisible();
   await page.getByLabel('Camera input device').selectOption('cam-B');
@@ -76,7 +96,7 @@ test('Camera palette drag creates an image source with Global/pinned selection, 
   await camera.locator('.nodes-output').click();
   await page.getByRole('button', { name: 'output input image' }).click();
   await expect(page.locator('.nodes-wires [data-connection="image:output:image"]')).toHaveCount(1);
-  page.once('dialog', d => d.accept());
+  page.once('dialog', dialog => dialog.accept());
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(async () => (await diskGraph(page)).nodes.find(n => n.id === id)?.deviceId).toBe('cam-B');
   expect((await diskGraph(page)).edges).toContainEqual({ from: id, to: 'output', port: 'image' });
@@ -87,7 +107,7 @@ test('Camera palette drag creates an image source with Global/pinned selection, 
   await expect(page.getByLabel('Camera input device')).toHaveValue('cam-B');
 });
 
-test('descriptor-driven filter includes a loaded custom-script pattern and intersects search', async ({ page }) => {
+test('FX-only filter intersects search, includes live script descriptors, but offers no Add as FX button', async ({ page }) => {
   await openFixture(page);
   await page.evaluate(async () => {
     const { SKETCHES } = await import('/src/sketch-registry.js');
@@ -95,75 +115,43 @@ test('descriptor-driven filter includes a loaded custom-script pattern and inter
       name: 'Script Image Fixture', group: 'Custom', customScript: true, fx: { input: 'image' } });
   });
   const search = page.getByLabel('Search patterns');
-  await search.fill('Script Image');
-  await page.getByLabel('FX only').focus();
-  await page.keyboard.press('Space');
+  await search.fill('script image');
+  await page.getByLabel('FX only').check();
   await expect(page.getByLabel('FX only')).toBeChecked();
   const row = page.locator('.nodes-pattern-row').filter({ hasText: 'Script Image Fixture' });
   await expect(row.locator('.nodes-fx-badge')).toHaveText('◇ FX');
-  await expect(row.getByRole('button', { name: 'Add Script Image Fixture as FX' })).toBeVisible();
+  await expect(row.locator('.nodes-pattern-source')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Add .* as FX/ })).toHaveCount(0);
   await search.fill('solid color');
   await expect(page.locator('.nodes-pattern-row')).toHaveCount(0);
   await expect(page.getByText('No matching patterns with image-input FX capability.')).toBeVisible();
-  await page.getByLabel('FX only').uncheck();
-  await expect(page.locator('.nodes-pattern-row').filter({ hasText: 'Solid Color' })).toHaveCount(1);
-});
-
-test('FX-only intersects text search, keeps Source drag default and exposes custom-script capability', async ({ page }) => {
-  await openFixture(page);
-  const search = page.getByLabel('Search patterns');
   await search.fill('video');
-  await expect(page.locator('.nodes-pattern-row').filter({ hasText: 'Video Kaleidoscope' })).toHaveCount(1);
-  await page.getByLabel('FX only').check();
   await expect(page.locator('.nodes-pattern-row').filter({ hasText: 'Video Kaleidoscope' })).toHaveCount(0);
   await expect(fxRow(page).locator('.nodes-fx-badge')).toHaveText('◇ FX');
-  await expect(fxRow(page).getByRole('button', { name: 'Add Video Chroma Key as FX' })).toBeVisible();
-  await search.fill('no matching image effect');
-  await expect(page.getByText('No matching patterns with image-input FX capability.')).toBeVisible();
-
-  // Catalog entries are the source of truth. A loaded script descriptor has the
-  // same selector/badge behavior as a built-in, without a camera/name allowlist.
-  await page.evaluate(async () => {
-    const { SKETCHES } = await import('/src/sketch-registry.js');
-    SKETCHES.push({ ...SKETCHES.find(s => s.id === 'solid-color'), id: 'script-fx-fixture',
-      name: 'Script Image Fixture', group: 'Custom', customScript: true, fx: { input: 'image' } });
-  });
-  await search.fill('script image');
-  await expect(page.locator('.nodes-pattern-row').filter({ hasText: 'Script Image Fixture' }).locator('.nodes-fx-badge')).toBeVisible();
-  await search.fill('video chroma');
-  await fxRow(page).locator('.nodes-pattern-source').dragTo(page.getByLabel('Graph workspace'), { targetPosition: { x: 310, y: 300 } });
-  const source = newPattern(page);
-  await expect(source.locator('.nodes-node-detail')).toContainText('Source');
-  await expect(source.locator('.nodes-input')).toHaveCount(0);
-  await expect(page.getByLabel('Pattern input mode')).toHaveValue('source');
-  await expect(source.locator('.nodes-fx-badge')).toContainText('◇ FX');
-  await expect(source.locator('.nodes-node-title')).toHaveAccessibleDescription(/Accepts an image input/);
-  await page.getByLabel('Pattern input mode').selectOption('fx');
-  await expect(source.locator('.nodes-node-detail')).toContainText('FX active');
-  await expect(source.locator('.nodes-input')).toHaveCount(1);
-  await page.getByLabel('Pattern input mode').selectOption('source');
-  await expect(source.locator('.nodes-input')).toHaveCount(0);
-  await expect(source.locator('.nodes-fx-badge')).toHaveCount(1);
-  await expect(page.getByTestId('node-camera-status')).toHaveCount(0);
+  await page.getByLabel('FX only').uncheck();
+  await expect(page.locator('.nodes-pattern-row').filter({ hasText: 'Video Kaleidoscope' })).toHaveCount(1);
 });
 
-test('explicit Add as FX, edge sockets, and confirmed Source switch never hide a wire', async ({ page }) => {
+test('drag-to-add has an optional image socket; connect/disconnect automatically toggles camera default and FX', async ({ page }) => {
   await openFixture(page);
-  await page.getByLabel('Search patterns').fill('video chroma');
-  await fxRow(page).getByRole('button', { name: 'Add Video Chroma Key as FX' }).click();
-  const fx = newPattern(page);
-  const id = await fx.getAttribute('data-node-id');
-  await expect(fx.locator('.nodes-node-detail')).toContainText('FX active');
-  await expect(fx.locator('.nodes-fx-badge')).toContainText('◇ FX');
-  await expect(page.getByLabel('Pattern input mode')).toHaveValue('fx');
-  await expect(fx.getByRole('button', { name: `${id} input image` })).toBeVisible();
-  await expect(page.getByText(/connect an image to this pattern's image input/i)).toBeVisible();
+  const { id, card } = await dragFxPattern(page);
+  await expect(card.locator('.nodes-fx-badge')).toContainText('◇ FX');
+  await expect(card.locator('.nodes-node-title')).toHaveAccessibleDescription(/Accepts an image input/);
+  await expect(card.getByRole('button', { name: `${id} input image` })).toBeVisible();
+  await expect(page.getByText('Camera by default; connect image for FX.')).toBeVisible();
+  await expect(page.getByTestId('node-image-input-status')).toHaveText('Image input: not connected (camera default)');
+  await expect(card.locator('.nodes-node-detail')).toContainText('Camera default');
+  await expect(page.getByLabel('Pattern input mode')).toHaveCount(0);
+  await expect(page.getByLabel('Camera input device')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Add .* as FX/ })).toHaveCount(0);
   await page.locator('[data-node-id=source] .nodes-output').click();
-  // Clicking the upstream port selects that node, so the primary-node locator
-  // no longer points at the FX card. Keep the identity captured at creation.
-  await page.locator(`[data-node-id="${id}"] .nodes-input`).click();
-  const wire = page.locator(`.nodes-wires [data-connection="image:${id}:image"]`);
+  await card.getByRole('button', { name: `${id} input image` }).click();
+  const wire = page.locator(fxWire(id));
   await expect(wire).toHaveCount(1);
+  await card.locator('.nodes-node-title').click();
+  await expect(page.getByTestId('node-image-input-status')).toHaveText('Image input: wired');
+  await expect(card.locator('.nodes-node-detail')).toContainText('Image wired');
+  await expect(page.getByTestId('node-preview')).toBeVisible();
   const ends = await page.evaluate(target => {
     const plane = document.querySelector('.nodes-plane');
     const zoom = new DOMMatrix(getComputedStyle(plane).transform).a;
@@ -174,43 +162,65 @@ test('explicit Add as FX, edge sockets, and confirmed Source switch never hide a
     return { wireY: points.at(-1), socketY: (socket.top + socket.height / 2 - bounds.top) / zoom };
   }, id);
   expect(Math.abs(ends.wireY - ends.socketY)).toBeLessThanOrEqual(1);
-  await fx.locator('.nodes-node-title').click();
-  await expect(page.getByTestId('node-preview')).toBeVisible();
-  await expect(page.locator('.nodes-diagnostics')).not.toContainText('Camera is available only on the output screen');
-
-  page.once('dialog', d => d.dismiss());
-  await page.getByLabel('Pattern input mode').selectOption('source');
-  await expect(page.getByLabel('Pattern input mode')).toHaveValue('fx');
-  await expect(wire).toHaveCount(1);
-  page.once('dialog', d => d.accept());
-  await page.getByLabel('Pattern input mode').selectOption('source');
-  await expect(page.getByLabel('Pattern input mode')).toHaveValue('source');
-  await expect(fx.locator('.nodes-input')).toHaveCount(0);
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(async () => (await diskGraph(page)).version).toBe(2);
+  await expect.poll(async () => (await diskGraph(page)).edges.find(e => e.to === id)).toEqual({ from: 'source', to: id, port: 'image' });
+  expect((await diskGraph(page)).nodes.find(n => n.id === id)?.inputMode).toBe('fx');
+  await wire.click();
+  await page.getByRole('button', { name: 'Delete connection' }).click();
   await expect(wire).toHaveCount(0);
+  await expect(card.getByRole('button', { name: `${id} input image` })).toBeVisible();
+  await card.locator('.nodes-node-title').click();
+  await expect(page.getByTestId('node-image-input-status')).toHaveText('Image input: not connected (camera default)');
+  await expect(card.locator('.nodes-node-detail')).toContainText('Camera default');
   await expect(page.locator('[data-node-id=source]')).toHaveCount(1);
-  page.once('dialog', d => d.accept());
+  page.once('dialog', dialog => dialog.accept());
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(async () => (await diskGraph(page)).edges.length).toBe(0);
-  await expect.poll(async () => (await diskGraph(page)).nodes.find(n => n.id === id)?.inputMode ?? 'source').toBe('source');
+  expect((await diskGraph(page)).nodes.find(n => n.id === id)?.inputMode).not.toBe('fx');
+  expect(await page.evaluate(() => window.cameraCaptureRequests)).toBe(0);
 });
 
-test('capability loss preserves visible FX mode, input socket and wiring for repair', async ({ page }) => {
+test('the always-visible optional image row keeps a pattern signal endpoint aligned', async ({ page }) => {
   await openFixture(page);
-  await page.getByLabel('Search patterns').fill('video chroma');
-  await fxRow(page).getByRole('button', { name: 'Add Video Chroma Key as FX' }).click();
-  const id = await newPattern(page).getAttribute('data-node-id');
+  const { id, card } = await dragFxPattern(page);
+  await page.getByRole('button', { name: '+ Audio' }).dragTo(page.getByLabel('Graph workspace'), { targetPosition: { x: 60, y: 400 } });
+  const audio = page.locator('.nodes-node').filter({ has: page.getByRole('button', { name: /Select Audio/ }) });
+  await audio.locator('.nodes-output').click();
+  await card.locator('.nodes-signal-endpoint').click();
+  const wire = page.locator(`.nodes-wires [data-connection^="modulation:"][data-connection-from]`).first();
+  await expect(wire).toHaveCount(1);
+  const ends = await page.evaluate(target => {
+    const plane = document.querySelector('.nodes-plane');
+    const zoom = new DOMMatrix(getComputedStyle(plane).transform).a;
+    const bounds = plane.getBoundingClientRect();
+    const socket = document.querySelector(`[data-node-id="${target}"] .nodes-signal-endpoint`).getBoundingClientRect();
+    const path = document.querySelector('.nodes-wires [data-connection^="modulation:"]');
+    const points = path.getAttribute('d').match(/-?[\d.]+/g).map(Number);
+    return { wireY: points.at(-1), socketY: (socket.top + socket.height / 2 - bounds.top) / zoom };
+  }, id);
+  expect(Math.abs(ends.wireY - ends.socketY)).toBeLessThanOrEqual(1);
+  await expect(card.getByRole('button', { name: `${id} input image` })).toBeVisible();
+});
+
+test('descriptor loss retains the wired image socket for repair without adding a mode selector', async ({ page }) => {
+  await openFixture(page);
+  const { id } = await dragFxPattern(page);
   await page.locator('[data-node-id=source] .nodes-output').click();
   await page.locator(`[data-node-id="${id}"] .nodes-input`).click();
+  await expect(page.locator(fxWire(id))).toHaveCount(1);
   await page.evaluate(async () => {
     const { SKETCHES } = await import('/src/sketch-registry.js');
     delete SKETCHES.find(s => s.id === 'video-chroma').fx;
-    // A catalog revision (including an incoming custom-script reload) re-runs
-    // portability diagnostics without touching the saved graph or its edges.
     window.dispatchEvent(new StorageEvent('storage', { key: null }));
   });
+  await page.locator(`[data-node-id="${id}"] .nodes-node-title`).click();
   await expect(page.locator(`[data-node-id="${id}"] .nodes-input`)).toHaveCount(1);
-  await expect(page.locator(`.nodes-wires [data-connection="image:${id}:image"]`)).toHaveCount(1);
-  await expect(page.getByLabel('Pattern input mode')).toHaveValue('fx');
+  await expect(page.locator(fxWire(id))).toHaveCount(1);
+  await expect(page.getByLabel('Pattern input mode')).toHaveCount(0);
+  await expect(page.getByTestId('node-image-input-status')).toHaveText('Image input: wired');
   await expect(page.getByText(/FX capability unavailable/)).toBeVisible();
   await expect(page.getByTestId('nodes-blocked')).toContainText(/FX|image input|capab/i);
+  expect(await page.evaluate(() => window.cameraCaptureRequests)).toBe(0);
 });
