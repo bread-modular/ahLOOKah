@@ -123,6 +123,20 @@ export class NodePatterns {
     });
     await this.refresh(); this.changed();
   }
+  // New Project is not ordinary Unlink: discard individually opened handles,
+  // hidden names and the last folder scan's references along with the folder.
+  // The separate remembered-directory registry survives for older project files.
+  async resetProject() {
+    await lock(async () => {
+      await this.store('handles', empty());
+      const saved = await this.store('handles');
+      if (!saved || saved.folder || !Array.isArray(saved.opened) || saved.opened.length ||
+        !Array.isArray(saved.hidden) || saved.hidden.length || saved.references?.length) {
+        throw new Error('Node project reset was not persisted.');
+      }
+    });
+    await this.refresh(); this.changed();
+  }
   async reconnect() {
     // Permission calls originate in the click handler, never in a background queue.
     try {
