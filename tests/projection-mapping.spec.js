@@ -1132,6 +1132,14 @@ test('mapping titles highlight only text and parameter headings omit the mapping
   const remove = row.getByRole('button', { name: 'Remove Left wall', exact: true });
   const params = row.locator('.projection-surface-params');
   const transparent = 'rgba(0, 0, 0, 0)';
+  // Readiness gate: the panel's live performance-budget block starts as an
+  // unmeasured placeholder and is swapped for a taller measured block once the
+  // first LIVE output sample arrives. That swap happens after the panel already
+  // looks interactive and reflows every mapping row downward, which would slide
+  // the row out from under a pointer parked by :hover — so wait for the measured
+  // block before touching the list (same signal used by render-performance.spec.js).
+  await expect(control.locator('.projection-panel .performance-budget'))
+    .toContainText('LIVE performance budget', { timeout: 20000 });
   const highlight = await row.locator('.projection-param-heading').evaluate((el) => getComputedStyle(el).color);
   const assertHighlighted = async () => {
     await expect(toggle).toHaveCSS('background-color', transparent);
