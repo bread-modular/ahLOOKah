@@ -407,7 +407,7 @@ test('LIVE indicator follows actual selected preview across owner restart, rever
   // The LIVE caption is disclosed with the mapping details, not always visible.
   await expect(live).toHaveCount(0);
   await expect(marker).toBeVisible();
-  await page.getByRole('button', { name: 'Brightness mapping settings' }).click();
+  await openMappingSettings(page, 'Brightness');
   await expect(live).toHaveText('LIVE 0.2');
   await expect(marker).toHaveCSS('left', /.+/);
   expect(await marker.evaluate(el => el.style.left)).toBe('20%');
@@ -424,12 +424,18 @@ test('LIVE indicator follows actual selected preview across owner restart, rever
   await expect.poll(() => previewRed(page)).toBe(51);
   main = await context.newPage(); await main.goto('/'); await main.waitForFunction(() => window.__viz?.audioOwner); await sharedInput(main, true);
   await expect.poll(async () => Number((await live.textContent()).replace('LIVE ', ''))).toBeGreaterThan(.3);
-  await page.getByRole('button', { name: 'Brightness mapping settings' }).click();
+  await openMappingSettings(page, 'Brightness');
   // Reverse the sweep from the fields themselves: min above max is a valid range.
+  // Wait for the panel's own readout to report the committed reversed range
+  // before reading the LIVE caption, so the two fills can never be half-applied.
   await page.getByLabel('Brightness Mapping max', { exact: true }).fill('0.2');
   await page.getByLabel('Brightness Mapping min', { exact: true }).fill('0.8');
+  const range = page.locator('[data-param-target=brightness] .nodes-mapping-inline');
+  await expect(range).toContainText('signal 0 → 0.8; 1 → 0.2 (reversed)');
   await sharedInput(main, false);
-  await expect(live).toHaveText('LIVE 0.8');
+  // The caption is driven by the cross-tab capture owner, so give the packet a
+  // bounded but generous window instead of the default expect timeout.
+  await expect(live).toHaveText('LIVE 0.8', { timeout: 15000 });
   await expect.poll(() => previewRed(page)).toBe(204);
   await expect.poll(() => marker.evaluate(el => el.style.left)).toBe('80%');
   await page.getByRole('button', { name: 'Remove mapping', exact: true }).click();
@@ -445,6 +451,21 @@ test('LIVE indicator follows actual selected preview across owner restart, rever
   await expect(base).toBeEnabled(); await expect(base).toHaveValue('0.2');
   expect(await page.evaluate(() => window.editorCaptureCalls)).toBe(0);
 });
+
+// The mapping overlay is its own disclosure toggle: clicking it while the
+// controls are already open *closes* them, so every later field read waits for an
+// element that will never render. Open it idempotently instead of clicking
+// blindly — activate the overlay's own Enter/Space disclosure only while it
+// reports itself collapsed, then wait for the state the panel announces.
+async function openMappingSettings(page, label) {
+  const overlay = page.getByRole('button', { name: `${label} mapping settings` });
+  if ((await overlay.getAttribute('aria-expanded')) !== 'true') {
+    await overlay.focus();
+    await page.keyboard.press('Enter');
+  }
+  await expect(overlay).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByLabel(`${label} Mapping min`, { exact: true })).toBeVisible();
+}
 
 for (const action of ['Delete', 'Backspace']) {
   test(`mixed multi-selection ${action} cleans incident links at zoom and persists with Output protected`, async ({ page }) => {
