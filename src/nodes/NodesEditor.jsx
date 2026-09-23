@@ -23,7 +23,7 @@ import { MODE_NAMES, isExtendedMode } from './blend-modes.js';
 import { glCompositorAvailable } from './gl-compositor.js';
 import { isIdentityTransform } from './transform.js';
 import { newGraph, validateGraph, connect, deleteNodes, connectionRef, findConnection, removeConnection, DRAG_TYPE, readPaletteDrag, connectSignal, connectSignalEdge, mapSignal, mapSignalInput } from './model.js';
-import { GraphRuntime } from './runtime.js';
+import { GraphRuntime, graphLifecycleKey } from './runtime.js';
 import { nodePatterns, watchGraphs } from './repository.js';
 import { graphDiagnostics, manifestFor, pruneManifest } from './portability.js';
 import { confirmDiscard } from './leave-guard.js';
@@ -175,8 +175,10 @@ function Preview({ graph, dependencies, selected, revision, current, sharedRunti
   const canvas = useRef(null), target = useRef(selected);
   const [messages, setMessages] = useState([]);
   target.current = selected;
-  // Moving nodes/renaming does not destroy GPU sources or restart videos.
+  // Positions/name are presentation only. A lifecycle revision replaces the
+  // graph; parameter and mapping-endpoint revisions update its live views.
   const content = JSON.stringify({ ...graph, name: 'preview', nodes: graph.nodes.map(({ x, y, ...n }) => ({ ...n, x: 0, y: 0 })) });
+  const lifecycle = graphLifecycleKey(graph, SKETCHES, dependencies);
   const manifest = JSON.stringify(dependencies);
   useEffect(() => {
     // The provider lives above the Preview/inspector split; wait for it.
@@ -216,7 +218,12 @@ function Preview({ graph, dependencies, selected, revision, current, sharedRunti
       setMessages([]); void render();
     } catch (e) { setMessages([e.message]); }
     return () => { stopped = true; cancelAnimationFrame(frame); runtime?.dispose(); audioProviderInstance.setChildren([]); current.current = null; };
-  }, [content, manifest, revision, providerReady]);
+  }, [lifecycle, manifest, revision, providerReady]);
+  useEffect(() => {
+    // The construction effect above runs first when topology changes. Ordinary
+    // edits keep its child list and frame loop; only the graph's live views move.
+    if (providerReady) current.current?.updateGraph(JSON.parse(content));
+  }, [content, lifecycle, manifest, revision, providerReady]);
   // Audio and Script are scalar sources with no image to show, so their
   // inspector omits the preview window entirely; the runtime stays mounted.
   if (!visible) return null;
