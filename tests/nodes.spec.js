@@ -683,8 +683,8 @@ test('Node Patterns category owns folder/open; sidebar opens the selected graph 
   await picker.getByRole('combobox').selectOption('neon.nodes.json');
   await picker.getByRole('button', { name: 'Open', exact: true }).click();
   await expect(picker).toHaveCount(0);
-  // The editor replaces the main view in this window; Back to Main returns to it.
-  await page.getByRole('button', { name: 'Back to Main', exact: true }).click();
+  // OPEN only adds the file to the library: the main view stays in place and the
+  // editor is entered through the selected pattern's Edit Pattern.
   await expect(page.locator('.app-editor-panel')).toHaveCount(0);
   await expect(category.locator('.library-btn')).toHaveCount(2);
   const id = await page.evaluate(async () => (await import('/src/nodes/repository.js')).nodePatterns.records.find(r => r.fileName === 'neon.nodes.json').id);
@@ -835,6 +835,10 @@ test('linked folder text rows and unlink preserve source files and standalone wo
   expect(await diskText(page)).toContain('Neon composite');
   await panel.getByRole('button', { name: 'Open Pattern', exact: true }).click();
   await expect.poll(() => recordNames(page)).toEqual(['Neon composite']);
+  // The native-picker path (no linked folder) adds the pattern the same way and
+  // never replaces the main view with the editor.
+  await expect(page.locator('.app-editor-panel')).toHaveCount(0);
+  await expect(page.getByLabel('Graph name')).toHaveCount(0);
 });
 
 test('a new pattern saves with an unconnected Output, and Delete forgets it without touching disk', async ({ page }) => {
@@ -897,7 +901,11 @@ test('a new pattern saves with an unconnected Output, and Delete forgets it with
   const picker = page.getByRole('dialog', { name: 'Open Pattern', exact: true });
   await picker.getByRole('combobox').selectOption('Work-in-progress.nodes.json');
   await picker.getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(picker).toHaveCount(0);
   await expect(category.locator('.library-btn')).toHaveCount(2);
+  // Restoring a deleted pattern adds it back to the library and stays on the
+  // main view: OPEN never hands the window to the editor.
+  await expect(page.locator('.app-editor-panel')).toHaveCount(0);
   expect(await fileText('Work-in-progress.nodes.json')).toBe(before);
 });
 

@@ -24,7 +24,12 @@ export function NodePatternEdit({ sketch, locked }) {
 
 export function NodePatternsPanel() {
   const { open } = useNodeEditor();
-  const openFile = async name => { const record = await nodePatterns.open(name); open(record.id); return record; };
+  // OPEN adds one file to the library, and that is all it does: the pattern
+  // joins this category like any other and the main view stays exactly where it
+  // was. The node editor is entered explicitly — ADD for a new graph, or the
+  // sidebar's Edit Pattern (NodePatternEdit) for a listed one — so picking a
+  // file can never take the operator off the control panel.
+  const openFile = async name => nodePatterns.open(name);
   const [picker, setPicker] = useState(null);
   const opener = useRef(null);
   const [, update] = useState(0);
@@ -35,7 +40,7 @@ export function NodePatternsPanel() {
       link={() => nodePatterns.link()} refresh={() => nodePatterns.reconnect()} unlink={() => nodePatterns.unlink()}
       note="Unlink removes folder patterns, not source files.">
       <button className="library-add-btn" aria-label="New Node Pattern" title="Create a node pattern in the editor" onClick={() => open()}>ADD</button>
-      <button className="library-add-btn" ref={opener} aria-label="Open Pattern" title="Open a node pattern file" disabled={busy} onClick={() => nodePatterns.state.folder ? setPicker(nodePatterns.browse()) : run(() => openFile())}>OPEN</button>
+      <button className="library-add-btn" ref={opener} aria-label="Open Pattern" title="Add a node pattern file to the library (does not open the editor)" disabled={busy} onClick={() => nodePatterns.state.folder ? setPicker(nodePatterns.browse()) : run(() => openFile())}>OPEN</button>
     </FolderControls>
     {picker && <DirectoryPicker title="Open Pattern" label="Pattern" folder={nodePatterns.state.folder?.handle.name} listing={picker} open={openFile} opener={opener} onClose={() => setPicker(null)} />}
     {busy && <p role="status">Reading node patterns…</p>}

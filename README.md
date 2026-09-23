@@ -415,8 +415,10 @@ globals) and the legacy single-value **expression** language that graphs saved b
 still use unchanged. Sources are approved per exact text *and* language in this browser,
 so an imported file can never carry trust with it.
 The main **Node Patterns** category owns **Link Folder**, **Open Pattern**,
-**Refresh folder**, and **New Node Pattern**. Select a graph, then use the sidebar’s
-**Edit Pattern** to open it in the editor; the sidebar’s **Delete** removes it from
+**Refresh folder**, and **New Node Pattern**. **Open Pattern** only adds the picked
+file to the library — it never opens the editor and never changes what the window
+shows. Select a graph, then use the sidebar’s **Edit Pattern** to open it in the
+editor (or **New Node Pattern** for a fresh draft); the sidebar’s **Delete** removes it from
 the library without touching the file on disk (Open Pattern restores it). One graph is edited at a time and the editor
 replaces the main view in the same window — no popup, no tab rail, no draft list; its
 toolbar **Back to Main** returns to the main app, asking first when the draft is dirty.
@@ -580,8 +582,9 @@ npm run build
 
 ### Internal node editor
 
-Node Patterns **ADD**, **OPEN**, and **Edit Pattern** open the editor in place over the
-main app view — no popup window, no right-side tab rail, no draft list. Exactly one
+Node Patterns **ADD** and **Edit Pattern** open the editor in place over the
+main app view — no popup window, no right-side tab rail, no draft list. **OPEN** only
+adds a pattern file to the library and leaves the main view untouched. Exactly one
 editor session exists: **Back to Main** in the editor toolbar returns to the main app in
 the same browser window and unmounts the editor. Leaving or replacing a dirty graph (and
 **Reload from disk**) asks for confirmation first, and leaving during a save is disabled.

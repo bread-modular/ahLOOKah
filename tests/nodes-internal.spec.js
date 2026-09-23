@@ -25,14 +25,24 @@ async function seed(page, g = graph()) {
     return (await nodePatterns.open('color.nodes.json')).id;
   }, g);
 }
-// One editor session: main-view "Open Pattern" fills it, Back to Main clears it.
+// OPEN only adds the file to the library: the picker closes, the main view stays
+// active and no editor appears. The editor is entered explicitly, through the
+// selected pattern's sidebar Edit Pattern.
 async function openFile(page) {
   await expect(mainPanel(page)).not.toHaveClass(/is-inactive/);
   await page.getByRole('button', { name: 'Open Pattern', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Open Pattern' });
   await dialog.getByRole('combobox').selectOption('color.nodes.json');
   await dialog.getByRole('button', { name: 'Open', exact: true }).click();
-  await expect(editor(page).getByLabel('Graph name')).toBeVisible();
+  await expect(dialog).toHaveCount(0);
+  await expect(editor(page)).toHaveCount(0);
+  await expect(mainPanel(page)).not.toHaveClass(/is-inactive/);
+}
+// One editor session: the selected pattern's Edit Pattern fills it, Back to Main
+// clears it.
+async function editPattern(page, id) {
+  await page.locator(`.library-btn[data-id="${id}"]`).click();
+  await page.getByRole('button', { name: 'Edit Pattern', exact: true }).click();
 }
 async function backToMain(page) {
   await back(page).click();
@@ -53,7 +63,7 @@ test.beforeEach(async ({ page, context }) => {
   });
 });
 
-test('New, Open and Edit share one internal editor view with no rail or popups', async ({ page, context }) => {
+test('New and Edit share one internal editor view; OPEN only adds a pattern', async ({ page, context }) => {
   await page.goto('/');
   await expect(page.locator('.app-tabs-rail')).toHaveCount(0);
   await expect(page.getByRole('tab')).toHaveCount(0);
@@ -68,11 +78,8 @@ test('New, Open and Edit share one internal editor view with no rail or popups',
   await backToMain(page); // a clean new draft never prompts
   const id = await seed(page);
   await openFile(page);
-  await expect(editor(page).getByLabel('Graph name')).toHaveValue('Internal color');
-  await expect(page.locator('.app-editor-panel')).toHaveCount(1);
-  await backToMain(page);
-  await page.locator(`.library-btn[data-id="${id}"]`).click();
-  await page.getByRole('button', { name: 'Edit Pattern', exact: true }).click();
+  await expect(page.locator(`.library-btn[data-id="${id}"]`)).toHaveCount(1);
+  await editPattern(page, id);
   await expect(editor(page).getByLabel('Graph name')).toHaveValue('Internal color');
   await expect(page.locator('.app-editor-panel')).toHaveCount(1);
   await expect(page.getByRole('button', { name: /Close / })).toHaveCount(0);
@@ -187,7 +194,7 @@ test('internal editing keeps the main canvas, external output and save propagati
   }, id);
   await expect.poll(screenRed).toBe(51);
   await page.evaluate(() => { window.originalPreview = document.querySelector('#panel-main canvas'); });
-  await openFile(page);
+  await editPattern(page, id);
   await editor(page).locator('[data-node-id=color] .nodes-node-title').click();
   await editor(page).getByLabel('Brightness', { exact: true }).fill('0.8');
   await expect.poll(() => red(page)).toBe(204);
@@ -217,9 +224,9 @@ test('real shared analyser drives internal preview and mapping; no new channel, 
     tone.frequency.value = 94; gain.gain.value = 0; tone.connect(gain); gain.connect(audio.splitter); tone.start();
     window.toneGain = gain; window.originalContext = ctx; window.originalStream = audio.stream;
   });
-  await seed(page, mapSignal(graph(), 'audio', 'color', 'brightness', .2, .8));
+  const id = await seed(page, mapSignal(graph(), 'audio', 'color', 'brightness', .2, .8));
   const channels = await page.evaluate(() => window.channelNames.length);
-  await openFile(page);
+  await editPattern(page, id);
   await editor(page).locator('[data-node-id=color] .nodes-node-title').click();
   await expect.poll(() => red(page)).toBe(51);
   await page.evaluate(() => { window.toneGain.gain.value = .3; });
@@ -228,8 +235,11 @@ test('real shared analyser drives internal preview and mapping; no new channel, 
   await page.evaluate(() => { window.toneGain.gain.value = 0; });
   await expect.poll(() => red(page)).toBe(51);
   await backToMain(page);
-  // Leaving disposes the editor's borrowed audio slots; the main capture keeps running.
-  await expect.poll(() => page.evaluate(() => window.__viz.patternAudio.engine.activeControllers.filter(c => c.patternId === '__node_audio_signal').length)).toBe(0);
+  // Leaving disposes the editor's borrowed audio slots; the main capture keeps
+  // running. The editor's consumer session is the one that must be gone — main's
+  // own slot for the selected graph (and the selection itself) is untouched.
+  await expect.poll(() => page.evaluate(() => window.__viz.patternAudio.engine.activeControllers
+    .filter(c => c.patternId === '__node_audio_signal' && c.key.includes('nodes-editor-')).length)).toBe(0);
   expect(await page.evaluate(() => ({ calls: captureCalls.length, channels: channelNames.length, sameContext: window.__viz.captureAudio.audioContext === originalContext, sameStream: window.__viz.captureAudio.stream === originalStream, started: window.__viz.captureAudio.isStarted }))).toEqual({ calls: 1, channels, sameContext: true, sameStream: true, started: true });
   expect(context.pages()).toHaveLength(1);
 });
@@ -251,7 +261,7 @@ test('internal video uses the existing media store; camera FX previews a generat
   const mediaCount = () => page.evaluate(async () => (await import('/src/media/media-store.js')).listMediaRecords().then(r => r.length));
   const green = () => editor(page).getByTestId('node-preview').evaluate(c => c.getContext('2d').getImageData(240, 135, 1, 1).data[1]);
   const g = graph(); g.nodes[0].patternId = 'media-internal-video'; g.nodes[0].params = {};
-  const id = await seed(page, g); await openFile(page);
+  const id = await seed(page, g); await editPattern(page, id);
   await expect.poll(green).toBeGreaterThan(240);
   expect(await mediaCount()).toBe(1);
   await backToMain(page);
@@ -261,7 +271,7 @@ test('internal video uses the existing media store; camera FX previews a generat
   expect(await mediaCount()).toBe(1);
   await backToMain(page);
   const camera = graph(); camera.nodes[0].patternId = 'video-chroma'; camera.nodes[0].params = {};
-  await seed(page, camera); await openFile(page);
+  const cameraId = await seed(page, camera); await editPattern(page, cameraId);
   await editor(page).locator('[data-node-id=color] .nodes-node-title').click();
   await expect(editor(page).getByTestId('node-image-input-status')).toHaveText('Image input: not connected (camera default)');
   await expect(editor(page).locator('.nodes-diagnostics')).toBeEmpty();
