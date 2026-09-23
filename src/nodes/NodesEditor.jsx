@@ -554,6 +554,28 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [draft, nameDraft, scriptDrafts]);
+  // Ctrl/Cmd+A is the canvas's select-all: every node except the structural
+  // Output. The browser's own "select every text run in the UI" is prevented,
+  // because that is what the shortcut used to do in this editor. The listener
+  // belongs to the window rather than to <main>: a freshly opened editor has no
+  // focused element, so a keystroke read only by the root element would fall
+  // through to the browser exactly when the operator first reaches for it.
+  // Editable fields keep their own select-all, and the browser is refused even
+  // when the editor itself will not act (a held shortcut, or a busy disk write),
+  // so no key state can quietly fall back to selecting the UI text.
+  useEffect(() => {
+    if (loadState !== 'ready') return;
+    const onKey = e => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+      if (e.key !== 'a' && e.key !== 'A') return;
+      if (e.target instanceof Element && e.target.closest('input,select,textarea,[contenteditable]:not([contenteditable="false"]),[role="textbox"]')) return;
+      e.preventDefault();
+      if (busy || e.repeat) return;
+      selection.selectAll();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [loadState, busy, selection.selectAll]);
   useEffect(() => { onState?.({ name, dirty: dirty() || !!unappliedScripts().length, busy }); }, [draft, nameDraft, scriptDrafts, busy, current]);
   if (loadState !== 'ready') return <main className={`nodes-app${loadState === 'error' ? ' has-errors' : ''}`}>
     <header className="nodes-toolbar"><h1>Pattern editor</h1><BackToMain onBack={onBack} /></header>

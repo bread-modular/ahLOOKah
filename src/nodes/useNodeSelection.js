@@ -7,7 +7,10 @@ const rectangle = (a, b) => ({ x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), wid
 // uses primary; deletion operates on the entire selected group. A selected
 // *connection* is a third, mutually exclusive kind of selection: it is addressed
 // as {kind, key} (see model.js connectionRef) and never implies its endpoint
-// nodes, so Delete can remove one wire without deleting a node.
+// nodes, so Delete can remove one wire without deleting a node. The Output is
+// structural: it can be picked by hand or by a marquee, but the canvas-wide
+// Ctrl/Cmd+A shortcut deliberately leaves it out, because the only group
+// operation it would feed is a delete that model.js refuses anyway.
 export function useNodeSelection(graph, setDraft, navigation) {
   const [selection, setSelection] = useState(() => {
     const output = graph.nodes.find(node => node.type === 'output')?.id ?? null;
@@ -32,6 +35,16 @@ export function useNodeSelection(graph, setDraft, navigation) {
     gesture.current = null; setBox(null); suppressClick.current = null;
     setSelection({ ids: [], primary: null });
     setWire(ref);
+  };
+  // Ctrl/Cmd+A is the canvas's "everything on the board": every node except the
+  // Output. The previous primary keeps the inspector when it is still part of
+  // the group, so a group nudge or delete stays anchored where the operator was
+  // working; otherwise the first eligible node leads. A connection selection is
+  // dropped, exactly as a node click would drop it.
+  const selectAll = () => {
+    const ids = graph.nodes.filter(node => node.type !== 'output').map(node => node.id);
+    setWire(null);
+    setSelection(previous => ({ ids, primary: ids.includes(previous.primary) ? previous.primary : ids[0] || null }));
   };
   const clearWire = () => setWire(null);
   const cancel = () => {
@@ -118,5 +131,5 @@ export function useNodeSelection(graph, setDraft, navigation) {
     onPointerCancel: e => { navigation.handlers.onPointerCancel(e); if (gesture.current?.pointerId === e.pointerId) cancel(); },
     onLostPointerCapture: e => { navigation.handlers.onLostPointerCapture(e); if (gesture.current?.pointerId === e.pointerId) cancel(); },
   };
-  return { ...selection, wire, box, reset, cancel, selectWire, clearWire, nodeClick, titleHandlers, workspaceHandlers };
+  return { ...selection, wire, box, reset, cancel, selectAll, selectWire, clearWire, nodeClick, titleHandlers, workspaceHandlers };
 }
