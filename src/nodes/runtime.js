@@ -326,10 +326,16 @@ export class GraphRuntime {
     }
     return prepare();
   }
+  _activeAudioNodes() {
+    // Output's routes stay warm while the inspector previews another branch;
+    // previously inspected disconnected routes do not stay in the capture plan.
+    return this.paused ? [] : new Set([...this.dependenciesFor(this.outputId), ...this.dependenciesFor(this.activeTarget)]);
+  }
   _selectTarget(targetId) {
     if (!this.preview || this.activeTarget === targetId) return;
     this.activeTarget = targetId;
     const needed = this.dependenciesFor(targetId);
+    if (this.signal?.setActiveNodes(this._activeAudioNodes())) this.context.onAudioSlotsChanged?.();
     // Keep shared instances warm; park previously selected disconnected
     // branches so their autonomous draw loops stop consuming preview resources.
     for (const [id, source] of this.sources) {
@@ -592,10 +598,14 @@ export class GraphRuntime {
     if (this.inFlight) this.pendingSize = next;
     else this._applySize(next);
   }
-  pause() { this.paused = true; this.sources.forEach(s => s.pause()); }
+  pause() {
+    this.paused = true; this.sources.forEach(s => s.pause());
+    if (this.preview && this.signal?.setActiveNodes([])) this.context.onAudioSlotsChanged?.();
+  }
   resume() {
     this.paused = false;
     const active = this.dependenciesFor(this.activeTarget);
+    if (this.preview && this.signal?.setActiveNodes(this._activeAudioNodes())) this.context.onAudioSlotsChanged?.();
     this.sources.forEach((source, id) => { if (!this.preview || active.has(id)) source.resume(); });
   }
   dispose() {

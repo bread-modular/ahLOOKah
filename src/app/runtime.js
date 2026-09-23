@@ -59,7 +59,7 @@ import {
 } from '../platform/settings-portability.js';
 import { relinkImportedMedia } from '../platform/folder-portability.js';
 import { ensureProjectFolder, recallProjectFolder } from '../platform/project-folders.js';
-import { confirmFolderReference } from '../platform/folderReferences.js';
+import { confirmFolderReference, mediaBelongsToFolder } from '../platform/folderReferences.js';
 import {
   ProgramRuntime,
   copyProgramSelection,
@@ -210,7 +210,7 @@ export function createAppRuntime({
           } catch { /* An unavailable old reference must not block new files. */ }
         }
         if (duplicate) continue;
-        const restored = existing.find(record => !record.handle && record.folderName === source.folderName && record.fileName === source.name);
+        const restored = existing.find(record => !record.handle && record.fileName === source.name && mediaBelongsToFolder(record, source.folderName));
         if (!restored && loadMediaMeta().length >= 256) throw new Error('Media library: maximum 256 files');
         const meta = restored ? { id: restored.id, name: restored.name, kind: source.kind } : { id: `m${crypto.randomUUID()}`, name: mediaDisplayName(source.name), kind: source.kind };
         await putMediaRecord({ ...source, ...meta });

@@ -5,6 +5,7 @@ import {
   folderReference,
   sanitizeFolderReferences,
   importFolderReferences,
+  mediaBelongsToFolder,
 } from './folderReferences.js';
 import {
   bindProjectFolder,
@@ -173,7 +174,7 @@ export async function applyFolderReferences(references) {
   for (const section of FOLDER_SECTIONS) {
     const ref = references[section];
     if (!ref.folderName) { clearProjectFolder(section); continue; }
-    const stored = ref.folderId ? await recallProjectFolder(ref.folderId) : null;
+    const stored = ref.folderId ? await recallProjectFolder(ref.folderId, { strict: true }) : null;
     const handle = stored?.section === section ? stored.handle || null : null;
     let folderId = ref.folderId || newFolderId();
     const entry = { section, label: label(section), folderName: ref.folderName, folderId };
@@ -247,16 +248,16 @@ export async function applyFolderReferences(references) {
 export async function relinkImportedMedia(folderHandle) {
   if (!folderHandle || typeof folderHandle.getFileHandle !== 'function') return 0;
   let restored = 0;
-  const records = await listMediaRecords().catch(() => []);
+  const records = await listMediaRecords();
   for (const record of records) {
-    if (!record || record.handle || !record.fileName) continue;
-    if (record.folderName !== folderHandle.name) continue;
+    if (!record || record.handle || !mediaBelongsToFolder(record, folderHandle.name)) continue;
+    let handle;
     try {
-      const handle = await folderHandle.getFileHandle(record.fileName);
+      handle = await folderHandle.getFileHandle(record.fileName);
       await handle.getFile(); // A deleted file must not look linked.
-      await putMediaRecord({ ...record, handle });
-      restored += 1;
-    } catch { /* Missing file: the pattern stays marked, never blocks the project. */ }
+    } catch { continue; } // Missing files are repairable; storage failures are not.
+    await putMediaRecord({ ...record, handle }, { strict: true });
+    restored += 1;
   }
   return restored;
 }

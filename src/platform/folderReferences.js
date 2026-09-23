@@ -108,6 +108,16 @@ export function referencedFileId(section, name, linked) {
   return matches[0]?.id;
 }
 
+// A portable file explicitly outside the linked directory must not be rebound
+// to a same-named child. With no portable hints, retain legacy local relinking.
+export function mediaBelongsToFolder(record, folderName) {
+  if (!record.fileName || record.folderName !== folderName) return false;
+  const ref = folderReference('media');
+  if (!ref) return true;
+  return !ref.needsRelink && ref.folderName === folderName && ref.files.some(file =>
+    file.linked && file.id === record.id && file.fileName === record.fileName);
+}
+
 export function forgetFolderFile(section, value) {
   const raw = localStorage.getItem(FOLDER_REFERENCES_KEY);
   if (!raw) return;
