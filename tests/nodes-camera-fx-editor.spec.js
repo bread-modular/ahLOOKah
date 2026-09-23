@@ -30,6 +30,17 @@ const diskGraph = page => page.evaluate(async () => {
   const { nodePatterns } = await import('/src/nodes/repository.js');
   return (await nodePatterns.load(new URLSearchParams(location.search).get('graph'))).graph;
 });
+// Reading the pattern while the editor's own save is in flight is expected to
+// fail: Chrome refuses a read (NotReadableError) while a writable stream is open
+// on that file, and `load()`'s folder re-scan can also miss the file for one
+// pass and report "Pattern became unavailable on disk" (the repository records
+// the failed pass in `errors` and heals on the next one). Both mean "not written
+// yet", not a missing file, so polls read through this helper and keep checking
+// for the eventual disk state; a permanently absent or corrupt file still fails.
+const diskGraphWhenWritten = page => diskGraph(page).catch((error) => {
+  if (/NotReadableError|became unavailable on disk/.test(String(error?.message ?? error))) return null;
+  throw error;
+});
 const newPattern = page => page.locator('.nodes-node[data-primary=true]');
 const fxRow = page => page.locator('.nodes-pattern-row').filter({ hasText: 'Video Chroma Key' });
 const fxWire = id => `.nodes-wires [data-connection="image:${id}:image"]`;
@@ -98,7 +109,7 @@ test('Camera sits immediately above Script; dragging it keeps the Global/pinned 
   await expect(page.locator('.nodes-wires [data-connection="image:output:image"]')).toHaveCount(1);
   page.once('dialog', dialog => dialog.accept());
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect.poll(async () => (await diskGraph(page)).nodes.find(n => n.id === id)?.deviceId).toBe('cam-B');
+  await expect.poll(async () => (await diskGraphWhenWritten(page))?.nodes.find(n => n.id === id)?.deviceId).toBe('cam-B');
   expect((await diskGraph(page)).edges).toContainEqual({ from: id, to: 'output', port: 'image' });
   expect(await page.evaluate(() => localStorage.getItem('viz2_video_device_id'))).toBe('cam-A');
   expect(await page.evaluate(() => window.cameraCaptureRequests)).toBe(0);
@@ -184,8 +195,8 @@ test('drag-to-add has an optional image socket; connect/disconnect automatically
   expect(Math.abs(ends.wireY - ends.socketY)).toBeLessThanOrEqual(1);
   page.once('dialog', dialog => dialog.accept());
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect.poll(async () => (await diskGraph(page)).version).toBe(2);
-  await expect.poll(async () => (await diskGraph(page)).edges.find(e => e.to === id)).toEqual({ from: 'source', to: id, port: 'image' });
+  await expect.poll(async () => (await diskGraphWhenWritten(page))?.version).toBe(2);
+  await expect.poll(async () => (await diskGraphWhenWritten(page))?.edges.find(e => e.to === id)).toEqual({ from: 'source', to: id, port: 'image' });
   expect((await diskGraph(page)).nodes.find(n => n.id === id)?.inputMode).toBeUndefined(); // image edge, not a saved flag
   await wire.click();
   await page.getByRole('button', { name: 'Delete connection' }).click();
@@ -197,7 +208,7 @@ test('drag-to-add has an optional image socket; connect/disconnect automatically
   await expect(page.locator('[data-node-id=source]')).toHaveCount(1);
   page.once('dialog', dialog => dialog.accept());
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect.poll(async () => (await diskGraph(page)).edges.length).toBe(0);
+  await expect.poll(async () => (await diskGraphWhenWritten(page))?.edges.length).toBe(0);
   expect((await diskGraph(page)).nodes.find(n => n.id === id)?.inputMode).not.toBe('fx');
   expect(await page.evaluate(() => window.cameraCaptureRequests)).toBe(0);
 });
