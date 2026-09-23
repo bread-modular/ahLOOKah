@@ -56,11 +56,19 @@ function validateSchema(schema) {
   }
 }
 export function validateDefinition(d) {
-  keys(d, ['id', 'name', 'renderer', 'camera', 'params', 'preload', 'setup', 'draw', 'resize', 'dispose', 'audio'], 'pattern');
+  keys(d, ['id', 'name', 'renderer', 'camera', 'fx', 'params', 'preload', 'setup', 'draw', 'resize', 'dispose', 'audio'], 'pattern');
   if (!idRE.test(d.id)) fail('id must be custom- followed by lowercase letters, digits or hyphens (max 63 characters)');
   if (typeof d.name !== 'string' || !d.name.trim() || d.name.length > 80) fail(`${d.id}: name must contain 1..80 characters`);
   if (d.renderer !== undefined && !['2d', 'webgl'].includes(d.renderer)) fail(`${d.id}: renderer must be 2d or webgl`);
   if (d.camera !== undefined && typeof d.camera !== 'boolean') fail(`${d.id}: camera must be boolean`);
+  if (Object.hasOwn(d, 'fx')) {
+    keys(d.fx, ['input'], 'fx');
+    const input = Object.getOwnPropertyDescriptor(d.fx, 'input');
+    // Registration snapshots copy enumerable data fields; accessors or hidden
+    // fields must not validate and then disappear/execute again on freezeCopy.
+    if (Reflect.ownKeys(d.fx).length !== 1 || !input?.enumerable || !Object.hasOwn(input, 'value')) fail(`${d.id}: fx must contain only input`);
+    if (input.value !== 'image') fail(`${d.id}: fx.input must be image`);
+  }
   for (const hook of ['preload', 'setup', 'draw', 'resize', 'dispose']) fn(d[hook], `${d.id}.${hook}`, hook === 'draw', ['preload', 'setup'].includes(hook));
   if (d.params !== undefined && (!Array.isArray(d.params) || d.params.length > 16)) fail(`${d.id}: params must be an array of at most 16 sliders`);
   const seen = new Set();

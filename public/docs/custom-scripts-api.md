@@ -38,7 +38,8 @@ Unknown fields are errors (including `factory`, `group`, `media`, `projection`, 
 | `id` | `custom-` + lowercase letter/digit followed by up to 55 lowercase letters/digits/hyphens; max 63 total. Globally unique. |
 | `name` | Nonblank string, max 80 characters. |
 | `renderer` | Optional `'2d'` (default) or `'webgl'`. |
-| `camera` | Optional boolean; true enables output camera readiness and disables control camera preview, like built-ins. |
+| `camera` | Optional boolean; true retains the existing source-mode camera behavior. It does not imply FX capability. |
+| `fx` | Optional, exactly `{ input: 'image' }`. Declares the ability to process one graph-owned image in FX mode; no other fields, inputs or values are accepted. Omission means source-only. Capability does not switch a running instance's mode. |
 | `params` | Optional array of at most 16 numeric sliders. Unique safe keys. |
 | `preload(ctx)` | Optional sync or async hook, before canvas/setup; suitable for asset loading. |
 | `setup(ctx)` | Optional sync or async hook, after automatic host-sized canvas creation. |
@@ -59,7 +60,9 @@ All six fields required. `key`: starts with ASCII letter, then letters/digits/un
 
 | Member | Meaning |
 |---|---|
-| `p` | Actual VizCore instance, full existing rendering API, no proxy/security membrane. |
+| `p` | Actual VizCore instance, full existing rendering API, no proxy/security membrane. In FX mode its supported `p.createCapture` entry point throws instead of opening a camera. |
+| `inputMode` | Read-only for this renderer instance: `'source'` by default, `'fx'` only when an FX-capable graph instance explicitly requests it. Switching modes recreates the renderer. |
+| `imageInput` | Current borrowed graph image frame during a synchronous FX `draw`, otherwise `null`. Refreshed before every draw and cleared on return, error or disposal. This is **not** the audio `frame`. |
 | `params` | Current host-owned parameter object. |
 | `state` | Fresh mutable object for this renderer instance; separate for each output, CUE, preview and projection child. |
 | `reactive`, `response`, `accent` | Preferred built-in channels and normalization helpers; see Preferred reactive mapping. |
@@ -67,9 +70,9 @@ All six fields required. `key`: starts with ASCII letter, then letters/digits/un
 | `onCleanup(fn)` | Register synchronous cleanup, reverse order, once. If already disposed, runs immediately. |
 | `signal` | AbortSignal aborted before dispose/cleanup. Async work must check it before using p/state/resources. |
 | `assetURL(filename)` | Promise of a blob URL from this generation's real folder. Immediate filename only, no paths. Automatically revoked on disposal. Does not execute JS. Permission errors instruct reconnect. |
-| `createCapture(constraints, callback?)` | Output's shared camera factory (selected camera device), fallback to VizCore capture outside ProgramRuntime. Use instead of opening your own stream. |
+| `createCapture(constraints, callback?)` | Source mode: output's shared camera factory (selected camera device), fallback to VizCore capture outside ProgramRuntime. FX mode: throws before either path, even when no image is connected. |
 | `videoDeviceId` | Selected output device ID, null in control preview. |
-| `runtime` | Existing integration callbacks: `audioSlot`, `audioControls`, `createCapture(p, constraints, callback)`, `isPaused()`, `addPlaybackLifecycle({pause,resume})`, `reportMediaReady()`, `reportMediaSettled()`, `addCleanup(fn)` where supplied. Some are absent in embedded preview; use optional chaining. Prefer `ctx.onCleanup` for portable teardown. |
+| `runtime` | Existing integration callbacks: `audioSlot`, `audioControls`, `createCapture(p, constraints, callback)`, `isPaused()`, `addPlaybackLifecycle({pause,resume})`, `reportMediaReady()`, `reportMediaSettled()`, `addCleanup(fn)` where supplied. An FX-capable graph host also passes `inputMode` and `getImageInput()`; the adapter only reads the provider during FX draws. Some callbacks are absent in embedded preview; use optional chaining. Prefer `ctx.onCleanup` for portable teardown. |
 | `audio` | Existing legacy audio object, not a guaranteed raw capture stream in remote windows. Prefer `reactive` for new scripts; advanced controllers retain `frame`/`shared` and renderer `controls`. |
 
 The adapter handles canvas sizing, graphics mode, lifecycle error reporting, loop stop on draw failure and exactly-once cleanup. VizCore removal stops rAF, removes canvas/media/listeners and releases GL. You **must** clean up timers, external listeners, fetched resources, workers, offscreen Graphics, raw GL resources and manually owned MediaStreams. Do not remove the host canvas, replace the host draw loop or use page reload as cleanup. Do not allocate on every frame. Disposal also happens on ordinary pattern switches, not just script reload.
@@ -82,6 +85,101 @@ setup({state, onCleanup, signal}) {
   window.addEventListener('online', () => { state.count = 0; }, {signal});
 }
 ```
+
+### Image-input FX (opt-in graph contract)
+
+`fx: { input: 'image' }` is **capability metadata**, not a mode switch. Existing scripts, standalone playback and old graph instances remain sources; `camera: true` retains its source-mode behavior. Only a graph instance explicitly set to `runtime.inputMode === 'fx'` may receive an upstream image, and only if its registered descriptor declares this capability. The custom-script adapter accepts the mode/provider now; the graph model, scheduler, camera-readiness policy and editor still need integration before FX wiring is available in the app. Do not expect these examples to gain an image input in the current editor just by registering them.
+
+For each synchronous FX draw, the host calls `runtime.getImageInput()` and exposes the result as `ctx.imageInput`. `null` means disconnected, pending or otherwise unusable input. A non-null frame has this shape:
+
+```js
+{ source, width, height, frameId, timestampMs, generation }
+```
+
+- `source` is the **graph-owned HTMLCanvasElement**, not a camera/video wrapper or cross-context WebGL texture. `width`/`height` are its positive pixel dimensions. `frameId` identifies the graph evaluation, `timestampMs` is monotonic render time, and `generation` invalidates old views on rebuild, resize or disposal. These values describe an image, not the capture-side `audio.update({ frame })` analysis data.
+- The graph owns and pins input for the current draw/tick. Read or sample it synchronously; do **not** resize, draw into, remove, dispose, mutate or retain the canvas/view for async work or future draws. Make an effect-owned copy only for intentional, bounded history. `ctx.imageInput` is `null` outside the draw and on dispose, but your own stored reference cannot be revoked by the adapter. Keep output distinct from input to avoid feedback.
+- In FX mode `ctx.createCapture()` and `p.createCapture()` explicitly throw, including when the input is absent. Never write `ctx.createCapture(...) || p.createCapture(...)` as an FX fallback. Source-mode capture is unchanged; only an upstream camera-source node should acquire a camera for a camera → FX chain. These guards cover the supported VizCore paths, **not** arbitrary trusted JavaScript calling browser media APIs directly.
+- Handle `null` by clearing to transparent, not opening a camera or retaining an old output. The integrated graph host must also diagnose missing/unsupported input and clear failed outputs. FX preview should not request an effect-owned camera; an upstream camera remains subject to the host's normal camera restrictions. `preload` and `setup` must not assume a frame exists.
+
+**Canvas2D source/FX example** (the source branch is deliberately useful on its own):
+
+```js
+api.requireVersion(1);
+api.create({
+  id: 'custom-image-wash', name: 'Image wash', fx: { input: 'image' },
+  draw({ p, inputMode, imageInput }) {
+    p.clear();
+    if (inputMode === 'source') { p.background(24); return; }
+    if (!imageInput) return;
+    p.tint(255, 180);
+    p.image(imageInput.source, 0, 0, p.width, p.height);
+    p.noTint();
+  },
+});
+```
+
+**Dual-source camera example**: acquire only in source mode. Do not test capture metadata to decide whether an FX frame is ready; use `imageInput` and its dimensions instead. Source-only camera behavior and mirroring remain explicit.
+
+```js
+api.requireVersion(1);
+api.create({
+  id: 'custom-camera-wash', name: 'Camera / image wash',
+  camera: true, fx: { input: 'image' },
+  setup({ inputMode, state, createCapture }) {
+    if (inputMode === 'source') {
+      state.capture = createCapture({ video: true, audio: false });
+      state.capture.hide(); // The source-mode host owns its shared camera lease.
+    }
+  },
+  draw({ p, inputMode, imageInput, state }) {
+    p.clear();
+    if (inputMode === 'fx') {
+      if (!imageInput) return;
+      p.tint(255, 180);
+      p.image(imageInput.source, 0, 0, p.width, p.height);
+      p.noTint();
+      return;
+    }
+    p.background(0);
+    if (state.capture?.elt.readyState >= 2) {
+      p.push(); p.translate(p.width, 0); p.scale(-1, 1);
+      p.image(state.capture, 0, 0, p.width, p.height); p.pop();
+    }
+  },
+});
+```
+
+**Optional WebGL example**: the existing texture resolver accepts `imageInput.source` as a canvas. A reused canvas must be re-uploaded when its frame changes; do not cache the borrowed input as an effect-owned texture. The shader below simply demonstrates the image path; replace its fragment body with your effect.
+
+```js
+api.requireVersion(1);
+api.create({
+  id: 'custom-image-shader', name: 'Image texture FX',
+  renderer: 'webgl', fx: { input: 'image' },
+  setup({ p, state }) {
+    state.shader = p.createShader(`
+      precision highp float;
+      attribute vec3 aPosition; attribute vec2 aTexCoord;
+      varying vec2 uv;
+      void main() { uv = aTexCoord; gl_Position = vec4(aPosition.xy * 2.0 - 1.0, 0.0, 1.0); }
+    `, `
+      precision highp float;
+      varying vec2 uv; uniform sampler2D uImage;
+      void main() { gl_FragColor = texture2D(uImage, uv); }
+    `);
+  },
+  draw({ p, state, inputMode, imageInput }) {
+    p.clear();
+    if (inputMode === 'source') { p.background(24); return; }
+    if (!imageInput) return;
+    p.shader(state.shader);
+    state.shader.setUniform('uImage', imageInput.source);
+    p.rect(0, 0, p.width, p.height); // VizCore custom shader: fullscreen quad
+  },
+});
+```
+
+The scripting API remains **version 1**: these optional fields are additive. Older app versions reject unknown `fx` definitions rather than guessing what to render; a failing reload keeps the last-good registration. A successful reload that removes `fx` changes the registry capability, but the graph host must preserve saved FX mode/wires and report an unavailable capability instead of switching them to cameras. Cross-window generations independently validate the new definition, then recreate affected renderers.
 
 ### Existing VizCore capabilities (not full p5)
 
