@@ -1,9 +1,10 @@
 // Restored legacy camera looks: Video Thermal and Video Edge Glow, recovered
 // from git history with their exact prior ids and names. The original 6fc98ac
-// shader bodies and parameter schema (FX Amount / detail / hue / mirror) are
+// effect formulas and parameter schema (FX Amount / detail / hue / mirror) are
 // preserved; the effect blend is biased so the camera image stays dominant and
 // the band response is deliberately subtle — a shimmer on top of the picture,
-// not a replacement. ProgramRuntime owns the capture lease.
+// not a replacement. ProgramRuntime owns the source-mode capture lease; FX
+// mode borrows the graph's current image canvas instead of opening a camera.
 import { AUDIO_SHADER_HEADER, FULLSCREEN_VERT } from '../shader-utils.js';
 import { BAND_PARAMS, bounded } from '../band-reactive.js';
 import { FEATURE_SCHEMA } from '../feature-controls.js';
@@ -14,15 +15,22 @@ const HEADER = `${AUDIO_SHADER_HEADER}
   uniform vec2 uCover;
   uniform vec2 uTexel;
   uniform float uMirror;
+  uniform float uFxMode;
   uniform float uAmount;
   uniform float uDetail;
   uniform float uHue;
   uniform float uPhase;
-  vec3 cameraAt(vec2 uv) {
+  vec4 cameraAt(vec2 uv) {
     uv = 0.5 + (uv - 0.5) * uCover;
-    if (uMirror > 0.5) uv.x = 1.0 - uv.x;
+    // Preserve the selfie mirror only for the camera. Graph images have their
+    // own orientation; both video and canvas uploads need a Y flip in p5 GL.
+    if (uFxMode < 0.5 && uMirror > 0.5) uv.x = 1.0 - uv.x;
     uv.y = 1.0 - uv.y;
-    return texture2D(uTex, clamp(uv, 0.001, 0.999)).rgb;
+    vec4 texel = texture2D(uTex, clamp(uv, 0.001, 0.999));
+    // Canvas uploads are premultiplied. Recover straight RGB before applying
+    // luma/colour effects, but carry the incoming alpha through the FX output.
+    return uFxMode > 0.5 ? vec4(texel.rgb / max(texel.a, 0.00001), texel.a)
+                         : vec4(texel.rgb, 1.0);
   }
   float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
   vec3 tint(float shift, float value) {
@@ -36,25 +44,37 @@ const LOOKS = [
     description: 'Restored legacy neon camera contours, kept subtle: bass thickens edges slightly, mids raise edge contrast, highs drift the neon tint. The camera image stays dominant.',
     body: `
       vec2 uv = vTexCoord;
+      vec2 fitUv = 0.5 + (uv - 0.5) * uCover;
+      if (uFxMode > 0.5 && (any(lessThan(fitUv, vec2(0.0))) || any(greaterThan(fitUv, vec2(1.0))))) {
+        gl_FragColor = vec4(0.0);
+        return;
+      }
       vec2 d = uTexel * uDetail * (1.0 + uSub * 0.45);
-      float gx = luma(cameraAt(uv + vec2(d.x, 0.0))) - luma(cameraAt(uv - vec2(d.x, 0.0)));
-      float gy = luma(cameraAt(uv + vec2(0.0, d.y))) - luma(cameraAt(uv - vec2(0.0, d.y)));
+      float gx = luma(cameraAt(uv + vec2(d.x, 0.0)).rgb) - luma(cameraAt(uv - vec2(d.x, 0.0)).rgb);
+      float gy = luma(cameraAt(uv + vec2(0.0, d.y)).rgb) - luma(cameraAt(uv - vec2(0.0, d.y)).rgb);
       float edge = clamp(length(vec2(gx, gy)) * (2.6 + uMid * 2.2), 0.0, 1.0);
-      vec3 raw = cameraAt(uv);
+      vec4 sampleColor = cameraAt(uv);
+      vec3 raw = sampleColor.rgb;
       vec3 glow = raw * 0.35 + tint(0.0, edge) * 1.25;
-      gl_FragColor = vec4(mix(raw, glow, uAmount * (0.2 + edge * 0.8)), 1.0);
+      gl_FragColor = vec4(mix(raw, glow, uAmount * (0.2 + edge * 0.8)), sampleColor.a);
     `,
   },
   {
     id: 'video-thermal', name: 'Video Thermal', detail: 'Thermal Bands',
     description: 'Restored legacy false-color heat vision (not a heat sensor), kept subtle: bass shifts levels gently, mids posterize the bands, highs rotate the palette. The camera image stays readable.',
     body: `
-      vec3 raw = cameraAt(vTexCoord);
+      vec2 fitUv = 0.5 + (vTexCoord - 0.5) * uCover;
+      if (uFxMode > 0.5 && (any(lessThan(fitUv, vec2(0.0))) || any(greaterThan(fitUv, vec2(1.0))))) {
+        gl_FragColor = vec4(0.0);
+        return;
+      }
+      vec4 sampleColor = cameraAt(vTexCoord);
+      vec3 raw = sampleColor.rgb;
       float value = clamp((luma(raw) - 0.5) * (1.15 + uMid * 0.75) + 0.5 + uSub * 0.12, 0.0, 1.0);
       float levels = max(3.0, uDetail * 2.0);
       value = floor(value * levels + 0.5) / levels;
       vec3 heat = tint((1.0 - value) * 0.7, 0.25 + value * 0.85);
-      gl_FragColor = vec4(mix(raw, heat, uAmount * 0.7), 1.0);
+      gl_FragColor = vec4(mix(raw, heat, uAmount * 0.7), sampleColor.a);
     `,
   },
 ];
@@ -65,12 +85,16 @@ function restoredCameraFactory(body) {
     let capture, effect, texImage;
     let ready = false;
     let phase = 0;
+    const fxMode = runtimeContext.inputMode === 'fx';
     const readBands = makeExpansionReader(audio, params, runtimeContext);
     p.setup = () => {
       p.pixelDensity(1);
       p.createCanvas(p.windowWidth, p.windowHeight, p.WEBGL);
       p.noStroke();
       effect = p.createShader(FULLSCREEN_VERT, fragment);
+      // A graph FX only borrows a canvas during draw; never enter either the
+      // shared-camera lease or p.createCapture fallback in this mode.
+      if (fxMode) return;
       const constraints = {
         video: {
           ...(videoDeviceId ? { deviceId: { exact: videoDeviceId } } : {}),
@@ -93,25 +117,46 @@ function restoredCameraFactory(body) {
       // works, but readiness still requires a real camera frame below.
       const C = readBands(dt);
       phase = (phase + dt) % 10000;
-      p.background(0);
-      const video = capture?.elt;
-      if (!ready || !video || video.readyState < 2 || !video.videoWidth) return;
-      const aspect = p.width / Math.max(1, p.height);
-      const sourceAspect = video.videoWidth / Math.max(1, video.videoHeight);
-      const cover = aspect > sourceAspect ? [1, sourceAspect / aspect] : [aspect / sourceAspect, 1];
-      // Real captures (p5.MediaElement) upload straight to the sampler; plain
-      // canvas sources (deterministic test fixtures) go through a p5.Image.
-      let tex = capture;
-      if (typeof HTMLCanvasElement !== 'undefined' && video instanceof HTMLCanvasElement) {
-        if (!texImage) texImage = p.createImage(video.videoWidth || video.width, video.videoHeight || video.height);
-        texImage.drawingContext.drawImage(video, 0, 0, texImage.width, texImage.height);
-        tex = texImage;
+      if (fxMode) p.clear();
+      else p.background(0);
+      let tex, width, height;
+      if (fxMode) {
+        // Borrow only the current frame. Its canvas object can stay identical
+        // across ticks; binding it each draw makes the core re-upload its pixels.
+        const frame = runtimeContext.getImageInput?.();
+        if (!frame?.source || !Number.isFinite(frame.width) || !Number.isFinite(frame.height)
+          || frame.width <= 0 || frame.height <= 0
+          || frame.source.width !== frame.width || frame.source.height !== frame.height) return;
+        ({ width, height } = frame);
+        tex = frame.source;
+      } else {
+        const video = capture?.elt;
+        if (!ready || !video || video.readyState < 2 || !video.videoWidth) return;
+        width = video.videoWidth;
+        height = video.videoHeight;
+        // Real captures (p5.MediaElement) upload straight to the sampler;
+        // canvas sources (deterministic camera fixtures) use a p5.Image.
+        tex = capture;
+        if (typeof HTMLCanvasElement !== 'undefined' && video instanceof HTMLCanvasElement) {
+          if (!texImage || texImage.width !== width || texImage.height !== height)
+            texImage = p.createImage(width, height);
+          texImage.drawingContext.drawImage(video, 0, 0, width, height);
+          tex = texImage;
+        }
       }
+      const aspect = p.width / Math.max(1, p.height);
+      const sourceAspect = width / height;
+      // Camera: unchanged cover crop. FX: contain the entire graph image with
+      // transparent bars rather than cropping or stretching it.
+      const fit = fxMode
+        ? (aspect > sourceAspect ? [aspect / sourceAspect, 1] : [1, sourceAspect / aspect])
+        : (aspect > sourceAspect ? [1, sourceAspect / aspect] : [aspect / sourceAspect, 1]);
       p.shader(effect);
       effect.setUniform('uTex', tex);
       effect.setUniform('uResolution', [p.width, p.height]);
-      effect.setUniform('uCover', cover);
-      effect.setUniform('uTexel', [1 / (video.videoWidth * cover[0]), 1 / (video.videoHeight * cover[1])]);
+      effect.setUniform('uCover', fit);
+      effect.setUniform('uTexel', [1 / (width * fit[0]), 1 / (height * fit[1])]);
+      effect.setUniform('uFxMode', fxMode ? 1 : 0);
       effect.setUniform('uSub', C.bass * 0.6);   // subtle by design: dampened band gains
       effect.setUniform('uMid', C.mid * 0.6);
       effect.setUniform('uHigh', C.high * 0.6);
@@ -134,6 +179,7 @@ function restoredCameraFactory(body) {
 // band's contribution exactly.
 export const RESTORED_CAMERA_PATTERNS = LOOKS.map(({ id, name, description, detail, body }) => ({
   id, name, description, group: 'Video FX', camera: true,
+  fx: { input: 'image' },
   factory: restoredCameraFactory(body),
   audioReactive: true,
   audioTransport: 'pattern-controls',
