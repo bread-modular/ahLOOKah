@@ -216,7 +216,7 @@ test('New Project removes a separately opened, valid node pattern from the libra
   await page.locator('#notice-modal-reload').click();
   await expect(page.locator('.library-btn[data-id^="nodes-"]')).toHaveCount(0);
   const state = await page.evaluate(async () => (await (await import('/src/platform/handleStorage.js')).createHandleStorage('viz2-node-patterns')('handles')));
-  expect(state).toEqual({ folder: null, opened: [], hidden: [] });
+  expect(state).toEqual({ folder: null, opened: [], hidden: [], references: [] });
 });
 
 test('New Project clears linked, opened, hidden, and referenced node files, while Unlink keeps them and older folder identities @core', async ({ page }) => {
@@ -247,8 +247,8 @@ test('New Project clears linked, opened, hidden, and referenced node files, whil
     const { recallProjectFolder } = await import('/src/platform/project-folders.js');
     return { nodes: await createHandleStorage('viz2-node-patterns')('handles'), identity: localStorage.getItem('viz2_project_folders'), remembered: (await recallProjectFolder(id))?.handle?.name };
   }, initial.id);
-  expect(await state()).toEqual({ nodes: { folder: null, opened: [], hidden: [] }, identity: null, remembered: 'older-node-folder' });
+  expect(await state()).toEqual({ nodes: { folder: null, opened: [], hidden: [], references: [] }, identity: null, remembered: 'older-node-folder' });
   await page.locator('#notice-modal-reload').click();
   await expect(page.locator('#config-panel')).toBeVisible();
-  expect(await state()).toEqual({ nodes: { folder: null, opened: [], hidden: [] }, identity: null, remembered: 'older-node-folder' });
+  expect(await state()).toEqual({ nodes: { folder: null, opened: [], hidden: [], references: [] }, identity: null, remembered: 'older-node-folder' });
 });

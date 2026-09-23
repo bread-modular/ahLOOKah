@@ -21,7 +21,8 @@ async function seed(page, g = graph()) {
     const w = await f.createWritable(); await w.write(serializeGraph(g, manifestFor(g, SKETCHES))); await w.close();
     window.showDirectoryPicker = async () => dir;
     await nodePatterns.link();
-    return nodePatterns.records[0].id;
+    // Files are added explicitly (as OPEN does); linking never lists a folder.
+    return (await nodePatterns.open('color.nodes.json')).id;
   }, g);
 }
 // One editor session: main-view "Open Pattern" fills it, Back to Main clears it.

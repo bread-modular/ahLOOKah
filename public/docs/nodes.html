@@ -65,18 +65,18 @@
         <p>Everything starts in the <strong>Node Patterns</strong> group at the bottom of the pattern library. Its header carries the folder actions and its body lists the graphs you have:</p>
 
         <ul>
-          <li><strong>Link Folder</strong> — grant access to a folder of <code>.nodes.json</code> patterns. The folder is remembered, and once it is linked the button becomes a <strong>Linked</strong> badge.</li>
+          <li><strong>Link Folder</strong> — grant access to a folder of <code>.nodes.json</code> patterns. The folder is remembered, and once it is linked the button becomes a <strong>Linked</strong> badge. Linking grants access only: it never loads the folder’s contents.</li>
           <li><strong>ADD</strong> (New Node Pattern) — open a fresh graph in the editor.</li>
-          <li><strong>OPEN</strong> (Open Pattern) — with a linked folder, picks one of that folder’s patterns; without one, opens your computer’s file picker.</li>
-          <li><strong>Linked</strong> — open the folder details for <strong>Refresh</strong>, <strong>Relink</strong> and <strong>Unlink</strong>. Refresh rereads the folder and finds files added, edited or removed outside the app.</li>
+          <li><strong>OPEN</strong> (Open Pattern) — add one pattern to your library: with a linked folder it lists that folder’s <code>.nodes.json</code> files, otherwise it opens your computer’s file picker.</li>
+          <li><strong>Linked</strong> — open the folder details for <strong>Refresh</strong>, <strong>Relink</strong> and <strong>Unlink</strong>. Refresh rereads the patterns you have added (edits and removals on disk) and renews expired access; it never imports a file you have not added — <strong>OPEN</strong> does that.</li>
         </ul>
 
         <figure class="figure">
           <img src="/docs/shots/nodes-library.jpg" alt="The Node Patterns group in the ahLOOKah pattern library with a Linked badge, ADD and OPEN buttons, and three saved node patterns listed" />
-          <figcaption>The <strong>Node Patterns</strong> group owns its folder actions and lists every graph in the linked folder. Click one to play it, exactly like a built-in sketch.</figcaption>
+          <figcaption>The <strong>Node Patterns</strong> group owns its folder actions and lists the graphs you added from the linked folder. Click one to play it, exactly like a built-in sketch.</figcaption>
         </figure>
 
-        <p>Select a listed graph and its sidebar offers <strong>Edit Pattern</strong> and <strong>Delete</strong>. <strong>Delete</strong> removes the pattern from this browser’s library only — the file on disk is kept, and <strong>OPEN</strong> brings it back.</p>
+        <p>Select a listed graph and its sidebar offers <strong>Edit Pattern</strong> and <strong>Delete</strong>. <strong>Delete</strong> removes the pattern from this browser’s library only — the file on disk is kept, and <strong>OPEN</strong> brings it back. <a href="/docs/projects.html">Open Project</a> restores exactly the graphs the project recorded, never everything the linked folder happens to hold.</p>
 
         <h2>The editor</h2>
         <p>The editor opens <em>in place</em> over the main app view — no popup, no second tab — and <strong>Back to Main</strong> returns to the control panel. Leaving a dirty graph asks first. The legacy standalone route still works for direct links: <a href="/?role=nodes">Open Nodes editor</a>.</p>

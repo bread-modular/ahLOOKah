@@ -51,10 +51,10 @@ async function savePattern(page, { fileName = 'red.nodes.json', brightness = 1, 
     if (!nodePatterns.state.folder) {
       window.showDirectoryPicker = async () => dir;
       await nodePatterns.link();
-    } else {
-      await nodePatterns.refresh(); nodePatterns.changed();
     }
-    return nodePatterns.records.find(record => record.fileName === fileName).id;
+    // A link grants access; the file is added explicitly (as OPEN does), so the
+    // pattern id is the file's — a scan never adopts a directory's contents.
+    return (await nodePatterns.open(fileName)).id;
   }, { fileName, brightness, suppliedGraph });
 }
 

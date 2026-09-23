@@ -197,7 +197,7 @@ export function createAppRuntime({
 
   const mediaFolder = new MediaFolder({
     onStatus: status => store.setState({ mediaFolder: status }),
-    onFiles: async sources => {
+    onFiles: async (sources, { adoptNew = false } = {}) => {
       const existing = await listMediaRecords();
       for (const source of sources) {
         let duplicate = false;
@@ -210,7 +210,13 @@ export function createAppRuntime({
           } catch { /* An unavailable old reference must not block new files. */ }
         }
         if (duplicate) continue;
+        // A directory scan may only RE-POINT a pattern this library already has:
+        // the record is matched by the file name it recorded plus its directory —
+        // never by reading or hashing the file — so opening a project brings back
+        // exactly its media and never adopts the rest of the folder. A new record
+        // is created only by the explicit ADD / OPEN controls (adoptNew).
         const restored = existing.find(record => !record.handle && record.fileName === source.name && mediaBelongsToFolder(record, source.folderName));
+        if (!restored && !adoptNew) continue;
         if (!restored && loadMediaMeta().length >= 256) throw new Error('Media library: maximum 256 files');
         const meta = restored ? { id: restored.id, name: restored.name, kind: source.kind } : { id: `m${crypto.randomUUID()}`, name: mediaDisplayName(source.name), kind: source.kind };
         await putMediaRecord({ ...source, ...meta });

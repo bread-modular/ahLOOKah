@@ -71,7 +71,10 @@ async function scriptDigestsFor(handle) {
 
 // Snapshot the linked directories for a project file: names + file references,
 // plus the directory identity (`folderId`) that lets the SAME computer reopen
-// them without a re-link. Handles and file bytes never travel.
+// them without a re-link. Handles and file bytes never travel — and neither does a
+// directory's contents: each section records the files it actually has (scripts by
+// fingerprint, node patterns by name + id, media as metadata), never everything a
+// scan can see.
 export async function collectFolderReferences(media) {
   const script = await scriptStorage('active');
   const scriptsHandle = script && 'folder' in script ? script.folder : await scriptStorage('folder');
@@ -108,19 +111,24 @@ export async function collectFolderReferences(media) {
       scriptDigests,
     ),
   };
-  let nodeFiles = [];
+  // Node patterns travel as the file names (and ids) this browser has in its
+  // library — the linked directory is never listed as a whole. The project file
+  // therefore carries only the patterns the operator added, which is what makes
+  // Open Project restore exactly those and nothing else from the folder.
   const pendingNodes = folderReference('nodes');
-  if (nodes?.folder && !pendingNodes?.needsRelink && (!pendingNodes?.folderName || pendingNodes.folderName === nodes.folder.handle.name) && await folderPermission(nodes.folder.handle) === 'granted') {
-    // Export names only. No graph contents, native handles or standalone node export.
-    nodeFiles = await Promise.all((await scanFolder(nodes.folder.handle, { accepts: name => name.endsWith('.nodes.json'), limit: 64 })).map(async file => ({
-      fileName: file.name, linked: true,
-      id: folderReference('nodes')?.files.find(f => f.linked && f.fileName === file.name)?.id || await nodeFileId(nodes.folder.id, file.name),
-    })));
-  } else nodeFiles = pendingNodes ? [] : nodes?.references || []; // Last successful scan if permissions expired.
+  const hiddenNodes = new Set(nodes?.hidden || []);
+  const libraryNodes = (nodes?.references || []).filter(file => file?.fileName);
+  const nodeFiles = await Promise.all(libraryNodes.map(async file => ({
+    fileName: file.fileName, linked: true,
+    ...(file.id ? { id: file.id } : nodes?.folder?.id ? { id: await nodeFileId(nodes.folder.id, file.fileName) } : {}),
+  })));
   result.nodes = {
     folderName: folderReference('nodes')?.folderName || nodes?.folder?.handle.name || null,
     folderId: nodesId,
-    files: merge(folderReference('nodes')?.files, [...nodeFiles, ...(nodes?.opened || []).map(file => ({ fileName: file.handle.name, id: file.id, linked: false }))]),
+    files: merge(
+      (pendingNodes?.files || []).filter(file => !hiddenNodes.has(file.fileName)),
+      [...nodeFiles, ...(nodes?.opened || []).map(file => ({ fileName: file.handle.name, id: file.id, linked: false }))],
+    ),
   };
   const mediaFolderName = mediaRef?.folderName || mediaHandle?.name || null;
   const mediaRecords = new Map((await listMediaRecords().catch(() => [])).map(record => [record.id, record]));
@@ -219,10 +227,11 @@ export async function applyFolderReferences(references) {
     : null;
   await scriptStorage('active', { selectionVersion: 1, revision: Date.now(), sources: [], files: [], folder: scriptFolder, changed: [] });
 
-  // Nodes: adopt the resolved directory, keeping its previous folder id only when
-  // it is the very same entry (that id salts node pattern ids and retires drafts
-  // opened from another folder — a project's identity is deliberately not reused
-  // here; imported node ids come from the project's own file references).
+  // Nodes: adopt the resolved directory and restore exactly the patterns the
+  // project names — the directory is never listed. `references` is the library's
+  // folder-file set, so the first refresh (and a later Save) work from the project's
+  // own list; imported ids are preserved, which is what keeps node pattern ids — and
+  // therefore pad slots, merges and parameter references — stable across machines.
   const nodes = await nodesStorage('handles');
   let nodesFolder = null;
   if (references.nodes.folderName) {
@@ -233,7 +242,15 @@ export async function applyFolderReferences(references) {
       nodesFolder = { handle: handles.nodes, id: same ? current.id : newFolderId() };
     } else nodesFolder = nodes?.folder || null;
   }
-  await nodesStorage('handles', { folder: nodesFolder, opened: [] });
+  const projectNodeFiles = (references.nodes.files || [])
+    .filter(file => file.linked && file.fileName)
+    .map(file => ({ fileName: file.fileName, linked: true, ...(file.id ? { id: file.id } : {}) }));
+  await nodesStorage('handles', {
+    folder: nodesFolder,
+    opened: [],
+    hidden: [],
+    references: references.nodes.folderName ? projectNodeFiles : [],
+  });
 
   if (!references.media.folderName) await mediaStorage('folder', null);
   else if (handles.media) await mediaStorage('folder', handles.media);

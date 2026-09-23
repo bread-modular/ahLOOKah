@@ -12,7 +12,12 @@ const storage = createHandleStorage('viz2-node-patterns');
 // file names, or picker-opened ids). It is a view filter, never a disk action:
 // the source files stay exactly where they are.
 const HIDDEN_LIMIT = 256;
-const empty = () => ({ folder: null, opened: [], hidden: [] });
+// `references` is the library's own folder-file set: the patterns this browser has
+// ADDED from the linked directory (file name + id), in the order the folder scan
+// reports them. It — together with a saved project's own file references — is the
+// only thing a scan may load: a file that merely exists in the directory is never
+// pulled into the library by a refresh, exactly like Custom Scripts.
+const empty = () => ({ folder: null, opened: [], hidden: [], references: [] });
 const lock = fn => navigator.locks ? navigator.locks.request(CHANNEL, fn) : Promise.reject(new Error('Node pattern writes require Web Locks in desktop Chrome.'));
 async function digest(text) {
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))].map(n => n.toString(16).padStart(2, '0')).join('');
@@ -44,9 +49,29 @@ export class NodePatterns {
     }
     return () => { this.listeners.delete(listener); if (!this.listeners.size) { this.channel?.close(); this.channel = null; } };
   }
-  refresh() {
+  // Files this browser may load from the linked folder: what the library already
+  // added (`state.references`), plus the file names a saved project expects (its
+  // folder reference), plus the files a caller is adding right now (`include`, from
+  // an explicit Open or Save). Name → id; null means "resolve the id as for a new
+  // folder file". Nothing else in the directory is imported by a scan.
+  addedFiles(include = null) {
+    const added = new Map();
+    for (const file of folderReference('nodes')?.files || []) {
+      if (file?.linked && file.fileName && !added.has(file.fileName)) added.set(file.fileName, file.id || null);
+    }
+    for (const file of this.state.references || []) {
+      if (file?.fileName && !added.has(file.fileName)) added.set(file.fileName, file.id || null);
+    }
+    for (const name of include || []) if (!added.has(name)) added.set(name, null);
+    return added;
+  }
+  // `include` names files an explicit Open/Save is adding to the library in this
+  // same pass, so the scan is allowed to load them. A plain refresh/reconnect only
+  // re-reads what is already added.
+  refresh({ include = null } = {}) {
     const work = this.queue.then(async () => {
       const records = [], errors = [];
+      let added = null; // The gate this pass used, once the folder was scanned.
       try {
         this.state = await this.store('handles') || empty();
         const { folder, opened } = this.state;
@@ -59,13 +84,22 @@ export class NodePatterns {
         if (folder) {
           try {
             await permission(folder.handle);
-            const files = await scanFolder(folder.handle, { accepts: name => name.endsWith(SUFFIX), limit: 64, onLimit: () => errors.push('Folder limit: 64 node patterns') });
-            errors.push(...missingFolderFiles('nodes', files.map(file => file.name)));
-            for (const { name, handle } of files) {
+            // Resolve the files this library holds BY NAME. A directory holding more
+            // unadded files than the folder cap must still reopen every pattern a
+            // project recorded, so no whole-folder listing is involved here (the
+            // picker lists the directory; a scan would be capped at 64 files).
+            added = this.addedFiles(include);
+            const present = [];
+            for (const [name, id] of added.entries()) {
+              let handle;
+              try { handle = await folder.handle.getFileHandle(name); await handle.getFile(); }
+              catch { continue; } // Absent or not readable as a file: reported below.
+              present.push(name);
               if (hidden.includes(name)) continue;
-              await add(handle, referencedFileId('nodes', name, true) || await nodeFileId(folder.id, name), folder.id);
+              await add(handle, id || referencedFileId('nodes', name, true) || await nodeFileId(folder.id, name), folder.id);
             }
-          } catch (e) { errors.push(e.message); }
+            errors.push(...missingFolderFiles('nodes', present));
+          } catch (e) { added = null; errors.push(e.message); }
         }
         for (const entry of opened) {
           // A deleted folder pattern is remembered by file name, because that is
@@ -82,9 +116,17 @@ export class NodePatterns {
       for (const file of folderReference('nodes')?.files || []) {
         if (!file.linked && !records.some(record => record.fileName === file.fileName)) errors.push(`${file.fileName}: Open this individual pattern again to restore access.`);
       }
-      // Never revive browser content when disk is missing, invalid or inaccessible.
-      if (this.state.folder && !errors.length) {
-        const references = records.filter(record => record.folderId).map(record => ({ fileName: record.fileName, id: record.id, linked: true }));
+      // Persist the library's folder-file set: everything that loaded, plus any entry
+      // the gate still expects but could not be read this pass (missing, corrupt or
+      // permission-lapsed), so a restored file comes back and a just-added one is not
+      // lost. A failed scan keeps the previous set instead of an empty one.
+      if (this.state.folder && added) {
+        const library = records.filter(record => record.folderId).map(record => ({ fileName: record.fileName, id: record.id, linked: true }));
+        const names = new Set(library.map(entry => entry.fileName));
+        const expected = [...added.entries()]
+          .filter(([name]) => !names.has(name) && !(this.state.hidden || []).includes(name))
+          .map(([fileName, id]) => ({ fileName, linked: true, ...(id ? { id } : {}) }));
+        const references = [...library, ...expected];
         try { await lock(async () => {
           const current = await this.store('handles');
           if (current?.folder?.id === this.state.folder.id) await this.store('handles', { ...current, references });
@@ -107,14 +149,21 @@ export class NodePatterns {
       const state = await this.store('handles') || empty();
       previousHandle = state.folder?.handle || null;
       const same = state.folder && await state.folder.handle.isSameEntry(handle);
-      // Relinking is an explicit reset: the folder is re-listed in full. A new
-      // directory always gets a new folder id, which retires drafts opened from
-      // the previous one ("Linked folder changed").
+      // Relinking is an explicit reset: a new directory always gets a new folder id,
+      // which retires drafts opened from the previous one ("Linked folder changed"),
+      // and file references from another directory can never follow a same-named
+      // link. The same directory keeps the library as it is. Either way, linking does
+      // NOT list the folder: patterns are added with OPEN (or brought back by their
+      // project's own file references).
       folderId = same ? state.folder.id : crypto.randomUUID();
-      await this.store('handles', { folder: { handle, id: folderId }, opened: [], hidden: [] });
+      await this.store('handles', {
+        folder: { handle, id: folderId },
+        opened: [],
+        hidden: same ? (state.hidden || []) : [],
+        references: same ? (state.references || []) : [],
+      });
     });
     // Remember the directory without changing an older project's identity.
-    // File references from another directory cannot follow a same-named link.
     await registerLinkedProjectFolder('nodes', handle, previousHandle);
     await this.refresh(); this.changed();
   }
@@ -126,7 +175,7 @@ export class NodePatterns {
     await this.refresh(); this.changed();
   }
   // New Project is not ordinary Unlink: discard individually opened handles,
-  // hidden names and the last folder scan's references along with the folder.
+  // hidden names and the library's folder-file references along with the folder.
   // The separate remembered-directory registry survives for older project files.
   async resetProject() {
     await lock(async () => {
@@ -187,7 +236,7 @@ export class NodePatterns {
       // One write covers both the opened entry and any hidden-name restore.
       await this.store('handles', state);
     });
-    await this.refresh(); this.changed();
+    await this.refresh({ include: [handle.name] }); this.changed();
     for (const record of this.records) if (await record.handle.isSameEntry(handle)) return record;
     throw new Error('Pattern became unavailable on disk. Open it again.');
   }
@@ -246,13 +295,13 @@ export class NodePatterns {
       if ((latest?.hidden || []).includes(fileName)) await this.store('handles', { ...latest, hidden: latest.hidden.filter(value => value !== fileName) });
       return { ...parseGraph(text), text, hash: await digest(text), id: referencedFileId('nodes', fileName, true) || await nodeFileId(folder.id, fileName), handle, fileName, folderId: folder.id };
     });
-    await this.refresh(); this.changed(); return result;
+    await this.refresh({ include: [fileName] }); this.changed(); return result;
   }
   // Delete removes the pattern from this browser's library and writes nothing:
-  // the .nodes.json file, its contents and its disk location are untouched.
-  // A folder-linked file is remembered as hidden, because a folder scan would
-  // otherwise re-list it on the next refresh; a picker-opened file simply leaves
-  // the opened list. `open()` restores either one.
+  // the .nodes.json file, its contents and its disk location are untouched. A
+  // folder-linked file is forgotten here (and remembered as hidden, so a project
+  // that still lists it cannot silently re-add it); a picker-opened file simply
+  // leaves the opened list. `open()` restores either one.
   async remove(id) {
     const record = this.records.find(r => r.id === id);
     if (!record) throw new Error('Pattern no longer available. Refresh the folder.');

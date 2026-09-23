@@ -46,6 +46,14 @@ async function openSelected(page, s) {
   await picker.getByRole('button', { name: 'Open', exact: true }).click();
   await expect(picker).toHaveCount(0);
 }
+// Opening a node pattern from the picker hands the screen to its editor, so the
+// export/reference tests add one through the same repository call instead.
+async function addNodePattern(page, name) {
+  await page.evaluate(async name => {
+    const { nodePatterns } = await import('/src/nodes/repository.js');
+    await nodePatterns.open(name);
+  }, name);
+}
 
 async function fileDigests(page) {
   return page.evaluate(async sections => {
@@ -136,7 +144,10 @@ for (const s of sections) {
 
 test('project export roundtrip: wrong-folder diagnostics, deliberate replacement and old-project recovery @core', async ({ page }) => {
   await page.goto('/'); await seed(page); await linkAll(page);
+  // Only explicitly added files travel: linking a directory never lists it.
   await openSelected(page, sections[0]);
+  await addNodePattern(page, sections[1].file);
+  await openSelected(page, sections[2]);
   const originalFiles = await fileDigests(page);
   const exported = await page.evaluate(async () => (await import('/src/platform/settings-portability.js')).collectSettings());
   for (const s of sections) {
@@ -274,7 +285,11 @@ test('linked library screenshots @core', async ({ page }) => {
 
 
 test('a project saved elsewhere blocks until every directory is linked; missing handles never open a native file picker @core', async ({ page, browser }) => {
-  await page.goto('/'); await seed(page); await linkAll(page); await openSelected(page, sections[0]);
+  await page.goto('/'); await seed(page); await linkAll(page);
+  // A project records the files it has, not the directory: add one of each.
+  await openSelected(page, sections[0]);
+  await addNodePattern(page, sections[1].file);
+  await openSelected(page, sections[2]);
   const payload = await page.evaluate(async () => (await import('/src/platform/settings-portability.js')).collectSettings());
   const context = await browser.newContext({ baseURL: new URL(page.url()).origin, storageState: { cookies: [], origins: [{ origin: new URL(page.url()).origin, localStorage: [{ name: 'viz2_device_setup_done', value: '1' }] }] } });
   try {

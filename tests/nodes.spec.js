@@ -340,8 +340,15 @@ test('dependency changes and malformed disk records are isolated', async ({ page
     const { SKETCHES } = await import('/src/sketch-registry.js');
     const { manifestFor, sourceDiagnostics } = await import('/src/nodes/portability.js');
     const { nodePatterns } = await import('/src/nodes/repository.js');
-    const writer = await (await nodePatterns.state.folder.handle.getFileHandle('broken.nodes.json', { create: true })).createWritable();
-    await writer.write('{broken'); await writer.close();
+    // A pattern the library holds is corrupted on disk after it was added: the
+    // failure must stay local to that file. (A file nobody added is never read.)
+    const dir = nodePatterns.state.folder.handle;
+    const text = await (await (await dir.getFileHandle('neon.nodes.json')).getFile()).text();
+    const copy = await dir.getFileHandle('broken.nodes.json', { create: true });
+    const writer = await copy.createWritable(); await writer.write(text); await writer.close();
+    await nodePatterns.open('broken.nodes.json');
+    const corrupt = await (await dir.getFileHandle('broken.nodes.json')).createWritable();
+    await corrupt.write('{broken'); await corrupt.close();
     await nodePatterns.refresh();
     const changed = SKETCHES.map(s => s.id === 'solid-color' ? { ...s, params: [] } : s);
     return { count: nodePatterns.records.length, errors: nodePatterns.errors, diagnostics: sourceDiagnostics(graph, changed, manifestFor(graph, SKETCHES)) };
@@ -666,7 +673,11 @@ test('Node Patterns category owns folder/open; sidebar opens the selected graph 
   await expect((await folderDetails(page, 'Node Patterns')).locator('.folder-details-name')).toHaveText('node-patterns');
   await page.getByRole('button', { name: 'Close folder details' }).click();
   const category = page.locator('#library-section-Node-Patterns');
-  await expect(category.locator('.library-btn')).toHaveCount(2);
+  // Linking a directory grants access and loads nothing; each graph is added
+  // explicitly (as OPEN does).
+  await expect(category.locator('.library-btn')).toHaveCount(0);
+  await page.evaluate(async () => { await (await import('/src/nodes/repository.js')).nodePatterns.open('another.nodes.json'); });
+  await expect(category.locator('.library-btn')).toHaveCount(1);
   await panel.getByRole('button', { name: 'Open Pattern', exact: true }).click();
   const picker = page.getByRole('dialog', { name: 'Open Pattern', exact: true });
   await picker.getByRole('combobox').selectOption('neon.nodes.json');
@@ -832,6 +843,8 @@ test('a new pattern saves with an unconnected Output, and Delete forgets it with
   const panel = page.getByRole('region', { name: 'Node pattern files' });
   await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
   const category = page.locator('#library-section-Node-Patterns');
+  // Linking grants access; this graph is added explicitly (as OPEN does).
+  await page.evaluate(async () => { await (await import('/src/nodes/repository.js')).nodePatterns.open('neon.nodes.json'); });
   await expect(category.locator('.library-btn')).toHaveCount(1);
   const patternFiles = () => page.evaluate(async () => {
     const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('node-patterns');
