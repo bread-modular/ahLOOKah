@@ -72,7 +72,7 @@ test('Node Patterns guide describes automatic FX wiring and sample preview, not 
 
 test('Camera sits immediately above Script; dragging it keeps the Global/pinned picker and previews a generated clip without capture', async ({ page }) => {
   await openFixture(page);
-  await expect(page.locator('.nodes-palette-create button')).toHaveText(['+ Blend', '+ Color', '+ Camera', '+ Script', '+ Audio']);
+  await expect(page.locator('.nodes-palette-create button')).toHaveText(['+ Blend', '+ Color', '+ Transform', '+ Camera', '+ Script', '+ Audio']);
   await page.getByRole('button', { name: '+ Camera' }).dragTo(page.getByLabel('Graph workspace'), { targetPosition: { x: 260, y: 320 } });
   const camera = page.locator('.nodes-node').filter({ has: page.getByRole('button', { name: 'Select Camera', exact: true }) });
   await expect(camera).toHaveCount(1);

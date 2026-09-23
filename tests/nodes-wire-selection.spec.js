@@ -633,7 +633,7 @@ test('Math is no longer created, while an existing Math graph still loads, rende
   const id = await openFixture(page, legacy);
   // No creation action exists for Math; the other four node kinds stay.
   await expect(page.getByRole('button', { name: '+ Math', exact: true })).toHaveCount(0);
-  for (const name of ['+ Blend', '+ Color', '+ Script', '+ Audio']) await expect(page.getByRole('button', { name, exact: true })).toHaveCount(1);
+  for (const name of ['+ Blend', '+ Color', '+ Transform', '+ Script', '+ Audio']) await expect(page.getByRole('button', { name, exact: true })).toHaveCount(1);
 
   // The legacy node loads with its port, its wire and its stored literals.
   await expect(page.locator('[data-node-id=scale] .nodes-node-detail')).toHaveText('clamp · scalar out');

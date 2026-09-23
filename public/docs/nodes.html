@@ -107,6 +107,7 @@
           <li><strong>Patterns</strong> — the searchable list at the bottom of the palette. Every built-in sketch, media pattern, custom script and projection pattern can become a source. A ◇ FX badge marks image-input-capable patterns; <strong>FX only</strong> filters the list. Drag a pattern onto the canvas: FX-capable patterns have an optional <strong>● image</strong> input immediately, with no separate mode control.</li>
           <li><strong>+ Blend</strong> — composites two images (base and layer).</li>
           <li><strong>+ Color</strong> — filters an image: saturation, brightness, contrast and hue shift, applied in that fixed order. The identity defaults copy the input pixel-for-pixel, alpha included.</li>
+          <li><strong>+ Transform</strong> — the image node: moves, scales and rotates its input in X, Y and Z with real perspective. Identity copies the input pixel-for-pixel; all nine sliders can be driven by a signal like any other numeric control.</li>
           <li><strong>+ Camera</strong> — drag an image source onto the canvas. Select <strong>Global input (Settings)</strong> or pin a specific camera in the Camera node inspector; connect its output to an FX-capable pattern, Blend, Color or Output. Only the output screen owns real capture.</li>
           <li><strong>+ Script</strong> — a number from the graph’s inputs or the audio bands.</li>
           <li><strong>+ Audio</strong> — the activity of a bass, mid or high band.</li>
@@ -128,13 +129,67 @@
             <tr><td><strong>Camera</strong></td><td>—</td><td>Image</td></tr>
             <tr><td><strong>Blend</strong></td><td>base, layer</td><td>Image</td></tr>
             <tr><td><strong>Color</strong></td><td>image</td><td>Image</td></tr>
+            <tr><td><strong>Transform</strong></td><td>image</td><td>Image</td></tr>
             <tr><td><strong>Output</strong></td><td>image</td><td>—</td></tr>
             <tr><td><strong>Audio</strong></td><td>—</td><td>Signal</td></tr>
             <tr><td><strong>Script</strong></td><td>x, y</td><td>Signal</td></tr>
           </tbody>
         </table>
 
-        <p><strong>Blend</strong> offers Normal, Multiply, Screen, Overlay, Difference and Add, with an opacity for the layer. Blend and Color output real pixels, not CSS overlays, so their results can feed further blends and filters. Exactly one <strong>Output</strong> node exists; the branch that reaches it is what plays.</p>
+        <p><strong>Blend</strong> composites two images — <strong>● base</strong> first, <strong>● layer</strong> second — with an opacity for the layer, and outputs real pixels that can feed further blends, filters and transforms. Exactly one <strong>Output</strong> node exists; the branch that reaches it is what plays. The mode list follows TouchDesigner’s Composite TOP operations, in two groups:</p>
+
+        <ul>
+          <li><strong>Canvas modes</strong> — the browser composites these itself, so they cost nothing extra and keep their exact pixels: Normal (TouchDesigner’s <em>Over</em>), Add (<em>Add / Linear Dodge</em>), Multiply, Screen, Overlay, Darken (<em>Dimmest</em>), Lighten (<em>Brightest</em>), Color Dodge, Color Burn, Hard Light, Soft Light, Difference, Exclusion, Under, Inside (<em>Atop</em>), Outside, Xor, Hue, Saturation, Color, Luminosity.</li>
+          <li><strong>WebGL2 modes</strong> — no canvas equivalent exists, so these run in the graph’s shared WebGL2 compositor: Subtract, Divide, Average, Linear Burn, Vivid Light, Linear Light, Pin Light, Hard Mix, Negate, Reflect, Glow, Freeze, Heat, Darker Color, Lighter Color.</li>
+        </ul>
+
+        <p>Opacity scales the layer only, and where the base is transparent the layer passes through unchanged rather than being blended against black. Operand order matters for the ordered modes: swapping the wires turns <em>Under</em> into <em>Over</em>, and <em>Subtract</em> into “layer minus base”. The operands are the picture’s colour, straight (not premultiplied) alpha, one channel at a time unless noted:</p>
+
+        <table>
+          <thead>
+            <tr><th>WebGL2 mode</th><th><code>b</code> = base, <code>s</code> = layer, per channel</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>Subtract</strong></td><td><code>max(b − s, 0)</code></td></tr>
+            <tr><td><strong>Divide</strong></td><td><code>s ≤ 0 ? 1 : min(b / s, 1)</code> — a black layer is white, never a divide-by-zero</td></tr>
+            <tr><td><strong>Average</strong></td><td><code>(b + s) / 2</code></td></tr>
+            <tr><td><strong>Linear Burn</strong></td><td><code>b + s − 1</code>, clamped to 0…1</td></tr>
+            <tr><td><strong>Vivid Light</strong></td><td><code>s &lt; 0.5 ? burn(b, 2s) : dodge(b, 2s − 1)</code></td></tr>
+            <tr><td><strong>Linear Light</strong></td><td><code>b + 2s − 1</code>, clamped to 0…1</td></tr>
+            <tr><td><strong>Pin Light</strong></td><td><code>s &lt; 0.5 ? min(b, 2s) : max(b, 2s − 1)</code></td></tr>
+            <tr><td><strong>Hard Mix</strong></td><td><code>b + s ≥ 1 ? 1 : 0</code></td></tr>
+            <tr><td><strong>Negate</strong></td><td><code>1 − |1 − b − s|</code></td></tr>
+            <tr><td><strong>Reflect</strong></td><td><code>s ≥ 1 ? 1 : min(b² / (1 − s), 1)</code></td></tr>
+            <tr><td><strong>Glow</strong></td><td><code>b ≥ 1 ? 1 : min(s² / (1 − b), 1)</code> — Reflect with the operands swapped</td></tr>
+            <tr><td><strong>Freeze</strong></td><td><code>s ≤ 0 ? 0 : 1 − min((1 − b)² / s, 1)</code> — inversion of Reflect</td></tr>
+            <tr><td><strong>Heat</strong></td><td><code>b ≤ 0 ? 0 : 1 − min((1 − s)² / b, 1)</code> — inversion of Glow</td></tr>
+            <tr><td><strong>Darker Color</strong></td><td>whole-pixel: the operand with the lower luma wins</td></tr>
+            <tr><td><strong>Lighter Color</strong></td><td>whole-pixel: the operand with the higher luma wins</td></tr>
+          </tbody>
+        </table>
+
+        <p>The blend formula is applied where the base is opaque, then the layer is composited over it as usual (<code>αo = αs + αb(1 − αs)</code>), which is exactly what the canvas modes do. TouchDesigner operations with no published formula are deliberately not offered rather than guessed: <em>inverse</em>, <em>subtractive</em>, <em>chroma difference</em>, <em>luminance difference</em>, <em>inside/outside/stencil luminance</em>, <em>Y film</em> and <em>Z film</em>.</p>
+
+        <h3>Transform (image) node</h3>
+        <p><strong>+ Transform</strong> is the graph’s image node: one picture in, the same picture out, moved, scaled and rotated in X, Y and Z with true perspective. Every slider defaults to identity, which copies the input pixel-for-pixel and needs no GPU at all.</p>
+
+        <table>
+          <thead>
+            <tr><th>Slider</th><th>Range</th><th>What it does</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>Move X / Y</strong></td><td>−2 … 2</td><td>Offset in half-frame units: 1 shifts the picture by half the frame, ±2 clears the frame entirely.</td></tr>
+            <tr><td><strong>Move Z</strong></td><td>−1 … 0.9</td><td>Distance along the view axis with the camera one half-frame unit away: +0.5 doubles the picture, −0.5 shrinks it to two thirds.</td></tr>
+            <tr><td><strong>Scale X / Y / Z</strong></td><td>−4 … 4</td><td>Scale the plane (negative mirrors). Scale Z squashes the depth axis <em>after</em> rotation, so it bends the perspective of a tilted picture and does nothing to a flat, unrotated one.</td></tr>
+            <tr><td><strong>Rotate X / Y / Z</strong></td><td>−180° … 180°</td><td>True 3D rotations, applied Z·Y·X: a tilted picture becomes a trapezoid instead of a squashed rectangle.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Rotation happens in the frame’s own space, so a non-square output stretches a rotated picture. Outside the transformed plane the node is transparent, which is what makes it a useful layer inside a Blend, and what lets a rotated or scaled picture reveal what is behind it. At Rotate X = 90° the plane passes through the camera: the near part is clipped by the GPU instead of wrapping around.</p>
+
+        <div class="callout warn">
+          <p><strong>Perspective needs WebGL2.</strong> The identity copy, Scale X/Y and Rotate Z are ordinary 2D, but Move Z and Rotate X/Y are the GPU’s perspective. Without WebGL2 the Transform inspector says so and the node passes its image through unchanged, and a WebGL2 blend mode falls back to Normal with a visible note — a machine without a GPU can never look like a broken graph.</p>
+        </div>
         <p><strong>Image FX chain:</strong> connect a procedural Pattern to <strong>Video Chroma Key</strong>’s image input, then its output to <strong>Video Dots GPU</strong>’s image input, then Output. Each wired FX-capable pattern processes its connected image automatically, without requesting its own camera. With no image wire it uses its default camera/source behavior; deleting the wire returns to that behavior. A custom script declaring <code>fx: { input: 'image' }</code> can join the same chain. If a pattern loses FX capability, its saved wire stays visible for repair.</p>
 
         <div class="callout warn">
@@ -157,7 +212,7 @@ return clamp(eased * 0.8, 0, 1);</code></pre>
         <p>Press <strong>Ctrl+Enter</strong> (or click <strong>Apply</strong>) to validate and store the text in the <strong>Script source</strong> box; plain <kbd>Enter</kbd> adds a line, so bodies stay multi-line. The source is never executed as JavaScript: it is parsed, checked against an allowlist and compiled once into a bounded instruction list the editor runs itself — there is no <code>eval</code> and no generated code. A body is limited to 1024 characters, 512 syntax nodes, 80 statements, 512 instructions, 32 locals, 12 nested block levels and an operand nesting depth of 16; an expression stays at 256 characters, 64 operations and a depth of 12. A script that fails validation cannot be applied or saved, and a runtime error falls back to <code>0</code> with a visible message.</p>
 
         <h2>Driving sliders with audio and scripts</h2>
-        <p>Signal outputs are not just for wiring node to node. Select the Script or Audio node an Audio→Script chain ends in, and the inspector lists it under <strong>Connected signals</strong>. Drag that chip onto any numeric slider of a selected Pattern, Blend or Color node to map it:</p>
+        <p>Signal outputs are not just for wiring node to node. Select the Script or Audio node an Audio→Script chain ends in, and the inspector lists it under <strong>Connected signals</strong>. Drag that chip onto any numeric slider of a selected Pattern, Blend, Color or Transform node to map it:</p>
 
         <figure class="figure">
           <img src="/docs/shots/nodes-mapping.jpg" alt="The node editor with the Blend node selected: the Opacity slider carries a violet mapping overlay, a LIVE marker showing the value coming from the Script node, and a signal pill naming the source" />
