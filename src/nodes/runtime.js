@@ -102,12 +102,30 @@ export class GraphRuntime {
     this.previewFx = new Set(preview ? this.graph.nodes.filter(n => n.type === 'pattern'
       && !imageInputConnected(this.graph, n.id) && sketches.find(s => s.id === n.patternId)?.camera
       && canAcceptImageFx(sketches.find(s => s.id === n.patternId))).map(n => n.id) : []);
-    this.hasFx = this.graph.nodes.some(n => patternInputMode(n, this.graph) === 'fx')
-      || (preview && (this.graph.nodes.some(n => n.type === 'camera') || this.previewFx.size > 0));
-    this.signal = this.graph.nodes.some(n => n.type === 'audio')
-      ? createSignalConsumers(context.audioControlStore, context.audioRole, this.graph.nodes.filter(n => n.type === 'audio'))
-      : null;
-    if (this.signal) context.registerChildRuntime?.(this.signal);
+    this.nodeById = new Map(this.graph.nodes.map(n => [n.id, n]));
+    this.outputId = this.graph.nodes.find(n => n.type === 'output').id;
+    this.incoming = new Map();
+    const addDependency = (to, from) => {
+      if (!this.incoming.has(to)) this.incoming.set(to, []);
+      this.incoming.get(to).push(from);
+    };
+    this.graph.edges.forEach(e => addDependency(e.to, e.from));
+    (this.graph.signalEdges || []).forEach(e => addDependency(e.to, e.from));
+    (this.graph.modulations || []).filter(m => m.param).forEach(m => addDependency(m.to, m.from));
+    this.planned = new Set();
+    this.sourceReady = new Map();
+    this.targetReady = new Map();
+    this.cameraReady = Promise.resolve();
+    this.preview = preview; this.sketches = sketches; this.context = context;
+    this.audio = audio; this.videoDeviceId = videoDeviceId;
+    // An unused FX branch must not switch LIVE to the async renderer. Editor
+    // previews can select that branch later, so keep their FX clock available.
+    const outputPlan = this.dependenciesFor(this.outputId);
+    this.hasFx = this.graph.nodes.some(n => (preview || outputPlan.has(n.id))
+      && patternInputMode(n, this.graph) === 'fx')
+      || (preview && (this.graph.nodes.some(n => n.type === 'camera') || this.previewFx.size > 0))
+      || (!preview && [...outputPlan].some(id => this.nodeById.get(id)?.type === 'camera'));
+    this.signal = null;
     // Route-aware continuous reads: nodeId selects the node's own requested
     // device/channel binding. Legacy callbacks that ignore the argument work.
     this.readContinuous = (nodeId) => context.readAudioSignals
@@ -119,117 +137,169 @@ export class GraphRuntime {
     this.scriptCache = new Map();
     this.scriptPrograms = new Map();
     this.startedAt = performance.now();
-    this.params = new Map(this.graph.nodes.filter(n => ['pattern', 'blend', 'color', 'transform'].includes(n.type))
-      .map(n => [n.id, parameterView(this.graph, n, sketches, this.readContinuous, id => this.signalValue(id))]));
+    this.params = new Map();
+    // Parameter views are created with their target's activation, before a
+    // Pattern's ProgramRuntime captures its view in _prepareSource().
     this.size = sizeFor(width, height);
     // No media request, video element or MediaStream exists in the editor.
-    this.sample = preview && (this.previewFx.size || this.graph.nodes.some(n => n.type === 'camera'))
-      ? createPreviewClip(...this.size) : null;
+    // Even the synthetic clip waits until a Camera/implicit FX preview is used.
+    this.sample = null;
     this.pendingSize = null;
     this.disposed = false;
     this.sources = new Map(); this.buffers = new Map(); this.messages = new Map();
-    // Warnings are real, reported conditions that are NOT an error card: the node
-    // still renders its image (a shader mode degrades to Normal, a transform passes
-    // through), so they never replace the canvas the way this.messages does.
+    // Warnings report degraded but still-rendering nodes. Fatal node errors
+    // instead suppress only that branch's image in both render paths.
     this.warnings = new Map();
     this.work = new Map(); this.staging = new Map(); this.sourceRevision = new Map();
     this.inFlight = null;
+    this.activeTarget = this.outputId;
+    this.paused = false;
     const diagnostic = graphDiagnostics(this.graph, sketches, dependencies);
     this.diagnostics = diagnostic.messages;
     this.nodeDiagnostics = diagnostic.byNode;
-    this.graph.nodes.filter(n => isVisualType(n)).forEach(n => {
-      this.buffers.set(n.id, canvasFor(this.size));
-      if (this.hasFx) this.work.set(n.id, canvasFor(this.size));
-      if (this.hasFx && ((n.type === 'camera' && !preview)
-        || (n.type === 'pattern' && patternInputMode(n, this.graph) === 'source' && !this.previewFx.has(n.id))))
-        this.staging.set(n.id, canvasFor(this.size));
-    });
-    // A disk-loaded Script source never carries trust with it.
-    for (const node of this.graph.nodes.filter(n => n.type === 'script')) {
-      this.scriptPrograms.set(node.id, scriptProgram(node, this.scriptCache));
+    // Preserve graph-wide repair/approval notices without compiling or running
+    // an unrelated Script. A disk-loaded source never carries trust with it.
+    for (const node of this.graph.nodes.filter(n => n.type === 'script'))
       if (!isScriptApproved(scriptLanguageOf(node), scriptSource(node))) this.messages.set(node.id, SCRIPT_APPROVAL_MESSAGE);
-    }
-    // Retain legacy invalid-source behavior for graphs without FX; an FX graph
-    // instead isolates each broken branch and keeps its saved wires repairable.
-    if (this.diagnostics.length && !this.hasFx) { this.ready = Promise.resolve(); return; }
-    const reachable = new Set();
-    const reach = id => {
-      if (reachable.has(id)) return;
-      reachable.add(id);
-      this.graph.edges.filter(e => e.to === id).forEach(e => reach(e.from));
+    // Output is the only eager target. A disconnected editor selection expands
+    // this plan on first request; LIVE never expands past Output.
+    this.ready = this._activate(this.outputId);
+  }
+  dependenciesFor(targetId) {
+    const used = new Set();
+    const visit = id => {
+      if (used.has(id) || !this.nodeById.has(id)) return;
+      used.add(id);
+      (this.incoming.get(id) || []).forEach(visit);
     };
-    reach(this.graph.nodes.find(n => n.type === 'output').id);
-    const waits = [];
-    // SharedCameraSource ties a pending source to its acquisition epoch. Starting
-    // two distinct physical devices concurrently would retire the first epoch;
-    // bring camera *nodes* online in sequence without blocking noncamera FX.
-    let cameraReady = Promise.resolve();
-    for (const node of this.graph.nodes.filter(n => n.type === 'pattern' || n.type === 'camera')) {
-      // Camera previews use canvas pixels directly, including when the selected
-      // Camera is dangling. Only the output screen instantiates a capture child.
-      if (node.type === 'camera' && (preview || !reachable.has(node.id))) continue;
-      if (this.nodeDiagnostics.has(node.id)) continue;
-      const sketch = node.type === 'camera' ? CAMERA_NODE_PATTERN : sketches.find(s => s.id === node.patternId);
-      if (!sketch) continue;
-      const fx = node.type === 'pattern' && (patternInputMode(node, this.graph) === 'fx' || this.previewFx.has(node.id));
-      const camera = node.type === 'camera' || (!fx && (sketch.camera || sketch.surfaces?.some(s => sketches.find(x => x.id === s.patternId)?.camera)));
-      if (camera && (preview || !context.cameraSource)) {
-        this.messages.set(node.id, 'Camera is available only on the output screen (shared capture).'); continue;
+    visit(targetId);
+    return used;
+  }
+  _activate(targetId) {
+    if (this.disposed || (!this.preview && targetId !== this.outputId)) return Promise.resolve();
+    if (this.targetReady.has(targetId)) return this.targetReady.get(targetId);
+    const needed = this.dependenciesFor(targetId);
+    const addedAudio = [];
+    for (const node of this.graph.nodes) {
+      if (!needed.has(node.id) || this.planned.has(node.id)) continue;
+      this.planned.add(node.id);
+      if (['pattern', 'blend', 'color', 'transform'].includes(node.type))
+        this.params.set(node.id, parameterView(this.graph, node, this.sketches, this.readContinuous, id => this.signalValue(id)));
+      if (node.type === 'audio') addedAudio.push(node);
+      if (isVisualType(node)) {
+        this.buffers.set(node.id, canvasFor(this.size));
+        if (this.hasFx) this.work.set(node.id, canvasFor(this.size));
+        if (this.hasFx && ((node.type === 'camera' && !this.preview)
+          || (node.type === 'pattern' && patternInputMode(node, this.graph) === 'source' && !this.previewFx.has(node.id))))
+          this.staging.set(node.id, canvasFor(this.size));
+        if (this.preview && !this.sample && (node.type === 'camera' || this.previewFx.has(node.id)))
+          this.sample = createPreviewClip(...this.size);
       }
-      const params = this.params.get(node.id);
-      const layer = document.createElement('div');
-      const capture = canvas => {
-        if (this.disposed) return;
-        const target = fx ? this.work.get(node.id) : (this.staging.get(node.id) || this.buffers.get(node.id));
-        if (!target) return;
-        const ctx = target.getContext('2d');
-        ctx.clearRect(0, 0, target.width, target.height);
-        // Copy inside the completed user draw, BEFORE WebGL discards pixels.
-        ctx.drawImage(canvas, 0, 0, target.width, target.height);
-        this.sourceRevision.set(node.id, (this.sourceRevision.get(node.id) || 0) + 1);
-      };
-      const runtime = new ProgramRuntime({ coreConstructor: VizCore, selection: { ids: [sketch.id], merge: false },
-        sketches: node.type === 'camera' ? [...sketches, CAMERA_NODE_PATTERN] : sketches,
-        audio, videoDeviceId: node.type === 'camera' ? (node.deviceId ?? videoDeviceId) : videoDeviceId,
-        getParams: () => params || {}, layer, inputMode: fx ? 'fx' : 'source',
-        includeAudioSlots: node.type !== 'camera',
-        cameraSource: fx ? null : context.cameraSource || null, getSize: () => this.size,
-        preview, audioControlStore: context.audioControlStore || null,
-        consumerSessionId: `graph-${crypto.randomUUID()}`, audioRole: context.audioRole || 'preview',
-        onAudioSlotsChanged: context.onAudioSlotsChanged, onDraw: capture });
-      this.sources.set(node.id, runtime);
-      context.registerChildRuntime?.(runtime);
-      const prepare = () => {
-        if (this.disposed) return Promise.resolve();
-        try {
-          const ready = runtime.prepare();
-          // Projection pixels must also be copied in the compositor callback,
-          // not one requestAnimationFrame later when WebGL may be blank.
-          for (const projection of runtime.projectionLayers) {
-            const presented = projection.onPresented;
-            projection.onPresented = () => {
-              if (!projection.renderer) this.messages.set(node.id, 'Projection compositor unavailable');
-              else capture(projection.canvas);
-              presented?.();
-            };
-          }
-          return ready.catch(error => { if (!this.disposed) this.messages.set(node.id, error.message); });
-        } catch (error) { this.messages.set(node.id, error.message); return Promise.resolve(); }
-      };
-      if (node.type === 'camera') {
-        // A deferred runtime can be disposed before prepare(); consume its
-        // rejected readiness promise so teardown never leaks a rejection.
-        runtime.readyPromise.catch(() => {});
-        cameraReady = cameraReady.then(prepare);
-        waits.push(cameraReady);
-      } else waits.push(prepare());
+      if (node.type === 'script') this.scriptPrograms.set(node.id, scriptProgram(node, this.scriptCache));
     }
-    this.ready = Promise.all(waits);
+    if (addedAudio.length) {
+      if (this.signal) this.signal.addNodes(addedAudio);
+      else {
+        this.signal = createSignalConsumers(this.context.audioControlStore, this.context.audioRole, addedAudio);
+        this.context.registerChildRuntime?.(this.signal);
+      }
+      // On a late preview expansion the owner's plan must include new routes.
+      // The initial registration is already published by the parent/editor.
+      if (this.ready) this.context.onAudioSlotsChanged?.();
+    }
+    for (const node of this.graph.nodes) {
+      if (!needed.has(node.id) || this.sourceReady.has(node.id) || (node.type !== 'pattern' && node.type !== 'camera')) continue;
+      this.sourceReady.set(node.id, this._prepareSource(node));
+    }
+    const ready = Promise.all([...needed].map(id => this.sourceReady.get(id)).filter(Boolean));
+    this.targetReady.set(targetId, ready);
+    return ready;
+  }
+  _prepareSource(node) {
+    // Camera previews use sample pixels, not a capture child. Broken nodes
+    // remain in the graph and in diagnostics, but cannot start a renderer.
+    if ((node.type === 'camera' && this.preview) || this.nodeDiagnostics.has(node.id)) return Promise.resolve();
+    const { sketches, context, preview, audio, videoDeviceId } = this;
+    const sketch = node.type === 'camera' ? CAMERA_NODE_PATTERN : sketches.find(s => s.id === node.patternId);
+    if (!sketch) return Promise.resolve();
+    const fx = node.type === 'pattern' && (patternInputMode(node, this.graph) === 'fx' || this.previewFx.has(node.id));
+    const camera = node.type === 'camera' || (!fx && (sketch.camera || sketch.surfaces?.some(s => sketches.find(x => x.id === s.patternId)?.camera)));
+    if (camera && (preview || !context.cameraSource)) {
+      this.messages.set(node.id, 'Camera is available only on the output screen (shared capture).'); return Promise.resolve();
+    }
+    const params = this.params.get(node.id);
+    const layer = document.createElement('div');
+    const capture = canvas => {
+      if (this.disposed) return;
+      const target = fx ? this.work.get(node.id) : (this.staging.get(node.id) || this.buffers.get(node.id));
+      if (!target) return;
+      const ctx = target.getContext('2d');
+      ctx.clearRect(0, 0, target.width, target.height);
+      // Copy inside the completed user draw, BEFORE WebGL discards pixels.
+      ctx.drawImage(canvas, 0, 0, target.width, target.height);
+      this.sourceRevision.set(node.id, (this.sourceRevision.get(node.id) || 0) + 1);
+    };
+    const runtime = new ProgramRuntime({ coreConstructor: VizCore, selection: { ids: [sketch.id], merge: false },
+      sketches: node.type === 'camera' ? [...sketches, CAMERA_NODE_PATTERN] : sketches,
+      audio, videoDeviceId: node.type === 'camera' ? (node.deviceId ?? videoDeviceId) : videoDeviceId,
+      getParams: () => params || {}, layer, inputMode: fx ? 'fx' : 'source',
+      includeAudioSlots: node.type !== 'camera',
+      cameraSource: fx ? null : context.cameraSource || null, getSize: () => this.size,
+      preview, audioControlStore: context.audioControlStore || null,
+      consumerSessionId: `graph-${crypto.randomUUID()}`, audioRole: context.audioRole || 'preview',
+      onAudioSlotsChanged: context.onAudioSlotsChanged, onDraw: capture });
+    this.sources.set(node.id, runtime);
+    context.registerChildRuntime?.(runtime);
+    const prepare = () => {
+      if (this.disposed) return Promise.resolve();
+      try {
+        const ready = runtime.prepare();
+        // Projection pixels must also be copied in the compositor callback,
+        // not one requestAnimationFrame later when WebGL may be blank.
+        for (const projection of runtime.projectionLayers) {
+          const presented = projection.onPresented;
+          projection.onPresented = () => {
+            if (!projection.renderer) this.messages.set(node.id, 'Projection compositor unavailable');
+            else capture(projection.canvas);
+            presented?.();
+          };
+        }
+        return ready.catch(error => { if (!this.disposed) this.messages.set(node.id, error.message); });
+      } catch (error) { this.messages.set(node.id, error.message); return Promise.resolve(); }
+    };
+    if (node.type === 'camera') {
+      // SharedCameraSource ties a pending source to its acquisition epoch.
+      // Serialise physical Camera nodes, including ones selected later.
+      runtime.readyPromise.catch(() => {});
+      this.cameraReady = this.cameraReady.then(prepare);
+      return this.cameraReady;
+    }
+    return prepare();
+  }
+  _selectTarget(targetId) {
+    if (!this.preview || this.activeTarget === targetId) return;
+    this.activeTarget = targetId;
+    const needed = this.dependenciesFor(targetId);
+    // Keep shared instances warm; park previously selected disconnected
+    // branches so their autonomous draw loops stop consuming preview resources.
+    for (const [id, source] of this.sources) {
+      if (needed.has(id) && !this.paused) source.resume();
+      else source.pause();
+    }
   }
   elapsed() { return (performance.now() - this.startedAt) / 1000; }
-  signalValue(id) { return this.computeSignal(id, new Set()); }
+  signalValue(id) {
+    // Inspector readouts and disconnected parameter views can request a scalar
+    // before their image target is rendered. Register its route synchronously;
+    // source preparation remains shared with the next preview frame.
+    if (this.preview && !this.planned.has(id)) void this._activate(id);
+    return this.computeSignal(id, new Set());
+  }
   // Inspector diagnostics: Audio source health, calibration and freshness.
-  getNodeStatus(id) { return this.signal?.getNodeStatus?.(id) || null; }
+  getNodeStatus(id) {
+    if (this.preview && !this.planned.has(id)) void this._activate(id);
+    return this.signal?.getNodeStatus?.(id) || null;
+  }
   computeSignal(id, visiting) {
     if (this.frameSignals.has(id)) return this.frameSignals.get(id);
     const node = this.graph.nodes.find(n => n.id === id);
@@ -278,33 +348,45 @@ export class GraphRuntime {
       });
       return this.buffers.get(targetId) || null;
     }
-    const done = new Set();
+    if (this.disposed || (!this.preview && targetId !== this.outputId)) return null;
+    if (!this.planned.has(targetId)) void this._activate(targetId);
+    this._selectTarget(targetId);
+    const done = new Map();
     this.frame++; this.frameSignals.clear();
     const visit = id => {
-      if (done.has(id)) return this.buffers.get(id);
-      done.add(id);
-      const node = this.graph.nodes.find(n => n.id === id), canvas = this.buffers.get(id);
+      if (done.has(id)) return done.get(id);
+      const node = this.nodeById.get(id), canvas = this.buffers.get(id);
       if (!node || !canvas) return null;
+      // The node that owns the failure produces no image in either renderer.
+      // An invalid branch is transparent to a healthy Blend sibling; its
+      // diagnostic remains visible through getDiagnostics().
+      const runtime = this.sources.get(id);
+      if (this.nodeDiagnostics.has(id) || this.messages.has(id) || runtime?.error) {
+        clear(canvas); done.set(id, null); return null;
+      }
       const source = port => { const edge = this.graph.edges.find(e => e.to === id && e.port === port); return edge ? visit(edge.from) : null; };
       const params = this.params.get(id) || {};
-      if (node.type === 'color') applyColor(canvas.getContext('2d'), source('image'), params);
-      else if (node.type === 'transform') {
-        const warning = applyTransform(canvas.getContext('2d'), source('image'), params);
+      let result = canvas;
+      if (node.type === 'color' || node.type === 'transform') {
+        const upstream = source('image');
+        if (node.type === 'color') applyColor(canvas.getContext('2d'), upstream, params);
+        else {
+          const warning = applyTransform(canvas.getContext('2d'), upstream, params);
+          if (warning) this.warnings.set(id, warning); else this.warnings.delete(id);
+        }
+        if (!upstream) result = null;
+      } else if (node.type === 'blend') {
+        const base = source('base'), layer = source('layer');
+        const warning = composite(canvas.getContext('2d'), base, layer, node.mode || 'Normal', params.opacity ?? 1);
         if (warning) this.warnings.set(id, warning); else this.warnings.delete(id);
-      } else if (node.type !== 'pattern' && node.type !== 'camera') {
-        const warning = composite(canvas.getContext('2d'), source(node.type === 'blend' ? 'base' : 'image'), node.type === 'blend' ? source('layer') : null, node.mode || 'Normal', params.opacity ?? 1);
-        if (warning) this.warnings.set(id, warning); else this.warnings.delete(id);
+        if (!base && !layer) result = null;
+      } else if (node.type === 'output') {
+        composite(canvas.getContext('2d'), source('image'), null, 'Normal', 1);
+      } else if (!this.sourceRevision.has(id) && !runtime) {
+        clear(canvas); result = null;
       }
-      const runtime = this.sources.get(id);
-      const message = this.diagnostics[0] || this.messages.get(id) || runtime?.error?.message;
-      if (message) {
-        const ctx = canvas.getContext('2d'); ctx.save(); ctx.filter = 'none'; ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.fillStyle = '#291722'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = '#ffb7cb'; ctx.font = '14px sans-serif';
-        ctx.fillText(message.slice(0, 80), 12, 30);
-        ctx.restore();
-      }
-      return canvas;
+      done.set(id, result);
+      return result;
     };
     return visit(targetId);
   }
@@ -312,18 +394,23 @@ export class GraphRuntime {
   // before the first await; independent onDraw writes only staging. Every FX
   // reads stable upstream work, fan-out reuses that canvas, and the front/work
   // maps swap only after the whole reachable DAG has completed.
-  renderFrame(targetId = this.graph.nodes.find(n => n.type === 'output').id) {
-    if (!this.hasFx) return Promise.resolve(this.render(targetId));
-    if (this.disposed) return Promise.resolve(null);
-    if (this.inFlight) return this.inFlight.then(() => this.buffers.get(targetId) || null);
+  renderFrame(targetId = this.outputId) {
+    if (this.disposed || (!this.preview && targetId !== this.outputId)) return Promise.resolve(null);
+    if (!this.hasFx) return this.ready.then(() => this._activate(targetId)).then(() => this.disposed ? null : this.render(targetId));
+    if (this.inFlight) return this.inFlightTarget === targetId
+      ? this.inFlight.then(() => this.buffers.get(targetId) || null)
+      : this.inFlight.then(() => this.renderFrame(targetId));
+    this.inFlightTarget = targetId;
     const evaluation = this._evaluate(targetId);
-    this.inFlight = evaluation.finally(() => { if (this.inFlight === settled) this.inFlight = null; });
+    this.inFlight = evaluation.finally(() => { if (this.inFlight === settled) { this.inFlight = null; this.inFlightTarget = null; } });
     const settled = this.inFlight;
     return settled;
   }
   async _evaluate(targetId) {
     await this.ready;
+    await this._activate(targetId);
     if (this.disposed) return null;
+    this._selectTarget(targetId);
     if (this.pendingSize) this._applySize(this.pendingSize);
     const generation = this.generation;
     const frameId = ++this.frame;
@@ -343,7 +430,8 @@ export class GraphRuntime {
     // Draw once at the frame boundary before any FX await. This single bounded
     // canvas is shared by preview Camera nodes and implicit camera-FX inputs;
     // no next tick can redraw it until this in-flight evaluation has committed.
-    const sample = this.sample?.draw(this.elapsed()) || null;
+    const sample = this.sample && [...used].some(id => this.nodeById.get(id)?.type === 'camera' || this.previewFx.has(id))
+      ? this.sample.draw(this.elapsed()) : null;
     if (sample) for (const node of this.graph.nodes) {
       if (node.type !== 'camera' || !used.has(node.id)) continue;
       const canvas = this.work.get(node.id);
@@ -454,8 +542,12 @@ export class GraphRuntime {
     if (this.inFlight) this.pendingSize = next;
     else this._applySize(next);
   }
-  pause() { this.sources.forEach(s => s.pause()); }
-  resume() { this.sources.forEach(s => s.resume()); }
+  pause() { this.paused = true; this.sources.forEach(s => s.pause()); }
+  resume() {
+    this.paused = false;
+    const active = this.dependenciesFor(this.activeTarget);
+    this.sources.forEach((source, id) => { if (!this.preview || active.has(id)) source.resume(); });
+  }
   dispose() {
     if (this.disposed) return;
     this.disposed = true; this.generation = ++graphGeneration;
