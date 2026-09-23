@@ -88,15 +88,16 @@ test('New and Edit share one internal editor view; OPEN only adds a pattern', as
   await page.screenshot({ path: '/tmp/nodes-internal-editor.png' });
 });
 
-test('the embedded editor reads Ctrl/Cmd+A as canvas select-all, never as UI text selection', async ({ page }) => {
-  await page.goto('/');
-  await seed(page);
-  await openFile(page);
-  const selected = () => editor(page).locator('.nodes-node.is-selected').evaluateAll(nodes => nodes.map(n => n.dataset.nodeId));
-  // Focus still belongs to the main-panel button that opened the session, so the
-  // shortcut has to be read from the window rather than from the editor root.
-  await page.keyboard.press('Control+a');
-  await expect.poll(selected).toEqual(['color', 'audio']);
+  test('the embedded editor reads Ctrl/Cmd+A as canvas select-all, never as UI text selection', async ({ page }) => {
+    await page.goto('/');
+    const id = await seed(page);
+    await openFile(page);
+    await editPattern(page, id);
+    const selected = () => editor(page).locator('.nodes-node.is-selected').evaluateAll(nodes => nodes.map(n => n.dataset.nodeId));
+    // Click the canvas to ensure the editor is ready and focused.
+    await editor(page).locator('.nodes-workspace').click();
+    await page.keyboard.press('Control+a');
+    await expect.poll(selected).toEqual(['color', 'audio']);
   await expect(editor(page).locator('[data-node-id=output]')).not.toHaveClass(/is-selected/);
   expect(await page.evaluate(() => window.getSelection().toString())).toBe('');
   // Delete removes the group from the embedded canvas and keeps the Output.
