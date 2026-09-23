@@ -24,59 +24,57 @@ export function createSignalConsumer(store, role = 'preview') {
 // internal slot already emits all bands. A null selector and an explicit id stay
 // separate groups even while they resolve to the same input today.
 export function createSignalConsumers(store, role = 'preview', audioNodes = []) {
-  const routes = [];
-  const byKey = new Map();
   const nodeRoutes = new Map();
-  for (const node of audioNodes) {
-    if (!node?.id) continue;
-    const route = normalizeAudioRoute(node.deviceId, node.channel) || { deviceId: null, channel: 'mono' };
-    const key = audioRouteKey(route);
-    if (!byKey.has(key)) {
-      byKey.set(key, route);
-      routes.push(route);
-    }
-    nodeRoutes.set(node.id, key);
-  }
-  // Default routes sort first so legacy no-argument reads keep their meaning.
-  routes.sort((a, b) => (isDefaultAudioRoute(a) ? -1 : 0) - (isDefaultAudioRoute(b) ? -1 : 0));
 
   const uuid = crypto.randomUUID();
   const entriesByKey = new Map();
-  const descriptors = routes.map((route, index) => {
-    const descriptor = {
-      runtimeId: `node-audio-${uuid}-${index}`,
-      patternId: NODE_AUDIO_SOURCE.id,
-      role,
-      childIndex: 0,
-      paramsRevision: 1,
-      params: {},
-      audioTransport: 'pattern-controls',
-      audioControlSchema: FEATURE_SCHEMA,
-      audioInput: { ...route },
-    };
-    store?.upsertSlot(descriptor);
-    const entry = { descriptor, binding: store?.createBinding(descriptor.runtimeId) };
-    entriesByKey.set(audioRouteKey(route), entry);
-    return entry;
-  });
-
-  // Legacy no-argument reads keep their meaning when a default route exists;
-  // otherwise they fall back to the first registered route.
-  const defaultEntry = entriesByKey.get(audioRouteKey({ deviceId: null, channel: 'mono' })) || descriptors[0] || null;
+  const descriptors = [];
+  const addNodes = nodes => {
+    let added = false;
+    for (const node of nodes) {
+      if (!node?.id || nodeRoutes.has(node.id)) continue;
+      const route = normalizeAudioRoute(node.deviceId, node.channel) || { deviceId: null, channel: 'mono' };
+      const key = audioRouteKey(route);
+      nodeRoutes.set(node.id, key);
+      if (entriesByKey.has(key)) continue;
+      const descriptor = {
+        runtimeId: `node-audio-${uuid}-${descriptors.length}`,
+        patternId: NODE_AUDIO_SOURCE.id,
+        role,
+        childIndex: 0,
+        paramsRevision: 1,
+        params: {},
+        audioTransport: 'pattern-controls',
+        audioControlSchema: FEATURE_SCHEMA,
+        audioInput: { ...route },
+      };
+      store?.upsertSlot(descriptor);
+      const entry = { descriptor, binding: store?.createBinding(descriptor.runtimeId) };
+      entriesByKey.set(key, entry);
+      descriptors.push(entry);
+      added = true;
+    }
+    return added;
+  };
+  addNodes([...audioNodes].sort((a, b) => (isDefaultAudioRoute(a) ? -1 : 0) - (isDefaultAudioRoute(b) ? -1 : 0)));
+  // Legacy no-argument reads prefer the default route even if it was added
+  // later by a selected, previously disconnected preview branch.
+  const defaultEntry = () => entriesByKey.get(audioRouteKey({ deviceId: null, channel: 'mono' })) || descriptors[0] || null;
   const entryFor = (nodeId) => {
-    if (nodeId == null) return defaultEntry;
+    if (nodeId == null) return defaultEntry();
     const key = nodeRoutes.get(nodeId);
     return key != null ? (entriesByKey.get(key) || null) : null;
   };
 
   let disposed = false;
   return {
+    addNodes(nodes) { return !disposed && addNodes(nodes); },
     read(nodeId = null) {
       if (disposed) return {};
       // Unknown node ids never fall through to another node's route; only a
       // legacy no-argument read resolves to the default route.
       if (nodeId != null && !nodeRoutes.has(nodeId)) return {};
-      const entry = entryFor(nodeId) || defaultEntry;
+      const entry = entryFor(nodeId) || defaultEntry();
       return entry?.binding?.read()?.continuous || {};
     },
     getNodeStatus(nodeId) {

@@ -246,11 +246,15 @@ test('@core both scalar read paths use the node-specific route binding', async (
     const store = {
       upsertSlot: d => registry.set(d.runtimeId, d),
       retireSlots: ids => ids.forEach(id => registry.delete(id)),
-      createBinding: (runtimeId) => ({ read: () => ({ continuous: frames[audioRouteKey(registry.get(runtimeId).audioInput)] || {} }) }),
+      createBinding: (runtimeId) => ({ read: () => ({ continuous: frames[audioRouteKey(registry.get(runtimeId).audioInput)] || {} }),
+        noteDraw() {}, setEventDeliveryEnabled() {} }),
     };
     void realStore;
-    const runtime = new GraphRuntime({ graph, sketches: [{ id: 'solid-color', params: [{ key: 'brightness', label: 'Brightness', min: 0, max: 1, step: .01, default: .2 }] }], context: { audioControlStore: store } });
-    const views = [...runtime.params.values()];
+    const runtime = new GraphRuntime({ graph, sketches: [{ id: 'solid-color', params: [{ key: 'brightness', label: 'Brightness', min: 0, max: 1, step: .01, default: .2 }],
+      factory: () => p => { p.setup = () => p.createCanvas(16, 16); p.draw = () => p.background(32); } }], context: { audioControlStore: store } });
+    await runtime.ready;
+    await runtime.renderFrame('colorB'); // Selecting the disconnected target prepares its parameter view and route.
+    const views = ['colorA', 'colorB'].map(id => runtime.params.get(id));
     const info = {
       brightnessA: views[0].brightness,
       brightnessB: views[1].brightness,
