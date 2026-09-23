@@ -57,6 +57,30 @@ test('optional image socket upgrades v1 atomically and saved explicit FX/source 
   expect(activeInputs(implicitMissing.nodes[1], undefined, implicitMissing)).toEqual(['image']);
 });
 
+test('FX editor targeting a scalar node never swaps an undefined image buffer into disposal', async ({ page }) => {
+  await page.goto('/?role=nodes');
+  const result = await page.evaluate(async () => {
+    const { GraphRuntime } = await import('/src/nodes/runtime.js');
+    const graph = { version: 2, name: 'scalar preview', nodes: [
+      { id: 'camera', type: 'camera', deviceId: null, x: 0, y: 0 },
+      { id: 'audio', type: 'audio', band: 'bass', x: 0, y: 0 },
+      { id: 'output', type: 'output', x: 0, y: 0 },
+    ], edges: [{ from: 'camera', to: 'output', port: 'image' }] };
+    const runtime = new GraphRuntime({ graph, sketches: [], preview: true });
+    try {
+      await runtime.ready;
+      const scalar = await runtime.renderFrame('audio');
+      const output = await runtime.renderFrame();
+      return { scalar, hasScalarBuffer: runtime.buffers.has('audio'), hasScalarWork: runtime.work.has('audio'),
+        pixel: [...output.getContext('2d').getImageData(3, 3, 1, 1).data] };
+    } finally { runtime.dispose(); }
+  });
+  expect(result.scalar).toBeNull();
+  expect(result.hasScalarBuffer).toBe(false);
+  expect(result.hasScalarWork).toBe(false);
+  expect(result.pixel[3]).toBe(255);
+});
+
 test('synthetic clip is bounded, colorful, asymmetric, time-varying and disposable', async ({ page }) => {
   await page.goto('/?role=nodes');
   const clip = await page.evaluate(async () => {

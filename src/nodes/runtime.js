@@ -317,11 +317,13 @@ export class GraphRuntime {
     const done = new Map();
     const visit = async id => {
       if (done.has(id)) return done.get(id);
+      // Inspector previews can target an Audio/Script node, which has no image
+      // buffer. Never commit it as a visited visual node (or swap in undefined).
+      const node = this.graph.nodes.find(n => n.id === id), canvas = this.work.get(id);
+      if (!node || !canvas || this.disposed || generation !== this.generation) return null;
       // Store the promise immediately to bound fan-out and prevent duplicate
       // effects even if a future caller asks for the same dependency.
       const pending = (async () => {
-        const node = this.graph.nodes.find(n => n.id === id), canvas = this.work.get(id);
-        if (!node || !canvas || this.disposed || generation !== this.generation) return null;
         const source = async port => {
           const edge = this.graph.edges.find(e => e.to === id && e.port === port);
           return edge ? visit(edge.from) : null;
