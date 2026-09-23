@@ -29,7 +29,8 @@ async function openGraph(page, graph) {
     await writer.write(serializeGraph(graph, manifestFor(graph, SKETCHES))); await writer.close();
     window.showDirectoryPicker = async () => dir;
     await nodePatterns.link();
-    return nodePatterns.records.find(record => record.fileName === 'audit.nodes.json').id;
+    // A link grants access; the file is added explicitly (as OPEN does).
+    return (await nodePatterns.open('audit.nodes.json')).id;
   }, graph);
   await page.goto(`/?role=nodes&graph=${encodeURIComponent(id)}`);
   await expect(page.getByLabel('Graph name')).toHaveValue(graph.name);

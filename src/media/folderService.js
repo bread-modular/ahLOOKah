@@ -6,6 +6,12 @@ import { mediaKindForName, mimeForName } from './media-store.js';
 
 // Folder links never contain media bytes. Existing media persistence/playback
 // consumes the same file handles as the individual-file picker.
+//
+// A linked directory is a SOURCE, never an importer: scanning it (on startup, on
+// Refresh or when it is linked) only re-points the media patterns this library
+// already has — matched by the record's own file name and its directory, never by
+// hashing the file — so a project gets back exactly the media it recorded. New
+// patterns come from the explicit ADD / OPEN controls only.
 export class MediaFolder {
   constructor({ storage = createHandleStorage('viz2-media-folder'), onFiles = async () => {}, onStatus = () => {} } = {}) {
     this.storage = storage; this.onFiles = onFiles; this.onStatus = onStatus;
@@ -39,7 +45,9 @@ export class MediaFolder {
       await registerLinkedProjectFolder('media', handle, previousHandle);
       await this.restore();
       this.publish({ errors: missingFolderFiles('media', files.map(file => file.name)) });
-      try { await this.onFiles(files); }
+      // Linking grants access; it does not load the directory. Files already in
+      // this library are re-pointed (ADD/OPEN are what bring new ones in).
+      try { await this.onFiles(files, { adoptNew: false }); }
       finally { this.channel?.postMessage('changed'); }
     });
   }
@@ -53,7 +61,7 @@ export class MediaFolder {
       if (!request && this.status.permission !== 'granted') await requireFolderPermission(this.handle);
       const files = await this.scan(this.handle);
       this.publish({ errors: missingFolderFiles('media', files.map(file => file.name)) });
-      await this.onFiles(files);
+      await this.onFiles(files, { adoptNew: false });
     });
   }
   async browse() {
@@ -66,7 +74,8 @@ export class MediaFolder {
     await requireFolderPermission(this.handle, 'read', true);
     const handle = await linkedFile(this.handle, name, mediaKindForName);
     await handle.getFile(); // Report a deleted/unreadable selection before adding.
-    await this.onFiles([{ handle, name, kind: mediaKindForName(name), mime: mimeForName(name), folderName: this.handle.name }]);
+    // The one path that turns a file in the linked directory into a pattern.
+    await this.onFiles([{ handle, name, kind: mediaKindForName(name), mime: mimeForName(name), folderName: this.handle.name }], { adoptNew: true });
   }
   async unlink() {
     await this.lock(async () => { await this.storage('folder', null); await this.restore(); });

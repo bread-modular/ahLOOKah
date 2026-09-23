@@ -122,14 +122,27 @@ async function seedMedia(page) {
   });
 }
 
-test('Media: filtered folder scan, disk playback, refresh dedup, persistence, individual open and unlink @core', async ({ page, context }) => {
+test('Media: explicit ADD only, disk playback, refresh dedup, persistence and unlink @core', async ({ page, context }) => {
   await page.goto('/'); await seedMedia(page);
   const panel = page.locator('.media-folder-panel');
   await panel.getByRole('button', { name: 'Add media', exact: true }).click();
   await expect(page.locator('.library-btn[data-id^="media-"]')).toHaveCount(1);
   await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
   const media = page.locator('.library-btn[data-id^="media-"]');
-  await expect(media).toHaveCount(2); // ignores audio, text, subfolders and existing individual handle
+  // Linking grants access; it never loads the directory. The individually added
+  // red.PNG is still the only pattern.
+  await expect(media).toHaveCount(1);
+  const addFromFolder = async name => {
+    await panel.getByRole('button', { name: 'Add media', exact: true }).click();
+    const picker = page.getByRole('dialog', { name: 'Open Media', exact: true });
+    await picker.getByRole('combobox').selectOption(name);
+    await picker.getByRole('button', { name: 'Open', exact: true }).click();
+    await expect(picker).toHaveCount(0);
+  };
+  // ADD/OPEN is the only path that turns a file in the linked folder into a
+  // pattern; the picker never offers audio, text or subfolders.
+  await addFromFolder('green.webm');
+  await expect(media).toHaveCount(2);
   const ids = await media.evaluateAll(elements => elements.map(el => el.dataset.id).sort());
   await folderAction(page, 'Media', 'Refresh folder'); await expect(media).toHaveCount(2);
   await page.reload(); await expect(media).toHaveCount(2);
@@ -154,7 +167,10 @@ test('Media: filtered folder scan, disk playback, refresh dedup, persistence, in
     const writer = await (await dir.getFileHandle('new.png', { create: true })).createWritable();
     await writer.write(await (await dir.getFileHandle('red.PNG')).getFile()); await writer.close();
   });
-  await folderAction(page, 'Media', 'Refresh folder'); await expect(media).toHaveCount(3);
+  // A file dropped into the folder outside the app stays out of the library: a
+  // refresh re-reads what is loaded, it does not adopt the directory.
+  await folderAction(page, 'Media', 'Refresh folder'); await expect(media).toHaveCount(2);
+  await addFromFolder('new.png'); await expect(media).toHaveCount(3);
   await folderAction(page, 'Media', 'Unlink folder');
   await expect.poll(() => other.evaluate(() => window.linkStatus.folder)).toBe('');
   await expect(media).toHaveCount(3); // unlink deliberately retains loaded file references
@@ -205,7 +221,14 @@ test('Folder headers visual verification @core', async ({ page }) => {
   await page.locator('.custom-scripts-panel').getByRole('button', { name: 'Link Folder', exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: '/tmp/folder-unlinked.png' });
   for (const category of categories) await page.locator(category.panel).getByRole('button', { name: 'Link Folder', exact: true }).click();
-  await expect(page.locator('.library-btn[data-id^="media-"]')).toHaveCount(2);
+  // Linking loads nothing: one media pattern is added explicitly so the linked
+  // headers are captured with a populated library.
+  const mediaPanel = page.locator('.media-folder-panel');
+  await mediaPanel.getByRole('button', { name: 'Add media', exact: true }).click();
+  const picker = page.getByRole('dialog', { name: 'Open Media', exact: true });
+  await picker.getByRole('combobox').selectOption('red.PNG');
+  await picker.getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(page.locator('.library-btn[data-id^="media-"]')).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Add media', exact: true })).toBeEnabled();
   await page.screenshot({ path: '/tmp/folder-linked.png' });
   await folderDetails(page, 'Media'); await page.screenshot({ path: '/tmp/folder-details.png' });

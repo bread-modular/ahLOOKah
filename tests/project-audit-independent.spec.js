@@ -121,14 +121,15 @@ test('F03: media from a different same-named directory is not adopted by filenam
   expect(result.relinked).toBe(0);
   expect(result.afterRelink).toEqual(result.afterOpen);
   // The real control service scans the linked folder on startup. Its separate
-  // onFiles path must also keep B unlinked instead of silently assigning A.
+  // onFiles path must not import anything by itself: B stays unlinked, and the
+  // same-named file in A is not added either — a scan never creates a pattern.
   await page.goto('/?role=control');
   await expect(page.locator('#config-panel')).toBeVisible();
   await expect.poll(() => page.evaluate(async () => {
     const records = await (await import('/src/media/media-store.js')).listMediaRecords();
     return { external: records.find(r => r.id === 'external')?.handle === null,
       importedA: records.some(r => r.id !== 'external' && !!r.handle) };
-  })).toEqual({ external: true, importedA: true });
+  })).toEqual({ external: true, importedA: false });
 });
 
 test('F04: a late media IDB failure is visible in Open UI and never broadcasts success @core', async ({ page }) => {

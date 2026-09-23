@@ -115,6 +115,9 @@
         <h3>Scripts come back by fingerprint</h3>
         <p>For every script the project lists, the file records a SHA-256 of the source instead of the source itself. On Open Project each listed file is re-read, and when its bytes still match it loads automatically — so a project arrives with its custom patterns without clicking anything, on any computer that has the same code in the linked folder. A file that was edited, renamed or added since is left for the explicit <strong>OPEN</strong> under Custom Scripts, with the panel saying which and why. A project file never carries code or trust, and a listed file without a fingerprint never runs by itself.</p>
 
+        <h3>Only the files the project had</h3>
+        <p>A project records the files each section actually has — node patterns and media by file name and ID, scripts by fingerprint — never everything a directory happens to contain. Opening it therefore restores exactly those: a folder that also holds twenty other clips, or a graph somebody dropped in since, stays out of your library until you add it with <strong>ADD</strong> or <strong>OPEN</strong>. Media is matched by its recorded name and ID, so nothing is read or hashed to decide whether a file belongs here.</p>
+
         <h2>Linked directories</h2>
         <p>Custom Scripts, Node Patterns and Media each keep their folder in this browser. Once a folder is linked, the category header shows a <strong>Linked</strong> badge; the badge opens compact folder details:</p>
 
@@ -124,7 +127,7 @@
         </figure>
 
         <ul>
-          <li><strong>Refresh</strong> — reread the folder, pick up additions, removals and edits, and renew expired access from your click. Background tabs never ask for permission.</li>
+          <li><strong>Refresh</strong> — reread the files this section has in your library, pick up their edits and removals, and renew expired access from your click. It never imports a file you have not added; background tabs never ask for permission.</li>
           <li><strong>Relink</strong> — choose the folder again (for example after moving it).</li>
           <li><strong>Unlink</strong> — forget the folder. Source files are never touched; loaded media references and library entries stay.</li>
         </ul>

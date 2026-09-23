@@ -196,7 +196,7 @@ test('F06: editor slider and both mapping endpoint pairs do not dispose either P
     await writer.write(serializeGraph(graph, manifestFor(graph, SKETCHES))); await writer.close();
     window.showDirectoryPicker = async () => dir;
     await nodePatterns.link();
-    window.__f06GraphId = nodePatterns.records.find(r => r.fileName === 'f06.nodes.json').id;
+    window.__f06GraphId = (await nodePatterns.open('f06.nodes.json')).id;
   });
   const id = await page.evaluate(() => window.__f06GraphId);
   await page.goto(`/?role=nodes&graph=${encodeURIComponent(id)}`);

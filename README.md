@@ -482,12 +482,14 @@ what lets a saved project resume its folders without re-linking.
   whose code still matches the fingerprint it recorded; an edited, renamed or new
   file needs **OPEN** again. Scripts run with app privileges, not in a sandbox.
 - **Node Patterns:** **ADD** opens a new editor. When linked, **OPEN** lists only
-  direct-child `.nodes.json` files; unlinked Open retains the native individual-file
-  workflow. Linked patterns remain disk-authoritative, including saves/conflicts.
-- **Media:** linking scans supported images/videos, excluding subfolders and
-  audio/text files. Refresh adds new files without duplicating handles. Linked
-  **ADD** and **OPEN** use the same in-app directory picker; unlinked controls keep
-  the native picker/file-input fallback. Unlink keeps loaded media references.
+  direct-child `.nodes.json` files and adds the one you pick; linking a folder never
+  loads it. Linked patterns remain disk-authoritative, including saves/conflicts.
+- **Media:** **ADD** is the only path that creates a pattern. Linked, it lists the
+  folder’s supported images and videos (excluding subfolders and audio/text files)
+  in the in-app directory picker; unlinked controls keep the native picker/file-input
+  fallback. Linking a folder and Refresh only re-point the media this library already
+  has — matched by recorded name and id, never hashed — so a directory of clips never
+  floods the library. Unlink keeps loaded media references.
 
 `src/platform/folderAccess.js` shares permissions, filtered scans and safe child
 resolution. `DirectoryPicker.jsx` shares loading/empty/error/selection states and
@@ -536,6 +538,14 @@ project file carries and how another computer re-links it, is the
     saved: …` or `Open trusted script: … (this project recorded no code fingerprint
     for it)`. A project file still carries no code and no trust, and a listed file
     without a fingerprint never runs by itself.
+  - **Only the files the project had** — the `folders` section names the files each
+    section actually holds (node patterns and media by name + id, scripts by
+    fingerprint), never a directory listing. Opening a project therefore restores
+    exactly those and nothing else: files that merely exist in the linked folder
+    stay out until **ADD**/**OPEN**. Media is matched by recorded name and id —
+    never read or hashed — and a linked folder is never scanned into the library
+    (`platform/folder-portability.js`, `nodes/repository.js`,
+    `media/folderService.js`).
   - **Permission lapse** — if the browser wants the folder re-granted at startup
     (common after a restart), the startup message names the scripts waiting and
     **Linked → Refresh** both renews access and finishes the reopen; no second save

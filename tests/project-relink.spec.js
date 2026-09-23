@@ -64,6 +64,24 @@ async function writeScript(page, text) {
   }, text);
 }
 
+async function addNodePattern(page, name = 'demo.nodes.json') {
+  await page.evaluate(async name => {
+    const { nodePatterns } = await import('/src/nodes/repository.js');
+    await nodePatterns.open(name);
+  }, name);
+}
+
+// A second .nodes.json in the same directory that this browser never added: the
+// library must not list it just because it is there.
+async function writeExtraNodePattern(page) {
+  await page.evaluate(async () => {
+    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('nodes');
+    const text = await (await (await dir.getFileHandle('demo.nodes.json')).getFile()).text();
+    const writer = await (await dir.getFileHandle('extra.nodes.json', { create: true })).createWritable();
+    await writer.write(text); await writer.close();
+  });
+}
+
 async function linkAll(page) {
   for (const s of SECTIONS) await page.locator(s.panel).getByRole('button', { name: 'Link Folder', exact: true }).click();
 }
@@ -97,16 +115,20 @@ async function openScript(page) {
 test('the same computer resumes every linked directory of a saved project without relinking @core', async ({ page }) => {
   test.setTimeout(120_000);
   await page.goto('/');
-  await seed(page);
+  await seed(page, ['one.PNG', 'two.PNG', 'extra.PNG']);
+  await writeExtraNodePattern(page);
   await linkAll(page);
+  // Linking a directory loads nothing: files are added one by one.
   await addMediaFromFolder(page, 'one.PNG');
   await addMediaFromFolder(page, 'two.PNG');
   await openScript(page);
+  await addNodePattern(page);
   await expect(page.locator('.library-btn[data-id="custom-dir-demo"]')).toBeVisible();
 
   const project = await projectFor(page);
   for (const s of SECTIONS) expect(project.folders[s.key].folderId, s.key).toBeTruthy();
   expect(project.folders.media.files.map(f => f.fileName)).toContain('one.PNG');
+  expect(project.folders.nodes.files.map(f => f.fileName)).toEqual(['demo.nodes.json']);
   expect(project.folders.scripts.files[0].sha256).toMatch(/^[0-9a-f]{64}$/);
   const mediaId = project.media.find(m => m.fileName === 'one.PNG').id;
 
@@ -122,6 +144,12 @@ test('the same computer resumes every linked directory of a saved project withou
   for (const s of SECTIONS) await expect(page.locator(s.panel)).toContainText('Linked');
   await expect(page.locator(`.library-btn[data-id="media-${mediaId}"]`)).toBeVisible();
   await expect(page.locator(`.library-btn[data-id="${project.folders.nodes.files[0].id}"]`)).toBeVisible();
+  // …and it restores exactly what the project recorded. The linked directories
+  // hold extra.PNG and extra.nodes.json, which the project never had: a project
+  // open is a mirror of the file, not a directory listing.
+  await expect(page.locator('.library-btn[data-id^="media-"]')).toHaveCount(2);
+  await expect(page.locator('.library-btn[data-id^="nodes-"]')).toHaveCount(1);
+  await expect(page.locator('.library-btn[data-id^="media-"]', { hasText: 'extra' })).toHaveCount(0);
   // The script came back by itself: the project recorded a fingerprint of its code
   // and the linked folder still holds those exact bytes.
   await expect(page.locator('.library-btn[data-id="custom-dir-demo"]')).toBeVisible();
