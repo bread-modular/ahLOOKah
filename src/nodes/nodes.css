@@ -128,7 +128,7 @@
 .nodes-node-detail { display:block; padding:0 10px 9px; font-size:10px; line-height:11px; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 /* Routed audio status: plain text, never color-only; a block row that wraps
    long device/fallback guidance instead of pushing the panel wide. */
-.nodes-inspector .nodes-audio-status,.nodes-inspector .nodes-camera-status,.nodes-inspector .nodes-blend-status,.nodes-inspector .nodes-transform-status { float:none; display:block; margin:10px 0; font-size:.75rem; line-height:1.35; color:var(--text-dim); }
+.nodes-inspector .nodes-audio-status,.nodes-inspector .nodes-camera-status,.nodes-inspector .nodes-blend-status,.nodes-inspector .nodes-transform-status,.nodes-inspector .nodes-lfo-status { float:none; display:block; margin:10px 0; font-size:.75rem; line-height:1.35; color:var(--text-dim); }
 .nodes-pattern-image-status { margin:12px 0; }
 .nodes-inspector .nodes-pattern-image-status p { margin:4px 0; }
 .nodes-inspector .nodes-pattern-image-status output { float:none; display:block; font-size:.72rem; color:var(--text-main); }
@@ -225,6 +225,15 @@
 .nodes-inspector output.nodes-signal-readout { float:none; display:block; margin:6px 0 2px; padding:6px 8px; background:var(--bg-dark); border:1px solid var(--border-gray); border-radius:4px; color:#fff5a8; font-weight:700; font-variant-numeric:tabular-nums; }
 .nodes-script-status { color:#cdb6ed !important; }
 .nodes-script-error { color:#ff6b6b !important; }
+/* LFO (a signal source with a drawn shape). The pad is a 1-unit-tall viewBox
+   stretched to the panel width; a non-scaling stroke keeps its line readable at
+   any width, and touch-action:none lets a finger stroke draw instead of scrolling
+   the panel. Only the fill/line colours are new — the shell is the shared panel. */
+.nodes-lfo-pad-wrap { margin:12px 0; }
+.nodes-lfo-pad { display:block; width:100%; height:96px; background:var(--bg-dark); border:1px solid var(--border-gray); border-radius:4px; touch-action:none; cursor:crosshair; }
+.nodes-lfo-pad-area { fill:rgba(194,154,255,.18); }
+.nodes-lfo-pad-line { fill:none; stroke:#c29aff; stroke-width:2px; stroke-linejoin:round; }
+.nodes-lfo-pad-hint { margin:6px 0 4px; }
 /* Script source is multi-line: monospace, resizable vertically, and it never
    forces the inspector wider than the panel. */
 .nodes-inspector textarea.nodes-script-source { width:100%; min-height:52px; max-height:280px; resize:vertical; margin:4px 0 0; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:11px; line-height:1.45; white-space:pre; overflow:auto; tab-size:2; }

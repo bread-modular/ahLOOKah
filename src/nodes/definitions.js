@@ -4,7 +4,8 @@
 // dependency-free audio-routing route defaults (which must never import back).
 import { DEFAULT_AUDIO_INPUT } from '../audio-routing.js';
 import { TRANSFORM_PARAMS, transformDefaults } from './transform.js';
-export const TYPES = Object.freeze(['pattern', 'blend', 'output', 'audio', 'color', 'math', 'script', 'camera', 'transform']);
+import { LFO_PARAMS, lfoDefaults } from './lfo.js';
+export const TYPES = Object.freeze(['pattern', 'blend', 'output', 'audio', 'color', 'math', 'script', 'camera', 'transform', 'lfo']);
 export const VISUAL_TYPES = Object.freeze(['pattern', 'blend', 'color', 'output', 'camera', 'transform']);
 export const VISUAL_SOURCES = Object.freeze(['pattern', 'blend', 'color', 'camera', 'transform']);
 // `inputMode` is a legacy saved hint, not a switch. The presence of an image
@@ -16,9 +17,13 @@ export const supportsImageFx = sketch => !!sketch?.fx && sketch.fx.input === 'im
   && Object.keys(sketch.fx).length === 1;
 export const canAcceptImageFx = sketch => supportsImageFx(sketch)
   && !sketch.projection && !sketch.nodesGraph && !sketch.surfaces?.length;
-export const SIGNAL_TYPES = Object.freeze(['audio', 'math', 'script']);
+// `lfo` is a signal *source* that also accepts modulations on its own numeric
+// controls (Cycle time, Start Position) through the ordinary modulation endpoint.
+// It has no scalar input ports, because automating a control is what the mapping
+// system does — with a range and a target domain — for every other node.
+export const SIGNAL_TYPES = Object.freeze(['audio', 'math', 'script', 'lfo']);
 export const SCALAR_TYPES = Object.freeze(['math', 'script']);
-export const MODULATION_TARGETS = Object.freeze(['pattern', 'blend', 'color', 'transform']);
+export const MODULATION_TARGETS = Object.freeze(['pattern', 'blend', 'color', 'transform', 'lfo']);
 
 // Identity defaults: an untouched Color node is a pixel-exact copy of its input.
 export const COLOR_PARAMS = Object.freeze([
@@ -85,7 +90,8 @@ export const isModulationTarget = (node) => !!node && MODULATION_TARGETS.include
 export const isVisualType = (node) => !!node && VISUAL_TYPES.includes(node.type);
 // Numeric controls rendered by the shared parameter UI for a node's own fields.
 export const parameters = (node) => node?.type === 'color' ? COLOR_PARAMS.slice()
-  : node?.type === 'transform' ? TRANSFORM_PARAMS.slice() : [];
+  : node?.type === 'transform' ? TRANSFORM_PARAMS.slice()
+    : node?.type === 'lfo' ? LFO_PARAMS.slice() : [];
 
 export function newId() { return `n${crypto.randomUUID().slice(0, 8)}`; }
 // Structural defaults for a fresh node. Pattern nodes additionally need a
@@ -97,6 +103,10 @@ export function defaultNode(type, x = 0, y = 0, id = newId()) {
   if (type === 'camera') return { ...base, deviceId: null };
   if (type === 'color') return { ...base, params: Object.fromEntries(COLOR_PARAMS.map(p => [p.key, p.default])) };
   if (type === 'transform') return { ...base, params: transformDefaults() };
+  // A fresh LFO is a one-cycle-per-second rising saw over 0…1. Its custom table
+  // stays absent until the operator draws: the shared ramp is the fallback shape,
+  // so a new node never carries 32 numbers it does not use.
+  if (type === 'lfo') return { ...base, pattern: 'linear', range: 'unipolar', seed: 0, params: lfoDefaults() };
   if (type === 'math') return { ...base, op: 'add', ...MATH_LITERALS };
   if (type === 'script') return { ...base, language: DEFAULT_LANGUAGE, source: DEFAULT_BODY, ...SCRIPT_LITERALS };
   if (type === 'output') return base;

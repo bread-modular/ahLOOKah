@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ParameterControl } from '../components/control/ParameterControl.jsx';
 import { numeric, mappingEndpoint, mappedValue, SIGNAL_DRAG } from './modulation.js';
+import { percentOf, trackFraction, valueAtFraction } from '../param-scale.js';
 
 // One mapping number field. It must accept values the target parameter's own
 // domain does not contain (a negative minimum, for example) and must not fight
@@ -60,10 +61,10 @@ export function ModulatedParameter({ node, def, value, onChange, mapping, readEf
   const effective = live ?? (mapping && eligible ? mappedValue(mapping, 0, def) : value);
   // Stored endpoints are read exactly as saved (they may lie outside the target
   // domain); only their *display* position inside the track is pinned to the
-  // track edges, and only the value the target consumes is domain-clamped.
+  // track edges, and only the value the target consumes is domain-clamped. The
+  // track itself may be logarithmic, which `percentOf` accounts for.
   const min = mapping ? mappingEndpoint(mapping.min, def.min) : 0, max = mapping ? mappingEndpoint(mapping.max, def.max) : 0;
-  const span = def.max - def.min;
-  const percent = v => Math.min(100, Math.max(0, 100 * (v - def.min) / span));
+  const percent = v => percentOf(v, def);
   // Signal input range: legacy mappings (and new ones) default to 0…1.
   const inputMin = Number.isFinite(mapping?.inputMin) ? mapping.inputMin : 0;
   const inputMax = Number.isFinite(mapping?.inputMax) ? mapping.inputMax : 1;
@@ -72,7 +73,7 @@ export function ModulatedParameter({ node, def, value, onChange, mapping, readEf
     if (e.button !== 0) return;
     e.preventDefault(); e.stopPropagation();
     const track = e.currentTarget.closest('.nodes-mapping-overlay').getBoundingClientRect();
-    gesture.current = { x: e.clientX, width: track.width, min, max, span, part, moved: false };
+    gesture.current = { x: e.clientX, width: track.width, minAt: trackFraction(min, def), maxAt: trackFraction(max, def), part, moved: false };
     e.currentTarget.setPointerCapture(e.pointerId);
   };
   // A gesture only starts counting after a few pixels: the tiny drift inside a
@@ -87,11 +88,13 @@ export function ModulatedParameter({ node, def, value, onChange, mapping, readEf
       // stay collapsed when the pointer is released.
       g.moved = true; setShowFields(false);
     }
-    const delta = (e.clientX - g.x) / g.width * g.span;
-    // Continuous translation: the whole range follows the pointer and may leave the
-    // parameter's domain (an endpoint is never forced back inside it, so an
-    // out-of-domain range does not snap to the domain edge on the first pixel).
-    onRange(mappingEndpoint(g.min + (g.part !== 'max' ? delta : 0), g.min), mappingEndpoint(g.max + (g.part !== 'min' ? delta : 0), g.max));
+    const delta = (e.clientX - g.x) / g.width;
+    // Continuous translation in track space: the whole range follows the pointer
+    // (on a logarithmic track too) and may leave the parameter's domain (an
+    // endpoint is never forced back inside it, so an out-of-domain range does not
+    // snap to the domain edge on the first pixel).
+    onRange(mappingEndpoint(valueAtFraction(g.minAt + (g.part !== 'max' ? delta : 0), def), min),
+      mappingEndpoint(valueAtFraction(g.maxAt + (g.part !== 'min' ? delta : 0), def), max));
   };
   const end = () => {
     const g = gesture.current; gesture.current = null;

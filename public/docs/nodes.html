@@ -113,6 +113,7 @@
           <li><strong>+ Camera</strong> — drag an image source onto the canvas. Select <strong>Global input (Settings)</strong> or pin a specific camera in the Camera node inspector; connect its output to an FX-capable pattern, Blend, Color or Output. Only the output screen owns real capture.</li>
           <li><strong>+ Script</strong> — a number from the graph’s inputs or the audio bands.</li>
           <li><strong>+ Audio</strong> — the activity of a bass, mid or high band.</li>
+          <li><strong>+ LFO</strong> — a free-running oscillator that emits a number every frame, for animating any slider without audio or a script. Pick the range (<strong>0…1</strong> or <strong>−1…1</strong>) and the pattern — linear saw, sine, smooth noise, stepped random, or a shape you draw in the inspector — then set the <strong>Cycle time</strong> from 100 ms to 10 s on a logarithmic track and the <strong>Start Position</strong>. Cycle time is a rate: changing it, or driving it with a mapped signal, speeds the shape up or slows it down without restarting it. Both sliders are automatable like any other numeric control.</li>
         </ul>
 
         <div class="callout tip">
@@ -135,6 +136,7 @@
             <tr><td><strong>Output</strong></td><td>image</td><td>—</td></tr>
             <tr><td><strong>Audio</strong></td><td>—</td><td>Signal</td></tr>
             <tr><td><strong>Script</strong></td><td>x, y</td><td>Signal</td></tr>
+            <tr><td><strong>LFO</strong></td><td>—</td><td>Signal</td></tr>
           </tbody>
         </table>
 
@@ -213,8 +215,8 @@ return clamp(eased * 0.8, 0, 1);</code></pre>
 
         <p>Press <strong>Ctrl+Enter</strong> (or click <strong>Apply</strong>) to validate and store the text in the <strong>Script source</strong> box; plain <kbd>Enter</kbd> adds a line, so bodies stay multi-line. The source is never executed as JavaScript: it is parsed, checked against an allowlist and compiled once into a bounded instruction list the editor runs itself — there is no <code>eval</code> and no generated code. A body is limited to 1024 characters, 512 syntax nodes, 80 statements, 512 instructions, 32 locals, 12 nested block levels and an operand nesting depth of 16; an expression stays at 256 characters, 64 operations and a depth of 12. A script that fails validation cannot be applied or saved, and a runtime error falls back to <code>0</code> with a visible message.</p>
 
-        <h2>Driving sliders with audio and scripts</h2>
-        <p>Signal outputs are not just for wiring node to node. Select the Script or Audio node an Audio→Script chain ends in, and the inspector lists it under <strong>Connected signals</strong>. Drag that chip onto any numeric slider of a selected Pattern, Blend, Color or Transform node to map it:</p>
+        <h2>Driving sliders with audio, scripts and LFOs</h2>
+        <p>Signal outputs are not just for wiring node to node. Select the Script, Audio or LFO node an Audio→Script chain ends in, and the inspector lists it under <strong>Connected signals</strong>. Drag that chip onto any numeric slider of a selected Pattern, Blend, Color, Transform or LFO node to map it:</p>
 
         <figure class="figure">
           <img src="/docs/shots/nodes-mapping.jpg" alt="The node editor with the Blend node selected: the Opacity slider carries a violet mapping overlay, a LIVE marker showing the value coming from the Script node, and a signal pill naming the source" />
@@ -226,6 +228,8 @@ return clamp(eased * 0.8, 0, 1);</code></pre>
           <li><strong>Signal in min/max</strong> — convert a different input range (for example a script that outputs 0…4 driving the full slider). Left alone, the range is 0…1.</li>
           <li><strong>Remove mapping</strong> — click the overlay to reveal the mapping fields, then remove it; the slider returns to its saved base value.</li>
         </ul>
+
+        <p>An <strong>LFO</strong> is a signal in both directions. It drives anything above, and its own <strong>Cycle time</strong> and <strong>Start Position</strong> sliders take a signal the same way — connect the signal to the LFO’s ◇ endpoint, then drag its chip onto the slider. Cycle time is a rate, so automating it accelerates or slows the shape instead of restarting it, and its logarithmic track is interpolated logarithmically when mapped (a 250 ms … 4 s mapping passes 0.5 s in the middle). A new mapping from a bipolar LFO starts at <strong>Signal in</strong> −1…1, so a −1…1 sweep uses the whole slider; every other source keeps 0…1. Because an LFO is a source <em>and</em> a target, a mapping that would loop back into itself — an LFO on its own Cycle time, or two LFOs driving each other — is refused as a cycle, exactly like a wire loop.</p>
 
         <p>Every mapping is a terminal link in the graph file, saved with the pattern, and one signal can drive many sliders. Enum, boolean and text controls cannot be mapped.</p>
 

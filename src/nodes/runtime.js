@@ -12,6 +12,7 @@ import { isVisualType, imageInputConnected, patternInputMode, canAcceptImageFx }
 import { CAMERA_NODE_PATTERN } from './camera-source.js';
 import { createPreviewClip } from './preview-clip.js';
 import { mathValue, mathIssue, scriptValue, scriptProgram, scriptLanguageOf, scriptSource } from './scalar.js';
+import { lfoValue, lfoRateOf, LFO_MAX_TRAVEL_STEP, LFO_RATE_SLEW } from './lfo.js';
 import { isScriptApproved, SCRIPT_APPROVAL_MESSAGE } from './script-approval.js';
 
 // Composites base + layer into ctx. Native modes keep the original Canvas2D path
@@ -100,6 +101,10 @@ const canvasFor = size => {
 const mutableFields = {
   pattern: ['params'], blend: ['opacity', 'mode'], color: ['params'], transform: ['params'],
   audio: ['band'], math: ['a', 'b', 'c'], script: ['inputX', 'inputY'],
+  // An LFO is a slider bank: every control (and the drawn table) changes its
+  // output, never the plan. Rebuilding the runtime for a held Cycle time drag would
+  // restart every source's clock and tear down the audio children each frame.
+  lfo: ['params', 'pattern', 'range', 'seed', 'points'],
 };
 export function graphLifecycleKey(graph, sketches, dependencies = []) {
   const nodes = graph.nodes.map(node => Object.fromEntries(Object.entries(node)
@@ -154,6 +159,18 @@ export class GraphRuntime {
     this.frame = 0;
     this.generation = ++graphGeneration;
     this.frameSignals = new Map();
+    // Cycles each LFO has travelled, the rate each one is currently running at, and
+    // the clock the last integration step used. Both accumulators outlive parameter
+    // edits (updateGraph keeps them) so a cycle time change is a change of speed,
+    // never a jump in position.
+    this.lfoTravel = new Map();
+    this.lfoRate = new Map();
+    this.lastSignalTick = null;
+    // One live LFO evaluation at a time per node. A mapped control re-enters
+    // computeSignal through its parameter view's getter, so a modulation loop
+    // would recurse (model.js refuses to *save* one; this keeps a hand-edited
+    // file from exhausting the stack before it is repaired).
+    this.pendingSignals = new Set();
     this.scriptCache = new Map();
     this.scriptPrograms = new Map();
     this.startedAt = performance.now();
@@ -234,7 +251,7 @@ export class GraphRuntime {
     for (const node of this.graph.nodes) {
       if (!needed.has(node.id) || this.planned.has(node.id)) continue;
       this.planned.add(node.id);
-      if (['pattern', 'blend', 'color', 'transform'].includes(node.type))
+      if (['pattern', 'blend', 'color', 'transform', 'lfo'].includes(node.type))
         this.params.set(node.id, parameterView(this.graph, node, this.sketches, this.readContinuous, id => this.signalValue(id)));
       if (node.type === 'audio') addedAudio.push(node);
       if (isVisualType(node)) {
@@ -351,6 +368,61 @@ export class GraphRuntime {
     if (this.preview && !this.planned.has(id)) void this._activate(id);
     return this.computeSignal(id, new Set());
   }
+  // One integration step per frame, for every LFO in the graph. Cycle time is a
+  // rate, so a node's position is the travel accumulated here rather than
+  // `elapsed × rate`: editing the cycle time — or driving it with a mapped signal
+  // — changes how fast the shape moves and never snaps it back to the start of its
+  // cycle, which is what makes automation read as acceleration instead of a
+  // restart. The step is clamped so a backgrounded tab cannot teleport the shape,
+  // and Start Position stays an absolute anchor the operator can scrub.
+  advanceSignals() {
+    const now = this.elapsed();
+    const dt = this.lastSignalTick === null ? 0 : Math.min(LFO_MAX_TRAVEL_STEP, Math.max(0, now - this.lastSignalTick));
+    this.lastSignalTick = now;
+    if (!(dt > 0)) return;
+    const advanced = new Set();
+    const glide = Math.min(1, dt / LFO_RATE_SLEW);
+    // Sources travel FIRST, whatever their type: a node reading a Math/Script value
+    // that depends on another LFO must see that LFO advanced in this frame, so the
+    // same graph produces the same frame whatever order its nodes are stored in and
+    // a mapped rate is never one frame behind its own source. The set marks a node
+    // before recursing, so a hand-edited loop cannot spin here either.
+    const advance = id => {
+      if (advanced.has(id)) return;
+      advanced.add(id);
+      (this.incoming.get(id) || []).forEach(advance);
+      const node = this.nodeById.get(id);
+      if (node?.type !== 'lfo') return;
+      // A rate step glides instead of arriving as a kick — the shape still never
+      // restarts, and only how fast the travel accumulates changes.
+      const target = lfoRateOf(node, this.params.get(id));
+      const previous = this.lfoRate.get(id);
+      const rate = previous === undefined ? target : previous + (target - previous) * glide;
+      this.lfoRate.set(id, rate);
+      this.lfoTravel.set(id, (this.lfoTravel.get(id) ?? 0) + dt * rate);
+    };
+    for (const node of this.graph.nodes) advance(node.id);
+  }
+  // The LFO reads its own controls through the same live parameter view every
+  // other controllable node uses, so a signal mapped onto Cycle time or Start
+  // Position arrives converted, in the control's domain, exactly like a mapped
+  // Color or Transform slider. The view is created on demand for a node no plan has
+  // activated yet (an unwired draft still has to answer a readout), and reads the
+  // modulating source through the shared visiting set so a loop is reported
+  // instead of recursing.
+  lfoSignal(id, node, visiting) {
+    if (this.pendingSignals.has(id)) { this.messages.set(id, 'Signal loop detected → 0.'); return 0; }
+    this.pendingSignals.add(id);
+    try {
+      let view = this.params.get(id);
+      if (!view) {
+        view = parameterView(this.graph, node, this.sketches, this.readContinuous, sourceId => this.computeSignal(sourceId, visiting));
+        this.params.set(id, view);
+      }
+      const value = lfoValue(node, { travel: this.lfoTravel.get(id) ?? 0, params: view });
+      return Number.isFinite(value) ? value : 0;
+    } finally { this.pendingSignals.delete(id); }
+  }
   // Inspector diagnostics: Audio source health, calibration and freshness.
   getNodeStatus(id) {
     if (this.preview && !this.planned.has(id)) void this._activate(id);
@@ -360,6 +432,11 @@ export class GraphRuntime {
     if (this.frameSignals.has(id)) return this.frameSignals.get(id);
     const node = this.graph.nodes.find(n => n.id === id);
     if (node?.type === 'audio') { const value = signalValue(this.readContinuous(id), node.band); this.frameSignals.set(id, value); return value; }
+    if (node?.type === 'lfo') {
+      const value = this.lfoSignal(id, node, visiting);
+      this.frameSignals.set(id, value);
+      return value;
+    }
     if (!node || (node.type !== 'math' && node.type !== 'script')) return 0;
     if (visiting.has(id)) { this.messages.set(id, 'Signal loop detected → 0.'); return 0; }
     visiting.add(id);
@@ -409,6 +486,7 @@ export class GraphRuntime {
     this._selectTarget(targetId);
     const done = new Map();
     this.frame++; this.frameSignals.clear();
+    this.advanceSignals();
     const visit = id => {
       if (done.has(id)) return done.get(id);
       const node = this.nodeById.get(id), canvas = this.buffers.get(id);
@@ -472,6 +550,7 @@ export class GraphRuntime {
     const frameId = ++this.frame;
     const timestampMs = performance.now();
     this.frameSignals.clear();
+    this.advanceSignals();
     // Pin reachable autonomous sources synchronously at the graph boundary.
     // Their callbacks may keep updating staging during awaits, but no consumer
     // sees a later revision halfway through this tick (including fan-out).
@@ -615,7 +694,8 @@ export class GraphRuntime {
     this.sample?.dispose(); this.sample = null;
     for (const canvas of [...this.buffers.values(), ...this.work.values(), ...this.staging.values()]) canvas.width = canvas.height = 1;
     this.buffers.clear(); this.work.clear(); this.staging.clear(); this.sourceRevision.clear();
-    this.frameSignals.clear(); this.scriptPrograms.clear();
+    this.frameSignals.clear(); this.scriptPrograms.clear(); this.pendingSignals.clear();
+    this.lfoTravel.clear(); this.lfoRate.clear(); this.lastSignalTick = null;
   }
 }
 export function graphFactory(record, sketches) {
