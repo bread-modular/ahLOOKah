@@ -11,6 +11,11 @@ const rectangle = (a, b) => ({ x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), wid
 // structural: it can be picked by hand or by a marquee, but the canvas-wide
 // Ctrl/Cmd+A shortcut deliberately leaves it out, because the only group
 // operation it would feed is a delete that model.js refuses anyway.
+//
+// `setDraft` is the editor's history-aware apply, not a raw state setter: it takes
+// the draft update plus one optional edit descriptor ({ merge, windowMs }, see
+// history.js), which is how a whole node drag becomes a single undo step instead
+// of one step per frame.
 export function useNodeSelection(graph, setDraft, navigation) {
   const [selection, setSelection] = useState(() => {
     const output = graph.nodes.find(node => node.type === 'output')?.id ?? null;
@@ -19,6 +24,10 @@ export function useNodeSelection(graph, setDraft, navigation) {
   const [wire, setWire] = useState(null);
   const [box, setBox] = useState(null);
   const gesture = useRef(null), suppressClick = useRef(null);
+  // One undo step per gesture, never one per frame: a drag names its own token
+  // (so two drags can never merge) and a held arrow key merges only while the
+  // presses stay close together.
+  const moves = useRef(0);
   // Selecting nodes of any kind drops the connection selection, and selecting a
   // connection drops the node selection. Exactly one of the two is ever live.
   const applySelection = next => { setWire(null); setSelection(next); };
@@ -52,11 +61,11 @@ export function useNodeSelection(graph, setDraft, navigation) {
     gesture.current = null; setBox(null); setWire(null);
   };
   const reset = id => { cancel(); suppressClick.current = null; selectOnly(id); };
-  const moveGroup = (origins, dx, dy) => {
+  const moveGroup = (origins, dx, dy, step) => {
     // The origin is a reference point, not a canvas boundary. Apply the same
     // graph-space delta to every node so dragging/nudging preserves spacing.
     const positions = new Map(origins.map(n => [n.id, { x: n.x + dx, y: n.y + dy }]));
-    setDraft(previous => ({ ...previous, graph: { ...previous.graph, nodes: previous.graph.nodes.map(n => positions.has(n.id) ? { ...n, ...positions.get(n.id) } : n) } }));
+    setDraft(previous => ({ ...previous, graph: { ...previous.graph, nodes: previous.graph.nodes.map(n => positions.has(n.id) ? { ...n, ...positions.get(n.id) } : n) } }), step);
   };
   const nodeClick = (id, e) => {
     if (suppressClick.current === id) { suppressClick.current = null; return; }
@@ -70,7 +79,7 @@ export function useNodeSelection(graph, setDraft, navigation) {
       if (modified(e)) return;
       const ids = selection.ids.includes(n.id) ? selection.ids : [n.id];
       applySelection({ ids, primary: n.id });
-      gesture.current = { type: 'nodes', pointerId: e.pointerId, id: n.id, start: navigation.toGraph(e.clientX, e.clientY), clientX: e.clientX, clientY: e.clientY, origins: graph.nodes.filter(item => ids.includes(item.id)), moved: false };
+      gesture.current = { type: 'nodes', pointerId: e.pointerId, id: n.id, start: navigation.toGraph(e.clientX, e.clientY), clientX: e.clientX, clientY: e.clientY, origins: graph.nodes.filter(item => ids.includes(item.id)), moved: false, step: { merge: `move:${++moves.current}`, windowMs: Infinity } };
       e.currentTarget.setPointerCapture(e.pointerId);
     },
     onPointerMove: e => {
@@ -79,7 +88,7 @@ export function useNodeSelection(graph, setDraft, navigation) {
       if (!g.moved && Math.hypot(e.clientX - g.clientX, e.clientY - g.clientY) < 4) return;
       g.moved = true; suppressClick.current = g.id;
       const point = navigation.toGraph(e.clientX, e.clientY);
-      moveGroup(g.origins, point.x - g.start.x, point.y - g.start.y);
+      moveGroup(g.origins, point.x - g.start.x, point.y - g.start.y, g.step);
     },
     onPointerUp: e => {
       if (gesture.current?.type === 'nodes' && gesture.current.pointerId === e.pointerId) gesture.current = null;
@@ -92,7 +101,7 @@ export function useNodeSelection(graph, setDraft, navigation) {
       const delta = { ArrowLeft: [-10, 0], ArrowRight: [10, 0], ArrowUp: [0, -10], ArrowDown: [0, 10] }[e.key];
       if (!delta) return;
       e.preventDefault();
-      moveGroup(graph.nodes.filter(item => selection.ids.includes(n.id) ? selection.ids.includes(item.id) : item.id === n.id), ...delta);
+      moveGroup(graph.nodes.filter(item => selection.ids.includes(n.id) ? selection.ids.includes(item.id) : item.id === n.id), ...delta, { merge: `nudge:${n.id}` });
     },
   });
   const workspaceHandlers = {
