@@ -13,6 +13,8 @@ import { CAMERA_NODE_PATTERN } from './camera-source.js';
 import { createPreviewClip } from './preview-clip.js';
 import { mathValue, mathIssue, scriptValue, scriptProgram, scriptLanguageOf, scriptSource } from './scalar.js';
 import { lfoValue, lfoRateOf, LFO_MAX_TRAVEL_STEP, LFO_RATE_SLEW } from './lfo.js';
+import { midiParameters, midiNodeParams, midiGlide } from './midi.js';
+import { MIDI } from '../midi/midi-service.js';
 import { createScriptStateStore } from './script-state.js';
 import { isScriptApproved, SCRIPT_APPROVAL_MESSAGE } from './script-approval.js';
 
@@ -106,6 +108,9 @@ const mutableFields = {
   // output, never the plan. Rebuilding the runtime for a held Cycle time drag would
   // restart every source's clock and tear down the audio children each frame.
   lfo: ['params', 'pattern', 'range', 'seed', 'points'],
+  // A MIDI node is the same shape: its switches and sliders change what it reads,
+  // never the plan, so a live edit must not restart the window's MIDI session.
+  midi: ['mode', 'gateMode', 'channel', 'deviceId', 'params'],
 };
 export function graphLifecycleKey(graph, sketches, dependencies = []) {
   const nodes = graph.nodes.map(node => Object.fromEntries(Object.entries(node)
@@ -167,11 +172,18 @@ export class GraphRuntime {
     this.lfoTravel = new Map();
     this.lfoRate = new Map();
     this.lastSignalTick = null;
+    // The step the last integration used. MIDI control values are glided with the
+    // same step, so a mapped source eases them exactly like the LFO's rate.
+    this.frameDt = 0;
     // One live LFO evaluation at a time per node. A mapped control re-enters
     // computeSignal through its parameter view's getter, so a modulation loop
     // would recurse (model.js refuses to *save* one; this keeps a hand-edited
     // file from exhausting the stack before it is repaired).
     this.pendingSignals = new Set();
+    // The live value of every automated MIDI control, glided frame by frame exactly
+    // like the LFO's rate (same response time). It survives parameter edits, so
+    // typing an Attack keeps the glide instead of restarting it.
+    this.midiGlide = new Map();
     this.scriptCache = new Map();
     this.scriptPrograms = new Map();
     // Persistent `state.<name>` storage for this runtime's Script nodes. It lives
@@ -255,9 +267,14 @@ export class GraphRuntime {
     for (const node of this.graph.nodes) {
       if (!needed.has(node.id) || this.planned.has(node.id)) continue;
       this.planned.add(node.id);
-      if (['pattern', 'blend', 'color', 'transform', 'lfo'].includes(node.type))
+      if (['pattern', 'blend', 'color', 'transform', 'lfo', 'midi'].includes(node.type))
         this.params.set(node.id, parameterView(this.graph, node, this.sketches, this.readContinuous, id => this.signalValue(id)));
       if (node.type === 'audio') addedAudio.push(node);
+      // A planned MIDI node means this graph reads a controller: ask for this
+      // window's session once (idempotent, single-flight, never per edit). The
+      // session is a window-level singleton shared by the editor preview and the
+      // LIVE output screen, so nothing is disposed with this runtime.
+      if (node.type === 'midi') MIDI.ensure();
       if (isVisualType(node)) {
         this.buffers.set(node.id, canvasFor(this.size));
         if (this.hasFx) this.work.set(node.id, canvasFor(this.size));
@@ -383,6 +400,7 @@ export class GraphRuntime {
     const now = this.elapsed();
     const dt = this.lastSignalTick === null ? 0 : Math.min(LFO_MAX_TRAVEL_STEP, Math.max(0, now - this.lastSignalTick));
     this.lastSignalTick = now;
+    this.frameDt = dt;
     if (!(dt > 0)) return;
     const advanced = new Set();
     const glide = Math.min(1, dt / LFO_RATE_SLEW);
@@ -427,6 +445,42 @@ export class GraphRuntime {
       return Number.isFinite(value) ? value : 0;
     } finally { this.pendingSignals.delete(id); }
   }
+  // A MIDI node reads its own switches and sliders and asks the window's MIDI
+  // session for the value of the channel/device they describe. The numeric sliders
+  // come through the same live parameter view every other controllable node uses, so
+  // a mapped Attack/Decay/Apply Velocity arrives already converted into the control's
+  // domain; the view is created on demand for a node no plan has activated yet (an
+  // unwired draft still has to answer a readout) and reads its modulating source
+  // through the shared visiting set, so a loop is reported instead of recursing.
+  // Only a *mapped* control is glided, with the frame step the LFO uses for its rate:
+  // a steppy source eases the envelope instead of kicking it, while a manual slider
+  // edit is used exactly as stored. Dropping a mapping forgets its glide, so
+  // re-mapping starts from the value the operator left on the slider.
+  midiSignal(id, node, visiting) {
+    if (this.pendingSignals.has(id)) { this.messages.set(id, 'Signal loop detected → 0.'); return 0; }
+    this.pendingSignals.add(id);
+    try {
+      let view = this.params.get(id);
+      if (!view) {
+        view = parameterView(this.graph, node, this.sketches, this.readContinuous, sourceId => this.computeSignal(sourceId, visiting));
+        this.params.set(id, view);
+      }
+      const mapped = new Set((this.graph.modulations || []).filter(m => m.to === id && m.param).map(m => m.param));
+      let glide = this.midiGlide.get(id);
+      if (!glide) { glide = new Map(); this.midiGlide.set(id, glide); }
+      for (const key of [...glide.keys()]) if (!mapped.has(key)) glide.delete(key);
+      const step = Number.isFinite(this.frameDt) ? this.frameDt : 0;
+      const params = midiNodeParams(node, view, (key, target, base) => {
+        if (!mapped.has(key)) return target;
+        const next = midiGlide(glide.get(key), target, step, base);
+        glide.set(key, next);
+        return next;
+      });
+      MIDI.ensure();
+      const value = MIDI.level(params);
+      return Number.isFinite(value) ? value : 0;
+    } finally { this.pendingSignals.delete(id); }
+  }
   // Inspector diagnostics: Audio source health, calibration and freshness.
   getNodeStatus(id) {
     if (this.preview && !this.planned.has(id)) void this._activate(id);
@@ -445,6 +499,11 @@ export class GraphRuntime {
     if (node?.type === 'audio') { const value = signalValue(this.readContinuous(id), node.band); this.frameSignals.set(id, value); return value; }
     if (node?.type === 'lfo') {
       const value = this.lfoSignal(id, node, visiting);
+      this.frameSignals.set(id, value);
+      return value;
+    }
+    if (node?.type === 'midi') {
+      const value = this.midiSignal(id, node, visiting);
       this.frameSignals.set(id, value);
       return value;
     }
@@ -712,7 +771,7 @@ export class GraphRuntime {
     for (const canvas of [...this.buffers.values(), ...this.work.values(), ...this.staging.values()]) canvas.width = canvas.height = 1;
     this.buffers.clear(); this.work.clear(); this.staging.clear(); this.sourceRevision.clear();
     this.frameSignals.clear(); this.scriptPrograms.clear(); this.pendingSignals.clear();
-    this.lfoTravel.clear(); this.lfoRate.clear(); this.lastSignalTick = null;
+    this.lfoTravel.clear(); this.lfoRate.clear(); this.lastSignalTick = null; this.frameDt = 0; this.midiGlide.clear();
     this.scriptState.clear();
   }
 }

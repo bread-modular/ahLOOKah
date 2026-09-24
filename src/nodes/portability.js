@@ -119,7 +119,7 @@ export function serializeGraph(graph, dependencies) {
   const validated = validateGraph(graph);
   const portable = 'Local media files/permissions and matching custom scripts/projection definitions are required on the destination. No files or executable code are embedded. Audio nodes pinned to a specific input device keep that browser device id, which is origin/profile-specific and may need reselection on another machine or after clearing site data; Global input (the default) always follows the destination Settings.';
   return JSON.stringify({ format: 'viz2-nodes', version: validated.version, graph: validated, dependencies,
-    portability: validated.version === LEGACY_VERSION ? portable : `${portable} Camera device ids are also origin/profile-specific; Global camera follows Settings/videoDeviceId.` }, null, 2);
+    portability: validated.version === LEGACY_VERSION ? portable : `${portable} Camera device ids are also origin/profile-specific; Global camera follows Settings/videoDeviceId. MIDI nodes read the browser's own Web MIDI permission (granted per origin) and store the input ids they listen to, so a pinned controller that is missing on the destination reads as an unavailable input — pick another device there.` }, null, 2);
 }
 export function validateManifest(value) {
   if (!Array.isArray(value) || value.length > 80 || value.some(d => !d || typeof d.id !== 'string' || d.id.length > 80 || (d.signature !== null && typeof d.signature !== 'string'))) throw new Error('Invalid dependency manifest');

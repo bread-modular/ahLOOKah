@@ -10,6 +10,8 @@ import { SCRIPT_VARIABLES, SCRIPT_STATE_HELP, compileScript, helpForLanguage, li
 import { approveScript, isScriptApproved } from './script-approval.js';
 import { scriptLanguageOf as scriptNodeLanguage } from './scalar.js';
 import { LFO_PATTERNS, LFO_PATTERN_LABELS, LFO_PARAMS, LFO_RANGES, LFO_RANGE_LABELS, lfoPatternOf, lfoRangeOf, lfoCycleOf, lfoPointsOf, lfoSeedOf, defaultLfoPoints, LFO_MAX_SEED } from './lfo.js';
+import { MIDI_MODES, MIDI_MODE_LABELS, MIDI_GATE_MODES, MIDI_GATE_MODE_LABELS, MIDI_CHANNELS, MIDI_MAX_CC, midiParameters, midiModeOf, midiGateModeOf, midiChannelOf, midiDeviceOf, midiCcOf } from './midi.js';
+import { MIDI } from '../midi/midi-service.js';
 import { formatParamValue } from '../components/control/panelHelpers.js';
 import { createEditorAudio } from './audio-provider.js';
 import { useCanvasNavigation } from './useCanvasNavigation.js';
@@ -50,6 +52,7 @@ function labelFor(n) {
   return n.type === 'pattern' ? SKETCHES.find(s => s.id === n.patternId)?.name || n.patternId
     : n.type === 'blend' ? 'Blend' : n.type === 'audio' ? `Audio · ${n.band}` : n.type === 'camera' ? 'Camera' : n.type === 'color' ? 'Color'
       : n.type === 'transform' ? 'Transform' : n.type === 'lfo' ? `LFO · ${lfoPatternOf(n.pattern)}`
+        : n.type === 'midi' ? `MIDI · ${MIDI_MODE_LABELS[midiModeOf(n.mode)].split(' ')[0]}`
         : n.type === 'math' ? `Math · ${n.op || 'add'}` : n.type === 'script' ? 'Script' : 'Output';
 }
 // The LFO's card line and inspector vocabulary: which shape one cycle traces, the
@@ -115,6 +118,7 @@ const CREATE_NODES = [
   { type: 'script', label: '+ Script', title: 'Drag Script onto the canvas to create a node (restricted scalar expression and compiled body)' },
   { type: 'audio', label: '+ Audio', title: 'Drag Audio onto the canvas to create a node (bass, mid or high activity)' },
   { type: 'lfo', label: '+ LFO', title: 'Drag LFO onto the canvas to create a signal source: a free-running oscillator (linear, sine, noise, random or a drawn pattern) over 0…1 or −1…1, with a logarithmic cycle time of 100 ms…10 s' },
+  { type: 'midi', label: '+ MIDI', title: 'Drag MIDI onto the canvas to create a signal source: one channel of a controller (note gates, or one control-change value) as a normalized 0…1 signal. Configure access and pick a device in its inspector' },
 ];
 // Every wire — image, scalar and modulation — is drawn from the same geometry and
 // is activated the same way: activating selects only the connection, it never
@@ -185,6 +189,113 @@ function LfoShapePad({ points, onDraw, onReset }) {
 // automatable like every other numeric control.
 function lfoStatus(node) {
   return `One cycle takes ${lfoDuration(lfoCycleOf(node))}. Cycle time is a rate: a signal mapped onto it accelerates or slows the shape without jumping it, and Start Position is the phase it is anchored to.`;
+}
+// The MIDI node's card line: which device and channel it listens to, and what the
+// value comes from.
+function midiDetail(n, deviceLabel) {
+  const mode = midiModeOf(n.mode);
+  const source = mode === 'cc' ? `CC ${midiCcOf(n)}` : MIDI_GATE_MODE_LABELS[midiGateModeOf(n.gateMode)].split(' ')[0];
+  return `${deviceLabel} · Ch ${midiChannelOf(n.channel)} · ${source} · 0…1`;
+}
+// One line of operator-facing MIDI truth: what is missing and what to do about it.
+// The node keeps outputting 0 until this says ready.
+function midiStatusText(status) {
+  if (!status) return 'MIDI status unavailable.';
+  if (!status.supported) return 'This browser has no Web MIDI support — open the app in desktop Chrome.';
+  if (status.state === 'requesting') return 'Requesting MIDI access…';
+  if (status.state === 'denied') return 'MIDI access was denied. Allow MIDI devices for this site and retry.';
+  if (status.state === 'error') return `MIDI unavailable: ${status.error}`;
+  if (status.state !== 'ready') return 'MIDI is not configured yet — turn it on to read a controller.';
+  if (!status.inputs.length) return 'MIDI ready · no input devices detected — connect one and it appears automatically.';
+  return `MIDI ready · ${status.inputs.length} input${status.inputs.length === 1 ? '' : 's'} connected.`;
+}
+// The MIDI inspector: the switches (mode, device, channel) plus the configuration
+// button, the CC number with Learn, and the live readout. Its Attack, Decay and Apply
+// Velocity sliders are the shared parameter controls below, so a signal is mapped onto
+// them exactly like any other node's slider.
+function MidiNodeInspector({ node, patch, reportError, runtime, modulations = [] }) {
+  // Status is a subscription, not a per-frame read: a session change repaints once,
+  // and a steady controller never re-renders the inspector.
+  const [status, setStatus] = useState(() => MIDI.status());
+  const [learning, setLearning] = useState(false);
+  // One Learn attempt at a time. The token is cancelled by Cancel, by selecting
+  // another node, by leaving the editor and by leaving CC mode, so a late permission
+  // answer or CC message can never edit a node the operator has moved on from.
+  const attempt = useRef(null);
+  const currentNode = useRef(node.id);
+  currentNode.current = node.id;
+  useEffect(() => MIDI.subscribe(setStatus), []);
+  // A MIDI node on the canvas is what makes this window need MIDI: ask once, silently
+  // when the origin already allows it, and leave the button for a denial or a retry.
+  useEffect(() => { MIDI.ensure(); }, [node.id]);
+  useEffect(() => {
+    setLearning(false);
+    return () => { if (attempt.current) attempt.current.cancelled = true; attempt.current = null; MIDI.cancelLearn(); };
+  }, [node.id]);
+  const cancel = () => {
+    if (attempt.current) attempt.current.cancelled = true;
+    MIDI.cancelLearn();
+    setLearning(false);
+  };
+  // Learn only exists in CC mode: leaving it ends the attempt instead of leaving a
+  // message able to switch the node back.
+  useEffect(() => { if (midiModeOf(node.mode) !== 'cc') cancel(); }, [node.mode]);
+  const learn = async () => {
+    const token = { nodeId: node.id, cancelled: false };
+    attempt.current = token;
+    const live = () => !token.cancelled && currentNode.current === token.nodeId;
+    setLearning(true);
+    try {
+      // Learn implies configuration: ask for access first and only wait for a message
+      // once the session is actually ready — a denial must never look like "waiting".
+      const current = await MIDI.request();
+      if (!live()) return;
+      if (current?.state !== 'ready') { reportError(`Learn needs MIDI access first: ${midiStatusText(current)}`); return; }
+      const picked = await MIDI.learnCc({});
+      if (!picked || !live()) return;
+      patch({ mode: 'cc', channel: picked.channel, params: { ...node.params, cc: picked.cc } });
+    } catch (error) { if (live()) reportError(error.message); }
+    finally { if (attempt.current === token) { attempt.current = null; setLearning(false); } }
+  };
+  const mode = midiModeOf(node.mode), gateMode = midiGateModeOf(node.gateMode);
+  const device = midiDeviceOf(node.deviceId) ?? '';
+  const inputOptions = status?.inputs ?? [];
+  const ready = status?.state === 'ready';
+  // Switching to a mode that hides a mapped slider drops that mapping (the model's
+  // rule: a mapping no control can show could never be edited or removed, and would
+  // block Save). Say so, with what to do about it.
+  const changeMode = value => {
+    const hidden = modulations.filter(m => m.to === node.id && m.param && !midiParameters({ mode: value }).some(def => def.key === m.param));
+    patch({ mode: value });
+    if (hidden.length) reportError(`${MIDI_MODE_LABELS[value]} has no ${hidden.map(m => m.param).join('/')} slider, so that mapping was removed. Switch back and map it again to restore the automation.`);
+  };
+  return <>
+    <label>Mode<Select aria-label="MIDI mode" title="Gate turns note on/off into an envelope; CC returns one control-change value" value={mode} onChange={e => changeMode(e.target.value)}>
+      {MIDI_MODES.map(value => <option key={value} value={value}>{MIDI_MODE_LABELS[value]}</option>)}
+    </Select></label>
+    <label>MIDI input device<Select aria-label="MIDI input device" title="Any device listens to every controller; a pinned entry follows that one input" value={device} onChange={e => patch({ deviceId: e.target.value || null })}>
+      <option value="">Any device</option>
+      {inputOptions.map((input, i) => <option key={input.id} value={input.id}>{input.name || `MIDI input ${i + 1}`}</option>)}
+      {device && !inputOptions.some(input => input.id === device) && <option value={device}>{`Unavailable input (…${device.slice(-6)})`}</option>}
+    </Select></label>
+    <label>Channel<Select aria-label="MIDI channel" title="Which of the 16 MIDI channels this node listens to" value={midiChannelOf(node.channel)} onChange={e => patch({ channel: Number(e.target.value) })}>
+      {MIDI_CHANNELS.map(channel => <option key={channel} value={channel}>{channel}</option>)}
+    </Select></label>
+    {mode === 'gate'
+      ? <label>Gate mode<Select aria-label="MIDI gate mode" title="Pulse fires one envelope per note and ignores how long the key is held; Sustain follows the held level" value={gateMode} onChange={e => patch({ gateMode: e.target.value })}>
+        {MIDI_GATE_MODES.map(value => <option key={value} value={value}>{MIDI_GATE_MODE_LABELS[value]}</option>)}
+      </Select></label>
+      : <>
+        <label>CC number<input className="control-input" type="number" min="0" max={MIDI_MAX_CC} step="1" aria-label="MIDI CC number" title="The control-change number this node returns, 0…127" value={midiCcOf(node)} onChange={e => { const next = Math.round(e.target.valueAsNumber); if (Number.isInteger(next) && next >= 0 && next <= MIDI_MAX_CC) patch({ params: { ...node.params, cc: next } }, { merge: `param:${node.id}:cc` }); }} /></label>
+        <div className="nodes-midi-learn">
+          <button className="btn" type="button" data-testid="midi-learn" disabled={learning} title="Move the control you want to use: the next CC message sets both the channel and the CC number" onClick={learn}>{learning ? 'Waiting for a CC message…' : 'Learn CC'}</button>
+          {learning && <button className="btn" type="button" data-testid="midi-learn-cancel" onClick={cancel}>Cancel</button>}
+        </div>
+      </>}
+    <output className="nodes-midi-status" data-testid="node-midi-status" aria-live="polite">{midiStatusText(status)}</output>
+    {status?.supported !== false && !ready && <button className="btn" type="button" data-testid="midi-enable" onClick={() => MIDI.request()}>{status?.state === 'idle' ? 'Enable MIDI' : 'Retry MIDI'}</button>}
+    <SignalReadout runtime={runtime} nodeId={node.id} />
+  </>;
 }
 // A Script node's persistent state. Sampled rather than animated: the values
 // change every frame, and a 10 Hz readout is what makes `state` legible without
@@ -354,6 +465,10 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   const audioProvider = useRef(null);
   const [providerReady, setProviderReady] = useState(false);
   const [inputsSnapshot, setInputsSnapshot] = useState(null);
+  // The MIDI session's status drives the device select on the card line and in the
+  // inspector; subscribing here means one repaint per session change, never per frame.
+  const [midiStatus, setMidiStatus] = useState(() => MIDI.status());
+  useEffect(() => MIDI.subscribe(setMidiStatus), []);
   useEffect(() => {
     const provider = sharedRuntime ? sharedRuntime.createEditorAudio() : createEditorAudio();
     audioProvider.current = provider;
@@ -374,6 +489,12 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
     if (!deviceId) return 'Global';
     const found = inputOptions.find(d => d.deviceId === deviceId);
     return found ? (found.label || 'Audio input') : 'Unavailable input';
+  };
+  const midiDeviceLabel = node => {
+    const pinned = midiDeviceOf(node.deviceId);
+    if (!pinned) return 'Any device';
+    const found = (midiStatus?.inputs || []).find(input => input.id === pinned);
+    return found ? (found.name || 'MIDI input') : 'Unavailable input';
   };
   const channelNoteFor = nodeId => {
     const status = previewRuntime.current?.getNodeStatus?.(nodeId);
@@ -831,7 +952,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
             <button className="nodes-node-title" title={`Select or drag ${label(n)}${n.type === 'pattern' && acceptsImage(SKETCHES.find(s => s.id === n.patternId)) ? ' — accepts an image input' : ''}`} aria-label={`Select ${label(n)}`} aria-describedby={n.type === 'pattern' && acceptsImage(SKETCHES.find(s => s.id === n.patternId)) ? `fx-capability-${n.id}` : undefined} aria-pressed={selection.ids.includes(n.id)} {...selection.titleHandlers(n)}><span className="nodes-title-name">{label(n)}</span>{n.type === 'pattern' && acceptsImage(SKETCHES.find(s => s.id === n.patternId)) && <span id={`fx-capability-${n.id}`} className="nodes-fx-badge" title="Accepts an image input">◇ FX <span className="nodes-visually-hidden">Accepts an image input</span></span>}</button>
             <div className="nodes-ports">{visibleInputs(n).map(name => <button key={name} className="nodes-input" title={`Connect to ${label(n)} ${name} input`} aria-label={`${n.id} input ${name}`} onClick={() => port(n.id, name)}>● {name}</button>)}
               {n.type !== 'output' && <button className={`nodes-output ${pending === n.id ? 'active' : ''}`} title={`Connect from ${label(n)} output`} aria-label={`${n.id} output`} onClick={() => { setPending(n.id); clearMessage(); }}>out ●</button>}
-            </div><small className="nodes-node-detail">{n.type === 'blend' ? `${n.mode} · ${Math.round(n.opacity * 100)}%` : n.type === 'output' ? 'Final image' : n.type === 'audio' ? `${deviceLabel(n.deviceId)} · ${AUDIO_CHANNEL_LABELS[n.channel] || 'Mono'} · ${n.band} activity · 0…1` : n.type === 'camera' ? `${cameraLabel(n.deviceId)} · image out` : n.type === 'color' ? 'image → filtered image' : n.type === 'transform' ? 'image → transformed image' : n.type === 'lfo' ? lfoDetail(n) : n.type === 'math' ? `${n.op} · scalar out` : n.type === 'script' ? (compileScript(n.source, scriptNodeLanguage(n)).ok ? (scriptNodeLanguage(n) === 'body' ? 'script body' : 'restricted expression') : 'script error') : n.type === 'pattern' && visibleInputs(n).includes('image') ? `${imageWired(n.id) ? 'Image wired' : sourceDefault(SKETCHES.find(s => s.id === n.patternId))} · ${n.patternId}` : n.patternId}</small>
+            </div><small className="nodes-node-detail">{n.type === 'blend' ? `${n.mode} · ${Math.round(n.opacity * 100)}%` : n.type === 'output' ? 'Final image' : n.type === 'audio' ? `${deviceLabel(n.deviceId)} · ${AUDIO_CHANNEL_LABELS[n.channel] || 'Mono'} · ${n.band} activity · 0…1` : n.type === 'camera' ? `${cameraLabel(n.deviceId)} · image out` : n.type === 'color' ? 'image → filtered image' : n.type === 'transform' ? 'image → transformed image' : n.type === 'lfo' ? lfoDetail(n) : n.type === 'midi' ? midiDetail(n, midiDeviceLabel(n)) : n.type === 'math' ? `${n.op} · scalar out` : n.type === 'script' ? (compileScript(n.source, scriptNodeLanguage(n)).ok ? (scriptNodeLanguage(n) === 'body' ? 'script body' : 'restricted expression') : 'script error') : n.type === 'pattern' && visibleInputs(n).includes('image') ? `${imageWired(n.id) ? 'Image wired' : sourceDefault(SKETCHES.find(s => s.id === n.patternId))} · ${n.patternId}` : n.patternId}</small>
             {isModulationTarget(n) && <button className="nodes-signal-endpoint" aria-label={`${n.id} signal endpoint`} onClick={e => {
               e.stopPropagation();
               if (pending) signalPort(n.id);
@@ -899,6 +1020,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
           {(lfoPatternOf(node.pattern) === 'noise' || lfoPatternOf(node.pattern) === 'random') && <button className="btn" aria-label="Reshuffle LFO shape" title="Reseed this pattern's shape; the sequence still repeats every cycle" onClick={() => patch({ seed: (lfoSeedOf(node) + 1 + Math.floor(Math.random() * LFO_MAX_SEED)) % (LFO_MAX_SEED + 1) })}>Reshuffle</button>}
           <output className="nodes-lfo-status" data-testid="node-lfo-status" aria-live="polite">{lfoStatus(node)}</output>
           <SignalReadout runtime={previewRuntime} nodeId={node.id} /></>}
+        {node?.type === 'midi' && <MidiNodeInspector node={node} patch={patch} reportError={reportError} runtime={previewRuntime} modulations={graph.modulations} />}
         {node?.type === 'transform' && <output className="nodes-transform-status" data-testid="node-transform-status" aria-live="polite">{transformNote(node.params)}</output>}
         {node?.type === 'math' && <><label>Operation<Select aria-label="Math operation" title="Choose the scalar operation" value={node.op} onChange={e => changeMathOp(e.target.value)}>{MATH_OPS.map(op => <option key={op} value={op}>{MATH_LABELS[op]}</option>)}</Select></label>
           {MATH_INPUTS.map(port => {

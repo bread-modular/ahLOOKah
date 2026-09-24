@@ -114,6 +114,7 @@
           <li><strong>+ Script</strong> — a number from the graph’s inputs or the audio bands.</li>
           <li><strong>+ Audio</strong> — the activity of a bass, mid or high band.</li>
           <li><strong>+ LFO</strong> — a free-running oscillator that emits a number every frame, for animating any slider without audio or a script. Pick the range (<strong>0…1</strong> or <strong>−1…1</strong>) and the pattern — linear saw, sine, smooth noise, stepped random, or a shape you draw in the inspector — then set the <strong>Cycle time</strong> from 100 ms to 10 s on a logarithmic track and the <strong>Start Position</strong>. Cycle time is a rate: changing it, or driving it with a mapped signal, speeds the shape up or slows it down without restarting it. Both sliders are automatable like any other numeric control.</li>
+          <li><strong>+ MIDI</strong> — one channel of a MIDI controller, always emitted as a normalized 0…1 signal. <strong>Gate</strong> mode turns note on/off into an envelope (<strong>Pulse</strong> fires one per note and ignores how long the key is held; <strong>Sustain</strong> follows the held level) with <strong>Attack</strong> and <strong>Decay</strong> from 1 ms to 5 s on a logarithmic track and an optional <strong>Apply Velocity</strong> amount; <strong>CC</strong> mode returns one control-change value, picked with a number field or <strong>Learn CC</strong>. Choose the input device (any device, or one pinned controller) and the channel. Configure access once with <strong>Enable MIDI</strong> — the same permission drives the editor preview and the output screen.</li>
         </ul>
 
         <div class="callout tip">
@@ -137,6 +138,7 @@
             <tr><td><strong>Audio</strong></td><td>—</td><td>Signal</td></tr>
             <tr><td><strong>Script</strong></td><td>x, y</td><td>Signal</td></tr>
             <tr><td><strong>LFO</strong></td><td>—</td><td>Signal</td></tr>
+            <tr><td><strong>MIDI</strong></td><td>—</td><td>Signal</td></tr>
           </tbody>
         </table>
 
@@ -244,8 +246,20 @@ return weighted / 10;</code></pre>
           <li><strong>Bounded.</strong> All slots and buffers of one node together hold at most 64 values. The legacy <strong>Expression</strong> language has neither <code>state</code> nor <code>dt</code>: it stays the pure single value it always was.</li>
         </ul>
 
+        <h2>MIDI nodes</h2>
+        <p>A <strong>MIDI</strong> node reads one channel of a controller and always outputs a normalized 0…1 signal, so it wires and maps exactly like an Audio band. Pick a <strong>Mode</strong>:</p>
+
+        <ul>
+          <li><strong>Gate (note on/off)</strong> — the note becomes an envelope. <strong>Pulse</strong> fires one envelope per note and ignores how long the key is held (attack up, then decay down, with an 80 ms floor so the 1 ms/1 ms defaults still show a pulse); <strong>Sustain</strong> follows the held level. <strong>Attack</strong> and <strong>Decay</strong> run from 1 ms to 5 s on a logarithmic track, and <strong>Apply Velocity</strong> blends the envelope toward the note's own velocity (0 = ignore it, 1 = multiply by it fully).</li>
+          <li><strong>CC (control change)</strong> — the node returns the selected <strong>CC number</strong>'s value, normalized 0…1. Type the number, or click <strong>Learn CC</strong> and move the control you want to use: the next CC message the node sees sets both its channel and its CC number.</li>
+        </ul>
+
+        <p><strong>MIDI input device</strong> works like the Audio node's: <em>Any device</em> listens to every controller, while a pinned entry follows that one input (an unavailable device stays listed as such instead of silently changing what you hear). <strong>Channel</strong> picks one of the 16 MIDI channels. Mode, gate mode, channel and device are switches — they are never automation targets.</p>
+
+        <p>Because a MIDI node is a signal source <em>and</em> a numeric target, its own sliders take a signal the same way any other slider does: connect a signal to the node's ◇ endpoint, then drag its chip onto <strong>Attack</strong>, <strong>Decay</strong> or <strong>Apply Velocity</strong>. A mapped value arrives in the control's own domain (a logarithmic duration is interpolated logarithmically, so a 10 ms … 1 s mapping passes 100 ms in the middle) and is <strong>glided</strong> with the same ~80 ms response the LFO uses for its Cycle time — an exponential approach that is frame-rate independent and starts from the value the slider holds, so connecting a signal hands the control over gradually — meaning a steppy source (a random LFO, an audio band, a slow Script) eases the envelope instead of kicking it; a manual slider edit is used exactly as stored. The two modes share the stored values: switching to CC keeps the Attack you set (and vice versa), and a mapping onto a slider the new mode does not show (Attack, Decay or Apply Velocity while CC is selected) is removed with a notice rather than left hidden — it could never be edited or saved otherwise. Access is requested once per window from the inspector (<strong>Enable MIDI</strong>, then Retry if you denied it), and the browser's own state is spelled out on the node — including "no devices detected" and "this browser has no Web MIDI support".</p>
+
         <h2>Driving sliders with audio, scripts and LFOs</h2>
-        <p>Signal outputs are not just for wiring node to node. Select the Script, Audio or LFO node an Audio→Script chain ends in, and the inspector lists it under <strong>Connected signals</strong>. Drag that chip onto any numeric slider of a selected Pattern, Blend, Color, Transform or LFO node to map it:</p>
+        <p>Signal outputs are not just for wiring node to node. Select the Script, Audio or LFO node an Audio→Script chain ends in, and the inspector lists it under <strong>Connected signals</strong>. Drag that chip onto any numeric slider of a selected Pattern, Blend, Color, Transform, LFO or MIDI node to map it:</p>
 
         <figure class="figure">
           <img src="/docs/shots/nodes-mapping.jpg" alt="The node editor with the Blend node selected: the Opacity slider carries a violet mapping overlay, a LIVE marker showing the value coming from the Script node, and a signal pill naming the source" />
