@@ -6,7 +6,7 @@ import { AUDIO_CHANNEL_LABELS } from '../audio-routing.js';
 import { STORAGE } from '../platform/constants.js';
 import { MATH_OPS, MATH_LABELS, MATH_INPUTS, MATH_PORT_LABELS, SCRIPT_INPUTS, SCRIPT_PORT_LABELS, SCRIPT_LITERAL_FIELDS, SIGNAL_TYPES, defaultNode, isSignalSource, isVisualSource, isScalarConsumer, isModulationTarget, activeInputs, mathPorts } from './definitions.js';
 import { inputAnchor, outputAnchor, signalAnchor, portsHeight, wirePath, BUNDLE_BOW } from './geometry.js';
-import { SCRIPT_VARIABLES, compileScript, helpForLanguage, limitForLanguage, scriptLanguageLabel } from './script.js';
+import { SCRIPT_VARIABLES, SCRIPT_STATE_HELP, compileScript, helpForLanguage, limitForLanguage, scriptLanguageLabel } from './script.js';
 import { approveScript, isScriptApproved } from './script-approval.js';
 import { scriptLanguageOf as scriptNodeLanguage } from './scalar.js';
 import { LFO_PATTERNS, LFO_PATTERN_LABELS, LFO_PARAMS, LFO_RANGES, LFO_RANGE_LABELS, lfoPatternOf, lfoRangeOf, lfoCycleOf, lfoPointsOf, lfoSeedOf, defaultLfoPoints, LFO_MAX_SEED } from './lfo.js';
@@ -185,6 +185,30 @@ function LfoShapePad({ points, onDraw, onReset }) {
 // automatable like every other numeric control.
 function lfoStatus(node) {
   return `One cycle takes ${lfoDuration(lfoCycleOf(node))}. Cycle time is a rate: a signal mapped onto it accelerates or slows the shape without jumping it, and Start Position is the phase it is anchored to.`;
+}
+// A Script node's persistent state. Sampled rather than animated: the values
+// change every frame, and a 10 Hz readout is what makes `state` legible without
+// re-rendering the inspector sixty times a second. Read-only — it never advances
+// the state it shows.
+function formatScriptState(entries) {
+  if (!entries?.length) return '';
+  return entries.map(({ name, kind, size, value, values }) => kind === 'buffer'
+    ? `${name}[${size}] = ${values.slice(0, 8).map(v => v.toFixed(3)).join(', ')}${values.length > 8 ? ', …' : ''}`
+    : `${name} = ${value.toFixed(3)}`).join(' · ');
+}
+function ScriptState({ runtime, nodeId }) {
+  const [text, setText] = useState('');
+  useEffect(() => {
+    const update = () => setText(formatScriptState(runtime.current?.getScriptState?.(nodeId)));
+    update();
+    const timer = setInterval(update, 100);
+    return () => clearInterval(timer);
+  }, [runtime, nodeId]);
+  if (!text) return null;
+  return <div className="nodes-script-state">
+    <output data-testid="script-state" aria-label="Script state" aria-live="off" title={SCRIPT_STATE_HELP}>state {text}</output>
+    <button type="button" className="btn" data-testid="script-reset-state" title="Restore this script's declared initial state and forget the elapsed time" onClick={() => runtime.current?.resetScriptState?.(nodeId)}>Reset state</button>
+  </div>;
 }
 // Requested-vs-actual input status for the selected Audio node: truthy text with
 // a polite live region for transitions, never a color-only or per-tick signal.
@@ -424,6 +448,9 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   const scriptText = scriptNode ? (scriptDraft?.text ?? scriptNode.source) : '';
   const scriptCheck = scriptNode ? compileScript(scriptText, scriptLanguage) : null;
   const scriptApplied = !!scriptNode && scriptText === scriptNode.source && scriptLanguage === nodeLanguage;
+  // The persistent slots this source will use, as the inspector names them.
+  const scriptStateSummary = (scriptCheck?.program?.state?.entries || [])
+    .map(({ name, kind, size }) => kind === 'buffer' ? `${name}[${size}]` : name);
   const updateScriptDraft = values => setScriptDrafts(previous => ({ ...previous, [scriptNode.id]: { language: scriptLanguage, text: scriptText, ...values } }));
   useEffect(() => {
     const refresh = () => { setRevision(v => v + 1); };
@@ -887,7 +914,8 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
           <label>Script source<textarea className="control-input nodes-script-source" aria-label="Script source" title={helpForLanguage(scriptLanguage)} maxLength={limitForLanguage(scriptLanguage)} rows={scriptLanguage === 'body' ? 6 : 2} spellCheck={false} value={scriptText} onChange={e => updateScriptDraft({ text: e.target.value })} onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); applyScript(); } }} /></label>
           <button className="btn" aria-label="Apply script" title="Validate, store and approve this exact source" disabled={!scriptCheck?.ok} onClick={applyScript}>Apply</button>
           {!scriptCheck?.ok && <p className="nodes-script-error" role="alert">Script: {scriptCheck?.error}</p>}
-          <p className="nodes-script-status" role="status" data-testid="script-status">{!scriptCheck?.ok ? 'Not applied' : `${scriptApplied ? (isScriptApproved(nodeLanguage, node.source) ? 'Applied and approved' : 'Applied · review required to run') : 'Not applied'} · ${scriptLanguage} · uses ${SCRIPT_VARIABLES.filter(name => scriptCheck.uses?.[name]).join(', ') || 'no inputs'}`}</p>
+          <p className="nodes-script-status" role="status" data-testid="script-status">{!scriptCheck?.ok ? 'Not applied' : `${scriptApplied ? (isScriptApproved(nodeLanguage, node.source) ? 'Applied and approved' : 'Applied · review required to run') : 'Not applied'} · ${scriptLanguage} · uses ${SCRIPT_VARIABLES.filter(name => scriptCheck.uses?.[name]).join(', ') || 'no inputs'} · ${scriptStateSummary.length ? `state ${scriptStateSummary.join(', ')}` : 'no state'}`}</p>
+          <ScriptState runtime={previewRuntime} nodeId={node.id} />
           {SCRIPT_INPUTS.map(port => <label key={port}>{SCRIPT_PORT_LABELS[port]} literal<input className="control-input" type="number" step="0.01" aria-label={`Script ${port} literal`} title={`Literal used when ${port} has no wire`} value={node[SCRIPT_LITERAL_FIELDS[port]]} onChange={e => { const next = e.target.valueAsNumber; if (Number.isFinite(next)) patch({ [SCRIPT_LITERAL_FIELDS[port]]: next }, { merge: `literal:${node.id}:${port}` }); }} /></label>)}
           <SignalReadout runtime={previewRuntime} nodeId={node.id} /></>}
         {node?.type === 'blend' && <><label>Blend mode<Select aria-label="Blend mode" title="Choose the pixel blend operation (TouchDesigner's Composite TOP list)" value={node.mode} onChange={e => patch({ mode: e.target.value })}>
