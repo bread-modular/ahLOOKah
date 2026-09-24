@@ -5,7 +5,8 @@
 import { DEFAULT_AUDIO_INPUT } from '../audio-routing.js';
 import { TRANSFORM_PARAMS, transformDefaults } from './transform.js';
 import { LFO_PARAMS, lfoDefaults } from './lfo.js';
-export const TYPES = Object.freeze(['pattern', 'blend', 'output', 'audio', 'color', 'math', 'script', 'camera', 'transform', 'lfo']);
+import { midiDefaults, midiParameters } from './midi.js';
+export const TYPES = Object.freeze(['pattern', 'blend', 'output', 'audio', 'color', 'math', 'script', 'camera', 'transform', 'lfo', 'midi']);
 export const VISUAL_TYPES = Object.freeze(['pattern', 'blend', 'color', 'output', 'camera', 'transform']);
 export const VISUAL_SOURCES = Object.freeze(['pattern', 'blend', 'color', 'camera', 'transform']);
 // `inputMode` is a legacy saved hint, not a switch. The presence of an image
@@ -21,9 +22,12 @@ export const canAcceptImageFx = sketch => supportsImageFx(sketch)
 // controls (Cycle time, Start Position) through the ordinary modulation endpoint.
 // It has no scalar input ports, because automating a control is what the mapping
 // system does — with a range and a target domain — for every other node.
-export const SIGNAL_TYPES = Object.freeze(['audio', 'math', 'script', 'lfo']);
+// `midi` follows the same shape: it emits one normalized 0…1 value and its Attack,
+// Decay and Apply Velocity sliders are automation targets, while its mode, gate
+// mode, channel and input device stay switches (selects, never mapped).
+export const SIGNAL_TYPES = Object.freeze(['audio', 'math', 'script', 'lfo', 'midi']);
 export const SCALAR_TYPES = Object.freeze(['math', 'script']);
-export const MODULATION_TARGETS = Object.freeze(['pattern', 'blend', 'color', 'transform', 'lfo']);
+export const MODULATION_TARGETS = Object.freeze(['pattern', 'blend', 'color', 'transform', 'lfo', 'midi']);
 
 // Identity defaults: an untouched Color node is a pixel-exact copy of its input.
 export const COLOR_PARAMS = Object.freeze([
@@ -91,7 +95,8 @@ export const isVisualType = (node) => !!node && VISUAL_TYPES.includes(node.type)
 // Numeric controls rendered by the shared parameter UI for a node's own fields.
 export const parameters = (node) => node?.type === 'color' ? COLOR_PARAMS.slice()
   : node?.type === 'transform' ? TRANSFORM_PARAMS.slice()
-    : node?.type === 'lfo' ? LFO_PARAMS.slice() : [];
+    : node?.type === 'lfo' ? LFO_PARAMS.slice()
+      : node?.type === 'midi' ? midiParameters(node) : [];
 
 export function newId() { return `n${crypto.randomUUID().slice(0, 8)}`; }
 // Structural defaults for a fresh node. Pattern nodes additionally need a
@@ -107,6 +112,10 @@ export function defaultNode(type, x = 0, y = 0, id = newId()) {
   // stays absent until the operator draws: the shared ramp is the fallback shape,
   // so a new node never carries 32 numbers it does not use.
   if (type === 'lfo') return { ...base, pattern: 'linear', range: 'unipolar', seed: 0, params: lfoDefaults() };
+  // A fresh MIDI node listens to every device on channel 1 in Gate/Pulse mode: the
+  // first note plays a short pulse, and the device list starts on "Any device" so a
+  // new node works before the operator pins a controller.
+  if (type === 'midi') return { ...base, mode: 'gate', gateMode: 'pulse', channel: 1, deviceId: null, params: midiDefaults() };
   if (type === 'math') return { ...base, op: 'add', ...MATH_LITERALS };
   if (type === 'script') return { ...base, language: DEFAULT_LANGUAGE, source: DEFAULT_BODY, ...SCRIPT_LITERALS };
   if (type === 'output') return base;

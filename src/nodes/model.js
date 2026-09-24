@@ -14,6 +14,7 @@ import { normalizeAudioRoute, isValidAudioDeviceId } from '../audio-routing.js';
 import { MAX_EXPRESSION, MAX_BODY, LANGUAGES } from './script.js';
 import { TRANSFORM_PARAMS, transformDefaults } from './transform.js';
 import { LFO_PATTERNS, LFO_RANGES, LFO_PARAMS, LFO_MIN_POINTS, LFO_MAX_POINTS, LFO_MAX_SEED, lfoDefaults, lfoCycleFromLegacySpeed } from './lfo.js';
+import { MIDI_MODES, MIDI_GATE_MODES, MIDI_CHANNELS, MIDI_STORED_PARAMS, MIDI_GATE_KEYS, midiDefaults, midiParameters } from './midi.js';
 import { MODES } from './blend-modes.js';
 // Blend modes are defined in blend-modes.js (canvas-native operations plus the
 // shader-only TouchDesigner modes); a graph stores only the mode name. Re-exported
@@ -126,6 +127,33 @@ export function validateGraph(raw, { complete = false } = {}) {
         node.points = n.points.slice();
       }
     }
+    if (n.type === 'midi') {
+      // Same contract as the LFO — the two are the signal nodes whose own controls are
+      // automated: the enumerations are validated against the tables in midi.js, an
+      // absent field falls back to the node's documented default instead of failing the
+      // load, and the numeric parameters keep the Color/Transform rule: only the
+      // documented controls exist, inside their own ranges. Both modes' values are
+      // retained, so switching Gate ⇄ CC never loses what the operator set.
+      if (!MIDI_MODES.includes(n.mode === undefined ? 'gate' : n.mode)) fail('Invalid MIDI mode');
+      if (n.gateMode !== undefined && !MIDI_GATE_MODES.includes(n.gateMode)) fail('Invalid MIDI gate mode');
+      const channel = n.channel === undefined ? MIDI_CHANNELS[0] : n.channel;
+      if (!Number.isInteger(channel) || channel < MIDI_CHANNELS[0] || channel > MIDI_CHANNELS[MIDI_CHANNELS.length - 1]) fail('Invalid MIDI channel');
+      // Opaque input ids follow Audio/Camera's 512-char/control-character guard; null
+      // means "any device", which is what a fresh node listens to.
+      if (n.deviceId !== undefined && n.deviceId !== null && !isValidAudioDeviceId(n.deviceId)) fail('Invalid MIDI input device');
+      if (!n.params || typeof n.params !== 'object' || Array.isArray(n.params)) fail('Invalid MIDI parameters');
+      const params = midiDefaults();
+      for (const [k, v] of Object.entries(n.params)) {
+        const def = MIDI_STORED_PARAMS.find(p => p.key === k);
+        if (!def || !number(v) || v < def.min || v > def.max) fail(`Invalid MIDI parameter: ${k}`);
+        // The CC number is a whole number of the 128 controllers, never a fraction.
+        if (def.step >= 1 && !Number.isInteger(v)) fail(`Invalid MIDI parameter: ${k}`);
+        params[k] = v;
+      }
+      Object.assign(node, { mode: n.mode === undefined ? 'gate' : n.mode,
+        gateMode: n.gateMode === undefined ? MIDI_GATE_MODES[0] : n.gateMode,
+        channel, deviceId: n.deviceId ?? null, params });
+    }
     if (n.type === 'audio') {
       if (!['bass', 'mid', 'high'].includes(n.band)) fail('Invalid audio band');
       node.band = n.band;
@@ -196,8 +224,10 @@ export function validateGraph(raw, { complete = false } = {}) {
     return { from: e.from, to: e.to, port: e.port };
   });
   if (raw.modulations !== undefined && !Array.isArray(raw.modulations)) fail('Invalid modulation links');
-  const mapped = new Set(), links = new Set();
-  const modulations = (raw.modulations || []).map(m => {
+  // Pass 1 — every stored mapping is validated, including one the selected mode is
+  // about to drop: a ghost source, an unknown parameter or a broken range must never
+  // be discarded silently just because the slider it targets is hidden.
+  const storedLinks = (raw.modulations || []).map(m => {
     const from = ids.get(m?.from), to = ids.get(m?.to);
     if (!isSignalSource(from) || !isModulationTarget(to)) fail('Invalid modulation reference or target');
     // An LFO mapping saved while that control was still called `speed` keeps its
@@ -208,17 +238,33 @@ export function validateGraph(raw, { complete = false } = {}) {
     const legacySpeed = m.param === 'speed' && to.type === 'lfo';
     const param = legacySpeed ? 'cycle' : m.param ?? null;
     if (param !== null && (!idOK(param) || reserved(param) || (to.type === 'blend' && param !== 'opacity'))) fail('Invalid modulation parameter');
-    const key = `${m.to}:${param}`, link = `${m.from}:${key}`;
-    if (links.has(link) || (param && mapped.has(key))) fail('Duplicate modulation; explicitly replace the existing mapping');
-    links.add(link); if (param) mapped.add(key);
     if (param && (!number(m.min) || !number(m.max))) fail('Invalid modulation range');
-    const min = legacySpeed ? lfoCycleFromLegacySpeed(m.min) : m.min;
-    const max = legacySpeed ? lfoCycleFromLegacySpeed(m.max) : m.max;
     // Signal-range conversion. Omitted fields keep the legacy 0…1 behavior, so
     // existing version-1 graphs and their saved mappings are unchanged.
     const ranged = m.inputMin !== undefined || m.inputMax !== undefined;
     if (ranged && (!number(m.inputMin) || !number(m.inputMax) || m.inputMax <= m.inputMin)) fail('Invalid modulation input range');
-    return { from: m.from, to: m.to, param, ...(param ? { min, max } : {}), ...(param && ranged ? { inputMin: m.inputMin, inputMax: m.inputMax } : {}) };
+    return { from: m.from, to: m.to, param,
+      ...(param ? { min: legacySpeed ? lfoCycleFromLegacySpeed(m.min) : m.min, max: legacySpeed ? lfoCycleFromLegacySpeed(m.max) : m.max } : {}),
+      ...(param && ranged ? { inputMin: m.inputMin, inputMax: m.inputMax } : {}) };
+  });
+  // Pass 2 — a Gate slider (Attack, Decay, Apply Velocity) that the selected mode
+  // does not show can never be edited or removed from the inspector, so its mapping
+  // is dropped exactly like a wire to an inactive Math port: never rejected (that
+  // would make the file unloadable) and never kept invisibly (that would block Save
+  // with no control to fix it). The drop is final — switching the mode back does not
+  // restore the mapping, and the inspector says so when the switch happens. A mapping
+  // to `cc` is *not* dropped here: `cc` is a stored value that is never a slider in
+  // any mode, so it stays visible to the diagnostics below, which name the node.
+  const reachableLinks = storedLinks.filter(link => !(ids.get(link.to)?.type === 'midi' && link.param
+    && MIDI_GATE_KEYS.includes(link.param)
+    && !midiParameters(ids.get(link.to)).some(def => def.key === link.param)));
+  // Pass 3 — duplicates and cycles are judged on what the graph will actually read.
+  const mapped = new Set(), links = new Set();
+  const modulations = reachableLinks.map(m => {
+    const key = `${m.to}:${m.param}`, link = `${m.from}:${key}`;
+    if (links.has(link) || (m.param && mapped.has(key))) fail('Duplicate modulation; explicitly replace the existing mapping');
+    links.add(link); if (m.param) mapped.add(key);
+    return m;
   });
   const visited = new Set(), visiting = new Set();
   function visit(id) {
@@ -322,7 +368,7 @@ export const DRAG_TYPE = 'application/x-viz-pattern+json';
 // Every palette drag shares this one versioned payload type: either a structural
 // node kind from the fixed create allowlist (never math/output) or a validated
 // non-recursive Pattern source id.
-const CREATE_TYPES = Object.freeze(['blend', 'color', 'transform', 'script', 'audio', 'camera', 'lfo']);
+const CREATE_TYPES = Object.freeze(['blend', 'color', 'transform', 'script', 'audio', 'camera', 'lfo', 'midi']);
 export function readPaletteDrag(transfer, sketches) {
   try {
     const text = transfer.getData(DRAG_TYPE);

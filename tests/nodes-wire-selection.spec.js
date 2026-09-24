@@ -83,6 +83,16 @@ const diskGraph = page => page.evaluate(async () => {
   const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('wire-tests');
   return JSON.parse(await (await (await dir.getFileHandle('wire.nodes.json')).getFile()).text()).graph;
 });
+// Reading the pattern while the editor's own save is in flight is expected to
+// fail: Chrome refuses a read (NotReadableError) while a writable stream is open
+// on that file. That means "not written yet", not "missing", so polls that wait
+// for the saved state read through this helper and keep checking; a permanently
+// absent or wrong file still fails the poll. (The same guard is documented in
+// nodes-camera-fx-editor.spec.js.)
+const diskGraphWhenWritten = page => diskGraph(page).catch((error) => {
+  if (/NotReadableError|became unavailable on disk/.test(String(error?.message ?? error))) return null;
+  throw error;
+});
 // Disclose one mapped parameter's controls by clicking the overlay on a spot that
 // is empty track (never the box or a handle, which are range gestures).
 const openMapping = async (page, key) => {
@@ -345,8 +355,8 @@ test('Math Value C hides with its wire outside clamp and its stored literal surv
   await page.getByLabel('Math operation').selectOption('abs');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   // Wait for the disk write itself, not just for an empty status line.
-  await expect.poll(async () => (await diskGraph(page)).nodes.find(n => n.id === 'scale').op).toBe('abs');
-  const saved = await diskGraph(page);
+  await expect.poll(async () => (await diskGraphWhenWritten(page))?.nodes.find(n => n.id === 'scale').op, { timeout: 15000 }).toBe('abs');
+  const saved = await diskGraphWhenWritten(page);
   expect(saved.nodes.find(n => n.id === 'scale')).toEqual({ id: 'scale', type: 'math', x: 330, y: 360, op: 'abs', a: 1, b: 2, c: 5 });
   expect(saved.signalEdges).toEqual([{ from: 'audio2', to: 'scale', port: 'a' }]);
   expect(await page.locator('.nodes-workspace').getAttribute('data-status')).toBe(null);
@@ -495,8 +505,8 @@ test('mapping endpoints accept values below the parameter domain: negatives pers
   await expect(inMax).toHaveValue('-0.5');
 
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect.poll(async () => (await diskGraph(page)).modulations.find(m => m.param === 'brightness').min).toBe(-.5);
-  const saved = await diskGraph(page);
+  await expect.poll(async () => (await diskGraphWhenWritten(page))?.modulations.find(m => m.param === 'brightness').min, { timeout: 15000 }).toBe(-.5);
+  const saved = await diskGraphWhenWritten(page);
   expect(saved.modulations.find(m => m.param === 'brightness')).toEqual({ from: 'audio', to: 'tint', param: 'brightness', min: -.5, max: 1, inputMin: -2, inputMax: -.5 });
   expect(saved.nodes.find(n => n.id === 'tint').params.brightness).toBe(1);
 
@@ -662,8 +672,8 @@ test('Math is no longer created, while an existing Math graph still loads, rende
   await expect(page.getByLabel('Math b literal')).toHaveValue('0.2');
   await expect(page.locator('[data-connection="signal:scale:c"]')).toHaveCount(1);
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect.poll(async () => (await diskGraph(page)).nodes.find(n => n.id === 'scale').op).toBe('clamp');
-  const saved = await diskGraph(page);
+  await expect.poll(async () => (await diskGraphWhenWritten(page))?.nodes.find(n => n.id === 'scale').op, { timeout: 15000 }).toBe('clamp');
+  const saved = await diskGraphWhenWritten(page);
   expect(saved.nodes.find(n => n.id === 'scale')).toEqual({ id: 'scale', type: 'math', x: 330, y: 250, op: 'clamp', a: .5, b: .2, c: .9 });
   expect(saved.signalEdges).toEqual([{ from: 'zero', to: 'scale', port: 'c' }]);
   await page.goto(`/?role=nodes&graph=${encodeURIComponent(id)}`);
@@ -691,8 +701,8 @@ test('graphs beyond the removed 24-node and 8-source budgets stay editable, rend
   await page.getByLabel('Graph workspace').focus(); await page.keyboard.press('Delete');
   await expect(page.locator('.nodes-node')).toHaveCount(graph.nodes.length - 1);
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect.poll(async () => (await diskGraph(page)).nodes.length).toBe(graph.nodes.length - 1);
-  const saved = await diskGraph(page);
+  await expect.poll(async () => (await diskGraphWhenWritten(page))?.nodes.length, { timeout: 15000 }).toBe(graph.nodes.length - 1);
+  const saved = await diskGraphWhenWritten(page);
   expect(saved.nodes.filter(n => n.type === 'pattern')).toHaveLength(10);
   const status = await page.locator('.nodes-workspace').getAttribute('data-status') || '';
   expect(status).toBe('');

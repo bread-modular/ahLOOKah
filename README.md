@@ -404,6 +404,26 @@ Because an LFO is a signal source and a numeric target at once, its Cycle time a
 Start Position take a signal like any other slider, while a loop through those
 mappings is refused as a cycle. See [the LFO reference](docs/lfo-signal-node.md) for
 the shapes, rate semantics and failure behavior.
+A **MIDI** signal node reads one channel of a controller and always emits a
+normalized 0…1 signal, so it wires and maps exactly like an Audio band. Pick the
+**mode**: **Gate** turns note on/off into an envelope — **Pulse** fires one envelope
+per note and ignores how long a key is held, **Sustain** follows the held level —
+with **Attack** and **Decay** from 1 ms to 5 s on a logarithmic track and an optional
+**Apply Velocity** amount; **CC** returns one control-change value, chosen with a
+number field or **Learn CC** (the next CC message sets both the channel and the
+number). Its **input device** select works like the Audio node's (any device, or one
+pinned controller, with an unavailable entry kept visible instead of silently
+dropping), and mode, gate mode, channel and device stay switches — never automation
+targets. Because a MIDI node is a source and a numeric target at once, a signal maps
+onto Attack, Decay or Apply Velocity like any other slider, and a **mapped** value is
+glided with the same ~80 ms response the LFO uses for its rate (an exponential
+approach that is frame-rate independent and starts from the slider's stored value, so
+connecting a signal hands the control over gradually), while a manual slider edit is
+used exactly as stored. Switching the mode away from a mapped slider removes that
+mapping with a notice, so a hidden mapping can never block Save. Web MIDI access is asked for once per
+window (**Enable MIDI**/Retry with the browser's state spelled out) and is shared by
+the editor preview and the LIVE output screen: the screen reads the same controller
+without the editor being open.
 Blend nodes offer TouchDesigner's Composite TOP operation list in two groups: 21
 canvas modes the browser composites itself (Normal/Over, Add, Multiply, Screen,
 Overlay, Darken, Lighten, Color Dodge, Color Burn, Hard Light, Soft Light,
@@ -482,6 +502,12 @@ the LFO signal node (every shape and range, seeded noise/random determinism and
 cycle repeat, cycle clamping, the integrated travel form versus the closed form,
 validation/loops, the drawn table through draw → undo → save → reload, and a signal
 mapped onto its own Cycle time),
+MIDI nodes (mode/device/channel validation, per-device state so a pinned node ignores
+other controllers, pulse/sustain envelopes with logarithmic Attack/Decay, velocity,
+CC neighbour blending, Learn/cancel, a browser without Web MIDI, denial and retry,
+late devices, per-controller note tracking and unplug release, the control glide and
+its mapped value in the graph runtime, and the inspector's device list, log-scale
+durations and readout),
 Script body language safety/budgets/scope/short-circuits, save/reload approval binding,
 live audio → body script → mapping pixels,
 real 2D/WebGL/projection/media/

@@ -118,7 +118,7 @@ test('Node Patterns guide documents the editor, its sources and its save path', 
   await page.goto('/docs/nodes.html');
   const article = page.locator('article');
   await expect(article.getByRole('heading', { name: 'Node Patterns', exact: true })).toHaveCount(1);
-  for (const text of ['Link Folder', 'Edit Pattern', 'Back to Main', '+ Blend', '+ Color', '+ Script', '+ Audio', 'Ctrl+Enter', 'Connected signals', 'Mapping min', 'Remove mapping', 'Reload from Disk', '.nodes.json']) {
+  for (const text of ['Link Folder', 'Edit Pattern', 'Back to Main', '+ Blend', '+ Color', '+ Script', '+ Audio', '+ MIDI', 'Learn CC', 'Enable MIDI', 'Ctrl+Enter', 'Connected signals', 'Mapping min', 'Remove mapping', 'Reload from Disk', '.nodes.json']) {
     await expect(article).toContainText(text);
   }
   await expect(article.locator('figure img')).toHaveCount(3);
