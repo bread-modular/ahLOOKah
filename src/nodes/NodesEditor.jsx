@@ -11,6 +11,7 @@ import { approveScript, isScriptApproved } from './script-approval.js';
 import { scriptLanguageOf as scriptNodeLanguage } from './scalar.js';
 import { createEditorAudio } from './audio-provider.js';
 import { useCanvasNavigation } from './useCanvasNavigation.js';
+import { useDraftHistory } from './history.js';
 import { useNodeSelection } from './useNodeSelection.js';
 import { nodeEditorUrl } from './routes.js';
 import { Select } from '../components/control/Select.jsx';
@@ -81,6 +82,18 @@ export function describeConnection(graph, ref, link) {
   return `${name(link.from)} → ${name(link.to)} ${link.param || 'unmapped'} (modulation)`;
 }
 const sameConnection = (a, b) => !!a && !!b && a.kind === b.kind && a.key === b.key;
+// The elements that own their own text editing, and with it the browser's own
+// undo. Every canvas shortcut (and the canvas-wide Ctrl/Cmd+A) is skipped inside
+// them: replacing the characters the operator is typing is never what a canvas
+// key means.
+const EDITABLE = 'input,select,textarea,[contenteditable]:not([contenteditable="false"]),[role="textbox"]';
+const editableTarget = target => target instanceof Element && !!target.closest(EDITABLE);
+// Undo/redo narrows that to the elements that really do own a text undo. A
+// slider, checkbox, select or button has none, so Ctrl+Z still reaches the draft
+// while one of those holds focus — which is exactly where the previous edit was
+// made.
+const TEXT_FIELD = 'textarea,input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="file"]):not([type="color"]),[contenteditable]:not([contenteditable="false"]),[role="textbox"]';
+const textTarget = target => target instanceof Element && !!target.closest(TEXT_FIELD);
 // Structural palette items are drag-only, exactly like Pattern sources: dropping
 // one on the workspace creates the node at the drop point. There is no click-to-add.
 const CREATE_NODES = [
@@ -247,7 +260,11 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   const [routeId, setRouteId] = useState(() => graphId !== undefined ? graphId : new URLSearchParams(location.search).get('graph'));
   const [loadState, setLoadState] = useState('loading');
   const navigation = useCanvasNavigation(loadState === 'ready');
-  const selection = useNodeSelection(graph, setDraft, navigation);
+  // Undo/redo covers the draft (graph + dependencies) only: selection, the name
+  // being typed and unapplied Script text are not part of it, exactly as they are
+  // not part of a save.
+  const draftHistory = useDraftHistory(draft, setDraft);
+  const selection = useNodeSelection(graph, draftHistory.apply, navigation);
   const selected = selection.primary;
   const setSelected = selection.reset;
   const [current, setCurrent] = useState(null), [busy, setBusy] = useState(false);
@@ -380,9 +397,12 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   // source also drops its manifest entry, so a removed/changed source (a custom
   // script, say) cannot keep blocking Save after its node is gone. Stored
   // fingerprints of surviving entries stay untouched until an explicit refresh.
-  const setGraph = next => setDraft(d => ({ ...d, graph: next, dependencies: pruneManifest(next, SKETCHES, d.dependencies) }));
-  const edit = next => { const clean = validateGraph(next); setGraph(clean); };
-  const patch = values => attempt(() => edit({ ...graph, nodes: graph.nodes.map(n => n.id === selected ? { ...n, ...values } : n) }));
+  // Every committed edit goes through draftHistory.apply, which records the previous
+  // draft for undo before the new one is stored; `options` optionally names the
+  // gesture a change belongs to, so a drag is one undo step and not one per frame.
+  const setGraph = (next, options) => draftHistory.apply(d => ({ ...d, graph: next, dependencies: pruneManifest(next, SKETCHES, d.dependencies) }), options);
+  const edit = (next, options) => { const clean = validateGraph(next); setGraph(clean, options); };
+  const patch = (values, options) => attempt(() => edit({ ...graph, nodes: graph.nodes.map(n => n.id === selected ? { ...n, ...values } : n) }, options));
   // Structural scalar/visual nodes share one creator so defaults and validation
   // always come from the shared definitions module. Audio keeps its established
   // column (x=300) so new nodes never cover an existing source row.
@@ -404,7 +424,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
       const next = validateGraph({ ...graph, nodes: [...graph.nodes, n] });
       const fresh = manifestFor(next, SKETCHES);
       // Preserve opened dependency fingerprints until explicit refresh.
-      setDraft({ graph: next, dependencies: fresh.map(d => dependencies.find(old => old.id === d.id) || d) });
+      draftHistory.apply({ graph: next, dependencies: fresh.map(d => dependencies.find(old => old.id === d.id) || d) });
       setSelected(n.id); clearMessage();
     });
   }
@@ -498,7 +518,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
     // joins survive even if they were selected before the wire was picked.
     if (selection.wire) {
       if (selectedLink) attempt(() => {
-        setDraft(d => ({ ...d, graph: removeConnection(d.graph, selection.wire) }));
+        draftHistory.apply(d => ({ ...d, graph: removeConnection(d.graph, selection.wire) }));
         selection.clearWire(); setPending(null); setSignalEndpoint(null); clearMessage();
       });
       else selection.clearWire();
@@ -520,9 +540,49 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
     if (protectsOutput) reportError(removable.length ? 'Output is required and was kept. Other selected nodes and their connections were deleted.' : 'Output is required and cannot be deleted.');
     else clearMessage();
   };
+  // Undo/redo restores a whole draft, so the editor state that hangs off it is
+  // reconciled to what the restored graph actually contains: a node or wire that
+  // no longer exists is never left selected, the pending connection is dropped
+  // when its node is gone, and a Script node that disappears takes its unapplied
+  // text with it — which asks first, exactly like Delete's own guard. The name
+  // being typed is deliberately untouched: that text belongs to the field.
+  const losesScriptText = target => graph.nodes.filter(n => n.type === 'script' && scriptDrafts[n.id] && !target.graph.nodes.some(m => m.id === n.id));
+  const syncAfterHistory = restored => {
+    // The name is outside the history, so a restore must never rewind it: an entry
+    // carries the name its graph had when it was recorded, while the operator may
+    // have typed — and already saved — a different one since. Nothing typed at the
+    // moment of the restore means the current name wins, pinned in the name draft
+    // so the restored graph itself keeps the validated name it was saved with.
+    if (nameDraft === null && restored.graph.name !== name) setNameDraft(name);
+    const ids = new Set(restored.graph.nodes.map(n => n.id));
+    setScriptDrafts(previous => {
+      const kept = Object.entries(previous).filter(([id]) => ids.has(id));
+      return kept.length === Object.keys(previous).length ? previous : Object.fromEntries(kept);
+    });
+    const survives = id => id !== null && ids.has(id);
+    if (!selection.ids.every(survives) || (selected !== null && !survives(selected))) {
+      const kept = selection.ids.filter(survives);
+      const fallback = selection.wire ? null : restored.graph.nodes.find(n => n.type === 'output')?.id ?? null;
+      selection.reset(kept.at(-1) ?? fallback);
+    }
+    if (selection.wire && !findConnection(restored.graph, selection.wire)) selection.clearWire();
+    if (pending && !survives(pending)) setPending(null);
+    if (signalEndpoint && !(survives(signalEndpoint.from) && survives(signalEndpoint.to))) setSignalEndpoint(null);
+    clearMessage();
+  };
+  const stepHistory = direction => {
+    if (busy) return;
+    const target = draftHistory.peek(direction);
+    if (!target) return;
+    const lost = losesScriptText(target);
+    if (lost.length && !window.confirm(`Delete ${lost.length} Script node${lost.length === 1 ? '' : 's'} and discard unapplied script text?`)) return;
+    syncAfterHistory(direction === 'redo' ? draftHistory.redo() : draftHistory.undo());
+  };
   function load(record) {
     const data = { graph: structuredClone(record.graph), dependencies: structuredClone(record.dependencies || []) };
     setDraft(data); setCurrent(record); baseline.current = snapshot(data.graph, data.dependencies);
+    // A freshly read file is a new starting point: nothing before it can be undone.
+    draftHistory.reset();
     setNameDraft(null);
     // A reload shows disk state only: stale script drafts are dropped.
     setScriptDrafts({});
@@ -568,7 +628,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
     const onKey = e => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
       if (e.key !== 'a' && e.key !== 'A') return;
-      if (e.target instanceof Element && e.target.closest('input,select,textarea,[contenteditable]:not([contenteditable="false"]),[role="textbox"]')) return;
+      if (editableTarget(e.target)) return;
       e.preventDefault();
       if (busy || e.repeat) return;
       selection.selectAll();
@@ -576,13 +636,44 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [loadState, busy, selection.selectAll]);
+  // Ctrl/Cmd+Z undoes the last draft change; Ctrl/Cmd+Shift+Z (or Ctrl/Cmd+Y)
+  // redoes it. There is no button, no menu entry and no panel: the shortcut is the
+  // whole feature, and the same "editable fields keep their own undo" rule as
+  // Ctrl+A above means a typed name or Script body is never replaced by a graph
+  // step. The latest handler is read through a ref so the window keeps one
+  // listener for the editor's whole life. A busy disk write refuses the edit, but
+  // the browser default is still refused with it: a Ctrl+Z that the editor owns
+  // must never fall through to something else.
+  const historyKeys = useRef(null);
+  historyKeys.current = e => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+    if (textTarget(e.target)) return;
+    const key = e.key.toLowerCase();
+    if (key !== 'z' && key !== 'y') return;
+    e.preventDefault();
+    stepHistory(key === 'y' || e.shiftKey ? 'redo' : 'undo');
+  };
+  useEffect(() => {
+    if (loadState !== 'ready') return;
+    const onKey = e => historyKeys.current(e);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [loadState]);
+  // A pointer release ends the current edit gesture (history.js): the next slider
+  // or mapping drag is a new undo step, and a drag that ended exactly where it
+  // started leaves no step behind at all.
+  useEffect(() => {
+    const release = () => draftHistory.seal();
+    for (const type of ['pointerup', 'pointercancel', 'blur']) window.addEventListener(type, release, true);
+    return () => { for (const type of ['pointerup', 'pointercancel', 'blur']) window.removeEventListener(type, release, true); };
+  }, [draftHistory.seal]);
   useEffect(() => { onState?.({ name, dirty: dirty() || !!unappliedScripts().length, busy }); }, [draft, nameDraft, scriptDrafts, busy, current]);
   if (loadState !== 'ready') return <main className={`nodes-app${loadState === 'error' ? ' has-errors' : ''}`}>
     <header className="nodes-toolbar"><h1>Pattern editor</h1><BackToMain onBack={onBack} /></header>
     {loadState === 'loading' ? <p role="status">Loading selected node pattern from disk…</p> : <section role="alert"><p>{message}</p><button className="btn" onClick={() => resolveRoute(true)}>Retry loading</button></section>}
   </main>;
   return <main className={`nodes-app${blocked ? ' has-errors' : ''}`} data-errors={saveProblems.join(' | ') || undefined} onKeyDown={e => {
-    if (busy || e.target.closest('input,select,textarea,[contenteditable]:not([contenteditable="false"]),[role="textbox"]')) return;
+    if (busy || editableTarget(e.target)) return;
     if (e.key === 'Escape') { setPending(null); selection.cancel(); }
     if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); remove(); }
   }}>
@@ -716,7 +807,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
             // Value C exists only for clamp. Outside clamp the row is hidden and
             // disabled; the stored literal stays untouched for when it returns.
             const active = mathPorts(node.op).includes(port);
-            return <label key={port} hidden={!active}>{MATH_PORT_LABELS[port]} literal<input className="control-input" type="number" step="0.01" disabled={!active} aria-label={`Math ${port} literal`} title={active ? `Literal used when ${port} has no wire` : `${MATH_PORT_LABELS[port]} is only used by clamp`} value={node[port]} onChange={e => { const next = e.target.valueAsNumber; if (Number.isFinite(next)) patch({ [port]: next }); }} /></label>;
+            return <label key={port} hidden={!active}>{MATH_PORT_LABELS[port]} literal<input className="control-input" type="number" step="0.01" disabled={!active} aria-label={`Math ${port} literal`} title={active ? `Literal used when ${port} has no wire` : `${MATH_PORT_LABELS[port]} is only used by clamp`} value={node[port]} onChange={e => { const next = e.target.valueAsNumber; if (Number.isFinite(next)) patch({ [port]: next }, { merge: `literal:${node.id}:${port}` }); }} /></label>;
           })}
           <SignalReadout runtime={previewRuntime} nodeId={node.id} /></>}
         {node?.type === 'script' && <><label>Language<Select aria-label="Script language" title="Expression is the original single-value language; Body is a compiled statement list with return" value={scriptLanguage} onChange={e => updateScriptDraft({ language: e.target.value })}>
@@ -726,7 +817,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
           <button className="btn" aria-label="Apply script" title="Validate, store and approve this exact source" disabled={!scriptCheck?.ok} onClick={applyScript}>Apply</button>
           {!scriptCheck?.ok && <p className="nodes-script-error" role="alert">Script: {scriptCheck?.error}</p>}
           <p className="nodes-script-status" role="status" data-testid="script-status">{!scriptCheck?.ok ? 'Not applied' : `${scriptApplied ? (isScriptApproved(nodeLanguage, node.source) ? 'Applied and approved' : 'Applied · review required to run') : 'Not applied'} · ${scriptLanguage} · uses ${SCRIPT_VARIABLES.filter(name => scriptCheck.uses?.[name]).join(', ') || 'no inputs'}`}</p>
-          {SCRIPT_INPUTS.map(port => <label key={port}>{SCRIPT_PORT_LABELS[port]} literal<input className="control-input" type="number" step="0.01" aria-label={`Script ${port} literal`} title={`Literal used when ${port} has no wire`} value={node[SCRIPT_LITERAL_FIELDS[port]]} onChange={e => { const next = e.target.valueAsNumber; if (Number.isFinite(next)) patch({ [SCRIPT_LITERAL_FIELDS[port]]: next }); }} /></label>)}
+          {SCRIPT_INPUTS.map(port => <label key={port}>{SCRIPT_PORT_LABELS[port]} literal<input className="control-input" type="number" step="0.01" aria-label={`Script ${port} literal`} title={`Literal used when ${port} has no wire`} value={node[SCRIPT_LITERAL_FIELDS[port]]} onChange={e => { const next = e.target.valueAsNumber; if (Number.isFinite(next)) patch({ [SCRIPT_LITERAL_FIELDS[port]]: next }, { merge: `literal:${node.id}:${port}` }); }} /></label>)}
           <SignalReadout runtime={previewRuntime} nodeId={node.id} /></>}
         {node?.type === 'blend' && <><label>Blend mode<Select aria-label="Blend mode" title="Choose the pixel blend operation (TouchDesigner's Composite TOP list)" value={node.mode} onChange={e => patch({ mode: e.target.value })}>
           <optgroup label="Canvas blend modes">{MODE_NAMES.filter(mode => !isExtendedMode(mode)).map(mode => <option key={mode}>{mode}</option>)}</optgroup>
@@ -741,11 +832,16 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
         {signalNode && (graph.modulations || []).some(m => m.to === signalNode.id) && <section className="nodes-signals" aria-label="Connected signals"><h2>Connected signals</h2>
           {[...new Set(graph.modulations.filter(m => m.to === signalNode.id).map(m => m.from))].map(from => <button key={from} className={`btn nodes-signal-chip ${signalEndpoint?.from === from && signalEndpoint?.to === signalNode.id ? 'active' : ''}`} draggable title="Drag onto a numeric slider to map it" onDragStart={e => e.dataTransfer.setData(SIGNAL_DRAG, from)} onClick={() => focusSignal(from, signalNode.id)}>{label(graph.nodes.find(n => n.id === from))}</button>)}
         </section>}
+        {/* Inspector parameters. A pointer drag on a mapped range owns its whole
+            gesture as one undo step however long it pauses (`part` is absent); a
+            field typed into names itself, so that field's keystrokes group into one
+            step and min/max stay separate controls. */}
         {node && definitions(node, SKETCHES).map(def => {
           const mapping = (graph.modulations || []).find(m => m.to === node.id && m.param === def.key);
           return <ModulatedParameter key={`${node.id}:${def.key}`} node={node} def={def} value={node.type === 'blend' ? node.opacity : node.params[def.key] ?? def.default}
-            onChange={value => node.type === 'blend' ? patch({ opacity: value }) : patch({ params: { ...node.params, [def.key]: value } })}
-            readEffective={() => previewRuntime.current?.params.get(node.id)?.[def.key]} mapping={mapping} onMap={assignSignal} onRange={(min, max) => attempt(() => edit(mapSignal(graph, mapping.from, node.id, def.key, min, max, true)))}
+            onChange={value => node.type === 'blend' ? patch({ opacity: value }, { merge: `param:${node.id}:opacity` }) : patch({ params: { ...node.params, [def.key]: value } }, { merge: `param:${node.id}:${def.key}` })}
+            readEffective={() => previewRuntime.current?.params.get(node.id)?.[def.key]} mapping={mapping} onMap={assignSignal}
+            onRange={(min, max, part) => attempt(() => edit(mapSignal(graph, mapping.from, node.id, def.key, min, max, true), { merge: `range:${node.id}:${def.key}:${part || 'gesture'}`, windowMs: part ? undefined : Infinity }))}
             sourceLabel={mapping ? signalSourceName(mapping.from) : null}
             onInputRange={(inputMin, inputMax, changed) => {
               const low = mappingEndpoint(inputMin), high = mappingEndpoint(inputMax);
@@ -753,7 +849,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
                 const error = 'Signal input range needs a max greater than its min.';
                 reportError(error); return { error };
               }
-              const result = attempt(() => edit(mapSignalInput(graph, mapping.from, node.id, def.key, low, high)));
+              const result = attempt(() => edit(mapSignalInput(graph, mapping.from, node.id, def.key, low, high), { merge: `inputRange:${node.id}:${def.key}:${changed}` }));
               if (!result.ok) return { error: result.error };
               const original = changed === 'inputMin' ? inputMin : inputMax;
               const accepted = changed === 'inputMin' ? low : high;

@@ -134,8 +134,11 @@ export function ModulatedParameter({ node, def, value, onChange, mapping, readEf
       {showFields && <output className="nodes-mapping-value" aria-label={`${def.label} LIVE mapped value`}>LIVE {effective}</output>}
       {showFields && <div className="nodes-mapping-fields" id={fieldsId}>
       <p className="nodes-mapping-inline"><small>Base: {value} · signal {inputMin} → {min}; {inputMax} → {max}{min > max ? ' (reversed)' : ''}</small></p>
+      {/* A typed endpoint names itself (`min`/`max`, `inputMin`/`inputMax`), so the
+          editor groups only that one field's keystrokes into an undo step. A
+          pointer drag passes no name: it owns the whole gesture instead. */}
       <div>{[['min', 'Mapping min', min], ['max', 'Mapping max', max]].map(([key, label, v]) => <MappingNumberField key={key} ariaLabel={`${def.label} ${label}`} label={label} value={v}
-        onCommit={next => onRange(key === 'min' ? mappingEndpoint(next, v) : min, key === 'max' ? mappingEndpoint(next, v) : max)} />)}</div>
+        onCommit={next => onRange(key === 'min' ? mappingEndpoint(next, v) : min, key === 'max' ? mappingEndpoint(next, v) : max, key)} />)}</div>
       {onInputRange && <div>{[['inputMin', 'Signal in min', inputMin], ['inputMax', 'Signal in max', inputMax]].map(([key, label, v]) => <MappingNumberField key={key} ariaLabel={`${def.label} ${label}`} label={label} value={v}
         onCommit={next => onInputRange(key === 'inputMin' ? next : inputMin, key === 'inputMax' ? next : inputMax, key)} />)}</div>}
       <button className="btn btn--sm" onClick={onRemove}>Remove mapping</button>
