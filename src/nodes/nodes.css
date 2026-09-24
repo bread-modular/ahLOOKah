@@ -234,6 +234,11 @@
 .nodes-lfo-pad-area { fill:rgba(194,154,255,.18); }
 .nodes-lfo-pad-line { fill:none; stroke:#c29aff; stroke-width:2px; stroke-linejoin:round; }
 .nodes-lfo-pad-hint { margin:6px 0 4px; }
+/* Persistent state readout: a live, wrapping value line plus the reset action.
+   Mono, tabular and quiet — it is a readout, never a control surface. */
+.nodes-script-state { display:flex; align-items:flex-start; gap:6px; margin:4px 0 2px; }
+.nodes-script-state output { flex:1 1 auto; min-width:0; overflow-wrap:anywhere; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:11px; line-height:1.45; color:#8fd3c7; font-variant-numeric:tabular-nums; }
+.nodes-script-state .btn { flex:0 0 auto; }
 /* Script source is multi-line: monospace, resizable vertically, and it never
    forces the inspector wider than the panel. */
 .nodes-inspector textarea.nodes-script-source { width:100%; min-height:52px; max-height:280px; resize:vertical; margin:4px 0 0; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:11px; line-height:1.45; white-space:pre; overflow:auto; tab-size:2; }

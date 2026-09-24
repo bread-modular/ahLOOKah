@@ -39,6 +39,19 @@ export const MAX_BODY_BLOCK_DEPTH = 12;
 // budget is a defensive guard rather than a reachable limit.
 export const MAX_BODY_STEPS = 2048;
 
+// Persistent state (body language only). A node keeps one bounded store of
+// doubles for as long as its graph runs: `state.<name>` is a slot and
+// `state.<name> = [0, 0, 0, 0]` declares a bounded buffer inside that same
+// store. Names are resolved at compile time (no computed properties, no
+// strings, no objects), so the storage is one fixed-size Float64Array and the
+// per-frame cost stays a plain array index.
+export const SCRIPT_STATE_NAME = 'state';
+export const MAX_STATE_SLOTS = 64;      // one node's whole store, in doubles
+export const MAX_STATE_STEP = 0.25;     // seconds; the dt clamp (see script-state.js)
+// `state` itself can never be a local, and these can never be slot names: they
+// describe JavaScript objects, not stored numbers.
+export const SCRIPT_STATE_RESERVED = Object.freeze(['__proto__', 'constructor', 'prototype']);
+
 export const SCRIPT_CONSTANTS = Object.freeze({ pi: Math.PI, e: Math.E, tau: Math.PI * 2 });
 export const SCRIPT_FUNCTIONS = Object.freeze({
   sin: Math.sin, cos: Math.cos, tan: Math.tan, asin: Math.asin, acos: Math.acos, atan: Math.atan, atan2: Math.atan2,
@@ -50,14 +63,19 @@ export const SCRIPT_FUNCTIONS = Object.freeze({
 // Function order is the bytecode's function index; both languages share it.
 export const SCRIPT_FUNCTION_NAMES = Object.freeze(Object.keys(SCRIPT_FUNCTIONS));
 export const SCRIPT_FUNCTION_LIST = Object.freeze(SCRIPT_FUNCTION_NAMES.map(name => SCRIPT_FUNCTIONS[name]));
-export const SCRIPT_INPUT_NAMES = Object.freeze(['x', 'y', 'time']);
+// `dt` is the seconds since this node's previous evaluation, clamped by the
+// runtime (MAX_STATE_STEP). It is listed here so both languages share one input
+// table; the expression front end lists only x/y/time (see script.js) so a
+// legacy expression is unchanged.
+export const SCRIPT_INPUT_NAMES = Object.freeze(['x', 'y', 'time', 'dt']);
 export const SCRIPT_VARIABLES = SCRIPT_INPUT_NAMES;
 export const isScriptFunction = name => Object.hasOwn(SCRIPT_FUNCTIONS, name);
 export const isScriptConstant = name => Object.hasOwn(SCRIPT_CONSTANTS, name);
 export const scriptFunctionIndex = name => SCRIPT_FUNCTION_NAMES.indexOf(name);
 
 export const SCRIPT_HELP = 'Restricted expression: numbers, x, y, time, pi, e, + − × ÷ %, parentheses and the listed math functions.';
-export const SCRIPT_BODY_HELP = 'Body syntax: numbers, x, y, time, pi, e, let/const locals, if/else, return, comparisons, && || !, ?:, + − × ÷ %, parentheses and the listed math functions.';
+export const SCRIPT_BODY_HELP = 'Body syntax: numbers, x, y, time, dt, state.<name>, pi, e, let/const locals, if/else, return, comparisons, && || !, ?:, + − × ÷ %, parentheses and the listed math functions.';
+export const SCRIPT_STATE_HELP = `state.<name> keeps a number between frames (slots start at 0 and must be assigned before they are read); state.<name> = [0, 0, 0, 0] declares a buffer of at most ${MAX_STATE_SLOTS} values, indexed with state.<name>[i]. dt is the seconds since this node last ran, capped at ${MAX_STATE_STEP}.`;
 export const helpForLanguage = value => scriptLanguageOf(value) === 'body' ? SCRIPT_BODY_HELP : SCRIPT_HELP;
 export const limitForLanguage = value => scriptLanguageOf(value) === 'body' ? MAX_BODY : MAX_EXPRESSION;
 

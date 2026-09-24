@@ -423,7 +423,12 @@ Script nodes offer two languages: the new **body** language (`return`, `let`/`co
 locals with lexical block scope, `if`/`else`, comparisons, short-circuit `&&`/`||` and
 `?:`, compiled once by Acorn-checked bytecode — no `eval`/`Function`, no loops, no
 globals) and the legacy single-value **expression** language that graphs saved before it
-still use unchanged. Sources are approved per exact text *and* language in this browser,
+still use unchanged. A body can also keep numbers between frames in its own store:
+`state.<name>` slots plus `dt` (seconds since the node last ran, capped at 0.25) for
+frame-rate-independent smoothing, and `state.<name> = [0, 0, 0, 0]` for a bounded buffer
+indexed with `state.<name>[i]` — up to 64 values per node, at most one update per frame,
+never written to the file, with a live readout and **Reset state** in the inspector.
+Sources are approved per exact text *and* language in this browser,
 so an imported file can never carry trust with it.
 The main **Node Patterns** category owns **Link Folder**, **Open Pattern**,
 **Refresh folder**, and **New Node Pattern**. **Open Pattern** only adds the picked

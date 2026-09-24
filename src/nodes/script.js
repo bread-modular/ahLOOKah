@@ -12,16 +12,16 @@
 // to `new Function` and is explicitly not a sandbox.
 import { parse } from 'acorn';
 import {
-  MAX_ARGS, MAX_BODY, MAX_DEPTH, MAX_EXPRESSION, MAX_NODES, SCRIPT_CONSTANTS, SCRIPT_FUNCTIONS, SCRIPT_HELP,
+  MAX_ARGS, MAX_BODY, MAX_DEPTH, MAX_EXPRESSION, MAX_NODES, SCRIPT_CONSTANTS, SCRIPT_FUNCTIONS, SCRIPT_HELP, SCRIPT_STATE_NAME,
   compileKey, scriptCompileStats, scriptLanguageOf,
 } from './script-core.js';
 import { compileBody, evaluateBody } from './script-body.js';
 
 export {
   LANGUAGES, MAX_ARGS, MAX_BODY, MAX_BODY_DEPTH, MAX_BODY_INSTRUCTIONS, MAX_BODY_LOCALS, MAX_BODY_STATEMENTS, MAX_BODY_STEPS,
-  MAX_DEPTH, MAX_EXPRESSION, MAX_NODES, MAX_SOURCE, SCRIPT_BODY_HELP, SCRIPT_CONSTANTS, SCRIPT_FUNCTIONS, SCRIPT_HELP,
-  SCRIPT_INPUT_NAMES, SCRIPT_VARIABLES, helpForLanguage, isScriptConstant, isScriptFunction, limitForLanguage,
-  scriptCompileStats, scriptLanguageLabel, scriptLanguageOf,
+  MAX_DEPTH, MAX_EXPRESSION, MAX_NODES, MAX_SOURCE, MAX_STATE_SLOTS, MAX_STATE_STEP, SCRIPT_BODY_HELP, SCRIPT_CONSTANTS,
+  SCRIPT_FUNCTIONS, SCRIPT_HELP, SCRIPT_INPUT_NAMES, SCRIPT_STATE_HELP, SCRIPT_STATE_NAME, SCRIPT_VARIABLES, helpForLanguage,
+  isScriptConstant, isScriptFunction, limitForLanguage, scriptCompileStats, scriptLanguageLabel, scriptLanguageOf,
 } from './script-core.js';
 
 const ALLOWED_BINARY = ['+', '-', '*', '/', '%'];
@@ -49,6 +49,9 @@ function validateAst(ast) {
       case 'Identifier':
         if (Object.hasOwn(uses, node.name)) { uses[node.name] = true; return; }
         if (Object.hasOwn(SCRIPT_CONSTANTS, node.name)) return;
+        // Persistent state and the frame delta are body-language features: a
+        // legacy expression stays a pure function of x, y and time.
+        if (node.name === SCRIPT_STATE_NAME || node.name === 'dt') throw new Error(`"${node.name}" is available in the body language only`);
         throw new Error(`Unknown name "${node.name}"; use x, y, time, pi, e or the listed math functions`);
       case 'CallExpression':
         if (node.callee.type !== 'Identifier' || !Object.hasOwn(SCRIPT_FUNCTIONS, node.callee.name)) throw new Error('Only the listed math functions can be called');
@@ -61,6 +64,8 @@ function validateAst(ast) {
       case 'MemberExpression':
       case 'OptionalMemberExpression':
       case 'ChainExpression':
+        if (node.type === 'MemberExpression' && node.object?.type === 'Identifier' && node.object.name === SCRIPT_STATE_NAME)
+          throw new Error(`"${SCRIPT_STATE_NAME}" is available in the body language only`);
         throw new Error('Property access is not allowed');
       case 'AssignmentExpression':
       case 'UpdateExpression':
@@ -111,9 +116,11 @@ export const validateScript = compileScript;
 export const compileExpression = text => compileScript(text, 'expression');
 export const validateExpression = compileExpression;
 
-// Interpreter entry point for a compiled result of either language.
-export function evaluateScript(result, vars = {}, issues = []) {
-  if (result.language === 'body') return evaluateBody(result.program, vars, issues);
+// Interpreter entry point for a compiled result of either language. `state` is
+// the persistent store's Float64Array for a body program that declares state
+// slots (the body language only); it is ignored by the expression language.
+export function evaluateScript(result, vars = {}, issues = [], state = null) {
+  if (result.language === 'body') return evaluateBody(result.program, vars, issues, state);
   return evaluateExpression(result.ast, vars, issues);
 }
 

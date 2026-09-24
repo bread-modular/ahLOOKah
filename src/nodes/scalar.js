@@ -61,14 +61,19 @@ export function scriptProgram(node, cache = new Map()) {
   if (!compiled) { compiled = compileScript(source, language); cache.set(key, compiled); }
   return { language, source, compiled };
 }
-export function scriptValue(node, { time = 0, readInput = null, program = null } = {}, cache = new Map()) {
+// One evaluation of a Script node. `dt` (seconds since this node's previous
+// update, already clamped by the store) and `state` (the node's Float64Array)
+// are supplied by the caller — script-state.js owns their lifetime; without a
+// store a body that declares state still runs, starting from its initial values
+// on every call.
+export function scriptValue(node, { time = 0, dt = 0, readInput = null, program = null, state = null } = {}, cache = new Map()) {
   const entry = program || scriptProgram(node, cache);
   const { language, compiled } = entry;
   if (!compiled.ok) return { value: 0, error: `Script: ${compiled.error}`, uses: null, language };
-  const vars = { ...scriptInputs(node, readInput), time: finiteOr(time) };
+  const vars = { ...scriptInputs(node, readInput), time: finiteOr(time), dt: finiteOr(dt) };
   const issues = [];
   try {
-    const value = evaluateScript(compiled, vars, issues);
+    const value = evaluateScript(compiled, vars, issues, state);
     if (!Number.isFinite(value)) return { value: 0, error: 'Script: result is not a finite number → 0.', uses: compiled.uses, language };
     // The whole node output falls back to 0 whenever arithmetic failed, so a
     // nested zero divisor can never leak a partial result downstream.

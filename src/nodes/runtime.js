@@ -13,6 +13,7 @@ import { CAMERA_NODE_PATTERN } from './camera-source.js';
 import { createPreviewClip } from './preview-clip.js';
 import { mathValue, mathIssue, scriptValue, scriptProgram, scriptLanguageOf, scriptSource } from './scalar.js';
 import { lfoValue, lfoRateOf, LFO_MAX_TRAVEL_STEP, LFO_RATE_SLEW } from './lfo.js';
+import { createScriptStateStore } from './script-state.js';
 import { isScriptApproved, SCRIPT_APPROVAL_MESSAGE } from './script-approval.js';
 
 // Composites base + layer into ctx. Native modes keep the original Canvas2D path
@@ -173,6 +174,9 @@ export class GraphRuntime {
     this.pendingSignals = new Set();
     this.scriptCache = new Map();
     this.scriptPrograms = new Map();
+    // Persistent `state.<name>` storage for this runtime's Script nodes. It lives
+    // exactly as long as the graph does — see script-state.js.
+    this.scriptState = createScriptStateStore();
     this.startedAt = performance.now();
     this.params = new Map();
     // Parameter views are created with their target's activation, before a
@@ -428,6 +432,13 @@ export class GraphRuntime {
     if (this.preview && !this.planned.has(id)) void this._activate(id);
     return this.signal?.getNodeStatus?.(id) || null;
   }
+  // A Script node's persistent state, for the inspector readout: one entry per
+  // slot/buffer with its current contents, or null when the node stores nothing.
+  // Reading it never advances the state.
+  getScriptState(id) { return this.scriptState.readout(id); }
+  // The explicit user action behind the inspector's "Reset state" button:
+  // restore the script's declared initial values and forget the timing.
+  resetScriptState(id) { return this.scriptState.reset(id); }
   computeSignal(id, visiting) {
     if (this.frameSignals.has(id)) return this.frameSignals.get(id);
     const node = this.graph.nodes.find(n => n.id === id);
@@ -456,7 +467,13 @@ export class GraphRuntime {
       } else {
         let program = this.scriptPrograms.get(id);
         if (!program) { program = scriptProgram(node, this.scriptCache); this.scriptPrograms.set(id, program); }
-        const result = scriptValue(node, { time: this.elapsed(), readInput, program }, this.scriptCache);
+        // One evaluation per node per frame. The store keys on the frame counter,
+        // hands the body its own state array plus the elapsed dt, and commits only
+        // a clean run — so a readout, a mapping or any other reader between frames
+        // can never advance an accumulator a second time.
+        const time = this.elapsed();
+        const result = this.scriptState.run(id, { tick: this.frame, time, entry: program }, (dt, state) =>
+          scriptValue(node, { time, dt, readInput, program, state }, this.scriptCache));
         value = result.value;
         if (result.error) this.messages.set(id, result.error); else this.messages.delete(id);
       }
@@ -696,6 +713,7 @@ export class GraphRuntime {
     this.buffers.clear(); this.work.clear(); this.staging.clear(); this.sourceRevision.clear();
     this.frameSignals.clear(); this.scriptPrograms.clear(); this.pendingSignals.clear();
     this.lfoTravel.clear(); this.lfoRate.clear(); this.lastSignalTick = null;
+    this.scriptState.clear();
   }
 }
 export function graphFactory(record, sketches) {

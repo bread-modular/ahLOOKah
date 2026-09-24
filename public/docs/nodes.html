@@ -215,6 +215,35 @@ return clamp(eased * 0.8, 0, 1);</code></pre>
 
         <p>Press <strong>Ctrl+Enter</strong> (or click <strong>Apply</strong>) to validate and store the text in the <strong>Script source</strong> box; plain <kbd>Enter</kbd> adds a line, so bodies stay multi-line. The source is never executed as JavaScript: it is parsed, checked against an allowlist and compiled once into a bounded instruction list the editor runs itself — there is no <code>eval</code> and no generated code. A body is limited to 1024 characters, 512 syntax nodes, 80 statements, 512 instructions, 32 locals, 12 nested block levels and an operand nesting depth of 16; an expression stays at 256 characters, 64 operations and a depth of 12. A script that fails validation cannot be applied or saved, and a runtime error falls back to <code>0</code> with a visible message.</p>
 
+        <h3>Persistent state (<code>state</code> and <code>dt</code>)</h3>
+        <p>A body is otherwise a pure function of its inputs: a <code>let</code>/<code>const</code> is created fresh on every frame. When a value has to survive into the next frame — a smoother, a moving average, a delay line, a counter, a phase — keep it in the node’s own store, <code>state.&lt;name&gt;</code>, and use <code>dt</code> (the seconds since this node last ran) whenever the maths depends on time rather than on frames:</p>
+
+        <pre><code>// one-pole smoother, frame-rate independent
+state.level = state.level + (x - state.level) * (1 - exp(-dt / 0.15));
+return state.level;</code></pre>
+
+        <p>Slots are numbers, not objects: <code>state.level + 1</code>, <code>state.level = 2</code> and <code>state.level += 0.1</code> all work as expected, and the name is fixed at compile time (there is no <code>state[&lt;expression&gt;]</code>, no strings and no methods). Every slot starts at <code>0</code>, and a slot must be assigned somewhere before it is read — so a typo is a compile error instead of a second, silently zero slot.</p>
+
+        <p>A <strong>buffer</strong> is a bounded window of stored numbers, declared once by assigning an array literal. Its values are the <em>initial</em> contents, applied when the node’s state is created rather than on every frame, and it is read and written with an index:</p>
+
+        <pre><code>// weighted average of the last four values (weights 4 3 2 1), a ring buffer
+state.hist = [0, 0, 0, 0];
+state.i = (state.i + 1) % 4;
+state.hist[state.i] = x;
+let weighted = state.hist[state.i] * 4 + state.hist[(state.i + 3) % 4] * 3
+  + state.hist[(state.i + 2) % 4] * 2 + state.hist[(state.i + 1) % 4];
+return weighted / 10;</code></pre>
+
+        <ul>
+          <li><strong>One update per frame.</strong> A node’s body runs at most once for each rendered frame, so <code>state.n = state.n + 1</code> counts frames. A readout, a mapped slider or any other reader between frames shows that frame’s value instead of running the body again; an unselected branch keeps advancing while it is being inspected.</li>
+          <li><strong><code>dt</code> is bounded.</strong> It is <code>0</code> on the node’s first update and never larger than <code>0.25</code>, so a paused graph, a hidden tab or a branch the renderer does not reach resumes with a small step instead of one huge jump.</li>
+          <li><strong>A failed evaluation changes nothing.</strong> A reported error, a non-finite result or a non-finite stored number leaves the store exactly as it was, so one bad frame can never poison a history.</li>
+          <li><strong>Indices are checked.</strong> A buffer index is truncated to a whole number and must be inside the buffer (<code>state.hist[0]</code>…<code>state.hist[3]</code>); an out-of-range index is reported and the node outputs <code>0</code>, so it can never read a neighbouring slot.</li>
+          <li><strong>State is memory, never file data.</strong> Nothing about it is written to the <code>.nodes.json</code>. It lives as long as the running graph: applying a new source, reloading the pattern or the page, or swapping the live pattern starts from the declared initial values, and the editor preview and the output screen each keep their own. The inspector lists the live slots and buffers of the selected node and its <strong>Reset state</strong> button restores the declared values.</li>
+          <li><strong>State follows time, not pixels.</strong> A tick that ran advances the store once, whether its image is committed or retired — by an FX tick invalidated halfway through, or by pixels a resize drops. The next frame continues from the stored values with its own small step, so nothing is lost and nothing is counted twice.</li>
+          <li><strong>Bounded.</strong> All slots and buffers of one node together hold at most 64 values. The legacy <strong>Expression</strong> language has neither <code>state</code> nor <code>dt</code>: it stays the pure single value it always was.</li>
+        </ul>
+
         <h2>Driving sliders with audio, scripts and LFOs</h2>
         <p>Signal outputs are not just for wiring node to node. Select the Script, Audio or LFO node an Audio→Script chain ends in, and the inspector lists it under <strong>Connected signals</strong>. Drag that chip onto any numeric slider of a selected Pattern, Blend, Color, Transform or LFO node to map it:</p>
 
