@@ -5,6 +5,9 @@ export function slotLabel(i) {
 }
 
 export function formatParamValue(v, def) {
+  // A duration reads in whichever unit makes it legible: a 0.1 s … 10 s range
+  // spans two decades, and "100 ms" tells the operator far more than "0.10".
+  if (def.format === 'duration') return v < 1 ? `${Math.round(v * 1000)} ms` : `${v.toFixed(2)} s`;
   const step = def.step ?? 0.01;
   if (step >= 1) return String(Math.round(v));
   if (step >= 0.1) return v.toFixed(1);

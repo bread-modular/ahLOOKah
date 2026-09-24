@@ -1,7 +1,7 @@
 import { RuntimeContext } from '../app/RuntimeContext.jsx';
 import { IconControl } from '../components/control/IconControl.jsx';
 import { ModulatedParameter } from './ModulatedParameter.jsx';
-import { BANDS, definitions, numeric, clampStep, mappingEndpoint, SIGNAL_DRAG } from './modulation.js';
+import { BANDS, definitions, numeric, clampStep, mappingEndpoint, SIGNAL_DRAG, defaultInputRange } from './modulation.js';
 import { AUDIO_CHANNEL_LABELS } from '../audio-routing.js';
 import { STORAGE } from '../platform/constants.js';
 import { MATH_OPS, MATH_LABELS, MATH_INPUTS, MATH_PORT_LABELS, SCRIPT_INPUTS, SCRIPT_PORT_LABELS, SCRIPT_LITERAL_FIELDS, SIGNAL_TYPES, defaultNode, isSignalSource, isVisualSource, isScalarConsumer, isModulationTarget, activeInputs, mathPorts } from './definitions.js';
@@ -9,6 +9,8 @@ import { inputAnchor, outputAnchor, signalAnchor, portsHeight, wirePath, BUNDLE_
 import { SCRIPT_VARIABLES, compileScript, helpForLanguage, limitForLanguage, scriptLanguageLabel } from './script.js';
 import { approveScript, isScriptApproved } from './script-approval.js';
 import { scriptLanguageOf as scriptNodeLanguage } from './scalar.js';
+import { LFO_PATTERNS, LFO_PATTERN_LABELS, LFO_PARAMS, LFO_RANGES, LFO_RANGE_LABELS, lfoPatternOf, lfoRangeOf, lfoCycleOf, lfoPointsOf, lfoSeedOf, defaultLfoPoints, LFO_MAX_SEED } from './lfo.js';
+import { formatParamValue } from '../components/control/panelHelpers.js';
 import { createEditorAudio } from './audio-provider.js';
 import { useCanvasNavigation } from './useCanvasNavigation.js';
 import { useDraftHistory } from './history.js';
@@ -47,8 +49,17 @@ function initialParams(sketch) {
 function labelFor(n) {
   return n.type === 'pattern' ? SKETCHES.find(s => s.id === n.patternId)?.name || n.patternId
     : n.type === 'blend' ? 'Blend' : n.type === 'audio' ? `Audio · ${n.band}` : n.type === 'camera' ? 'Camera' : n.type === 'color' ? 'Color'
-      : n.type === 'transform' ? 'Transform'
+      : n.type === 'transform' ? 'Transform' : n.type === 'lfo' ? `LFO · ${lfoPatternOf(n.pattern)}`
         : n.type === 'math' ? `Math · ${n.op || 'add'}` : n.type === 'script' ? 'Script' : 'Output';
+}
+// The LFO's card line and inspector vocabulary: which shape one cycle traces, the
+// output domain it sweeps, and how long one cycle takes. Shared so the node card
+// and the inspector can never describe the same node differently.
+const lfoRangeText = range => lfoRangeOf(range) === 'bipolar' ? '−1…1' : '0…1';
+const LFO_CYCLE_DEF = LFO_PARAMS[0];
+const lfoDuration = value => formatParamValue(value, LFO_CYCLE_DEF);
+function lfoDetail(n) {
+  return `${lfoPatternOf(n.pattern)} · ${lfoRangeText(n.range)} · ${lfoDuration(lfoCycleOf(n))}`;
 }
 // Blend inspector status. Canvas modes always exist; the shader modes depend on
 // the shared WebGL2 compositor this window can actually create, so the note never
@@ -103,6 +114,7 @@ const CREATE_NODES = [
   { type: 'camera', label: '+ Camera', title: 'Drag Camera onto the canvas to create an image source (Global Settings video input or a pinned camera)' },
   { type: 'script', label: '+ Script', title: 'Drag Script onto the canvas to create a node (restricted scalar expression and compiled body)' },
   { type: 'audio', label: '+ Audio', title: 'Drag Audio onto the canvas to create a node (bass, mid or high activity)' },
+  { type: 'lfo', label: '+ LFO', title: 'Drag LFO onto the canvas to create a signal source: a free-running oscillator (linear, sine, noise, random or a drawn pattern) over 0…1 or −1…1, with a logarithmic cycle time of 100 ms…10 s' },
 ];
 // Every wire — image, scalar and modulation — is drawn from the same geometry and
 // is activated the same way: activating selects only the connection, it never
@@ -130,6 +142,49 @@ function LiveReadout(runtime, nodeId, select) {
 function SignalReadout({ runtime, nodeId }) {
   const value = LiveReadout(runtime, nodeId, 'signalValue');
   return <output className="nodes-signal-readout" data-testid="node-signal-readout" aria-label="Signal output value">{Number.isFinite(value) ? `Output ${value.toFixed(3)}` : 'Output —'}</output>;
+}
+// The Custom LFO pattern's drawing pad: one cycle across the width, value up the
+// height, point i sitting at i + 0.5 columns. A stroke is ONE undo step (every
+// move merges under the node's key and the editor's pointer-release listener
+// seals it) and only the y value of an existing column is ever written, so the
+// table keeps its length and stays a valid 0…1 curve whatever the pointer does.
+function LfoShapePad({ points, onDraw, onReset }) {
+  const pad = useRef(null);
+  const stroke = useRef(false);
+  const count = points.length;
+  const columnAt = event => {
+    const rect = pad.current.getBoundingClientRect();
+    const x = (event.clientX - rect.left) / Math.max(1, rect.width);
+    const y = (event.clientY - rect.top) / Math.max(1, rect.height);
+    return { index: Math.min(count - 1, Math.max(0, Math.floor(x * count))), value: Math.min(1, Math.max(0, 1 - y)) };
+  };
+  const paint = event => {
+    const { index, value } = columnAt(event);
+    if (points[index] === value) return;
+    const next = points.slice(); next[index] = value; onDraw(next);
+  };
+  const vertices = points.map((v, i) => `${i + 0.5},${1 - v}`);
+  return <div className="nodes-lfo-pad-wrap">
+    <svg ref={pad} className="nodes-lfo-pad" viewBox={`0 0 ${count} 1`} preserveAspectRatio="none" aria-hidden="true"
+      onPointerDown={e => { if (e.button !== 0) return; stroke.current = true; e.currentTarget.setPointerCapture(e.pointerId); paint(e); }}
+      onPointerMove={e => { if (stroke.current) paint(e); }}
+      onPointerUp={() => { stroke.current = false; }}
+      onPointerCancel={() => { stroke.current = false; }}>
+      <path className="nodes-lfo-pad-area" d={`M 0 1 L ${vertices.join(' L ')} L ${count} ${1 - points[0]} L ${count} 1 Z`} />
+      {/* The trailing segment shows the wrap back to the first point, so the pad
+          reads as a loop instead of a one-shot ramp. */}
+      <polyline className="nodes-lfo-pad-line" points={[...vertices, `${count},${1 - points[0]}`].join(' ')} vectorEffect="non-scaling-stroke" />
+    </svg>
+    <p className="nodes-lfo-pad-hint">Drag across the pad to draw one cycle ({count} points); the shape repeats and wraps.</p>
+    <button className="btn" aria-label="Reset LFO shape" title="Return the drawn shape to a plain ramp" onClick={onReset}>Reset shape</button>
+  </div>;
+}
+// LFO inspector status: the one non-obvious part of the node is that its cycle
+// time is a rate — the runtime accumulates travel, so a mapped signal speeds the
+// shape up or slows it down and never restarts it — and that its two sliders are
+// automatable like every other numeric control.
+function lfoStatus(node) {
+  return `One cycle takes ${lfoDuration(lfoCycleOf(node))}. Cycle time is a rate: a signal mapped onto it accelerates or slows the shape without jumping it, and Start Position is the phase it is anchored to.`;
 }
 // Requested-vs-actual input status for the selected Audio node: truthy text with
 // a polite live region for transitions, never a color-only or per-tick signal.
@@ -237,7 +292,7 @@ function Preview({ graph, dependencies, selected, revision, current, sharedRunti
     // edits keep its child list and frame loop; only the graph's live views move.
     if (providerReady) current.current?.updateGraph(JSON.parse(content));
   }, [content, lifecycle, manifest, revision, providerReady]);
-  // Audio and Script are scalar sources with no image to show, so their
+  // Audio, Script and LFO are scalar sources with no image to show, so their
   // inspector omits the preview window entirely; the runtime stays mounted.
   if (!visible) return null;
   return <><canvas ref={canvas} width="480" height="270" aria-label="Selected node live preview" data-testid="node-preview" /><div role="status" className="nodes-diagnostics">{messages.map((m, i) => <p key={i}>{m}</p>)}</div></>;
@@ -449,7 +504,11 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
     const existing = (graph.modulations || []).find(m => m.to === node.id && m.param === def.key);
     if (existing && !window.confirm(`Replace the existing ${def.label} mapping?`)) return;
     const base = clampStep(node.type === 'blend' ? node.opacity : node.params[def.key] ?? def.default, def);
-    attempt(() => edit(mapSignal(graph, from, node.id, def.key, base, base < def.max ? clampStep(base + (def.max - def.min) * .25, def) : def.min, true)));
+    // A brand-new mapping starts from the source's own domain (a −1…1 LFO maps
+    // across the whole slider). Replacing an existing mapping keeps the input
+    // range the operator already set, exactly as it did before.
+    const range = existing ? null : defaultInputRange(graph.nodes.find(n => n.id === from));
+    attempt(() => edit(mapSignal(graph, from, node.id, def.key, base, base < def.max ? clampStep(base + (def.max - def.min) * .25, def) : def.min, true, range)));
   }
   function port(to, name) {
     if (!pending) return;
@@ -745,7 +804,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
             <button className="nodes-node-title" title={`Select or drag ${label(n)}${n.type === 'pattern' && acceptsImage(SKETCHES.find(s => s.id === n.patternId)) ? ' — accepts an image input' : ''}`} aria-label={`Select ${label(n)}`} aria-describedby={n.type === 'pattern' && acceptsImage(SKETCHES.find(s => s.id === n.patternId)) ? `fx-capability-${n.id}` : undefined} aria-pressed={selection.ids.includes(n.id)} {...selection.titleHandlers(n)}><span className="nodes-title-name">{label(n)}</span>{n.type === 'pattern' && acceptsImage(SKETCHES.find(s => s.id === n.patternId)) && <span id={`fx-capability-${n.id}`} className="nodes-fx-badge" title="Accepts an image input">◇ FX <span className="nodes-visually-hidden">Accepts an image input</span></span>}</button>
             <div className="nodes-ports">{visibleInputs(n).map(name => <button key={name} className="nodes-input" title={`Connect to ${label(n)} ${name} input`} aria-label={`${n.id} input ${name}`} onClick={() => port(n.id, name)}>● {name}</button>)}
               {n.type !== 'output' && <button className={`nodes-output ${pending === n.id ? 'active' : ''}`} title={`Connect from ${label(n)} output`} aria-label={`${n.id} output`} onClick={() => { setPending(n.id); clearMessage(); }}>out ●</button>}
-            </div><small className="nodes-node-detail">{n.type === 'blend' ? `${n.mode} · ${Math.round(n.opacity * 100)}%` : n.type === 'output' ? 'Final image' : n.type === 'audio' ? `${deviceLabel(n.deviceId)} · ${AUDIO_CHANNEL_LABELS[n.channel] || 'Mono'} · ${n.band} activity · 0…1` : n.type === 'camera' ? `${cameraLabel(n.deviceId)} · image out` : n.type === 'color' ? 'image → filtered image' : n.type === 'transform' ? 'image → transformed image' : n.type === 'math' ? `${n.op} · scalar out` : n.type === 'script' ? (compileScript(n.source, scriptNodeLanguage(n)).ok ? (scriptNodeLanguage(n) === 'body' ? 'script body' : 'restricted expression') : 'script error') : n.type === 'pattern' && visibleInputs(n).includes('image') ? `${imageWired(n.id) ? 'Image wired' : sourceDefault(SKETCHES.find(s => s.id === n.patternId))} · ${n.patternId}` : n.patternId}</small>
+            </div><small className="nodes-node-detail">{n.type === 'blend' ? `${n.mode} · ${Math.round(n.opacity * 100)}%` : n.type === 'output' ? 'Final image' : n.type === 'audio' ? `${deviceLabel(n.deviceId)} · ${AUDIO_CHANNEL_LABELS[n.channel] || 'Mono'} · ${n.band} activity · 0…1` : n.type === 'camera' ? `${cameraLabel(n.deviceId)} · image out` : n.type === 'color' ? 'image → filtered image' : n.type === 'transform' ? 'image → transformed image' : n.type === 'lfo' ? lfoDetail(n) : n.type === 'math' ? `${n.op} · scalar out` : n.type === 'script' ? (compileScript(n.source, scriptNodeLanguage(n)).ok ? (scriptNodeLanguage(n) === 'body' ? 'script body' : 'restricted expression') : 'script error') : n.type === 'pattern' && visibleInputs(n).includes('image') ? `${imageWired(n.id) ? 'Image wired' : sourceDefault(SKETCHES.find(s => s.id === n.patternId))} · ${n.patternId}` : n.patternId}</small>
             {isModulationTarget(n) && <button className="nodes-signal-endpoint" aria-label={`${n.id} signal endpoint`} onClick={e => {
               e.stopPropagation();
               if (pending) signalPort(n.id);
@@ -777,7 +836,7 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
         {blocked && <section className="nodes-blocked" aria-label="Editor errors" aria-live="polite" data-testid="nodes-blocked">
           <h2>Cannot save yet</h2>
           <ul>{saveProblems.map(problem => <li key={problem}>{problem}</li>)}</ul>
-        </section>}<Preview graph={graph} dependencies={dependencies} selected={selected} revision={revision} current={previewRuntime} sharedRuntime={sharedRuntime} audioProvider={audioProvider} providerReady={providerReady} visible={!(node?.type === 'audio' || node?.type === 'script')} />
+        </section>}<Preview graph={graph} dependencies={dependencies} selected={selected} revision={revision} current={previewRuntime} sharedRuntime={sharedRuntime} audioProvider={audioProvider} providerReady={providerReady} visible={!(node && SIGNAL_TYPES.includes(node.type))} />
         {selectedLink && <section className="nodes-connections" aria-label="Selected connection">
           <output className="nodes-connection-name" data-testid="selected-connection">{describeConnection(graph, selection.wire, selectedLink)}</output>
           <button className="btn btn--danger" title="Remove only this wire; both endpoint nodes stay" onClick={remove}>Delete connection</button>
@@ -801,6 +860,18 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
           {node.deviceId && !cameraOptions.some(d => d.deviceId === node.deviceId) && <option value={node.deviceId}>{`Unavailable camera (…${node.deviceId.slice(-6)})`}</option>}
         </Select></label>
           <output className="nodes-camera-status" data-testid="node-camera-status" aria-live="polite">{cameraCatalog.error && `${cameraCatalog.error} `}{node.deviceId && !cameraOptions.some(d => d.deviceId === node.deviceId) ? 'Pinned camera unavailable; select another input or reconnect it. ' : ''}Editor preview shows a generated sample clip, not your real camera; live capture runs only on the output screen. Connect Camera out to an image input (FX, Blend, Color or Output). Global follows Settings; a pinned camera requests that exact device on the output screen.</output></>}
+        {node?.type === 'lfo' && <><label>Range<Select aria-label="LFO range" title="The domain the pattern is scaled into: 0…1 or −1…1" value={lfoRangeOf(node.range)} onChange={e => patch({ range: e.target.value })}>
+          {LFO_RANGES.map(range => <option key={range} value={range}>{LFO_RANGE_LABELS[range]}</option>)}
+        </Select></label>
+          <label>Pattern<Select aria-label="LFO pattern" title="The shape one cycle traces; Noise and Random are seeded and repeat every cycle" value={lfoPatternOf(node.pattern)} onChange={e => patch({ pattern: e.target.value })}>
+            {LFO_PATTERNS.map(pattern => <option key={pattern} value={pattern}>{LFO_PATTERN_LABELS[pattern]}</option>)}
+          </Select></label>
+          {lfoPatternOf(node.pattern) === 'custom' && <LfoShapePad points={lfoPointsOf(node)}
+            onDraw={points => patch({ points }, { merge: `lfo:points:${node.id}`, windowMs: Infinity })}
+            onReset={() => patch({ points: defaultLfoPoints() })} />}
+          {(lfoPatternOf(node.pattern) === 'noise' || lfoPatternOf(node.pattern) === 'random') && <button className="btn" aria-label="Reshuffle LFO shape" title="Reseed this pattern's shape; the sequence still repeats every cycle" onClick={() => patch({ seed: (lfoSeedOf(node) + 1 + Math.floor(Math.random() * LFO_MAX_SEED)) % (LFO_MAX_SEED + 1) })}>Reshuffle</button>}
+          <output className="nodes-lfo-status" data-testid="node-lfo-status" aria-live="polite">{lfoStatus(node)}</output>
+          <SignalReadout runtime={previewRuntime} nodeId={node.id} /></>}
         {node?.type === 'transform' && <output className="nodes-transform-status" data-testid="node-transform-status" aria-live="polite">{transformNote(node.params)}</output>}
         {node?.type === 'math' && <><label>Operation<Select aria-label="Math operation" title="Choose the scalar operation" value={node.op} onChange={e => changeMathOp(e.target.value)}>{MATH_OPS.map(op => <option key={op} value={op}>{MATH_LABELS[op]}</option>)}</Select></label>
           {MATH_INPUTS.map(port => {

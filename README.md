@@ -393,6 +393,17 @@ dependency-free React/DOM + SVG editor composes source pixels through chained Bl
 nodes, Color filters and a Transform image node, and wires scalar Script nodes into
 any numeric parameter
 (existing files that contain legacy Math nodes keep loading, rendering and saving).
+An **LFO** signal node supplies motion without audio or a script: a free-running
+oscillator over 0…1 or −1…1 whose shape is a linear saw, a sine, seeded smooth
+noise (its lattice is a ring, so a cycle has no seam where it repeats), stepped
+random, or a curve drawn in the inspector. Cycle time is set as a duration from
+100 ms to 10 s on a logarithmic track, and the runtime integrates it as a **rate** —
+a cycle-time edit, or a signal mapped onto it, speeds the shape up or slows it down
+and never restarts it, and Start Position is the phase the shape is anchored to.
+Because an LFO is a signal source and a numeric target at once, its Cycle time and
+Start Position take a signal like any other slider, while a loop through those
+mappings is refused as a cycle. See [the LFO reference](docs/lfo-signal-node.md) for
+the shapes, rate semantics and failure behavior.
 Blend nodes offer TouchDesigner's Composite TOP operation list in two groups: 21
 canvas modes the browser composites itself (Normal/Over, Add, Multiply, Screen,
 Overlay, Darken, Lighten, Color Dodge, Color Burn, Hard Light, Soft Light,
@@ -449,7 +460,7 @@ keeps drawing. Draw receipts remain ordered across parameter, plan and audio
 stream resets, without accepting stale packets or controls that have not drawn.
 
 ```sh
-PLAYWRIGHT_PORT=5186 npx playwright test tests/nodes.spec.js tests/nodes-scalar.spec.js tests/nodes-script-body.spec.js --no-deps
+PLAYWRIGHT_PORT=5186 npx playwright test tests/nodes.spec.js tests/nodes-scalar.spec.js tests/nodes-script-body.spec.js tests/nodes-lfo.spec.js --no-deps
 # Deterministic cross-window disk/render race regressions, including output pixels:
 PLAYWRIGHT_PORT=5186 npx playwright test tests/nodes-output-selection.spec.js --workers=2 --repeat-each=3
 # Blend-mode table/shaders and the Transform node (identity, perspective, no-GPU fallback):
@@ -462,6 +473,10 @@ perspective projection, save/reload and a no-WebGL2 fallback that still draws th
 picture), Color filter pixels (identity/alpha/chaining),
 chained DAGs, scalar Script wiring with per-frame fanout and safe fallbacks, legacy
 Math graphs (including clamp's third input) still loading/rendering/saving,
+the LFO signal node (every shape and range, seeded noise/random determinism and
+cycle repeat, cycle clamping, the integrated travel form versus the closed form,
+validation/loops, the drawn table through draw → undo → save → reload, and a signal
+mapped onto its own Cycle time),
 Script body language safety/budgets/scope/short-circuits, save/reload approval binding,
 live audio → body script → mapping pixels,
 real 2D/WebGL/projection/media/

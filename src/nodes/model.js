@@ -13,6 +13,7 @@ import {
 import { normalizeAudioRoute, isValidAudioDeviceId } from '../audio-routing.js';
 import { MAX_EXPRESSION, MAX_BODY, LANGUAGES } from './script.js';
 import { TRANSFORM_PARAMS, transformDefaults } from './transform.js';
+import { LFO_PATTERNS, LFO_RANGES, LFO_PARAMS, LFO_MIN_POINTS, LFO_MAX_POINTS, LFO_MAX_SEED, lfoDefaults, lfoCycleFromLegacySpeed } from './lfo.js';
 import { MODES } from './blend-modes.js';
 // Blend modes are defined in blend-modes.js (canvas-native operations plus the
 // shader-only TouchDesigner modes); a graph stores only the mode name. Re-exported
@@ -89,6 +90,42 @@ export function validateGraph(raw, { complete = false } = {}) {
       }
       node.params = params;
     }
+    if (n.type === 'lfo') {
+      // Same contract as Color/Transform for the numeric controls, plus the two
+      // enumerations and the drawn table. The pattern/range names are stored as
+      // names (one place in lfo.js owns the tables), and an absent field falls
+      // back to the node's documented default instead of failing the load.
+      if (!LFO_PATTERNS.includes(n.pattern === undefined ? 'linear' : n.pattern)) fail('Invalid LFO pattern');
+      if (n.range !== undefined && !LFO_RANGES.includes(n.range)) fail('Invalid LFO range');
+      const seed = n.seed === undefined ? 0 : n.seed;
+      if (!Number.isInteger(seed) || seed < 0 || seed > LFO_MAX_SEED) fail('Invalid LFO seed');
+      if (!n.params || typeof n.params !== 'object' || Array.isArray(n.params)) fail('Invalid LFO parameters');
+      const params = lfoDefaults();
+      let legacySpeed = null;
+      for (const [k, v] of Object.entries(n.params)) {
+        // `speed` is the pre-release name for Cycle time (cycles per second, 0 =
+        // frozen). A file written while the control had that name keeps its rate;
+        // an explicit `cycle` in the same file wins.
+        if (k === 'speed') {
+          if (!number(v) || v < 0) fail('Invalid LFO parameter: speed');
+          legacySpeed = v;
+          continue;
+        }
+        const def = LFO_PARAMS.find(p => p.key === k);
+        if (!def || !number(v) || v < def.min || v > def.max) fail(`Invalid LFO parameter: ${k}`);
+        params[k] = v;
+      }
+      if (legacySpeed !== null && n.params.cycle === undefined) params.cycle = lfoCycleFromLegacySpeed(legacySpeed);
+      Object.assign(node, { pattern: n.pattern === undefined ? 'linear' : n.pattern,
+        range: n.range === undefined ? 'unipolar' : n.range, seed, params });
+      // The drawn table is only stored when the file declared one: a node that
+      // never used Custom stays small, and the shared ramp is its fallback shape.
+      if (n.points !== undefined) {
+        if (!Array.isArray(n.points) || n.points.length < LFO_MIN_POINTS || n.points.length > LFO_MAX_POINTS) fail('Invalid LFO points');
+        for (const v of n.points) if (!number(v) || v < 0 || v > 1) fail('Invalid LFO points');
+        node.points = n.points.slice();
+      }
+    }
     if (n.type === 'audio') {
       if (!['bass', 'mid', 'high'].includes(n.band)) fail('Invalid audio band');
       node.band = n.band;
@@ -163,17 +200,25 @@ export function validateGraph(raw, { complete = false } = {}) {
   const modulations = (raw.modulations || []).map(m => {
     const from = ids.get(m?.from), to = ids.get(m?.to);
     if (!isSignalSource(from) || !isModulationTarget(to)) fail('Invalid modulation reference or target');
-    const param = m.param ?? null;
+    // An LFO mapping saved while that control was still called `speed` keeps its
+    // automation: the endpoints described the sweep in cycles per second, and are
+    // converted to the same sweep in seconds per cycle, so the input that selected
+    // the fast end still selects the fast end. A `speed` parameter on any other
+    // target (a sketch may have one) is left exactly as it is.
+    const legacySpeed = m.param === 'speed' && to.type === 'lfo';
+    const param = legacySpeed ? 'cycle' : m.param ?? null;
     if (param !== null && (!idOK(param) || reserved(param) || (to.type === 'blend' && param !== 'opacity'))) fail('Invalid modulation parameter');
     const key = `${m.to}:${param}`, link = `${m.from}:${key}`;
     if (links.has(link) || (param && mapped.has(key))) fail('Duplicate modulation; explicitly replace the existing mapping');
     links.add(link); if (param) mapped.add(key);
     if (param && (!number(m.min) || !number(m.max))) fail('Invalid modulation range');
+    const min = legacySpeed ? lfoCycleFromLegacySpeed(m.min) : m.min;
+    const max = legacySpeed ? lfoCycleFromLegacySpeed(m.max) : m.max;
     // Signal-range conversion. Omitted fields keep the legacy 0…1 behavior, so
     // existing version-1 graphs and their saved mappings are unchanged.
     const ranged = m.inputMin !== undefined || m.inputMax !== undefined;
     if (ranged && (!number(m.inputMin) || !number(m.inputMax) || m.inputMax <= m.inputMin)) fail('Invalid modulation input range');
-    return { from: m.from, to: m.to, param, ...(param ? { min: m.min, max: m.max } : {}), ...(param && ranged ? { inputMin: m.inputMin, inputMax: m.inputMax } : {}) };
+    return { from: m.from, to: m.to, param, ...(param ? { min, max } : {}), ...(param && ranged ? { inputMin: m.inputMin, inputMax: m.inputMax } : {}) };
   });
   const visited = new Set(), visiting = new Set();
   function visit(id) {
@@ -182,6 +227,11 @@ export function validateGraph(raw, { complete = false } = {}) {
     visiting.add(id);
     edges.filter(e => e.to === id).forEach(e => visit(e.from));
     signalEdges.filter(e => e.to === id).forEach(e => visit(e.from));
+    // A mapped parameter is a data dependency too: the target reads its source
+    // every frame, so a loop through modulations recurses exactly like a wire.
+    // Only a signal node can be a modulation target *and* a source (an LFO's own
+    // Cycle time), which is what makes this walk reachable — and fatal — without it.
+    modulations.filter(m => m.to === id).forEach(m => visit(m.from));
     visiting.delete(id); visited.add(id);
   }
   nodes.forEach(n => visit(n.id));
@@ -272,7 +322,7 @@ export const DRAG_TYPE = 'application/x-viz-pattern+json';
 // Every palette drag shares this one versioned payload type: either a structural
 // node kind from the fixed create allowlist (never math/output) or a validated
 // non-recursive Pattern source id.
-const CREATE_TYPES = Object.freeze(['blend', 'color', 'transform', 'script', 'audio', 'camera']);
+const CREATE_TYPES = Object.freeze(['blend', 'color', 'transform', 'script', 'audio', 'camera', 'lfo']);
 export function readPaletteDrag(transfer, sketches) {
   try {
     const text = transfer.getData(DRAG_TYPE);
