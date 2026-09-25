@@ -374,10 +374,14 @@ function AudioRouteStatus({ runtime, nodeId, channelNote }) {
     : '';
   return <output className="nodes-audio-status" data-testid="node-audio-status" aria-live="polite">{text}{calibration}{running && channelNote ? ` ${channelNote}` : ''}</output>;
 }
-function Preview({ graph, dependencies, selected, revision, current, sharedRuntime, audioProvider, providerReady, visible = true }) {
-  const canvas = useRef(null), target = useRef(selected);
+// The inspector's live picture. `target` is the node this window draws: normally
+// the selection, and while the window is pinned the pinned node instead, so a
+// scalar selection never changes what it shows. `visible` is false only when the
+// window has nothing it may draw — an unpinned scalar selection.
+function Preview({ graph, dependencies, target, label = 'Selected node live preview', revision, current, sharedRuntime, audioProvider, providerReady, visible = true }) {
+  const canvas = useRef(null), wanted = useRef(target);
   const [messages, setMessages] = useState([]);
-  target.current = selected;
+  wanted.current = target;
   // Positions/name are presentation only. A lifecycle revision replaces the
   // graph; parameter and mapping-endpoint revisions update its live views.
   const content = JSON.stringify({ ...graph, name: 'preview', nodes: graph.nodes.map(({ x, y, ...n }) => ({ ...n, x: 0, y: 0 })) });
@@ -399,14 +403,14 @@ function Preview({ graph, dependencies, selected, revision, current, sharedRunti
         try {
           // An async FX graph commits only after its upstream frames and child
           // draws finish. Never overlap evaluations or paint a late, disposed tick.
-          const requestedTarget = target.current;
+          const requestedTarget = wanted.current;
           const image = await (runtime.renderFrame
             ? runtime.renderFrame(requestedTarget || undefined)
             : runtime.renderAsync
               ? runtime.renderAsync(requestedTarget || undefined)
               : runtime.render(requestedTarget || undefined));
           if (stopped) return;
-          if (target.current !== requestedTarget) { frame = requestAnimationFrame(render); return; }
+          if (wanted.current !== requestedTarget) { frame = requestAnimationFrame(render); return; }
           // The canvas is unmounted for scalar selections (audio/script), but the
           // runtime must keep ticking so signal readouts and mappings stay live.
           if (canvas.current) {
@@ -427,10 +431,11 @@ function Preview({ graph, dependencies, selected, revision, current, sharedRunti
     // edits keep its child list and frame loop; only the graph's live views move.
     if (providerReady) current.current?.updateGraph(JSON.parse(content));
   }, [content, lifecycle, manifest, revision, providerReady]);
-  // Audio, Script and LFO are scalar sources with no image to show, so their
-  // inspector omits the preview window entirely; the runtime stays mounted.
+  // Audio, Script, LFO, Math and MIDI are scalar sources with no image to show,
+  // so their inspector omits the preview window entirely unless it is pinned; the
+  // runtime stays mounted either way.
   if (!visible) return null;
-  return <><canvas ref={canvas} width="480" height="270" aria-label="Selected node live preview" data-testid="node-preview" /><div role="status" className="nodes-diagnostics">{messages.map((m, i) => <p key={i}>{m}</p>)}</div></>;
+  return <><canvas ref={canvas} width="480" height="270" aria-label={label} data-testid="node-preview" /><div role="status" className="nodes-diagnostics">{messages.map((m, i) => <p key={i}>{m}</p>)}</div></>;
 }
 export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }) {
   const mainContext = useContext(RuntimeContext);
@@ -438,6 +443,14 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
   const { graph, dependencies } = draft;
   const previewRuntime = useRef(null);
   const [pending, setPending] = useState(null);
+  // The preview window's pin: the image node it keeps drawing while the operator
+  // selects other nodes (including scalar ones, which have no picture of their
+  // own). Transient editor state — like the selection and the canvas view, it is
+  // never part of the draft, the history or the saved file.
+  const [pinnedId, setPinnedId] = useState(null);
+  // The last image-level node that was selected: pinning from a scalar node has
+  // nothing of its own to show, so it pins that node instead.
+  const lastImage = useRef(null);
   const [signalEndpoint, setSignalEndpoint] = useState(null);
   const [query, setQuery] = useState(''), [fxOnly, setFxOnly] = useState(false), [message, setMessage] = useState('');
   const [actionError, setActionError] = useState('');
@@ -476,6 +489,10 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
     setProviderReady(true);
     return () => { unsubscribe?.(); setProviderReady(false); provider.dispose(); audioProvider.current = null; };
   }, []);
+  // A pin whose node left the graph — deleted, undone, or replaced by a disk
+  // reload — is dropped with it: the window goes back to following the selection
+  // instead of drawing a node that no longer exists.
+  useEffect(() => { if (pinnedId && !graph.nodes.some(n => n.id === pinnedId)) setPinnedId(null); }, [graph, pinnedId]);
   const inputOptions = Array.isArray(inputsSnapshot?.inputs) ? inputsSnapshot.inputs : [];
   const cameraOptions = cameraCatalog.inputs;
   const globalCameraId = localStorage.getItem(STORAGE.video);
@@ -552,6 +569,30 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
     return { ...anchor, y: anchor.y + portsHeight(visibleInputs(n).length) - portsHeight(activeInputs(n).length) };
   };
   const label = labelFor;
+  // The pinned preview: what it draws, the label and heading pill that name it,
+  // and the one note left under the heading. A scalar node (Audio, Math, Script,
+  // LFO, MIDI) carries no picture, so its inspector hides the preview window unless
+  // the window is pinned: a pinned window keeps drawing its own node, whatever is
+  // selected, and its pin targets what the window shows now — the selected image
+  // node, the last one selected when the selection itself has no picture, or the
+  // Output it falls back to.
+  const outputNode = graph.nodes.find(n => n.type === 'output') || null;
+  const signalSelection = !!node && SIGNAL_TYPES.includes(node.type);
+  if (node && !signalSelection) lastImage.current = node.id;
+  const pinnedNode = pinnedId ? graph.nodes.find(n => n.id === pinnedId) || null : null;
+  // A remembered image node can leave the graph — undo of the node that was just
+  // created, Delete, or a reload of a file that no longer has it. It is then no
+  // target at all: Pin falls back to the Output the window would show anyway
+  // instead of capturing a node that no longer exists.
+  const rememberedImage = graph.nodes.some(n => n.id === lastImage.current) ? lastImage.current : null;
+  const pinCandidate = signalSelection ? rememberedImage ?? outputNode?.id ?? null : node ? node.id : outputNode?.id ?? null;
+  const pinnedLabel = pinnedNode ? label(pinnedNode) : '';
+  const previewTarget = pinnedNode ? pinnedNode.id : selected;
+  const previewVisible = !!pinnedNode || !signalSelection;
+  const previewLabel = pinnedNode ? `Pinned preview of ${pinnedLabel}` : 'Selected node live preview';
+  // A pinned window names its node in the heading pill, never in a second line of
+  // text. The only note left is the one that explains an empty window.
+  const previewNote = !pinnedNode && signalSelection ? 'A signal node has no picture; pin the preview to keep an image node on screen.' : '';
   // A mapping's source badge is resolved live from the graph on every render, so
   // a band change, a remap or any other node edit is reflected immediately and no
   // stale label is ever stored on the mapping itself.
@@ -973,18 +1014,36 @@ export function NodesEditor({ graphId, sharedRuntime, onState, onSaved, onBack }
         </div>
       </section>
       <aside className="nodes-inspector">
-        {/* The level pill rides beside, never inside, the heading: it names the
-            node's level at a glance while the h2 keeps the node's exact name. */}
+        {/* The heading line carries the node's exact name and its level pill. The pill
+            stays a sibling of the h2 (never inside it), so heading accessible names
+            remain exactly the node label. */}
         <div className="nodes-inspector-head"><h2>{node ? label(node) : selectedLink ? 'Connection' : 'Preview'}</h2>
           {node && <span className={`nodes-level-tag level-${levelOf(node.type)}`} title={levelOf(node.type) === 'signal'
-            ? 'Signal-level node (Audio, Math, Script): emits numbers, never pictures.'
+            ? 'Signal-level node (Audio, Math, Script, LFO, MIDI): emits numbers, never pictures.'
             : 'Image-level node (Camera, Pattern, Blend, Color, Output): carries pixels.'}>{levelOf(node.type)}</span>}</div>
         {/* Blocking graph errors remain readable and announced when they change;
             the name also has its own field-level error in the toolbar. */}
         {blocked && <section className="nodes-blocked" aria-label="Editor errors" aria-live="polite" data-testid="nodes-blocked">
           <h2>Cannot save yet</h2>
           <ul>{saveProblems.map(problem => <li key={problem}>{problem}</li>)}</ul>
-        </section>}<Preview graph={graph} dependencies={dependencies} selected={selected} revision={revision} current={previewRuntime} sharedRuntime={sharedRuntime} audioProvider={audioProvider} providerReady={providerReady} visible={!(node && SIGNAL_TYPES.includes(node.type))} />
+        </section>}
+        {/* The preview window, its pin and the pill naming the pinned node. The pin sits
+            under the window, so it never competes with the heading line; the pill follows
+            the pin once the window is pinned — clicking it selects that node, so the
+            inspector can follow the picture without unpinning it. */}
+        <div className="nodes-preview" data-pinned={pinnedNode ? true : undefined}>
+          {previewNote && <p className="nodes-preview-note" role="status" data-testid="preview-pin-note">{previewNote}</p>}
+          <Preview graph={graph} dependencies={dependencies} target={previewTarget} label={previewLabel} revision={revision} current={previewRuntime} sharedRuntime={sharedRuntime} audioProvider={audioProvider} providerReady={providerReady} visible={previewVisible} />
+          <div className="nodes-preview-foot">
+            <IconControl className="nodes-preview-pin" icon="pin" label="Pin preview" aria-pressed={!!pinnedNode} data-testid="preview-pin"
+              title={pinnedNode ? 'Unpin the preview: it follows the selection again' : 'Pin the preview: keep one image node on screen while you select other nodes'}
+              onClick={() => setPinnedId(pinnedNode ? null : pinCandidate)} />
+            {pinnedNode && <button type="button" className="nodes-pin-target" data-testid="preview-pin-target"
+              aria-label={`Select pinned node ${pinnedLabel}`}
+              title={`Select ${pinnedLabel} in the inspector; the preview stays pinned to it`}
+              onClick={() => setSelected(pinnedNode.id)}>{pinnedLabel}</button>}
+          </div>
+        </div>
         {selectedLink && <section className="nodes-connections" aria-label="Selected connection">
           <output className="nodes-connection-name" data-testid="selected-connection">{describeConnection(graph, selection.wire, selectedLink)}</output>
           <button className="btn btn--danger" title="Remove only this wire; both endpoint nodes stay" onClick={remove}>Delete connection</button>

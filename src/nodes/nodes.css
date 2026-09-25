@@ -71,15 +71,36 @@
 .nodes-palette-create .btn.level-signal:focus-visible,
 .nodes-palette-create .btn.level-image:focus-visible { border-color:#888; }
 .nodes-inspector { border-left:1px solid var(--border-gray); }
-/* Inspector header: the selected node's name plus a small level pill beside it.
-   The pill stays a sibling of the h2 (never inside it), so heading accessible
-   names remain exactly the node label; spacing mirrors the old h2 margin. */
+/* Inspector header: the selected node's name and a small level pill beside it —
+   IMAGE for a node that carries pixels, SIGNAL for a scalar source. The pill stays a
+   sibling of the h2 (never inside it), so heading accessible names remain exactly
+   the node label; spacing mirrors the old h2 margin. */
 .nodes-inspector-head { display:flex; align-items:center; gap:8px; margin:18px 0 12px; }
-.nodes-inspector-head h2 { margin:0; }
+.nodes-inspector-head h2 { margin:0; min-width:0; }
 .nodes-level-tag { flex:none; padding:1px 6px; border:1px solid; border-radius:4px; font-size:.58rem; font-weight:700; letter-spacing:.06rem; text-transform:uppercase; }
 .nodes-level-tag.level-signal { color:#c9aaff; border-color:#3b2c55; background:#1c1430; }
 .nodes-level-tag.level-image { color:#a8bed4; border-color:#33404e; background:#111821; }
 .nodes-inspector canvas { width:100%; background:var(--bg-dark); border:1px solid var(--border-gray); border-radius:4px; }
+/* The preview's foot: the pin under the window, so it never competes with the heading
+   line, and — once pinned — a pill naming the pinned node right beside it (clicking that
+   pill selects the node). The pin is a bare glyph, no button chrome at all, and its icon
+   alone goes amber while the window is pinned — the same accent the pill carries, so the
+   pair reads as one control. Pin and pill share one 22px height, and the pill shows the
+   whole node name (capped only when it would run past the row). */
+.nodes-preview-foot { display:flex; align-items:center; gap:6px; margin:8px 0 0; }
+.nodes-inspector .nodes-preview-pin,
+.nodes-inspector .nodes-preview-pin:hover { flex:none; width:22px; height:22px; padding:4px; border:0; background:none; color:var(--text-dim); }
+.nodes-inspector .nodes-preview-pin:hover { color:var(--text-main); }
+.nodes-inspector .nodes-preview-pin svg { width:14px; height:14px; }
+/* The pinned node's pill: small uppercase text on a tight pill. It carries no fixed
+   height — 4px over and under the 8px line box, with the 1px border, make the pill
+   hug its text — and 5px at the sides. */
+.nodes-pin-target { display:inline-block; max-width:calc(100% - 28px); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:4px 5px; border:1px solid #8a7231; border-radius:4px; background:rgba(255,209,102,.14); color:#ffe9a8; font-family:inherit; font-size:.5rem; font-weight:700; line-height:1; letter-spacing:.04rem; text-transform:uppercase; cursor:pointer; }
+.nodes-pin-target:hover { background:rgba(255,209,102,.26); }
+.nodes-pin-target:focus-visible { outline:2px solid #ffd166; outline-offset:1px; }
+.nodes-preview-note { margin:0 0 8px; font-size:.72rem; line-height:1.35; color:var(--text-dim); }
+.nodes-inspector .nodes-preview-pin[aria-pressed="true"],
+.nodes-inspector .nodes-preview-pin[aria-pressed="true"]:hover { border:0; background:none; color:#ffe9a8; }
 .nodes-inspector label { display:block; margin:14px 0; font-size:.78rem; }
 .nodes-inspector label input,.nodes-inspector label select { display:block; width:100%; margin-top:6px; }
 .nodes-inspector output { float:right; }

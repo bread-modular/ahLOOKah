@@ -460,7 +460,12 @@ replaces the main view in the same window — no popup, no tab rail, no draft li
 toolbar **Back to Main** returns to the main app, asking first when the draft is dirty.
 Reopening always loads the saved graph instead of reviving a hidden draft. The editor
 reads that exact disk graph via shared handles, reports unavailable files
-without a fallback, and focuses on editing, **Save**, and **Reload from disk**. A draft
+without a fallback, and focuses on editing, **Save**, and **Reload from disk**. Its
+inspector preview follows the selected node and can be **pinned**: pinned, the window
+keeps drawing one image node, so selecting an Audio, Math, Script, LFO or MIDI node
+(which carry numbers, never pictures) no longer hides the picture it is watching. The
+pin is editor state — never part of the draft, the undo history or the file — and it is
+dropped when its node leaves the graph. A draft
 saves before it is fully wired: an unconnected Output is kept, and reopens as saved. A draft
 that *cannot* be saved is outlined in red — the editor and every offending node — with the
 blocking reasons listed in the inspector, and its dependency manifest follows the graph, so
@@ -510,6 +515,10 @@ its mapped value in the graph runtime, and the inspector's device list, log-scal
 durations and readout),
 Script body language safety/budgets/scope/short-circuits, save/reload approval binding,
 live audio → body script → mapping pixels,
+the inspector preview's pin (a pinned image node keeps drawing while a signal node is
+selected, the pill beside its pin names and selects that node, the pin is dropped when its
+node is deleted and falls back to the Output when its node left the graph, and saving a
+pinned draft writes the same file),
 real 2D/WebGL/projection/media/
 custom sources, editor gestures, disk save/open/reload, permissions and overwrite safety, cross-tab library
 updates, LIVE/CUE isolation, independent audio slots, resize and disposal.
