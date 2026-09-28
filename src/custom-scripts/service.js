@@ -11,7 +11,10 @@ export class CustomScripts {
   constructor({ role = 'control', onChange = () => {}, onStatus = () => {}, storage = scriptStorage, channel = null } = {}) {
     this.role = role; this.onChange = onChange; this.onStatus = onStatus; this.storage = storage;
     this.handle = null; this.active = { revision: 0, sources: [] };
-    this.status = { folder: '', permission: 'prompt', files: [], opened: [], errors: [], busy: false, support: supportError() };
+    this.status = { folder: '', permission: 'prompt', files: [], opened: [], errors: [], busy: false };
+    // Folder support is deliberately not cached in `status`: `folderSupportError()` is
+    // a pure function of the browser, and the panels render it live (FolderSupportNotice)
+    // so the copy can never go stale against a changed picker or context.
     this.channel = channel;
     this.closed = false;
     this.queue = Promise.resolve();

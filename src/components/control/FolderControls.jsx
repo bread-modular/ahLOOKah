@@ -1,6 +1,16 @@
+import { folderSupportError } from '../../platform/folderAccess.js';
 import { folderReference } from '../../platform/folderReferences.js';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+
+// One shared support notice for every folder category. Capability is a pure function
+// of the browser, so it is known on load and belongs beside the controls — never only
+// in the message a doomed Link Folder click produces. Same `<p role="alert">` the
+// categories already used for this text, and the same string `chooseFolder` throws.
+export function FolderSupportNotice({ label }) {
+  const support = folderSupportError(label);
+  return support ? <p role="alert">{support}</p> : null;
+}
 
 // Shared async action state; action() runs immediately so native permission and
 // picker prompts retain user activation. Cancel never changes the linked state.

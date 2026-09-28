@@ -1,9 +1,40 @@
 // Shared browser filesystem backend. Feature repositories own their transactions
 // and content semantics; all folder picking, permissions and filtering live here.
-export function folderSupportError(label = 'Folders') {
-  if (!globalThis.isSecureContext) return `${label} require HTTPS or localhost.`;
-  if (typeof globalThis.showDirectoryPicker !== 'function') return `${label} require desktop Chrome with File System Access.`;
-  return '';
+
+// Brave ships the File System Access entry points switched off, so "no picker" is
+// not the same as "unsupported browser": the capability report has to say which
+// browser is talking before it can say what to do about it. Chrome, Edge, Chromium
+// and Opera expose the API normally; Brave needs its own flag and a relaunch, which
+// is offered as something to try — never as a guaranteed supported path.
+const SUPPORTED_BROWSERS = 'Chrome, Edge, Chromium or Opera';
+export const FILE_SYSTEM_ACCESS_FLAG = 'brave://flags/#file-system-access-api';
+
+// Only Brave defines `navigator.brave`, and its `isBrave()` answers with a Promise
+// (it cannot be awaited from a synchronous capability check), so a thenable — or a
+// plain `true` — counts as Brave and an explicit `false` does not.
+function isBrave(scope) {
+  const brave = scope?.navigator?.brave;
+  if (typeof brave?.isBrave !== 'function') return false;
+  const answer = brave.isBrave();
+  return answer === true || typeof answer?.then === 'function';
+}
+
+// Why a picker is missing, as a code the UI can word precisely, or `null` when the
+// requested entry point exists. Pure over the passed scope (and picker name), so it
+// is unit-testable without a browser.
+export function folderCapability(picker = 'showDirectoryPicker', scope = globalThis) {
+  if (!scope?.isSecureContext) return 'insecure-context';
+  if (typeof scope[picker] === 'function') return null;
+  if (isBrave(scope)) return 'brave-disabled';
+  return 'unsupported-browser';
+}
+
+export function folderSupportError(label = 'Folders', picker = 'showDirectoryPicker', scope = globalThis) {
+  const reason = folderCapability(picker, scope);
+  if (!reason) return '';
+  if (reason === 'insecure-context') return `${label} require HTTPS or localhost.`;
+  if (reason === 'brave-disabled') return `${label} require File System Access, which Brave ships off by default. Turn on ${FILE_SYSTEM_ACCESS_FLAG} and relaunch Brave to try it, or use a supported browser (${SUPPORTED_BROWSERS}).`;
+  return `${label} require a Chromium-based browser (${SUPPORTED_BROWSERS}) with File System Access.`;
 }
 
 export async function folderPermission(handle, mode = 'read', request = false) {

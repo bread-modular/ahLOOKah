@@ -81,6 +81,61 @@ for (const category of categories) {
   });
 }
 
+// A missing picker is either the browser's own default (Brave ships File System
+// Access off) or a browser without it at all. Each branch is asserted to name the
+// real cause, and only the supported browsers may be promised — the notice is on
+// screen as soon as the panel renders, not only after a doomed Link Folder click.
+const capabilityCases = [
+  {
+    name: 'Brave with File System Access off names Brave and its flag',
+    init: () => {
+      window.showDirectoryPicker = undefined;
+      Object.defineProperty(navigator, 'brave', { configurable: true, value: { isBrave: () => true } });
+    },
+    includes: ['Brave', 'brave://flags/#file-system-access-api', 'Chrome, Edge, Chromium or Opera'],
+    excludes: ['desktop Chrome'],
+  },
+  {
+    name: 'a non-Brave browser without the picker gets the Chromium requirement',
+    init: () => { window.showDirectoryPicker = undefined; },
+    includes: ['Chromium-based', 'File System Access'],
+    excludes: ['desktop Chrome', 'Brave'],
+  },
+  {
+    name: 'an insecure context reports HTTPS or localhost first, even in Brave',
+    init: () => {
+      window.showDirectoryPicker = undefined;
+      Object.defineProperty(navigator, 'brave', { configurable: true, value: { isBrave: () => true } });
+      Object.defineProperty(window, 'isSecureContext', { configurable: true, value: false });
+    },
+    includes: ['require HTTPS or localhost'],
+    excludes: ['desktop Chrome', 'brave://flags/#file-system-access-api'],
+  },
+];
+
+for (const capability of capabilityCases) {
+  test(`folder support notice: ${capability.name} @core`, async ({ page }) => {
+    await page.addInitScript(capability.init);
+    await page.goto('/');
+    for (const category of categories) {
+      const notice = page.locator(category.panel).getByRole('alert');
+      await expect(notice).toHaveCount(1);
+      for (const text of capability.includes) await expect(notice).toContainText(text);
+      for (const text of capability.excludes) await expect(notice).not.toContainText(text);
+    }
+  });
+}
+
+test('folder support notice: a supported browser shows none and links normally @core', async ({ page }) => {
+  await page.goto('/'); await seed(page);
+  for (const category of categories) {
+    const panel = page.locator(category.panel);
+    await expect(panel.getByRole('alert')).toHaveCount(0);
+    await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
+    await expect(page.getByRole('button', { name: `${category.name}: Linked`, exact: true })).toBeVisible();
+  }
+});
+
 test('Scripts: no create control, explicit trusted open, untouched source and restore @core', async ({ page }) => {
   await page.goto('/'); await seed(page);
   const panel = page.locator('.custom-scripts-panel');

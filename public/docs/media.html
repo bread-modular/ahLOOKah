@@ -77,7 +77,8 @@
         <p>ahLOOKah never uploads or copies your media. A media pattern is a <em>reference</em>: the library stores the name and a path-equivalent file handle, and the file itself is read from disk when the pattern plays. That keeps the app's saved data tiny and your footage where it belongs.</p>
 
         <ul>
-          <li><strong>Desktop Chrome / Edge</strong> use the File System Access picker. The handle is remembered, so your media patterns survive reloads and app restarts. Chrome may ask once to re-confirm read access after a restart — see <a href="#when-a-file-cannot-be-reached">If a file can't be reached</a>.</li>
+          <li><strong>Chromium-based browsers</strong> (Chrome, Edge, Chromium, Opera) use the File System Access picker. The handle is remembered, so your media patterns survive reloads and app restarts. Chrome may ask once to re-confirm read access after a restart — see <a href="#when-a-file-cannot-be-reached">If a file can't be reached</a>.</li>
+          <li><strong>Brave</strong> ships File System Access off by default, so the folder picker is missing: enable <code>brave://flags/#file-system-access-api</code> and relaunch Brave, or use one of the browsers above. <strong>ADD</strong> still loads media through the standard file chooser either way.</li>
           <li><strong>Other browsers</strong> fall back to a standard file chooser. Your loaded patterns still appear in the library, and if one can't reach its file later you'll see one of the messages below and can use <strong>Relink File</strong>.</li>
         </ul>
 

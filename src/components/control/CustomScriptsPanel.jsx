@@ -1,5 +1,5 @@
 import { folderReference } from '../../platform/folderReferences.js';
-import { FolderControls, useFolderAction } from './FolderControls.jsx';
+import { FolderControls, FolderSupportNotice, useFolderAction } from './FolderControls.jsx';
 import { DirectoryPicker } from './DirectoryPicker.jsx';
 import { useRef, useState } from 'react';
 import { useRuntime } from '../../app/RuntimeContext.jsx';
@@ -31,7 +31,7 @@ export function CustomScriptsPanel() {
     ))}
     {(status.reopened || []).length > 0 && <p role="status">Reopened with this project: {status.reopened.join(', ')}</p>}
     {(status.stale || []).length > 0 && <p role="status">Changed since this project was saved: {status.stale.join(', ')} — open them to load the current code.</p>}
-    {status.support && <p role="alert">{status.support}</p>}
+    <FolderSupportNotice label="Custom Scripts" />
     {status.busy && <p role="status">Reading / validating selected scripts…</p>}
     {message && <p role="status">{message}</p>}
     {status.errors.length > 0 && <div role="alert">{status.errors.map((error) => <p key={error}>{error}</p>)}<p>Fix the named file and retry. Validation failures keep last-good patterns.</p></div>}

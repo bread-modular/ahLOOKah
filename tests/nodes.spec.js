@@ -560,7 +560,7 @@ test('denied save preserves draft; main pickers cancel or report unsupported', a
   await main.evaluate(() => { window.showDirectoryPicker = undefined; window.showOpenFilePicker = undefined; });
   for (const name of ['Link Folder', 'Open Pattern']) {
     await panel.getByRole('button', { name, exact: true }).click();
-    await expect(panel).toContainText('desktop Chrome');
+    await expect(panel).toContainText('Chromium-based');
   }
   await expect(page.getByLabel('Graph name')).toHaveValue('Neon composite');
 });

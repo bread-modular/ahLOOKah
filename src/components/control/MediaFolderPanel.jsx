@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { useRuntime } from '../../app/RuntimeContext.jsx';
 import { useVizStore } from '../../state/useVizStore.js';
 import { canUseFileSystemPicker } from '../../media/media-store.js';
-import { FolderControls, useFolderAction } from './FolderControls.jsx';
+import { FolderControls, FolderSupportNotice, useFolderAction } from './FolderControls.jsx';
 import { DirectoryPicker } from './DirectoryPicker.jsx';
 
 export function MediaFolderPanel() {
@@ -33,6 +33,7 @@ export function MediaFolderPanel() {
       if (files.length) run(() => runtime.commands.addMediaFiles(files));
       event.target.value = '';
     }} />
+    <FolderSupportNotice label="Media" />
     {message && <p role="status">{message}</p>}
     {status.errors.map(error => <p role="alert" key={error}>{error}</p>)}
   </section>;

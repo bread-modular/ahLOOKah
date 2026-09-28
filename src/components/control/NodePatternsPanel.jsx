@@ -1,5 +1,5 @@
 import { DirectoryPicker } from './DirectoryPicker.jsx';
-import { FolderControls, useFolderAction } from './FolderControls.jsx';
+import { FolderControls, FolderSupportNotice, useFolderAction } from './FolderControls.jsx';
 import { useEffect, useRef, useState } from 'react';
 import { nodePatterns, watchGraphs } from '../../nodes/repository.js';
 import { useNodeEditor } from '../../nodes/EditorHost.jsx';
@@ -43,6 +43,7 @@ export function NodePatternsPanel() {
       <button className="library-add-btn" ref={opener} aria-label="Open Pattern" title="Add a node pattern file to the library (does not open the editor)" disabled={busy} onClick={() => nodePatterns.state.folder ? setPicker(nodePatterns.browse()) : run(() => openFile())}>OPEN</button>
     </FolderControls>
     {picker && <DirectoryPicker title="Open Pattern" label="Pattern" folder={nodePatterns.state.folder?.handle.name} listing={picker} open={openFile} opener={opener} onClose={() => setPicker(null)} />}
+    <FolderSupportNotice label="Node patterns" />
     {busy && <p role="status">Reading node patterns…</p>}
     {message && <p role="status">{message}</p>}
     {nodePatterns.errors.length > 0 && <div role="alert">{nodePatterns.errors.map((error, i) => <p key={i}>{error}</p>)}</div>}
