@@ -17,6 +17,17 @@ const base = (nodes, edges = [], modulations = []) => ({ version: 1, name: 'Audi
 const select = (page, id) => page.locator(`[data-node-id="${id}"] .nodes-node-title`).click();
 const errorsOf = page => { const errors = []; page.on('pageerror', error => errors.push(error.message)); return errors; };
 
+// ADD (New Node Pattern) is only enabled once a node-patterns folder is linked;
+// link an empty OPFS folder so the editor can be entered without a library file.
+async function linkFolder(page) {
+  await page.evaluate(async () => {
+    const { nodePatterns } = await import('/src/nodes/repository.js');
+    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('editor-audit-regressions', { create: true });
+    window.showDirectoryPicker = async () => dir;
+    await nodePatterns.link();
+  });
+}
+
 async function openGraph(page, graph, mediaMeta = null) {
   await page.goto('/?role=nodes');
   const id = await page.evaluate(async ({ graph, mediaMeta }) => {
@@ -48,6 +59,7 @@ const diskGraph = (page, id) => page.evaluate(async id => (await import('/src/no
 test('F01: an empty/whitespace name is a guarded draft, never an embedded root crash', async ({ page }) => {
   const errors = errorsOf(page);
   await page.goto('/');
+  await linkFolder(page);
   await page.getByRole('button', { name: 'New Node Pattern', exact: true }).click();
   const name = page.getByLabel('Graph name');
   await expect(name).toHaveValue('Untitled graph');

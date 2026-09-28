@@ -35,15 +35,22 @@ export function NodePatternsPanel() {
   const [, update] = useState(0);
   const { busy, message, run } = useFolderAction();
   useEffect(() => watchGraphs(() => update(v => v + 1)), []);
+  // A new pattern only ever exists as a file in the linked folder, and the
+  // repository refuses to save without one. Gate ADD on that link instead of
+  // letting a draft be drawn that has nowhere to go; OPEN keeps its own
+  // no-folder picker path for existing files.
+  const linked = Boolean(nodePatterns.state.folder);
   return <section className="node-patterns-panel" aria-label="Node pattern files" onKeyDown={e => e.stopPropagation()}>
     <FolderControls label="Node Patterns" folder={nodePatterns.state.folder?.handle.name} busy={busy} run={run}
       link={() => nodePatterns.link()} refresh={() => nodePatterns.reconnect()} unlink={() => nodePatterns.unlink()}
       note="Unlink removes folder patterns, not source files.">
-      <button className="library-add-btn" aria-label="New Node Pattern" title="Create a node pattern in the editor" onClick={() => open()}>ADD</button>
+      <button className="library-add-btn" aria-label="New Node Pattern" disabled={busy || !linked}
+        title={linked ? 'Create a node pattern in the editor' : 'Link Folder before creating a node pattern'} onClick={() => open()}>ADD</button>
       <button className="library-add-btn" ref={opener} aria-label="Open Pattern" title="Add a node pattern file to the library (does not open the editor)" disabled={busy} onClick={() => nodePatterns.state.folder ? setPicker(nodePatterns.browse()) : run(() => openFile())}>OPEN</button>
     </FolderControls>
     {picker && <DirectoryPicker title="Open Pattern" label="Pattern" folder={nodePatterns.state.folder?.handle.name} listing={picker} open={openFile} opener={opener} onClose={() => setPicker(null)} />}
     <FolderSupportNotice label="Node patterns" />
+    {!linked && <p className="script-hint">Link Folder before creating a node pattern.</p>}
     {busy && <p role="status">Reading node patterns…</p>}
     {message && <p role="status">{message}</p>}
     {nodePatterns.errors.length > 0 && <div role="alert">{nodePatterns.errors.map((error, i) => <p key={i}>{error}</p>)}</div>}

@@ -388,7 +388,9 @@ Scripts are trusted JavaScript, **not a sandbox**. The complete tutorial is
 
 ## Node graph patterns
 
-Choose **ADD** (New Node Pattern) in the main **Node Patterns** category. The
+Choose **ADD** (New Node Pattern) in the main **Node Patterns** category — after
+**Link Folder**, because a new pattern is saved as a file inside that folder and
+**ADD** stays disabled until one is linked. The
 dependency-free React/DOM + SVG editor composes source pixels through chained Blend
 nodes, Color filters and a Transform image node, and wires scalar Script nodes into
 any numeric parameter
@@ -451,9 +453,12 @@ never written to the file, with a live readout and **Reset state** in the inspec
 Sources are approved per exact text *and* language in this browser,
 so an imported file can never carry trust with it.
 The main **Node Patterns** category owns **Link Folder**, **Open Pattern**,
-**Refresh folder**, and **New Node Pattern**. **Open Pattern** only adds the picked
-file to the library — it never opens the editor and never changes what the window
-shows. Select a graph, then use the sidebar’s **Edit Pattern** to open it in the
+**Refresh folder**, and **New Node Pattern**. **New Node Pattern** stays disabled
+until a folder is linked, because a new graph is saved as a `.nodes.json` file
+inside that folder. **Open Pattern** adds existing files instead: it only adds the
+picked file to the library, never opens the editor, never changes what the window
+shows, and it still works with no linked folder through the file picker. Select a
+graph, then use the sidebar’s **Edit Pattern** to open it in the
 editor (or **New Node Pattern** for a fresh draft); the sidebar’s **Delete** removes it from
 the library without touching the file on disk (Open Pattern restores it). One graph is edited at a time and the editor
 replaces the main view in the same window — no popup, no tab rail, no draft list; its
@@ -541,9 +546,11 @@ what lets a saved project resume its folders without re-linking.
   executes folder contents. Opening a saved project reopens the scripts it names
   whose code still matches the fingerprint it recorded; an edited, renamed or new
   file needs **OPEN** again. Scripts run with app privileges, not in a sandbox.
-- **Node Patterns:** **ADD** opens a new editor. When linked, **OPEN** lists only
-  direct-child `.nodes.json` files and adds the one you pick; linking a folder never
-  loads it. Linked patterns remain disk-authoritative, including saves/conflicts.
+- **Node Patterns:** **ADD** is disabled until a folder is linked, because a new
+  graph is saved as a `.nodes.json` file inside that folder. **OPEN** adds an
+  existing file either way: linked, it lists only direct-child `.nodes.json` files
+  and adds the one you pick; unlinked, it opens the file picker. Linking a folder
+  never loads it. Linked patterns remain disk-authoritative, including saves/conflicts.
 - **Media:** **ADD** is the only path that creates a pattern. Linked, it lists the
   folder’s supported images and videos (excluding subfolders and audio/text files)
   in the in-app directory picker; unlinked controls keep the native picker/file-input
