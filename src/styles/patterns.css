@@ -673,19 +673,19 @@
 .library-group-header :is(.custom-scripts-panel, .node-patterns-panel, .media-folder-panel) > :is(p, [role="alert"], .script-tutorial) {
   flex-basis: 100%; margin: 0; font-size: 11px; font-weight: normal; text-transform: none; letter-spacing: normal;
 }
-.folder-details { width: min(440px, 90vw); color: var(--text-main, #eee); }
-.folder-details::backdrop { background: #0009; }
+.folder-details, .folder-support { width: min(440px, 90vw); color: var(--text-main, #eee); }
+.folder-details::backdrop, .folder-support::backdrop { background: #0009; }
 .folder-details-name { overflow-wrap: anywhere; font-weight: 600; }
 
 #config-panel .folder-actions .script-icon { flex: 0 0 28px; width: 28px; height: 28px; padding: 5px; }
 #config-panel .folder-linked { margin: 0; letter-spacing: normal; }
 
-.folder-details, .directory-picker { width: min(440px, 90vw); font-size: 13px; line-height: 1.5; }
-.folder-details h2, .directory-picker h2 { margin: 0 32px 16px 0; font-size: 18px; font-weight: 600; }
+.folder-details, .directory-picker, .folder-support { width: min(440px, 90vw); font-size: 13px; line-height: 1.5; }
+.folder-details h2, .directory-picker h2, .folder-support h2 { margin: 0 32px 16px 0; font-size: 18px; font-weight: 600; }
 .folder-details-name { margin: 0 0 12px; font-size: 14px; }
 .directory-picker .control-select { text-transform: none; }
-.folder-details .device-setup-modal-actions, .directory-picker .device-setup-modal-actions { margin-top: 24px; flex-wrap: wrap; }
-.folder-details [role="alert"], .directory-picker [role="alert"] { color: #ffb5a4; overflow-wrap: anywhere; }
+.folder-details .device-setup-modal-actions, .directory-picker .device-setup-modal-actions, .folder-support .device-setup-modal-actions { margin-top: 24px; flex-wrap: wrap; }
+.folder-details [role="alert"], .directory-picker [role="alert"], .folder-support [role="alert"] { color: #ffb5a4; overflow-wrap: anywhere; }
 #config-panel a.library-add-btn { text-decoration: none; line-height: normal; }
 
 /* ---------------------------------------------------------------------------

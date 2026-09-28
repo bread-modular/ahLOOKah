@@ -367,7 +367,7 @@ test('Custom Scripts @core missing filesystem support and revoked permissions ar
     try { await screen.permission(); } catch (e) { screenDenied = e.message; }
     return { missing, insecure, denied, permission: service.status.permission, requests, screenDenied };
   });
-  expect(result.missing).toContain('Chromium-based');
+  expect(result.missing).toContain('Chrome, Edge, Chromium or Opera');
   expect(result.missing).not.toContain('desktop Chrome');
   expect(result.insecure).toContain('HTTPS or localhost');
   expect(result.denied).toContain('Reconnect was denied');
@@ -382,7 +382,7 @@ test('Custom Scripts @core missing filesystem support and revoked permissions ar
 test('Custom Scripts @core folder capability separates insecure, Brave, unsupported and supported contexts', async ({ page }) => {
   await page.goto('/tests/fixtures/render.html');
   const result = await page.evaluate(async () => {
-    const { folderCapability, folderSupportError, FILE_SYSTEM_ACCESS_FLAG } = await import('/src/platform/folderAccess.js');
+    const { folderCapability, folderSupportError, folderSupportInfo, FILE_SYSTEM_ACCESS_FLAG } = await import('/src/platform/folderAccess.js');
     const insecure = { isSecureContext: false, navigator: {} };
     const insecureWithPicker = { isSecureContext: false, showDirectoryPicker: () => {}, navigator: {} };
     const unsupported = { isSecureContext: true, navigator: {} };
@@ -398,7 +398,13 @@ test('Custom Scripts @core folder capability separates insecure, Brave, unsuppor
       brave: folderSupportError('Custom Scripts', 'showDirectoryPicker', brave),
       unsupported: folderSupportError('Custom Scripts', 'showDirectoryPicker', unsupported),
       supported: folderSupportError('Custom Scripts', 'showDirectoryPicker', supported),
-      filePicker: folderSupportError('Open pattern', 'showOpenFilePicker', brave),
+      filePicker: folderSupportError('Patterns', 'showOpenFilePicker', brave),
+      info: {
+        insecure: folderSupportInfo('Custom Scripts', 'showDirectoryPicker', insecure),
+        unsupported: folderSupportInfo('Custom Scripts', 'showDirectoryPicker', unsupported),
+        brave: folderSupportInfo('Custom Scripts', 'showDirectoryPicker', brave),
+        supported: folderSupportInfo('Custom Scripts', 'showDirectoryPicker', supported),
+      },
     };
   });
   expect(result.codes).toEqual(['insecure-context', 'insecure-context', 'unsupported-browser', 'brave-disabled', 'brave-disabled', 'unsupported-browser', null]);
@@ -406,15 +412,18 @@ test('Custom Scripts @core folder capability separates insecure, Brave, unsuppor
   expect(result.insecure).toContain('HTTPS or localhost');
   expect(result.supported).toBe('');
   expect(result.brave).toContain('Brave');
-  expect(result.brave).toContain(result.flag);
-  expect(result.brave).toContain('Chrome, Edge, Chromium or Opera');
-  expect(result.filePicker).toContain('Open pattern');
+  expect(result.filePicker).toContain('patterns');
   expect(result.filePicker).toContain('Brave');
-  expect(result.unsupported).toContain('Chromium-based');
   expect(result.unsupported).toContain('Chrome, Edge, Chromium or Opera');
-  expect(result.unsupported).toContain('with File System Access');
   expect(result.unsupported).not.toContain('desktop Chrome');
   expect(result.unsupported).not.toContain('Brave');
+  // The UI helper carries the cause and — only for Brave — the flag URL its modal can
+  // offer; every message is one short actionable sentence, never an explanation.
+  expect(result.info.supported).toBeNull();
+  expect(result.info.insecure).toEqual({ code: 'insecure-context', message: 'Open custom scripts over HTTPS or localhost.', flagUrl: null });
+  expect(result.info.unsupported).toEqual({ code: 'unsupported-browser', message: 'Use Chrome, Edge, Chromium or Opera to link custom scripts.', flagUrl: null });
+  expect(result.info.brave).toEqual({ code: 'brave-disabled', message: 'Brave blocks custom scripts. Enable File System Access, then relaunch Brave.', flagUrl: result.flag });
+  for (const message of [result.insecure, result.brave, result.unsupported]) expect(message.length).toBeLessThan(90);
 });
 
 test('Custom Scripts @core stale TAKE cannot promote after reload; external deletion falls back', async ({ page, context }) => {

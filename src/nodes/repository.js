@@ -211,7 +211,7 @@ export class NodePatterns {
     } else {
       // The file picker is a separate entry point from the directory picker, so it
       // gets its own capability report (same copy, same Brave/Chromium wording).
-      const requirement = folderSupportError('Open pattern', 'showOpenFilePicker');
+      const requirement = folderSupportError('Patterns', 'showOpenFilePicker');
       if (requirement) throw new Error(requirement);
       [handle] = await showOpenFilePicker({ id: 'viz2-node-patterns', multiple: false, types: [{ description: 'Node pattern', accept: { 'application/json': ['.json'] } }] });
     }

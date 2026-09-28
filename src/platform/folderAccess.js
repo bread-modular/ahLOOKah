@@ -9,6 +9,16 @@
 const SUPPORTED_BROWSERS = 'Chrome, Edge, Chromium or Opera';
 export const FILE_SYSTEM_ACCESS_FLAG = 'brave://flags/#file-system-access-api';
 
+// One short, actionable sentence per cause — no explanation. The Brave sentence
+// names the fix but not the flag URL: a page cannot navigate Chromium to `brave://`,
+// so the URL lives in the support modal (FolderSupportModal), which offers copy.
+export function folderSupportMessage(reason, label = 'Folders') {
+  const subject = label.toLowerCase();
+  if (reason === 'insecure-context') return `Open ${subject} over HTTPS or localhost.`;
+  if (reason === 'brave-disabled') return `Brave blocks ${subject}. Enable File System Access, then relaunch Brave.`;
+  return `Use ${SUPPORTED_BROWSERS} to link ${subject}.`;
+}
+
 // Only Brave defines `navigator.brave`, and its `isBrave()` answers with a Promise
 // (it cannot be awaited from a synchronous capability check), so a thenable — or a
 // plain `true` — counts as Brave and an explicit `false` does not.
@@ -31,10 +41,20 @@ export function folderCapability(picker = 'showDirectoryPicker', scope = globalT
 
 export function folderSupportError(label = 'Folders', picker = 'showDirectoryPicker', scope = globalThis) {
   const reason = folderCapability(picker, scope);
-  if (!reason) return '';
-  if (reason === 'insecure-context') return `${label} require HTTPS or localhost.`;
-  if (reason === 'brave-disabled') return `${label} require File System Access, which Brave ships off by default. Turn on ${FILE_SYSTEM_ACCESS_FLAG} and relaunch Brave to try it, or use a supported browser (${SUPPORTED_BROWSERS}).`;
-  return `${label} require a Chromium-based browser (${SUPPORTED_BROWSERS}) with File System Access.`;
+  return reason ? folderSupportMessage(reason, label) : '';
+}
+
+// What the UI needs to react to a missing picker: the cause, the sentence to show and
+// — only for Brave, where a flag exists — the URL to copy. `null` means nothing to
+// show. Pure over the passed scope (and picker name) like `folderCapability`.
+export function folderSupportInfo(label = 'Folders', picker = 'showDirectoryPicker', scope = globalThis) {
+  const reason = folderCapability(picker, scope);
+  if (!reason) return null;
+  return {
+    code: reason,
+    message: folderSupportMessage(reason, label),
+    flagUrl: reason === 'brave-disabled' ? FILE_SYSTEM_ACCESS_FLAG : null,
+  };
 }
 
 export async function folderPermission(handle, mode = 'read', request = false) {

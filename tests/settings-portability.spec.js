@@ -17,8 +17,9 @@ import { test, expect } from '@playwright/test';
 const TINY_PNG_B64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
-// Stub window.showOpenFilePicker before app modules run so media add/relink
-// behave like Desktop Chrome without a real picker dialog.
+// Stub window.showOpenFilePicker before app modules run so media relink behaves like
+// Desktop Chrome without a real picker dialog, and keep the PNG bytes reachable so a
+// test can seed the Media folder ADD requires (there is no standalone add path).
 const PICKER_STUB = `
   (() => {
     const bin = atob(${JSON.stringify(TINY_PNG_B64)});
@@ -32,6 +33,7 @@ const PICKER_STUB = `
       async queryPermission() { return 'granted'; },
       async requestPermission() { return 'granted'; },
     };
+    window.TINY_PNG_BYTES = bytes;
     window.showOpenFilePicker = async () => [handle];
   })();
 `;
@@ -59,6 +61,25 @@ const SAVE_PICKER_STUB = `
 `;
 
 test.describe('project save / open / new', () => {
+  // Media ADD only works against a linked folder, so a project test that needs media
+  // links an OPFS folder holding the stub image and adds it through the Media picker.
+  async function linkAndAddMedia(page) {
+    await page.evaluate(async () => {
+      const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('media', { create: true });
+      const writer = await (await dir.getFileHandle('my_test_image.png', { create: true })).createWritable();
+      await writer.write(new Blob([window.TINY_PNG_BYTES], { type: 'image/png' }));
+      await writer.close();
+      window.showDirectoryPicker = async () => dir;
+    });
+    const panel = page.locator('.media-folder-panel');
+    await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
+    await panel.getByRole('button', { name: 'Add media', exact: true }).click();
+    const picker = page.getByRole('dialog', { name: 'Open Media', exact: true });
+    await picker.getByRole('combobox').selectOption('my_test_image.png');
+    await picker.getByRole('button', { name: 'Open', exact: true }).click();
+    await expect(picker).toHaveCount(0);
+  }
+
   test('saves persisted settings and media references to a chosen project file', async ({ context }) => {
     test.setTimeout(45_000);
     await context.addInitScript(PICKER_STUB);
@@ -71,7 +92,7 @@ test.describe('project save / open / new', () => {
     await control.evaluate(() => localStorage.setItem('viz2_screen_mapping_edge_blur', '7'));
 
     // A media pattern so the file has media metadata to carry.
-    await control.locator('.media-add-btn').click();
+    await linkAndAddMedia(control);
     const addedMedia = control.locator('.pattern-btn[data-id^="media-"]');
     await expect(addedMedia).toHaveCount(1);
 
@@ -142,7 +163,7 @@ test.describe('project save / open / new', () => {
       localStorage.setItem('viz2_audio_device_id', 'mic-1');
       localStorage.setItem('viz2_project_folders', JSON.stringify({ media: { id: 'f1', name: 'media' } }));
     });
-    await control.locator('.media-add-btn').click();
+    await linkAndAddMedia(control);
     await expect(control.locator('.pattern-btn[data-id^="media-"]')).toHaveCount(1);
 
     // Canceling keeps everything.

@@ -49,7 +49,7 @@ export function NodePatternsPanel() {
       <button className="library-add-btn" ref={opener} aria-label="Open Pattern" title="Add a node pattern file to the library (does not open the editor)" disabled={busy} onClick={() => nodePatterns.state.folder ? setPicker(nodePatterns.browse()) : run(() => openFile())}>OPEN</button>
     </FolderControls>
     {picker && <DirectoryPicker title="Open Pattern" label="Pattern" folder={nodePatterns.state.folder?.handle.name} listing={picker} open={openFile} opener={opener} onClose={() => setPicker(null)} />}
-    <FolderSupportNotice label="Node patterns" />
+    <FolderSupportNotice label="Node Patterns" />
     {!linked && <p className="script-hint">Link Folder before creating a node pattern.</p>}
     {busy && <p role="status">Reading node patterns…</p>}
     {message && <p role="status">{message}</p>}

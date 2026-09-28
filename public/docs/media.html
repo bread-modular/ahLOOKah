@@ -62,24 +62,24 @@
         <p class="lede">Media patterns put <em>your</em> images and videos on the output as fullscreen layers — no code, no uploads. Pick a file, and it appears in the pattern library next to the built-in effects.</p>
 
         <h2>Loading a file</h2>
-        <p>Scroll to the bottom of the <strong>pattern library</strong> and find the <strong>Media</strong> group. Click <strong>ADD</strong> in the group header and choose one or more images or videos. Each file becomes its own pattern, named after the file, and it behaves like any other library item: click it to play it live, drag it to a pad slot, or use it as a mapping source.</p>
+        <p>Scroll to the bottom of the <strong>pattern library</strong> and find the <strong>Media</strong> group. Press <strong>Link Folder</strong> and pick the folder that holds your images and videos, then click <strong>ADD</strong> in the group header and choose a file (one per pick). Each file becomes its own pattern, named after the file, and it behaves like any other library item: click it to play it live, drag it to a pad slot, or use it as a mapping source.</p>
 
-        <p><strong>ADD</strong> is the group’s only action: with a linked Media folder it lists that folder’s images and videos, otherwise it opens your computer’s picker. Connecting a folder (and pressing <strong>Refresh</strong>) never loads it: a media pattern is created only by <strong>ADD</strong>, and a saved project brings back exactly the files it recorded. A file that is deleted from the folder keeps its entry and is marked for re-linking.</p>
+        <p><strong>ADD</strong> is the group’s only action, and it stays disabled until a Media folder is linked — a media pattern is a reference into that folder. Linking a folder (and pressing <strong>Refresh</strong>) never loads it: a media pattern is created only by <strong>ADD</strong>, and a saved project brings back exactly the files it recorded. A file that is deleted from the folder keeps its entry and is marked for re-linking.</p>
 
-        <p>The Media group is always shown — even before you add anything — so the <strong>ADD</strong> button is always within reach.</p>
+        <p>The Media group is always shown — even before you add anything — so the <strong>ADD</strong> button is always within reach, with a short “Link Folder before adding media.” hint while it is disabled.</p>
 
         <figure class="figure">
           <img src="/docs/shots/media-empty.jpg" alt="The Media group in the ahLOOKah pattern library with its ADD button and the message No media loaded" />
-          <figcaption>The <strong>Media</strong> group starts empty; <strong>ADD</strong> loads images and videos from this computer.</figcaption>
+          <figcaption>The <strong>Media</strong> group starts empty; <strong>ADD</strong> loads images and videos from the linked folder.</figcaption>
         </figure>
 
         <h2>Your files stay on your computer</h2>
         <p>ahLOOKah never uploads or copies your media. A media pattern is a <em>reference</em>: the library stores the name and a path-equivalent file handle, and the file itself is read from disk when the pattern plays. That keeps the app's saved data tiny and your footage where it belongs.</p>
 
         <ul>
-          <li><strong>Chromium-based browsers</strong> (Chrome, Edge, Chromium, Opera) use the File System Access picker. The handle is remembered, so your media patterns survive reloads and app restarts. Chrome may ask once to re-confirm read access after a restart — see <a href="#when-a-file-cannot-be-reached">If a file can't be reached</a>.</li>
-          <li><strong>Brave</strong> ships File System Access off by default, so the folder picker is missing: enable <code>brave://flags/#file-system-access-api</code> and relaunch Brave, or use one of the browsers above. <strong>ADD</strong> still loads media through the standard file chooser either way.</li>
-          <li><strong>Other browsers</strong> fall back to a standard file chooser. Your loaded patterns still appear in the library, and if one can't reach its file later you'll see one of the messages below and can use <strong>Relink File</strong>.</li>
+          <li><strong>Chromium-based browsers</strong> (Chrome, Edge, Chromium, Opera) use the File System Access picker. The handle is remembered, so your media patterns survive reloads and app restarts, and <strong>ADD</strong> lists the linked folder’s images and videos. Chrome may ask once to re-confirm read access after a restart — see <a href="#when-a-file-cannot-be-reached">If a file can't be reached</a>.</li>
+          <li><strong>Brave</strong> ships File System Access off by default, so the folder picker is missing: the Media group shows one short actionable line and a <strong>How to fix</strong> action with the copyable <code>brave://flags/#file-system-access-api</code> link. Enable it and relaunch Brave, or use one of the browsers above.</li>
+          <li><strong>Other browsers</strong> (Firefox, Safari) expose no File System Access API, so no Media folder can be linked and the <strong>ADD</strong> button stays disabled. Already-loaded patterns still appear in the library, and if one can't reach its file later you'll see one of the messages below and can use <strong>Relink File</strong>.</li>
         </ul>
 
         <div class="callout">

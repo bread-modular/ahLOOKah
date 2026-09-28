@@ -49,9 +49,15 @@ for (const category of categories) {
     await page.evaluate(() => { window.showDirectoryPicker = async () => { throw new DOMException('Canceled', 'AbortError'); }; });
     await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
     await expect(panel).toContainText('Canceled. Library unchanged.');
+    // A missing picker is a capability, not a canceled pick: Link Folder opens the
+    // support modal instead of running a link() that can only fail.
     await page.evaluate(() => { window.showDirectoryPicker = undefined; });
     await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
-    await expect(panel).toContainText('File System Access');
+    const support = page.getByRole('dialog', { name: `${category.name} unavailable` });
+    await expect(support).toContainText('Chrome, Edge, Chromium or Opera');
+    await page.keyboard.press('Escape');
+    await expect(support).toHaveCount(0);
+    await expect(panel.getByRole('button', { name: 'Link Folder', exact: true })).toBeFocused();
     await page.evaluate(() => { window.showDirectoryPicker = async () => ({ queryPermission: async () => 'prompt', requestPermission: async () => 'denied' }); });
     await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
     await expect(panel).toContainText('Permission denied');
@@ -83,23 +89,26 @@ for (const category of categories) {
 
 // A missing picker is either the browser's own default (Brave ships File System
 // Access off) or a browser without it at all. Each branch is asserted to name the
-// real cause, and only the supported browsers may be promised — the notice is on
-// screen as soon as the panel renders, not only after a doomed Link Folder click.
+// real cause in ONE short actionable line, with the guidance behind the notice's
+// "How to fix" affordance (and behind Link Folder) instead of in a paragraph on
+// screen. Only Brave gets a flag link, and a page cannot open a `brave://` URL, so
+// copying is the action that works.
 const capabilityCases = [
   {
-    name: 'Brave with File System Access off names Brave and its flag',
+    name: 'Brave with File System Access off names Brave and offers the copyable flag',
     init: () => {
       window.showDirectoryPicker = undefined;
       Object.defineProperty(navigator, 'brave', { configurable: true, value: { isBrave: () => true } });
     },
-    includes: ['Brave', 'brave://flags/#file-system-access-api', 'Chrome, Edge, Chromium or Opera'],
-    excludes: ['desktop Chrome'],
+    includes: ['Brave blocks', 'Enable File System Access, then relaunch Brave.'],
+    excludes: ['desktop Chrome', 'brave://flags/#file-system-access-api'],
+    flag: 'brave://flags/#file-system-access-api',
   },
   {
-    name: 'a non-Brave browser without the picker gets the Chromium requirement',
+    name: 'a non-Brave browser without the picker gets the supported-browser line',
     init: () => { window.showDirectoryPicker = undefined; },
-    includes: ['Chromium-based', 'File System Access'],
-    excludes: ['desktop Chrome', 'Brave'],
+    includes: ['Chrome, Edge, Chromium or Opera'],
+    excludes: ['desktop Chrome', 'Brave', 'brave://flags/#file-system-access-api'],
   },
   {
     name: 'an insecure context reports HTTPS or localhost first, even in Brave',
@@ -108,8 +117,8 @@ const capabilityCases = [
       Object.defineProperty(navigator, 'brave', { configurable: true, value: { isBrave: () => true } });
       Object.defineProperty(window, 'isSecureContext', { configurable: true, value: false });
     },
-    includes: ['require HTTPS or localhost'],
-    excludes: ['desktop Chrome', 'brave://flags/#file-system-access-api'],
+    includes: ['HTTPS or localhost'],
+    excludes: ['desktop Chrome', 'brave://flags/#file-system-access-api', 'Brave'],
   },
 ];
 
@@ -118,10 +127,49 @@ for (const capability of capabilityCases) {
     await page.addInitScript(capability.init);
     await page.goto('/');
     for (const category of categories) {
-      const notice = page.locator(category.panel).getByRole('alert');
+      const panel = page.locator(category.panel);
+      const notice = panel.getByRole('alert');
       await expect(notice).toHaveCount(1);
       for (const text of capability.includes) await expect(notice).toContainText(text);
       for (const text of capability.excludes) await expect(notice).not.toContainText(text);
+      // The notice itself is one line: the guidance is one click away, never on load.
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      const fix = notice.getByRole('button', { name: 'How to fix', exact: true });
+      await expect(fix).toBeVisible();
+      await fix.click();
+      const support = page.getByRole('dialog', { name: `${category.name} unavailable` });
+      await expect(support).toBeVisible();
+      for (const text of capability.includes) await expect(support).toContainText(text);
+      if (capability.flag) {
+        await expect(support).toContainText(capability.flag);
+        const link = support.getByRole('link', { name: 'Try to open', exact: true });
+        await expect(link).toHaveAttribute('href', capability.flag);
+        await page.evaluate(() => { window.__copied = null; navigator.clipboard.writeText = async text => { window.__copied = text; }; });
+        await support.getByRole('button', { name: 'Copy link', exact: true }).click();
+        await expect(support.getByRole('button', { name: 'Copied', exact: true })).toBeVisible();
+        expect(await page.evaluate(() => window.__copied)).toBe(capability.flag);
+        // The one best-effort link attempt must never replace the running app with a
+        // refused brave:// load; the modal is still there afterwards.
+        const beforeURL = page.url();
+        await link.click();
+        expect(page.url()).toBe(beforeURL);
+        await expect(support).toBeVisible();
+      } else {
+        // No flag, no invented action: the message and Close are all there is.
+        await expect(support.getByRole('link')).toHaveCount(0);
+        await expect(support.getByRole('button', { name: /Copy/ })).toHaveCount(0);
+      }
+      // Escape closes it and focus goes back to the affordance that opened it.
+      await page.keyboard.press('Escape');
+      await expect(support).toHaveCount(0);
+      await expect(fix).toBeFocused();
+      // Link Folder explains the same cause instead of failing on a dead picker.
+      await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
+      const fromLink = page.getByRole('dialog', { name: `${category.name} unavailable` });
+      await expect(fromLink).toBeVisible();
+      await fromLink.getByRole('button', { name: 'Close', exact: true }).click();
+      await expect(fromLink).toHaveCount(0);
+      await expect(panel.getByRole('button', { name: 'Link Folder', exact: true })).toBeFocused();
     }
   });
 }
@@ -180,22 +228,26 @@ async function seedMedia(page) {
 test('Media: explicit ADD only, disk playback, refresh dedup, persistence and unlink @core', async ({ page, context }) => {
   await page.goto('/'); await seedMedia(page);
   const panel = page.locator('.media-folder-panel');
-  await panel.getByRole('button', { name: 'Add media', exact: true }).click();
-  await expect(page.locator('.library-btn[data-id^="media-"]')).toHaveCount(1);
+  const add = panel.getByRole('button', { name: 'Add media', exact: true });
+  // ADD has no unlinked path any more: a media pattern is a reference into the
+  // linked folder, so the control waits for one.
+  await expect(add).toBeDisabled();
   await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
+  await expect(add).toBeEnabled();
   const media = page.locator('.library-btn[data-id^="media-"]');
-  // Linking grants access; it never loads the directory. The individually added
-  // red.PNG is still the only pattern.
-  await expect(media).toHaveCount(1);
+  // Linking grants access; it never loads the directory.
+  await expect(media).toHaveCount(0);
   const addFromFolder = async name => {
-    await panel.getByRole('button', { name: 'Add media', exact: true }).click();
+    await add.click();
     const picker = page.getByRole('dialog', { name: 'Open Media', exact: true });
     await picker.getByRole('combobox').selectOption(name);
     await picker.getByRole('button', { name: 'Open', exact: true }).click();
     await expect(picker).toHaveCount(0);
   };
-  // ADD/OPEN is the only path that turns a file in the linked folder into a
-  // pattern; the picker never offers audio, text or subfolders.
+  // ADD is the only path that turns a file in the linked folder into a pattern; the
+  // picker never offers audio, text or subfolders.
+  await addFromFolder('red.PNG');
+  await expect(media).toHaveCount(1);
   await addFromFolder('green.webm');
   await expect(media).toHaveCount(2);
   const ids = await media.evaluateAll(elements => elements.map(el => el.dataset.id).sort());
@@ -231,10 +283,38 @@ test('Media: explicit ADD only, disk playback, refresh dedup, persistence and un
   await expect(media).toHaveCount(3); // unlink deliberately retains loaded file references
   await page.reload(); await expect(media).toHaveCount(3);
   await expect(panel.getByRole('button', { name: 'Link Folder', exact: true })).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Add media', exact: true })).toBeDisabled();
   await seedMedia(page);
-  await panel.getByRole('button', { name: 'Add media', exact: true }).click();
-  await expect(media).toHaveCount(4); // ADD covers both the folder picker and standalone files
+  await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
+  // Relinking is not an importer: the library still holds the three patterns the
+  // operator added, and re-adding a file it already references is a duplicate.
+  await expect(media).toHaveCount(3);
+  await addFromFolder('green.webm');
+  await expect(media).toHaveCount(3);
   await other.close();
+});
+
+// Media ADD mirrors Node Patterns: a new pattern is a reference into the linked
+// folder, so the control waits for that link and offers no native picker or
+// <input type="file"> in the meantime.
+test('Media ADD is disabled until a folder is linked, then opens the linked picker @core', async ({ page }) => {
+  await page.goto('/'); await seedMedia(page);
+  const panel = page.locator('.media-folder-panel');
+  const add = panel.getByRole('button', { name: 'Add media', exact: true });
+  await expect(add).toBeDisabled();
+  await expect(add).toHaveAttribute('title', 'Link Folder before adding media');
+  await expect(panel).toContainText('Link Folder before adding media.');
+  await expect(panel.locator('.media-file-input')).toHaveCount(0);
+  await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
+  await expect(add).toBeEnabled();
+  await expect(add).toHaveAttribute('title', 'Add media from the linked folder');
+  await expect(panel).not.toContainText('Link Folder before adding media.');
+  await add.click();
+  const picker = page.getByRole('dialog', { name: 'Open Media', exact: true });
+  await expect(picker.locator('option')).toHaveText(['Select a file…', 'green.webm', 'red.PNG']);
+  await picker.getByRole('combobox').selectOption('red.PNG');
+  await picker.getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(page.locator('.library-btn[data-id^="media-"]')).toHaveCount(1);
 });
 
 test('Media backend: no background permission prompts, storage rollback and picker scan limit @core', async ({ page }) => {
