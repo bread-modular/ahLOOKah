@@ -558,10 +558,15 @@ test('denied save preserves draft; main pickers cancel or report unsupported', a
     await expect(panel).toContainText('Canceled');
   }
   await main.evaluate(() => { window.showDirectoryPicker = undefined; window.showOpenFilePicker = undefined; });
-  for (const name of ['Link Folder', 'Open Pattern']) {
-    await panel.getByRole('button', { name, exact: true }).click();
-    await expect(panel).toContainText('Chromium-based');
-  }
+  // Link Folder explains the missing picker in the support modal; Open Pattern
+  // reports the same cause in the panel, because each entry point has its own.
+  await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
+  const support = main.getByRole('dialog', { name: 'Node Patterns unavailable' });
+  await expect(support).toContainText('Chrome, Edge, Chromium or Opera');
+  await main.keyboard.press('Escape');
+  await expect(support).toHaveCount(0);
+  await panel.getByRole('button', { name: 'Open Pattern', exact: true }).click();
+  await expect(panel).toContainText('Chrome, Edge, Chromium or Opera');
   await expect(page.getByLabel('Graph name')).toHaveValue('Neon composite');
 });
 

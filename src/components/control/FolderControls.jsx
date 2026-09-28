@@ -1,15 +1,71 @@
-import { folderSupportError } from '../../platform/folderAccess.js';
+import { folderSupportInfo } from '../../platform/folderAccess.js';
 import { folderReference } from '../../platform/folderReferences.js';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+
+// The one place the Brave flag URL can be offered. A web page cannot navigate
+// Chromium to a `brave://` URL, so the anchor is a best-effort attempt and the URL is
+// also shown as selectable text: "Copy link" is the action that works. Nothing here
+// is opened automatically — the modal exists only behind a click on "How to fix" or
+// on Link Folder, both of which a user has to make.
+export function FolderSupportModal({ label, support, opener, onClose }) {
+  const dialog = useRef(null);
+  const id = useId();
+  const [copy, setCopy] = useState('idle');
+  useEffect(() => {
+    const element = dialog.current;
+    element.showModal();
+    return () => { element.close(); opener.current?.focus(); };
+  }, []);
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(support.flagUrl);
+      setCopy('copied');
+    } catch {
+      setCopy('failed');
+    }
+  };
+  return createPortal(<dialog ref={dialog} className="folder-support key-map-modal-card" aria-labelledby={`${id}-title`} onCancel={onClose} onKeyDown={e => e.stopPropagation()}>
+    <button className="device-setup-modal-close" aria-label="Close folder support" onClick={onClose}>×</button>
+    <h2 id={`${id}-title`}>{label} unavailable</h2>
+    <p className="device-setup-modal-desc">{support.message}</p>
+    {support.flagUrl && <>
+      <p className="device-setup-modal-desc">{support.flagUrl}</p>
+      <div className="device-setup-modal-actions">
+        <button className="btn btn--md" disabled={copy === 'copied'} onClick={copyLink}>{copy === 'copied' ? 'Copied' : 'Copy link'}</button>
+        <a className="btn btn--md" href={support.flagUrl} title="Brave blocks web pages from opening brave:// links — copy the link if this does nothing" onClick={event => {
+          // ONE best-effort attempt, in a new tab, and never a navigation of the running
+          // app: the anchor's own default is suppressed so a refused `brave://` load
+          // cannot replace the control panel. Copy link is the action that works.
+          event.preventDefault();
+          try { window.open(support.flagUrl, '_blank', 'noopener'); } catch { /* Refused. */ }
+        }}>Try to open</a>
+      </div>
+      {copy === 'failed' && <p role="status">Copy failed — select the link above and copy it manually.</p>}
+    </>}
+    <div className="device-setup-modal-actions">
+      <button className="btn btn--md" onClick={onClose}>Close</button>
+    </div>
+  </dialog>, document.body);
+}
 
 // One shared support notice for every folder category. Capability is a pure function
 // of the browser, so it is known on load and belongs beside the controls — never only
-// in the message a doomed Link Folder click produces. Same `<p role="alert">` the
-// categories already used for this text, and the same string `chooseFolder` throws.
+// in the message a doomed Link Folder click produces. One short actionable sentence
+// plus a compact "How to fix" affordance: the guidance (and the Brave flag link) is
+// one click away instead of being a paragraph in the header.
 export function FolderSupportNotice({ label }) {
-  const support = folderSupportError(label);
-  return support ? <p role="alert">{support}</p> : null;
+  const support = folderSupportInfo(label);
+  const [open, setOpen] = useState(false);
+  const opener = useRef(null);
+  if (!support) return null;
+  return <>
+    <div className="folder-support-notice" role="alert">
+      <span className="script-hint">{support.message}</span>
+      <button ref={opener} className="library-add-btn" aria-haspopup="dialog" onClick={() => setOpen(true)}>How to fix</button>
+    </div>
+    {open && <FolderSupportModal label={label} support={support} opener={opener} onClose={() => setOpen(false)} />}
+  </>;
 }
 
 // Shared async action state; action() runs immediately so native permission and
@@ -60,14 +116,22 @@ export function FolderControls({ label, folder, permission, note, busy, run, lin
   const section = { 'Custom Scripts': 'scripts', 'Node Patterns': 'nodes', Media: 'media' }[label];
   const expected = folderReference(section)?.folderName;
   const [details, setDetails] = useState(false);
+  const [support, setSupport] = useState(null);
   const opener = useRef(null);
   useEffect(() => { if (!folder) setDetails(false); }, [folder]);
   return <>
     {folder && <button ref={opener} className="btn folder-linked" aria-label={`${label}: Linked`} aria-haspopup="dialog" onClick={() => setDetails(true)}>Linked</button>}
     <span className="folder-actions">
-      {!folder && <button ref={opener} className="btn folder-link" disabled={busy} onClick={() => run(link)}>{expected ? 'Relink Folder' : 'Link Folder'}</button>}
+      {!folder && <button ref={opener} className="btn folder-link" disabled={busy} onClick={() => {
+        // A missing picker is a capability, not a failed pick, so the click checks at
+        // click time (the browser can change under a rendered panel) and answers with
+        // the same instructions the notice offers instead of running a doomed link().
+        const missing = folderSupportInfo(label);
+        if (missing) setSupport(missing); else run(link);
+      }}>{expected ? 'Relink Folder' : 'Link Folder'}</button>}
       {children}
     </span>
+    {support && <FolderSupportModal label={label} support={support} opener={opener} onClose={() => setSupport(null)} />}
     {details && folder && <FolderDetails {...{ label, folder, permission, note, busy, run, link, refresh, unlink, opener }} onClose={() => setDetails(false)} />}
   </>;
 }

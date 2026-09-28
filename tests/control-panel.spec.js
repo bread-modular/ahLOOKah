@@ -120,6 +120,13 @@ test.describe('control panel window', () => {
 
   test('projection header keeps its title and shares the compact Media ADD control', async ({ page }, testInfo) => {
     await page.goto(CONTROL_URL);
+    // The Media ADD is a linked-folder action now, so link one before comparing its
+    // look (including hover) with the Projection Mapping header action.
+    await page.evaluate(async () => {
+      const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('media', { create: true });
+      window.showDirectoryPicker = async () => dir;
+    });
+    await page.locator('.media-folder-panel').getByRole('button', { name: 'Link Folder', exact: true }).click();
     const projection = page.locator('.library-group').filter({ has: page.locator('.projection-add-btn') });
     const toggle = projection.locator('.library-group-toggle');
     const add = page.getByRole('button', { name: 'Add projection mapping pattern', exact: true });

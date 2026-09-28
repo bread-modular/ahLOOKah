@@ -535,9 +535,12 @@ badge beside the category name. The badge opens compact folder details with
 **Refresh**, **Relink**, and **Unlink**. Full paths are not exposed by the browser.
 Handles stay in IndexedDB; no server or new UI package is involved. Folder selection
 requires a Chromium-based browser (Chrome, Edge, Chromium or Opera) on HTTPS or
-localhost. Brave ships the File System Access API off by default, so its pickers are
-missing: turn on `brave://flags/#file-system-access-api` and relaunch Brave to try it,
-or link folders in a supported browser. Linking also remembers the directory's
+localhost. A browser that cannot provide it shows one short line plus a **How to fix**
+action — never a paragraph — and the modal behind it offers the fix for that cause:
+the copyable Brave flag (`brave://flags/#file-system-access-api`; a page cannot open a
+`brave://` URL itself, so copy is the working action), HTTPS or localhost, or the
+supported-browser list. **Link Folder** opens that same modal instead of failing.
+Linking also remembers the directory's
 project identity (see [Projects](#projects-save-project--open-project--new-project)), which is
 what lets a saved project resume its folders without re-linking.
 
@@ -551,10 +554,10 @@ what lets a saved project resume its folders without re-linking.
   existing file either way: linked, it lists only direct-child `.nodes.json` files
   and adds the one you pick; unlinked, it opens the file picker. Linking a folder
   never loads it. Linked patterns remain disk-authoritative, including saves/conflicts.
-- **Media:** **ADD** is the only path that creates a pattern. Linked, it lists the
-  folder’s supported images and videos (excluding subfolders and audio/text files)
-  in the in-app directory picker; unlinked controls keep the native picker/file-input
-  fallback. Linking a folder and Refresh only re-point the media this library already
+- **Media:** **ADD** is the only path that creates a pattern, and it needs the linked
+  folder: it lists the folder’s supported images and videos (excluding subfolders and
+  audio/text files) in the in-app directory picker. Linking a folder and Refresh only
+  re-point the media this library already
   has — matched by recorded name and id, never hashed — so a directory of clips never
   floods the library. Unlink keeps loaded media references.
 
