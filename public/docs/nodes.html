@@ -66,7 +66,7 @@
 
         <ul>
           <li><strong>Link Folder</strong> — grant access to a folder of <code>.nodes.json</code> patterns. The folder is remembered, and once it is linked the button becomes a <strong>Linked</strong> badge. Linking grants access only: it never loads the folder’s contents.</li>
-          <li><strong>ADD</strong> (New Node Pattern) — open a fresh graph in the editor.</li>
+          <li><strong>ADD</strong> (New Node Pattern) — open a fresh graph in the editor. A new pattern is written into the linked folder, so <strong>ADD</strong> stays disabled until you have used <strong>Link Folder</strong>.</li>
           <li><strong>OPEN</strong> (Open Pattern) — add one pattern to your library: with a linked folder it lists that folder’s <code>.nodes.json</code> files, otherwise it opens your computer’s file picker. Adding never opens the editor and never changes what the window shows — the pattern simply joins this group, ready to click and play.</li>
           <li><strong>Linked</strong> — open the folder details for <strong>Refresh</strong>, <strong>Relink</strong> and <strong>Unlink</strong>. Refresh rereads the patterns you have added (edits and removals on disk) and renews expired access; it never imports a file you have not added — <strong>OPEN</strong> does that.</li>
         </ul>
@@ -96,7 +96,7 @@
         <p>The simplest useful pattern is one source wired straight to the Output. A new graph starts empty apart from that Output:</p>
 
         <ol>
-          <li><strong>Link Folder</strong> on the Node Patterns category, then <strong>ADD</strong> (New Node Pattern) — the editor opens on a blank canvas with a single <strong>Output</strong> node.</li>
+          <li><strong>Link Folder</strong> on the Node Patterns category, then <strong>ADD</strong> (New Node Pattern) — <strong>ADD</strong> stays disabled until a folder is linked, because the new pattern is saved there, and then the editor opens on a blank canvas with a single <strong>Output</strong> node.</li>
           <li>Drag <strong>Circles</strong> from the pattern list onto the canvas.</li>
           <li>Click the Circles node’s <strong>out ●</strong>, then the Output’s <strong>● image</strong>. The inspector preview lights up.</li>
           <li><strong>Save</strong>, then <strong>Back to Main</strong> — the graph is now a pattern in your library, ready for the pad or a slot like any built-in.</li>

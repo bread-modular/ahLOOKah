@@ -25,6 +25,16 @@ async function seed(page, g = graph()) {
     return (await nodePatterns.open('color.nodes.json')).id;
   }, g);
 }
+// ADD (New Node Pattern) is only enabled once a folder is linked. Tests that
+// exercise the editor link an empty folder first, so no library row appears.
+async function linkFolder(page) {
+  await page.evaluate(async () => {
+    const { nodePatterns } = await import('/src/nodes/repository.js');
+    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('internal-tests', { create: true });
+    window.showDirectoryPicker = async () => dir;
+    await nodePatterns.link();
+  });
+}
 // OPEN only adds the file to the library: the picker closes, the main view stays
 // active and no editor appears. The editor is entered explicitly, through the
 // selected pattern's sidebar Edit Pattern.
@@ -65,6 +75,7 @@ test.beforeEach(async ({ page, context }) => {
 
 test('New and Edit share one internal editor view; OPEN only adds a pattern', async ({ page, context }) => {
   await page.goto('/');
+  await linkFolder(page);
   await expect(page.locator('.app-tabs-rail')).toHaveCount(0);
   await expect(page.getByRole('tab')).toHaveCount(0);
   await expect(mainPanel(page)).not.toHaveClass(/is-inactive/);
@@ -110,6 +121,7 @@ test('New and Edit share one internal editor view; OPEN only adds a pattern', as
 
 test('leaving a dirty editor confirms; cancel keeps the draft and accept discards it', async ({ page }) => {
   await page.goto('/');
+  await linkFolder(page);
   await page.getByRole('button', { name: 'New Node Pattern', exact: true }).click();
   await editor(page).getByLabel('Graph name').fill('Unsaved draft');
   await editor(page).getByRole('button', { name: '+ Blend', exact: true }).dragTo(editor(page).locator('.nodes-workspace'));

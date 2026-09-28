@@ -814,6 +814,28 @@ test('shared typed parameters retain independent edits and numeric option contro
   await page.screenshot({ path: '/tmp/refined-nodes-editor.png' });
 });
 
+test('New Node Pattern is blocked until a folder is linked, while OPEN keeps its picker path', async ({ page }) => {
+  await page.goto('/'); await seedFixture(page);
+  const panel = page.getByRole('region', { name: 'Node pattern files' });
+  const add = panel.getByRole('button', { name: 'New Node Pattern', exact: true });
+  // A new pattern is only ever a file inside the linked folder (saving without
+  // one is refused by the repository), so ADD stays disabled until Link Folder.
+  await expect(add).toBeDisabled();
+  await expect(add).toHaveAttribute('title', 'Link Folder before creating a node pattern');
+  await expect(page.locator('.app-editor-panel')).toHaveCount(0);
+  await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
+  await expect(add).toBeEnabled();
+  await expect(add).toHaveAttribute('title', 'Create a node pattern in the editor');
+  await folderAction(page, 'Node Patterns', 'Unlink folder');
+  await expect(add).toBeDisabled();
+  // OPEN is a different contract: it adds an existing file, so the native picker
+  // still works with no linked folder and never enters the editor.
+  await panel.getByRole('button', { name: 'Open Pattern', exact: true }).click();
+  await expect.poll(() => recordNames(page)).toEqual(['Neon composite']);
+  await expect(page.locator('.app-editor-panel')).toHaveCount(0);
+  await expect(page.getByLabel('Graph name')).toHaveCount(0);
+});
+
 test('linked folder text rows and unlink preserve source files and standalone workflow', async ({ page }) => {
   await page.goto('/'); await seedFixture(page);
   const panel = page.getByRole('region', { name: 'Node pattern files' });

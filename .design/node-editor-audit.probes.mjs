@@ -56,6 +56,13 @@ async function openGraph(page, data) {
 try {
   await probe('empty-name-embedded-editor', async page => {
     await page.goto(origin);
+    // ADD is gated on a linked folder; link an empty audit folder first.
+    await page.evaluate(async () => {
+      const { nodePatterns } = await import('/src/nodes/repository.js');
+      const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('audit-fixture', { create: true });
+      window.showDirectoryPicker = async () => dir;
+      await nodePatterns.link();
+    });
     await page.getByRole('button', { name: 'New Node Pattern', exact: true }).click();
     await expect(page.getByLabel('Graph name')).toHaveValue('Untitled graph');
     await page.getByLabel('Graph name').fill('');
