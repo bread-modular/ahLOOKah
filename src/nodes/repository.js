@@ -1,6 +1,6 @@
 import { assertFolderReference, missingFolderFiles, referencedFileId, folderReference } from '../platform/folderReferences.js';
 import { registerLinkedProjectFolder } from '../platform/project-folders.js';
-import { chooseFolder, requireFolderPermission as permission, scanFolder, linkedFile } from '../platform/folderAccess.js';
+import { chooseFolder, folderSupportError, requireFolderPermission as permission, scanFolder, linkedFile } from '../platform/folderAccess.js';
 import { parseGraph, serializeGraph } from './portability.js';
 import { validateGraph, MAX_BYTES } from './model.js';
 import { createHandleStorage } from '../platform/handleStorage.js';
@@ -209,7 +209,10 @@ export class NodePatterns {
       await permission(folder.handle, 'read', true);
       handle = await linkedFile(folder.handle, name, name => name.endsWith(SUFFIX));
     } else {
-      if (!globalThis.showOpenFilePicker) throw new Error('Open pattern requires desktop Chrome with File System Access.');
+      // The file picker is a separate entry point from the directory picker, so it
+      // gets its own capability report (same copy, same Brave/Chromium wording).
+      const requirement = folderSupportError('Open pattern', 'showOpenFilePicker');
+      if (requirement) throw new Error(requirement);
       [handle] = await showOpenFilePicker({ id: 'viz2-node-patterns', multiple: false, types: [{ description: 'Node pattern', accept: { 'application/json': ['.json'] } }] });
     }
     if (!handle) throw new DOMException('Canceled', 'AbortError');

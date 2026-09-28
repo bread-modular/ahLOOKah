@@ -114,6 +114,25 @@ test.describe('docs guide navigation', () => {
 // this pins the operator-facing vocabulary (button names exactly as the app shows
 // them) and the figures each page relies on; the guide loop above already proves
 // every image decodes and that the sidebar/pager chain is complete.
+// Folder linking depends on a browser capability the operator may have to turn on
+// (Brave ships File System Access off), so the docs name the supported browsers and
+// the flag instead of blaming "desktop Chrome".
+test('docs state the Chromium-based folder requirement and the Brave flag', async ({ page, request }) => {
+  await page.goto('/docs/custom-scripts.html');
+  const article = page.locator('article');
+  await expect(article).toContainText('Chromium-based');
+  await expect(article).toContainText('brave://flags/#file-system-access-api');
+  await expect(article).not.toContainText('desktop Chrome');
+  const markdown = await (await request.get('/docs/custom-scripts-api.md')).text();
+  expect(markdown).toContain('Chromium-based');
+  expect(markdown).toContain('brave://flags/#file-system-access-api');
+  expect(markdown).not.toContain('desktop Chrome');
+  await page.goto('/docs/media.html');
+  const media = page.locator('article');
+  await expect(media).toContainText('Chromium-based');
+  await expect(media).toContainText('brave://flags/#file-system-access-api');
+});
+
 test('Node Patterns guide documents the editor, its sources and its save path', async ({ page }) => {
   await page.goto('/docs/nodes.html');
   const article = page.locator('article');

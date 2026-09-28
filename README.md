@@ -376,7 +376,7 @@ docs/               Design docs (CUE mode, audio control plan, refactor)
 
 [MIT](LICENSE) © Arunoda Susiripal
 
-### Custom Scripts (desktop Chrome)
+### Custom Scripts (Chromium-based browsers)
 
 Choose a real local directory under **Custom Scripts**, write `.viz.js` files with
 your own editor, then **Open Script** to activate one and **Reload** to pick up its
@@ -529,7 +529,10 @@ Custom Scripts, Node Patterns and Media share **Link Folder**, then a **Linked**
 badge beside the category name. The badge opens compact folder details with
 **Refresh**, **Relink**, and **Unlink**. Full paths are not exposed by the browser.
 Handles stay in IndexedDB; no server or new UI package is involved. Folder selection
-requires desktop Chrome on HTTPS or localhost. Linking also remembers the directory's
+requires a Chromium-based browser (Chrome, Edge, Chromium or Opera) on HTTPS or
+localhost. Brave ships the File System Access API off by default, so its pickers are
+missing: turn on `brave://flags/#file-system-access-api` and relaunch Brave to try it,
+or link folders in a supported browser. Linking also remembers the directory's
 project identity (see [Projects](#projects-save-project--open-project--new-project)), which is
 what lets a saved project resume its folders without re-linking.
 

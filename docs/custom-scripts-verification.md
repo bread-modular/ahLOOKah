@@ -47,7 +47,7 @@ Screenshots were captured from the real rendered browser UI; the native OS direc
 
 ## Limitations / remaining manual verification
 
-- Automated filesystem tests use real OPFS-backed handles/bytes and IndexedDB cloning to avoid automating an OS picker. Production still uses the native File System Access picker, not OPFS. Actual OS-folder selection, browser-restart permission persistence/revocation, and external-editor saves need a desktop Chrome manual pass.
+- Automated filesystem tests use real OPFS-backed handles/bytes and IndexedDB cloning to avoid automating an OS picker. Production still uses the native File System Access picker, not OPFS. Actual OS-folder selection, browser-restart permission persistence/revocation, and external-editor saves need a manual pass in a supported Chromium-based browser (Chrome, Edge, Chromium or Opera) — Brave ships File System Access off by default, so it needs `brave://flags/#file-system-access-api` and a relaunch.
 - Trusted scripts are not sandboxed. Syntax/definition rollback does not undo arbitrary top-level side effects, infinite loops, or hook/GLSL failures after activation. Window synchronization remains eventual, not a distributed transaction.
 - No full repository suite or independent mapping suite was rerun for this focused UX revision; custom-script projection reconciliation, CUE and media integration were included above.
 - Chrome does not expose absolute native folder paths; folder-name copy is the deliberate fallback.

@@ -367,12 +367,54 @@ test('Custom Scripts @core missing filesystem support and revoked permissions ar
     try { await screen.permission(); } catch (e) { screenDenied = e.message; }
     return { missing, insecure, denied, permission: service.status.permission, requests, screenDenied };
   });
-  expect(result.missing).toContain('desktop Chrome');
+  expect(result.missing).toContain('Chromium-based');
+  expect(result.missing).not.toContain('desktop Chrome');
   expect(result.insecure).toContain('HTTPS or localhost');
   expect(result.denied).toContain('Reconnect was denied');
   expect(result.permission).toBe('granted');
   expect(result.requests).toBe(2);
   expect(result.screenDenied).toContain('Only the control window');
+});
+
+// The capability report is a pure function of the scope/picker it is given, so every
+// branch — insecure context, Brave's own default, a browser without File System
+// Access at all, and a working picker — is pinned here without a browser.
+test('Custom Scripts @core folder capability separates insecure, Brave, unsupported and supported contexts', async ({ page }) => {
+  await page.goto('/tests/fixtures/render.html');
+  const result = await page.evaluate(async () => {
+    const { folderCapability, folderSupportError, FILE_SYSTEM_ACCESS_FLAG } = await import('/src/platform/folderAccess.js');
+    const insecure = { isSecureContext: false, navigator: {} };
+    const insecureWithPicker = { isSecureContext: false, showDirectoryPicker: () => {}, navigator: {} };
+    const unsupported = { isSecureContext: true, navigator: {} };
+    // Brave answers `isBrave()` with a Promise; the namespace must still be recognised.
+    const brave = { isSecureContext: true, navigator: { brave: { isBrave: () => Promise.resolve(true) } } };
+    const braveSync = { isSecureContext: true, navigator: { brave: { isBrave: () => true } } };
+    const notBrave = { isSecureContext: true, navigator: { brave: { isBrave: () => false } } };
+    const supported = { isSecureContext: true, showDirectoryPicker: () => {}, navigator: { brave: { isBrave: () => true } } };
+    return {
+      flag: FILE_SYSTEM_ACCESS_FLAG,
+      codes: [insecure, insecureWithPicker, unsupported, brave, braveSync, notBrave, supported].map((scope) => folderCapability('showDirectoryPicker', scope)),
+      insecure: folderSupportError('Custom Scripts', 'showDirectoryPicker', insecure),
+      brave: folderSupportError('Custom Scripts', 'showDirectoryPicker', brave),
+      unsupported: folderSupportError('Custom Scripts', 'showDirectoryPicker', unsupported),
+      supported: folderSupportError('Custom Scripts', 'showDirectoryPicker', supported),
+      filePicker: folderSupportError('Open pattern', 'showOpenFilePicker', brave),
+    };
+  });
+  expect(result.codes).toEqual(['insecure-context', 'insecure-context', 'unsupported-browser', 'brave-disabled', 'brave-disabled', 'unsupported-browser', null]);
+  expect(result.flag).toBe('brave://flags/#file-system-access-api');
+  expect(result.insecure).toContain('HTTPS or localhost');
+  expect(result.supported).toBe('');
+  expect(result.brave).toContain('Brave');
+  expect(result.brave).toContain(result.flag);
+  expect(result.brave).toContain('Chrome, Edge, Chromium or Opera');
+  expect(result.filePicker).toContain('Open pattern');
+  expect(result.filePicker).toContain('Brave');
+  expect(result.unsupported).toContain('Chromium-based');
+  expect(result.unsupported).toContain('Chrome, Edge, Chromium or Opera');
+  expect(result.unsupported).toContain('with File System Access');
+  expect(result.unsupported).not.toContain('desktop Chrome');
+  expect(result.unsupported).not.toContain('Brave');
 });
 
 test('Custom Scripts @core stale TAKE cannot promote after reload; external deletion falls back', async ({ page, context }) => {

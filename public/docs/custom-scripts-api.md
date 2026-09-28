@@ -4,7 +4,7 @@ This is ahLOOKah's **trusted JavaScript** extension API, not p5.js and **not a s
 
 ## Files and activation contract
 
-- Desktop Chrome, HTTPS or localhost, with `showDirectoryPicker`. The app checks capabilities; other Chromium browsers may expose them but are not the supported target. No upload/virtual-filesystem fallback.
+- Chromium-based browsers (Chrome, Edge, Chromium, Opera), HTTPS or localhost, with `showDirectoryPicker`. The app checks capabilities and explains missing support: Brave ships File System Access off by default, so enable `brave://flags/#file-system-access-api` and relaunch Brave, or use Chrome, Edge, Chromium or Opera. No upload/virtual-filesystem fallback.
 - Choose a real OS directory in **Custom Scripts → Link Folder**. Chrome persists the directory handle using IndexedDB structured cloning. Permissions can expire independently. Open Script and reload request renewed read permission from a user gesture; denied permission never discards last-good registrations.
 - Write scripts in your external editor. Linking only lists filenames; it never executes files. Click **Open Script**, choose a file in the app modal, then **Open** to validate and activate it. There is no Create Script workflow, browser editor or disk writing. External saves remain inactive until Reload.
 - Only explicitly opened immediate files named `*.viz.js` are executed (alphanumeric initial character, then ASCII letters/digits/dot/underscore/hyphen). No recursive traversal. At most 100 files, 1 MB each, 256 resulting patterns. Non-script files are assets.
@@ -289,7 +289,7 @@ Custom entries are normal registry patterns: click LIVE, Shift-click CUE, Enter 
 
 `PLAYWRIGHT_PORT=5183 npx playwright test tests/custom-scripts.spec.js --project=chromium`
 
-Tests use real browser filesystem handles backed by OPFS to automate filesystem operations/IndexedDB cloning, **not** as the production storage backend. Native OS picker UI and persistent permission revocation require a manual desktop Chrome check: link an actual OS folder, Open Script, edit externally, Reload, restart Chrome, renew/deny permission, unlink/relink a moved folder, cancel/confirm library Delete, and verify the OS file is preserved. Automated tests cannot stand in for that manual check.
+Tests use real browser filesystem handles backed by OPFS to automate filesystem operations/IndexedDB cloning, **not** as the production storage backend. Native OS picker UI and persistent permission revocation require a manual pass in a supported Chromium-based browser (Chrome, Edge, Chromium or Opera; Brave additionally needs `brave://flags/#file-system-access-api` and a relaunch): link an actual OS folder, Open Script, edit externally, Reload, restart the browser, renew/deny permission, unlink/relink a moved folder, cancel/confirm library Delete, and verify the OS file is preserved. Automated tests cannot stand in for that manual check.
 
 ## Complete examples
 
