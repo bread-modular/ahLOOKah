@@ -4,10 +4,10 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 // The one place the Brave flag URL can be offered. A web page cannot navigate
-// Chromium to a `brave://` URL, so the anchor is a best-effort attempt and the URL is
-// also shown as selectable text: "Copy link" is the action that works. Nothing here
-// is opened automatically — the modal exists only behind a click on "How to fix" or
-// on Link Folder, both of which a user has to make.
+// Chromium to a `brave://` URL, so the URL is shown as selectable text and "Copy link"
+// is the only action offered for it: no Try-to-open control exists, because it could
+// only fail. Nothing here is opened automatically — the modal exists only behind a
+// click on "How to fix" or on Link Folder, both of which a user has to make.
 export function FolderSupportModal({ label, support, opener, onClose }) {
   const dialog = useRef(null);
   const id = useId();
@@ -25,27 +25,19 @@ export function FolderSupportModal({ label, support, opener, onClose }) {
       setCopy('failed');
     }
   };
+  // One action row for every cause: the copyable flag (Brave only) sits beside the
+  // single Close button, so the modal never offers an action the browser cannot
+  // honour and Close is never a second, duplicated row.
   return createPortal(<dialog ref={dialog} className="folder-support key-map-modal-card" aria-labelledby={`${id}-title`} onCancel={onClose} onKeyDown={e => e.stopPropagation()}>
     <button className="device-setup-modal-close" aria-label="Close folder support" onClick={onClose}>×</button>
     <h2 id={`${id}-title`}>{label} unavailable</h2>
     <p className="device-setup-modal-desc">{support.message}</p>
-    {support.flagUrl && <>
-      <p className="device-setup-modal-desc">{support.flagUrl}</p>
-      <div className="device-setup-modal-actions">
-        <button className="btn btn--md" disabled={copy === 'copied'} onClick={copyLink}>{copy === 'copied' ? 'Copied' : 'Copy link'}</button>
-        <a className="btn btn--md" href={support.flagUrl} title="Brave blocks web pages from opening brave:// links — copy the link if this does nothing" onClick={event => {
-          // ONE best-effort attempt, in a new tab, and never a navigation of the running
-          // app: the anchor's own default is suppressed so a refused `brave://` load
-          // cannot replace the control panel. Copy link is the action that works.
-          event.preventDefault();
-          try { window.open(support.flagUrl, '_blank', 'noopener'); } catch { /* Refused. */ }
-        }}>Try to open</a>
-      </div>
-      {copy === 'failed' && <p role="status">Copy failed — select the link above and copy it manually.</p>}
-    </>}
+    {support.flagUrl && <p className="device-setup-modal-desc">{support.flagUrl}</p>}
     <div className="device-setup-modal-actions">
+      {support.flagUrl && <button className="btn btn--md" disabled={copy === 'copied'} onClick={copyLink}>{copy === 'copied' ? 'Copied' : 'Copy link'}</button>}
       <button className="btn btn--md" onClick={onClose}>Close</button>
     </div>
+    {support.flagUrl && copy === 'failed' && <p role="status">Copy failed — select the link above and copy it manually.</p>}
   </dialog>, document.body);
 }
 
