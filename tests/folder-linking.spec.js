@@ -91,8 +91,9 @@ for (const category of categories) {
 // Access off) or a browser without it at all. Each branch is asserted to name the
 // real cause in ONE short actionable line, with the guidance behind the notice's
 // "How to fix" affordance (and behind Link Folder) instead of in a paragraph on
-// screen. Only Brave gets a flag link, and a page cannot open a `brave://` URL, so
-// copying is the action that works.
+// screen. Only Brave gets the flag URL, and a page cannot open a `brave://` URL, so
+// copyable text plus Copy link is all the modal offers for it; Close is the single
+// dismiss action, sitting in that same row.
 const capabilityCases = [
   {
     name: 'Brave with File System Access off names Brave and offers the copyable flag',
@@ -140,23 +141,20 @@ for (const capability of capabilityCases) {
       const support = page.getByRole('dialog', { name: `${category.name} unavailable` });
       await expect(support).toBeVisible();
       for (const text of capability.includes) await expect(support).toContainText(text);
+      // The modal offers no action the browser cannot honour: the Brave flag is
+      // copyable text, and Close is the single dismiss button in the same row.
+      await expect(support.getByRole('link')).toHaveCount(0);
+      await expect(support.getByRole('button', { name: 'Close', exact: true })).toHaveCount(1);
       if (capability.flag) {
         await expect(support).toContainText(capability.flag);
-        const link = support.getByRole('link', { name: 'Try to open', exact: true });
-        await expect(link).toHaveAttribute('href', capability.flag);
         await page.evaluate(() => { window.__copied = null; navigator.clipboard.writeText = async text => { window.__copied = text; }; });
         await support.getByRole('button', { name: 'Copy link', exact: true }).click();
         await expect(support.getByRole('button', { name: 'Copied', exact: true })).toBeVisible();
         expect(await page.evaluate(() => window.__copied)).toBe(capability.flag);
-        // The one best-effort link attempt must never replace the running app with a
-        // refused brave:// load; the modal is still there afterwards.
-        const beforeURL = page.url();
-        await link.click();
-        expect(page.url()).toBe(beforeURL);
+        // Copying the flag never replaces the running app; the modal stays put.
         await expect(support).toBeVisible();
       } else {
         // No flag, no invented action: the message and Close are all there is.
-        await expect(support.getByRole('link')).toHaveCount(0);
         await expect(support.getByRole('button', { name: /Copy/ })).toHaveCount(0);
       }
       // Escape closes it and focus goes back to the affordance that opened it.
