@@ -453,11 +453,11 @@ never written to the file, with a live readout and **Reset state** in the inspec
 Sources are approved per exact text *and* language in this browser,
 so an imported file can never carry trust with it.
 The main **Node Patterns** category owns **Link Folder**, **Open Pattern**,
-**Refresh folder**, and **New Node Pattern**. **New Node Pattern** stays disabled
-until a folder is linked, because a new graph is saved as a `.nodes.json` file
-inside that folder. **Open Pattern** adds existing files instead: it only adds the
-picked file to the library, never opens the editor, never changes what the window
-shows, and it still works with no linked folder through the file picker. Select a
+**Refresh folder**, and **New Node Pattern**. **New Node Pattern** and
+**Open Pattern** both stay disabled until a folder is linked: a new graph is saved
+as a `.nodes.json` file inside that folder, and an opened one is read from it.
+**Open Pattern** only adds the picked file to the library — it never opens the
+editor and never changes what the window shows. Select a
 graph, then use the sidebar’s **Edit Pattern** to open it in the
 editor (or **New Node Pattern** for a fresh draft); the sidebar’s **Delete** removes it from
 the library without touching the file on disk (Open Pattern restores it). One graph is edited at a time and the editor
@@ -549,11 +549,12 @@ what lets a saved project resume its folders without re-linking.
   executes folder contents. Opening a saved project reopens the scripts it names
   whose code still matches the fingerprint it recorded; an edited, renamed or new
   file needs **OPEN** again. Scripts run with app privileges, not in a sandbox.
-- **Node Patterns:** **ADD** is disabled until a folder is linked, because a new
-  graph is saved as a `.nodes.json` file inside that folder. **OPEN** adds an
-  existing file either way: linked, it lists only direct-child `.nodes.json` files
-  and adds the one you pick; unlinked, it opens the file picker. Linking a folder
-  never loads it. Linked patterns remain disk-authoritative, including saves/conflicts.
+- **Node Patterns:** **ADD** and **OPEN** both wait for a linked folder: **ADD**
+  because a new graph is saved as a `.nodes.json` file inside that folder, **OPEN**
+  because it lists that same folder’s direct-child `.nodes.json` files and adds the
+  one you pick — a pattern this library can never save or refresh has no home
+  here. Linking a folder never loads it. Linked patterns remain
+  disk-authoritative, including saves/conflicts.
 - **Media:** **ADD** is the only path that creates a pattern, and it needs the linked
   folder: it lists the folder’s supported images and videos (excluding subfolders and
   audio/text files) in the in-app directory picker. Linking a folder and Refresh only
@@ -637,7 +638,9 @@ access never runs anything by itself.
 
 Old exports (`kind: ahlookah-settings`, version 1) still load and behave exactly
 as before: no identities, so every linked folder is confirmed by hand. Legacy
-individually opened files keep their filenames but require explicit re-opening.
+individually opened files keep their filenames, and the library still lists the
+ones this browser remembers; a file outside the linked folder is no longer opened
+from the library, so copy it into the linked folder and use **OPEN**.
 Saving/opening a project and relinking never overwrite or delete source files.
 
 Focused coverage (use a free isolated port):

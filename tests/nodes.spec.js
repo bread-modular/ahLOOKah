@@ -552,21 +552,32 @@ test('denied save preserves draft; main pickers cancel or report unsupported', a
   const main = await context.newPage(); await main.goto('/');
   await folderAction(main, 'Node Patterns', 'Unlink folder');
   const panel = main.getByRole('region', { name: 'Node pattern files' });
-  await main.evaluate(() => { window.showDirectoryPicker = window.showOpenFilePicker = async () => { throw new DOMException('Canceled', 'AbortError'); }; });
-  for (const name of ['Link Folder', 'Open Pattern']) {
-    await panel.getByRole('button', { name, exact: true }).click();
-    await expect(panel).toContainText('Canceled');
-  }
+  const add = panel.getByRole('button', { name: 'New Node Pattern', exact: true });
+  const browse = panel.getByRole('button', { name: 'Open Pattern', exact: true });
+  // Unlinked, both header actions are off: OPEN no longer owns a native-picker
+  // entry point, so there is no second picker that could be canceled here.
+  await expect(add).toBeDisabled();
+  await expect(browse).toBeDisabled();
+  await expect(browse).toHaveAttribute('title', 'Link Folder before opening a node pattern');
+  await main.evaluate(() => {
+    window.__openPicks = 0;
+    window.showDirectoryPicker = async () => { throw new DOMException('Canceled', 'AbortError'); };
+    window.showOpenFilePicker = async () => { window.__openPicks++; throw new DOMException('Canceled', 'AbortError'); };
+  });
+  await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
+  await expect(panel).toContainText('Canceled');
+  // A disabled control has no activation path, so the native file picker is never
+  // reached even when something clicks OPEN.
+  expect(await main.evaluate(() => { document.querySelector('.node-patterns-panel [aria-label="Open Pattern"]').click(); return window.__openPicks; })).toBe(0);
   await main.evaluate(() => { window.showDirectoryPicker = undefined; window.showOpenFilePicker = undefined; });
-  // Link Folder explains the missing picker in the support modal; Open Pattern
-  // reports the same cause in the panel, because each entry point has its own.
+  // Link Folder explains the missing picker in the support modal; the disabled
+  // actions keep the unlinked hint beside them.
   await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
   const support = main.getByRole('dialog', { name: 'Node Patterns unavailable' });
   await expect(support).toContainText('Chrome, Edge, Chromium or Opera');
   await main.keyboard.press('Escape');
   await expect(support).toHaveCount(0);
-  await panel.getByRole('button', { name: 'Open Pattern', exact: true }).click();
-  await expect(panel).toContainText('Chrome, Edge, Chromium or Opera');
+  await expect(panel).toContainText('Link Folder before creating or opening a node pattern.');
   await expect(page.getByLabel('Graph name')).toHaveValue('Neon composite');
 });
 
@@ -819,32 +830,64 @@ test('shared typed parameters retain independent edits and numeric option contro
   await page.screenshot({ path: '/tmp/refined-nodes-editor.png' });
 });
 
-test('New Node Pattern is blocked until a folder is linked, while OPEN keeps its picker path', async ({ page }) => {
+test('New Node Pattern and Open Pattern both wait for a linked folder', async ({ page }) => {
   await page.goto('/'); await seedFixture(page);
   const panel = page.getByRole('region', { name: 'Node pattern files' });
   const add = panel.getByRole('button', { name: 'New Node Pattern', exact: true });
-  // A new pattern is only ever a file inside the linked folder (saving without
-  // one is refused by the repository), so ADD stays disabled until Link Folder.
+  const browse = panel.getByRole('button', { name: 'Open Pattern', exact: true });
+  // A new pattern is only ever a file inside the linked folder (saving without one
+  // is refused by the repository) and OPEN lists that same folder, so both header
+  // actions stay disabled until Link Folder.
   await expect(add).toBeDisabled();
   await expect(add).toHaveAttribute('title', 'Link Folder before creating a node pattern');
+  await expect(browse).toBeDisabled();
+  await expect(browse).toHaveAttribute('title', 'Link Folder before opening a node pattern');
+  // Disabled means no activation path either: the native file picker the unlinked
+  // OPEN used to reach is never invoked, so nothing joins the library unlinked.
+  expect(await page.evaluate(() => {
+    window.__openPicks = 0;
+    window.showOpenFilePicker = async () => { window.__openPicks++; throw new DOMException('Canceled', 'AbortError'); };
+    document.querySelector('.node-patterns-panel [aria-label="Open Pattern"]').click();
+    return window.__openPicks;
+  })).toBe(0);
+  await expect.poll(() => recordNames(page)).toEqual([]);
   await expect(page.locator('.app-editor-panel')).toHaveCount(0);
   await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
   await expect(add).toBeEnabled();
   await expect(add).toHaveAttribute('title', 'Create a node pattern in the editor');
+  await expect(browse).toBeEnabled();
+  await expect(browse).toHaveAttribute('title', 'Add a node pattern file from the linked folder (does not open the editor)');
   await folderAction(page, 'Node Patterns', 'Unlink folder');
   await expect(add).toBeDisabled();
-  // OPEN is a different contract: it adds an existing file, so the native picker
-  // still works with no linked folder and never enters the editor.
+  await expect(browse).toBeDisabled();
+});
+
+test('a folder that unlinks while the OPEN picker is open closes it without a native picker', async ({ page }) => {
+  await page.goto('/'); await seedFixture(page);
+  const panel = page.getByRole('region', { name: 'Node pattern files' });
+  await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
+  await page.evaluate(() => {
+    window.__openPicks = 0;
+    window.showOpenFilePicker = async () => { window.__openPicks++; throw new DOMException('Canceled', 'AbortError'); };
+  });
   await panel.getByRole('button', { name: 'Open Pattern', exact: true }).click();
-  await expect.poll(() => recordNames(page)).toEqual(['Neon composite']);
-  await expect(page.locator('.app-editor-panel')).toHaveCount(0);
-  await expect(page.getByLabel('Graph name')).toHaveCount(0);
+  const picker = page.getByRole('dialog', { name: 'Open Pattern', exact: true });
+  await picker.getByRole('combobox').selectOption('neon.nodes.json');
+  // The dialog lists the folder that was linked when it opened. Another tab
+  // (here: unlink in this one) removing that link retires the picker, so its
+  // selection can never reach the repository — which, with no folder left, would
+  // fall back to the native file picker.
+  await page.evaluate(async () => { await (await import('/src/nodes/repository.js')).nodePatterns.unlink(); });
+  await expect(picker).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: 'Open Pattern', exact: true })).toBeDisabled();
+  expect(await page.evaluate(() => window.__openPicks)).toBe(0);
+  await expect.poll(() => recordNames(page)).toEqual([]);
 });
 
 test('linked folder text rows and unlink preserve source files and standalone workflow', async ({ page }) => {
   await page.goto('/'); await seedFixture(page);
   const panel = page.getByRole('region', { name: 'Node pattern files' });
-  await expect(panel.getByRole('button', { name: 'Open Pattern', exact: true })).toBeEnabled();
+  await expect(panel.getByRole('button', { name: 'Open Pattern', exact: true })).toBeDisabled();
   await expect(panel.getByRole('button', { name: 'New Node Pattern' })).toBeVisible();
   await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
   await expect(panel.getByRole('button', { name: 'Link Folder', exact: true })).toHaveCount(0);
@@ -860,10 +903,19 @@ test('linked folder text rows and unlink preserve source files and standalone wo
   await folderAction(page, 'Node Patterns', 'Unlink folder');
   await expect(panel.getByRole('button', { name: 'Link Folder', exact: true })).toBeVisible();
   expect(await diskText(page)).toContain('Neon composite');
-  await panel.getByRole('button', { name: 'Open Pattern', exact: true }).click();
+  // Unlinked, OPEN is off with ADD: the pattern comes back by re-linking the same
+  // folder, never through a native picker.
+  const browse = panel.getByRole('button', { name: 'Open Pattern', exact: true });
+  await expect(browse).toBeDisabled();
+  await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
+  await expect(browse).toBeEnabled();
+  await browse.click();
+  const picker = page.getByRole('dialog', { name: 'Open Pattern', exact: true });
+  await picker.getByRole('combobox').selectOption('neon.nodes.json');
+  await picker.getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(picker).toHaveCount(0);
   await expect.poll(() => recordNames(page)).toEqual(['Neon composite']);
-  // The native-picker path (no linked folder) adds the pattern the same way and
-  // never replaces the main view with the editor.
+  // Adding a pattern never replaces the main view with the editor.
   await expect(page.locator('.app-editor-panel')).toHaveCount(0);
   await expect(page.getByLabel('Graph name')).toHaveCount(0);
 });

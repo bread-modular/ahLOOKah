@@ -67,7 +67,7 @@
         <ul>
           <li><strong>Link Folder</strong> — grant access to a folder of <code>.nodes.json</code> patterns. The folder is remembered, and once it is linked the button becomes a <strong>Linked</strong> badge. Linking grants access only: it never loads the folder’s contents.</li>
           <li><strong>ADD</strong> (New Node Pattern) — open a fresh graph in the editor. A new pattern is written into the linked folder, so <strong>ADD</strong> stays disabled until you have used <strong>Link Folder</strong>.</li>
-          <li><strong>OPEN</strong> (Open Pattern) — add one pattern to your library: with a linked folder it lists that folder’s <code>.nodes.json</code> files, otherwise it opens your computer’s file picker. Adding never opens the editor and never changes what the window shows — the pattern simply joins this group, ready to click and play.</li>
+          <li><strong>OPEN</strong> (Open Pattern) — add one pattern to your library: it lists the linked folder’s <code>.nodes.json</code> files and adds the one you pick. Like <strong>ADD</strong> it stays disabled until you have used <strong>Link Folder</strong>, because a pattern is read from, saved to and refreshed in that folder. Adding never opens the editor and never changes what the window shows — the pattern simply joins this group, ready to click and play.</li>
           <li><strong>Linked</strong> — open the folder details for <strong>Refresh</strong>, <strong>Relink</strong> and <strong>Unlink</strong>. Refresh rereads the patterns you have added (edits and removals on disk) and renews expired access; it never imports a file you have not added — <strong>OPEN</strong> does that.</li>
         </ul>
 
@@ -283,7 +283,7 @@ return weighted / 10;</code></pre>
 
         <ul>
           <li>A draft does not have to be finished. An unconnected Output saves fine and reopens exactly as saved.</li>
-          <li>A pattern opened from the linked folder keeps its filename even when you rename the graph. A file opened from elsewhere is copied into the linked folder on Save and never overwritten at its original location.</li>
+          <li>A pattern takes its filename from the linked folder, so it keeps that file even when you rename the graph: <strong>Save</strong> overwrites the file you opened rather than creating a stray copy.</li>
           <li>Overwriting an existing destination file asks first. A file changed or deleted on disk since you opened it cannot be overwritten — reopen it first.</li>
           <li>A draft that cannot be saved yet says why: the editor and every offending node take a red outline, and the inspector lists the blocking reasons. Deleting the last node that used a removed source clears the block.</li>
         </ul>
@@ -298,7 +298,7 @@ return weighted / 10;</code></pre>
         <ul>
           <li><strong>Never embedded</strong> — media bytes, file handles, script sources and other external assets. The destination needs the same dependencies, and a changed dependency is detected rather than silently substituted.</li>
           <li><strong>Not recursive</strong> — a node pattern cannot contain another node pattern; flatten the composition into ordinary sources and blends.</li>
-          <li><strong>Bounded</strong> — one file or record stays under 200 KB, internal graph images are capped at 1280×720, and a folder keeps up to 64 patterns (plus 64 individually opened files). Node, source and wire counts are limited only by your machine, not by the app.</li>
+          <li><strong>Bounded</strong> — one file or record stays under 200 KB, internal graph images are capped at 1280×720, and a folder keeps up to 64 patterns. Node, source and wire counts are limited only by your machine, not by the app.</li>
         </ul>
 
         <p>Missing files and failed sources show a diagnostic instead of a blank canvas; re-link the file in the main library and reload the draft.</p>
