@@ -57,7 +57,7 @@
 
     <main class="content"><article class="article">
       <h1>Custom Scripts</h1>
-<nav aria-label="On this page" class="script-doc-toc"><strong>On this page</strong><ul><li><a href="#folder">Link Folder</a></li><li><a href="#open">Open Script</a></li><li><a href="#edit">Edit and reload</a></li><li><a href="#validation">Validation and rollback</a></li><li><a href="#lifecycle">Lifecycle</a></li><li><a href="#api-custom-scripts-api-v1-agent-reference">Custom Scripts API v1 — agent reference</a></li><li><a href="#api-files-and-activation-contract">Files and activation contract</a></li><li><a href="#api-synchronous-registration-api">Synchronous registration API</a></li><li><a href="#api-definition-schema">Definition schema</a></li><li><a href="#api-renderer-context-and-cleanup">Renderer context and cleanup</a></li><li><a href="#api-existing-vizcore-capabilities-not-full-p5">Existing VizCore capabilities (not full p5)</a></li><li><a href="#api-preferred-reactive-mapping-default">Preferred reactive mapping (default)</a></li><li><a href="#api-existing-pipeline-and-provenance">Existing pipeline and provenance</a></li><li><a href="#api-lifecycle-silence-and-compatibility">Lifecycle, silence and compatibility</a></li><li><a href="#api-audio-controllers">Audio controllers</a></li><li><a href="#api-examples-and-normal-host-features">Examples and normal host features</a></li><li><a href="#api-reload-delete-and-unlink">Reload, Delete and unlink</a></li><li><a href="#api-troubleshooting-and-agent-handoff-checklist">Troubleshooting and agent handoff checklist</a></li><li><a href="#api-developer-verification">Developer verification</a></li><li><a href="#api-complete-examples">Complete examples</a></li><li><a href="#api-audio-viz-js">audio.viz.js</a></li><li><a href="#api-audio-advanced-viz-js">audio-advanced.viz.js</a></li><li><a href="#api-camera-viz-js">camera.viz.js</a></li><li><a href="#api-crud-lifecycle-viz-js">crud-lifecycle.viz.js</a></li><li><a href="#api-drawing-viz-js">drawing.viz.js</a></li><li><a href="#api-image-viz-js">image.viz.js</a></li><li><a href="#api-mesh-viz-js">mesh.viz.js</a></li><li><a href="#api-shader-viz-js">shader.viz.js</a></li><li><a href="#api-video-viz-js">video.viz.js</a></li></ul></nav>
+<nav aria-label="On this page" class="script-doc-toc"><strong>On this page</strong><ul><li><a href="#folder">Link Folder</a></li><li><a href="#open">Open Script</a></li><li><a href="#create">Add with a coding agent</a></li><li><a href="#edit">Edit and reload</a></li><li><a href="#validation">Validation and rollback</a></li><li><a href="#lifecycle">Lifecycle</a></li><li><a href="#api-custom-scripts-api-v1-agent-reference">Custom Scripts API v1 — agent reference</a></li><li><a href="#api-files-and-activation-contract">Files and activation contract</a></li><li><a href="#api-synchronous-registration-api">Synchronous registration API</a></li><li><a href="#api-definition-schema">Definition schema</a></li><li><a href="#api-renderer-context-and-cleanup">Renderer context and cleanup</a></li><li><a href="#api-image-input-fx-opt-in-graph-contract">Image-input FX (opt-in graph contract)</a></li><li><a href="#api-existing-vizcore-capabilities-not-full-p5">Existing VizCore capabilities (not full p5)</a></li><li><a href="#api-preferred-reactive-mapping-default">Preferred reactive mapping (default)</a></li><li><a href="#api-existing-pipeline-and-provenance">Existing pipeline and provenance</a></li><li><a href="#api-lifecycle-silence-and-compatibility">Lifecycle, silence and compatibility</a></li><li><a href="#api-audio-controllers">Audio controllers</a></li><li><a href="#api-examples-and-normal-host-features">Examples and normal host features</a></li><li><a href="#api-reload-delete-and-unlink">Reload, Delete and unlink</a></li><li><a href="#api-troubleshooting-and-agent-handoff-checklist">Troubleshooting and agent handoff checklist</a></li><li><a href="#api-developer-verification">Developer verification</a></li><li><a href="#api-complete-examples">Complete examples</a></li><li><a href="#api-audio-viz-js">audio.viz.js</a></li><li><a href="#api-audio-advanced-viz-js">audio-advanced.viz.js</a></li><li><a href="#api-camera-viz-js">camera.viz.js</a></li><li><a href="#api-crud-lifecycle-viz-js">crud-lifecycle.viz.js</a></li><li><a href="#api-drawing-viz-js">drawing.viz.js</a></li><li><a href="#api-image-viz-js">image.viz.js</a></li><li><a href="#api-mesh-viz-js">mesh.viz.js</a></li><li><a href="#api-shader-viz-js">shader.viz.js</a></li><li><a href="#api-video-viz-js">video.viz.js</a></li></ul></nav>
       <p class="lead">Build your own visuals in a real local folder. Edit with your favorite editor or coding agent, then explicitly reload them into ahLOOKah.</p>
       <h2 id="trust">Before you begin: trusted code</h2>
       <p><strong>JavaScript runs with the application's privileges. This is NOT a security sandbox.</strong> Only choose folders containing code you trust. Syntax checks catch mistakes, not malicious behavior or infinite loops. Back up your folder.</p>
@@ -76,6 +76,21 @@ api.create({
     p.circle(p.width / 2, p.height / 2, params.size);
   }
 });</code></pre>
+      <h2 id="create">Add a script with a coding agent</h2>
+      <p><strong>ADD</strong> sits beside <strong>OPEN</strong> in the Custom Scripts header and waits for a linked folder (it is disabled until one is linked, like the Node Patterns and Media actions). It installs nothing, opens nothing and writes nothing: it lays out the hand-off and gives you a prompt to paste into a coding agent. ahLOOKah never creates, edits, renames or deletes a file in your folder, and it cannot see the folder's absolute path. The whole hand-off reads: <em>ahLOOKah does not write code or files. Use a coding agent &amp; then <strong>OPEN</strong> the created script.</em></p>
+      <ol>
+        <li>Install and run a coding agent like <a href="https://openai.com/codex/">Codex</a>, <a href="https://claude.com/download">Claude</a> or <a href="https://opencode.ai/download">OpenCode</a> — each link opens that vendor's desktop-app page.</li>
+        <li>Open the linked folder as a project in your coding editor.</li>
+        <li>Pick <strong>Pattern</strong> or <strong>FX (image input)</strong> in the dialog and copy the prompt it shows, replacing the quoted line with what you want built.</li>
+      </ol>
+      <pre><code>Create an ahLOOKah script-based pattern. Then use this as the documentation: https://ahlookah.com/docs/custom-scripts.html
+
+"&lt;your prompt for the pattern here&gt;"</code></pre>
+      <p>Choosing <strong>FX (image input)</strong> instead asks for <code>fx: { input: 'image' }</code> and drawing from <code>ctx.imageInput</code>, and points the agent straight at the image-input contract on this page, because a connected image input — not a saved mode flag — is what selects FX at runtime.</p>
+      <pre><code>Create an ahLOOKah script-based FX. Declare fx: { input: 'image' } and draw from ctx.imageInput; a connected image input is what selects FX at runtime. Then use this as the documentation: https://ahlookah.com/docs/custom-scripts.html#api-image-input-fx-opt-in-graph-contract
+
+"&lt;your prompt for the FX here&gt;"</code></pre>
+      <p>When the agent has saved a <code>.viz.js</code> file, use <strong>OPEN</strong> to validate and load it, and <strong>Reload</strong> after any later edit. Nothing the agent writes runs on its own, and generated code is trusted code: review it first.</p>
       <h2 id="edit">3. Edit externally, then Reload</h2>
       <p>Open the chosen directory in your editor or give that actual OS path to your coding agent. The Parameters panel identifies the selected script file and offers <strong>Reload</strong> and <strong>Delete</strong>. Change the color, save the disk file, then click its <strong>Reload</strong> in Parameters. The folder reload icon reloads all opened files, never unselected files. Until Reload, the existing code keeps running. There is no filesystem watcher.</p>
       <p>Only immediate <code>*.viz.js</code> files are scripts. Use classic strict JavaScript, not TypeScript/JSX or ES modules. Imports (including dynamic imports) are unsupported; bundle libraries into the same file. The folder may also contain assets such as PNGs and videos. Limits: 100 script files, 1 MB per file, 256 custom patterns.</p>
@@ -93,7 +108,7 @@ api.create({
 <ul>
 <li>Chromium-based browsers (Chrome, Edge, Chromium, Opera), HTTPS or localhost, with <code>showDirectoryPicker</code>. A browser without it gets one short actionable line — “Open custom scripts over HTTPS or localhost.”, “Brave blocks custom scripts. Enable File System Access, then relaunch Brave.” or “Use Chrome, Edge, Chromium or Opera to link custom scripts.” — and the <strong>How to fix</strong> action opens the flag link to copy. No upload/virtual-filesystem fallback.</li>
 <li>Choose a real OS directory in <strong>Custom Scripts → Link Folder</strong>. Chrome persists the directory handle using IndexedDB structured cloning. Permissions can expire independently. Open Script and reload request renewed read permission from a user gesture; denied permission never discards last-good registrations.</li>
-<li>Write scripts in your external editor. Linking only lists filenames; it never executes files. Click <strong>Open Script</strong>, choose a file in the app modal, then <strong>Open</strong> to validate and activate it. There is no Create Script workflow, browser editor or disk writing. External saves remain inactive until Reload.</li>
+<li>Write scripts in your external editor, or let a coding agent write them. Linking only lists filenames; it never executes files. <strong>ADD</strong> (enabled once a folder is linked) only shows that hand-off — three desktop-app links, the linked folder's name and a prompt embedding this page's URL (the FX kind links the image-input contract directly). The app cannot install the agent, cannot open the folder and cannot see its absolute path, and ADD itself never creates, edits or deletes a file. Click <strong>Open Script</strong>, choose a file in the app modal, then <strong>Open</strong> to validate and activate it. There is no in-app browser editor or disk writing. External saves remain inactive until Reload.</li>
 <li>Only explicitly opened immediate files named <code>*.viz.js</code> are executed (alphanumeric initial character, then ASCII letters/digits/dot/underscore/hyphen). No recursive traversal. At most 100 files, 1 MB each, 256 resulting patterns. Non-script files are assets.</li>
 <li>Each file is a <strong>classic strict JavaScript script</strong>, receiving the lexical <code>api</code> argument. Not ESM, CommonJS, TypeScript, JSX or p5 global mode. Static and dynamic <code>import</code> are rejected. Bundle dependencies into one <code>.viz.js</code> file; no local module resolver, npm/CDN import loader or source maps. Local asset bytes are available separately.</li>
 <li>Every candidate file is parsed with Acorn and compiled before <strong>any</strong> candidate registration code executes. Registration then runs synchronously in opened-file order; per-script reload re-evaluates only that file, retaining other last-good definitions. Hook bodies are not executed for validation. Any syntax/registration/schema/collision error rejects the <strong>selected reload generation</strong> and preserves the prior registry and renderers.</li>
@@ -118,7 +133,8 @@ api.delete(&#x27;custom-copy&#x27;); // unregister staged pattern; DOES NOT dele
 <tr><td><code>id</code></td><td><code>custom-</code> + lowercase letter/digit followed by up to 55 lowercase letters/digits/hyphens; max 63 total. Globally unique.</td></tr>
 <tr><td><code>name</code></td><td>Nonblank string, max 80 characters.</td></tr>
 <tr><td><code>renderer</code></td><td>Optional <code>&#x27;2d&#x27;</code> (default) or <code>&#x27;webgl&#x27;</code>.</td></tr>
-<tr><td><code>camera</code></td><td>Optional boolean; true enables output camera readiness and disables control camera preview, like built-ins.</td></tr>
+<tr><td><code>camera</code></td><td>Optional boolean; true retains the existing source-mode camera behavior. It does not imply FX capability.</td></tr>
+<tr><td><code>fx</code></td><td>Optional, exactly <code>{ input: &#x27;image&#x27; }</code>. Declares the ability to process one graph-owned image in FX mode; no other fields, inputs or values are accepted. Omission means source-only. Capability does not switch a running instance&#x27;s mode.</td></tr>
 <tr><td><code>params</code></td><td>Optional array of at most 16 numeric sliders. Unique safe keys.</td></tr>
 <tr><td><code>preload(ctx)</code></td><td>Optional sync or async hook, before canvas/setup; suitable for asset loading.</td></tr>
 <tr><td><code>setup(ctx)</code></td><td>Optional sync or async hook, after automatic host-sized canvas creation.</td></tr>
@@ -133,7 +149,9 @@ api.delete(&#x27;custom-copy&#x27;); // unregister staged pattern; DOES NOT dele
 <h3 id="api-renderer-context-and-cleanup">Renderer context and cleanup</h3>
 <table>
 <tr><th>Member</th><th>Meaning</th></tr>
-<tr><td><code>p</code></td><td>Actual VizCore instance, full existing rendering API, no proxy/security membrane.</td></tr>
+<tr><td><code>p</code></td><td>Actual VizCore instance, full existing rendering API, no proxy/security membrane. In FX mode its supported <code>p.createCapture</code> entry point throws instead of opening a camera.</td></tr>
+<tr><td><code>inputMode</code></td><td>Read-only for this renderer instance: <code>&#x27;source&#x27;</code> by default, <code>&#x27;fx&#x27;</code> when an FX-capable graph node has a connected image input (or a host explicitly requests FX). It is a per-instance runtime value, not a saved graph mode selector. Switching modes recreates the renderer.</td></tr>
+<tr><td><code>imageInput</code></td><td>Current borrowed graph image frame during a synchronous FX <code>draw</code>, otherwise <code>null</code>. Refreshed before every draw and cleared on return, error or disposal. This is <strong>not</strong> the audio <code>frame</code>.</td></tr>
 <tr><td><code>params</code></td><td>Current host-owned parameter object.</td></tr>
 <tr><td><code>state</code></td><td>Fresh mutable object for this renderer instance; separate for each output, CUE, preview and projection child.</td></tr>
 <tr><td><code>reactive</code>, <code>response</code>, <code>accent</code></td><td>Preferred built-in channels and normalization helpers; see Preferred reactive mapping.</td></tr>
@@ -141,9 +159,9 @@ api.delete(&#x27;custom-copy&#x27;); // unregister staged pattern; DOES NOT dele
 <tr><td><code>onCleanup(fn)</code></td><td>Register synchronous cleanup, reverse order, once. If already disposed, runs immediately.</td></tr>
 <tr><td><code>signal</code></td><td>AbortSignal aborted before dispose/cleanup. Async work must check it before using p/state/resources.</td></tr>
 <tr><td><code>assetURL(filename)</code></td><td>Promise of a blob URL from this generation&#x27;s real folder. Immediate filename only, no paths. Automatically revoked on disposal. Does not execute JS. Permission errors instruct reconnect.</td></tr>
-<tr><td><code>createCapture(constraints, callback?)</code></td><td>Output&#x27;s shared camera factory (selected camera device), fallback to VizCore capture outside ProgramRuntime. Use instead of opening your own stream.</td></tr>
+<tr><td><code>createCapture(constraints, callback?)</code></td><td>Source mode: output&#x27;s shared camera factory (selected camera device), fallback to VizCore capture outside ProgramRuntime. FX mode: throws before either path, even when no image is connected.</td></tr>
 <tr><td><code>videoDeviceId</code></td><td>Selected output device ID, null in control preview.</td></tr>
-<tr><td><code>runtime</code></td><td>Existing integration callbacks: <code>audioSlot</code>, <code>audioControls</code>, <code>createCapture(p, constraints, callback)</code>, <code>isPaused()</code>, <code>addPlaybackLifecycle({pause,resume})</code>, <code>reportMediaReady()</code>, <code>reportMediaSettled()</code>, <code>addCleanup(fn)</code> where supplied. Some are absent in embedded preview; use optional chaining. Prefer <code>ctx.onCleanup</code> for portable teardown.</td></tr>
+<tr><td><code>runtime</code></td><td>Existing integration callbacks: <code>audioSlot</code>, <code>audioControls</code>, <code>createCapture(p, constraints, callback)</code>, <code>isPaused()</code>, <code>addPlaybackLifecycle({pause,resume})</code>, <code>reportMediaReady()</code>, <code>reportMediaSettled()</code>, <code>addCleanup(fn)</code> where supplied. An FX-capable graph host also passes <code>inputMode</code> and <code>getImageInput()</code>; the adapter only reads the provider during FX draws. Some are absent in embedded preview; use optional chaining. Prefer <code>ctx.onCleanup</code> for portable teardown.</td></tr>
 <tr><td><code>audio</code></td><td>Existing legacy audio object, not a guaranteed raw capture stream in remote windows. Prefer <code>reactive</code> for new scripts; advanced controllers retain <code>frame</code>/<code>shared</code> and renderer <code>controls</code>.</td></tr>
 </table>
 <p>The adapter handles canvas sizing, graphics mode, lifecycle error reporting, loop stop on draw failure and exactly-once cleanup. VizCore removal stops rAF, removes canvas/media/listeners and releases GL. You <strong>must</strong> clean up timers, external listeners, fetched resources, workers, offscreen Graphics, raw GL resources and manually owned MediaStreams. Do not remove the host canvas, replace the host draw loop or use page reload as cleanup. Do not allocate on every frame. Disposal also happens on ordinary pattern switches, not just script reload.</p>
@@ -153,6 +171,83 @@ api.delete(&#x27;custom-copy&#x27;); // unregister staged pattern; DOES NOT dele
   onCleanup(() =&gt; clearInterval(timer));
   window.addEventListener(&#x27;online&#x27;, () =&gt; { state.count = 0; }, {signal});
 }</code></pre>
+<h4 id="api-image-input-fx-opt-in-graph-contract">Image-input FX (opt-in graph contract)</h4>
+<p><code>fx: { input: &#x27;image&#x27; }</code> is <strong>capability metadata</strong>, not a mode switch. Existing scripts, standalone playback and old graph instances remain sources; <code>camera: true</code> retains its source-mode camera behavior. In the Node Patterns editor, an FX-capable script has a ◇ FX badge and an <strong>optional ● image input</strong> even before it is wired. Drag it onto the graph as a source, then connect a Pattern or Camera image output to that socket and wire its output onward. Connecting the image automatically selects FX at runtime and upgrades a v1 graph to v2; deleting the wire returns to source behavior. New wires do not save an <code>inputMode: &#x27;fx&#x27;</code> flag; older explicit flags can still round-trip for repair, but the image edge determines the active mode. A script without <code>camera: true</code> shows <strong>Source default</strong> while unwired; camera effects show <strong>Camera default</strong>. <code>runtime.inputMode</code>/<code>ctx.inputMode</code> remains the per-renderer-instance value passed to the script, not a graph editor selector. In the editor, Camera nodes and unwired camera-capable FX patterns preview a <strong>generated sample clip, not real camera capture</strong>; live capture runs only on the output screen.</p>
+<p>For each synchronous FX draw, the host calls <code>runtime.getImageInput()</code> and exposes the result as <code>ctx.imageInput</code>. <code>null</code> means pending or otherwise unusable input (or no input supplied by a non-graph FX host); in a graph, removing the image wire switches that node back to source mode. A non-null frame has this shape:</p>
+<pre><code>{ source, width, height, frameId, timestampMs, generation }</code></pre>
+<ul>
+<li><code>source</code> is the <strong>graph-owned HTMLCanvasElement</strong>, not a camera/video wrapper or cross-context WebGL texture. <code>width</code>/<code>height</code> are its positive pixel dimensions. <code>frameId</code> identifies the graph evaluation, <code>timestampMs</code> is monotonic render time, and <code>generation</code> invalidates old views on rebuild, resize or disposal. These values describe an image, not the capture-side <code>audio.update({ frame })</code> analysis data.</li>
+<li>The graph owns and pins input for the current draw/tick. Read or sample it synchronously; do <strong>not</strong> resize, draw into, remove, dispose, mutate or retain the canvas/view for async work or future draws. Make an effect-owned copy only for intentional, bounded history. <code>ctx.imageInput</code> is <code>null</code> outside the draw and on dispose, but your own stored reference cannot be revoked by the adapter. Keep output distinct from input to avoid feedback.</li>
+<li>In FX mode <code>ctx.createCapture()</code> and <code>p.createCapture()</code> explicitly throw, including when the input is absent. Never write <code>ctx.createCapture(...) || p.createCapture(...)</code> as an FX fallback. Source-mode capture is unchanged; only an upstream camera-source node should acquire a camera for a camera → FX chain. These guards cover the supported VizCore paths, <strong>not</strong> arbitrary trusted JavaScript calling browser media APIs directly.</li>
+<li>Handle <code>null</code> during an FX draw by clearing to transparent, not opening a camera or retaining an old output. A disconnected image socket runs the source branch instead; pending/otherwise unusable connected input can still be <code>null</code>. The graph host diagnoses missing/unsupported input and clears failed outputs; saved image wires and any legacy mode hints remain for repair if a script reload removes its capability. FX preview does not request an effect-owned camera; an upstream Camera node supplies a generated sample clip in the editor and real capture only on the output screen. <code>preload</code> and <code>setup</code> must not assume a frame exists.</li>
+</ul>
+<p><strong>Canvas2D source/FX example</strong> (the source branch is deliberately useful on its own):</p>
+<pre><code>api.requireVersion(1);
+api.create({
+  id: &#x27;custom-image-wash&#x27;, name: &#x27;Image wash&#x27;, fx: { input: &#x27;image&#x27; },
+  draw({ p, inputMode, imageInput }) {
+    p.clear();
+    if (inputMode === &#x27;source&#x27;) { p.background(24); return; }
+    if (!imageInput) return;
+    p.tint(255, 180);
+    p.image(imageInput.source, 0, 0, p.width, p.height);
+    p.noTint();
+  },
+});</code></pre>
+<p><strong>Dual-source camera example</strong>: acquire only in source mode. Do not test capture metadata to decide whether an FX frame is ready; use <code>imageInput</code> and its dimensions instead. Source-only camera behavior and mirroring remain explicit.</p>
+<pre><code>api.requireVersion(1);
+api.create({
+  id: &#x27;custom-camera-wash&#x27;, name: &#x27;Camera / image wash&#x27;,
+  camera: true, fx: { input: &#x27;image&#x27; },
+  setup({ inputMode, state, createCapture }) {
+    if (inputMode === &#x27;source&#x27;) {
+      state.capture = createCapture({ video: true, audio: false });
+      state.capture.hide(); // The source-mode host owns its shared camera lease.
+    }
+  },
+  draw({ p, inputMode, imageInput, state }) {
+    p.clear();
+    if (inputMode === &#x27;fx&#x27;) {
+      if (!imageInput) return;
+      p.tint(255, 180);
+      p.image(imageInput.source, 0, 0, p.width, p.height);
+      p.noTint();
+      return;
+    }
+    p.background(0);
+    if (state.capture?.elt.readyState &gt;= 2) {
+      p.push(); p.translate(p.width, 0); p.scale(-1, 1);
+      p.image(state.capture, 0, 0, p.width, p.height); p.pop();
+    }
+  },
+});</code></pre>
+<p><strong>Optional WebGL example</strong>: the existing texture resolver accepts <code>imageInput.source</code> as a canvas. A reused canvas must be re-uploaded when its frame changes; do not cache the borrowed input as an effect-owned texture. The shader below simply demonstrates the image path; replace its fragment body with your effect.</p>
+<pre><code>api.requireVersion(1);
+api.create({
+  id: &#x27;custom-image-shader&#x27;, name: &#x27;Image texture FX&#x27;,
+  renderer: &#x27;webgl&#x27;, fx: { input: &#x27;image&#x27; },
+  setup({ p, state }) {
+    state.shader = p.createShader(`
+      precision highp float;
+      attribute vec3 aPosition; attribute vec2 aTexCoord;
+      varying vec2 uv;
+      void main() { uv = aTexCoord; gl_Position = vec4(aPosition.xy * 2.0 - 1.0, 0.0, 1.0); }
+    `, `
+      precision highp float;
+      varying vec2 uv; uniform sampler2D uImage;
+      void main() { gl_FragColor = texture2D(uImage, uv); }
+    `);
+  },
+  draw({ p, state, inputMode, imageInput }) {
+    p.clear();
+    if (inputMode === &#x27;source&#x27;) { p.background(24); return; }
+    if (!imageInput) return;
+    p.shader(state.shader);
+    state.shader.setUniform(&#x27;uImage&#x27;, imageInput.source);
+    p.rect(0, 0, p.width, p.height); // VizCore custom shader: fullscreen quad
+  },
+});</code></pre>
+<p>The scripting API remains <strong>version 1</strong>: these optional fields are additive. Older app versions reject unknown <code>fx</code> definitions rather than guessing what to render; a failing reload keeps the last-good registration. A successful reload that removes <code>fx</code> changes the registry capability; the graph host preserves saved image wires and any legacy <code>inputMode</code> hints and reports an unavailable capability instead of silently changing the connection. Cross-window generations independently validate the new definition, then recreate affected renderers.</p>
 <h4 id="api-existing-vizcore-capabilities-not-full-p5">Existing VizCore capabilities (not full p5)</h4>
 <p>The custom adapter does not reduce <code>p</code>. Current source of truth: <code>src/core/api.js</code>, <code>src/core/sketch.js</code>, <code>src/core/renderer-2d.js</code>, <code>src/core/renderer-gl.js</code>, <code>src/core/media.js</code>; renderer-specific calls can be no-ops in the other mode.</p>
 <ul>

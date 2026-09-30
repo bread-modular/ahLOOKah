@@ -380,8 +380,15 @@ docs/               Design docs (CUE mode, audio control plan, refactor)
 
 Choose a real local directory under **Custom Scripts**, write `.viz.js` files with
 your own editor, then **Open Script** to activate one and **Reload** to pick up its
-later edits. There is no create control in the app: the library only loads files
-that already exist in the linked folder.
+later edits. **ADD** (available once a folder is linked) hands the job to a coding
+agent instead of creating anything itself: it shows *ahLOOKah does not write code or
+files. Use a coding agent & then **OPEN** the created script.* with links to the
+desktop apps of Codex, Claude and OpenCode, the linked folder's name, and a copyable
+prompt that links the guide — with an **FX (image input)** variant that links the
+image-input contract.
+The app never writes into the folder, and ADD plus linking never execute anything:
+**Open Script** is what activates a file, and a saved project reopens only the
+scripts it lists whose bytes still match the fingerprint it recorded.
 Scripts are trusted JavaScript, **not a sandbox**. The complete tutorial is
 [Custom Scripts](public/docs/custom-scripts.html); the agent-facing contract is
 [API v1](public/docs/custom-scripts-api.md), with runnable examples alongside it.
@@ -544,8 +551,17 @@ Linking also remembers the directory's
 project identity (see [Projects](#projects-save-project--open-project--new-project)), which is
 what lets a saved project resume its folders without re-linking.
 
-- **Custom Scripts:** **ADD** creates a starter `.viz.js` without overwriting an
-  existing file. **OPEN** is still the explicit trust gesture, and linking never
+- **Custom Scripts:** **ADD** is the hand-off to an external coding agent. It waits
+  for a linked folder, then shows *ahLOOKah does not write code or files. Use a
+  coding agent & then **OPEN** the created script.* with links to the desktop apps of
+  Codex, Claude and OpenCode, the linked folder's name, and a copyable prompt that
+  links the guide (`/docs/custom-scripts.html`). A **Pattern**/**FX (image input)**
+  select changes
+  the prompt's task line and link — the FX kind also requires
+  `fx: { input: 'image' }`, draws from `ctx.imageInput`, and points at the
+  image-input contract directly. The dialog installs
+  nothing, opens nothing and writes nothing: the agent creates the `.viz.js` file
+  itself. **OPEN** remains the explicit trust gesture, and linking never
   executes folder contents. Opening a saved project reopens the scripts it names
   whose code still matches the fingerprint it recorded; an edited, renamed or new
   file needs **OPEN** again. Scripts run with app privileges, not in a sandbox.

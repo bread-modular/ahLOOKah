@@ -267,7 +267,7 @@ test('Custom Scripts @core selection modal, parameter actions, folder details cl
     window.showDirectoryPicker = async () => (await navigator.storage.getDirectory()).getDirectoryHandle('scripts');
   });
   const panel = page.locator('.custom-scripts-panel');
-  await expect(panel.getByRole('button')).toHaveCount(2);
+  await expect(panel.getByRole('button')).toHaveCount(3); // Link Folder, ADD, OPEN
   await expect(panel.getByRole('button', { name: 'Link Folder' })).toBeVisible();
   await panel.locator('..').screenshot({ path: testInfo.outputPath('unlinked.png') });
   await page.locator('.custom-scripts-panel').getByRole('button', { name: 'Link Folder', exact: true }).click();
@@ -314,10 +314,92 @@ test('Custom Scripts @core selection modal, parameter actions, folder details cl
   await folderAction(page, 'Custom Scripts', 'Refresh folder');
   await expect(panel.getByRole('alert')).toHaveCount(0); // broken but no longer selected
   await folderAction(page, 'Custom Scripts', 'Unlink folder');
-  await expect(panel.getByRole('button')).toHaveCount(2);
+  await expect(panel.getByRole('button')).toHaveCount(3); // Link Folder, ADD, OPEN — all still there
   expect(await page.evaluate(async () => !!await (await (await navigator.storage.getDirectory()).getDirectoryHandle('scripts')).getFileHandle('demo.viz.js'))).toBe(true);
   await page.reload();
   await expect(panel.getByRole('button', { name: 'Link Folder' })).toBeVisible();
+});
+
+// ADD is the folder-gated hand-off to an external coding agent: it installs nothing,
+// opens nothing and writes nothing itself, so the dialog is asserted as instructions
+// the operator copies out — the three agent links, the linked folder the operator has
+// to find by hand, and a prompt whose task line and docs URI follow the Pattern/FX
+// choice. OPEN stays the separate trust gesture that actually loads the file.
+test('Custom Scripts @core ADD hands off to a coding agent once a folder is linked', async ({ page }, testInfo) => {
+  await seedFolder(page, source());
+  await page.evaluate(async () => { const { scriptStorage } = await import('/src/custom-scripts/storage.js'); await scriptStorage('folder', null); });
+  // The hand-off never touches the clipboard API directly in this test: the copied
+  // text is what the operator pastes into the agent, so it is captured verbatim.
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text) => { (window.copiedPrompts ||= []).push(text); } } });
+  });
+  await page.goto('/?role=control');
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.evaluate(() => {
+    window.showDirectoryPicker = async () => (await navigator.storage.getDirectory()).getDirectoryHandle('scripts');
+  });
+  const panel = page.locator('.custom-scripts-panel');
+  const add = panel.getByRole('button', { name: 'Create Script', exact: true });
+  // Unlinked, ADD is unavailable for the same reason Node Patterns and Media are:
+  // there is no folder for the agent's file to land in.
+  await expect(panel.locator('.library-add-btn')).toHaveText(['ADD', 'OPEN']);
+  await expect(add).toBeDisabled();
+  await expect(panel).toContainText('Link Folder before creating or opening a script.');
+  await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
+  await expect(add).toBeEnabled();
+  await add.click();
+  const modal = page.getByRole('dialog', { name: 'Create a script', exact: true });
+  await expect(modal).toBeVisible();
+  await expect(modal).toContainText('ahLOOKah does not write code or files. Use a coding agent & then OPEN the created script.');
+  // Install guidance is three links to vendor desktop apps, not commands to run.
+  const agents = modal.locator('.create-script-agents a');
+  await expect(agents).toHaveText(['Codex', 'Claude', 'OpenCode']);
+  expect(await agents.evaluateAll((links) => links.map((a) => [a.href, a.target]))).toEqual([
+    ['https://openai.com/codex/', '_blank'],
+    ['https://claude.com/download', '_blank'],
+    ['https://opencode.ai/download', '_blank'],
+  ]);
+  await expect(modal).not.toContainText('npm install');
+  // Steps 2 and 3 stay one line each: no folder name to hunt for, no sandbox essay.
+  await expect(modal).toContainText('Open the linked folder as a project in your coding editor.');
+  await expect(modal).not.toContainText('never exposes its full path');
+  await expect(modal.locator('.script-hint')).toHaveText('The agent saves a .viz.js file. Once done, OPEN it as a script.');
+  const select = modal.getByRole('combobox');
+  await expect(select).toHaveClass('control-select');
+  await expect(select.locator('option')).toHaveText(['Pattern', 'FX (image input)']);
+  await expect(select).toHaveValue('pattern');
+  const prompt = modal.locator('.create-script-prompt');
+  await expect(prompt).toContainText('Create an ahLOOKah script-based pattern.');
+  await expect(prompt).toContainText('https://ahlookah.com/docs/custom-scripts.html');
+  await expect(prompt).not.toContainText('#api-image-input-fx');
+  await expect(prompt).toContainText('"<your prompt for the pattern here>"');
+  // The whole hand-off has to be readable without scrolling in an ordinary window.
+  const dialog = await modal.boundingBox();
+  expect(dialog.y).toBeGreaterThanOrEqual(0);
+  expect(dialog.y + dialog.height).toBeLessThanOrEqual(900);
+  await page.screenshot({ path: testInfo.outputPath('create-script-pattern.png') });
+  await modal.getByRole('button', { name: 'Copy prompt', exact: true }).click();
+  await expect(modal.getByRole('button', { name: 'Copied', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => window.copiedPrompts)).toEqual([await prompt.innerText()]);
+  // FX asks for the capability that makes an effect an FX, and its link lands on
+  // that contract instead of the top of the page; a fresh copy is required.
+  await select.selectOption('fx');
+  await expect(modal.getByRole('button', { name: 'Copy prompt', exact: true })).toBeEnabled();
+  await expect(prompt).toContainText("fx: { input: 'image' }");
+  await expect(prompt).toContainText('ctx.imageInput');
+  await expect(prompt).toContainText('"<your prompt for the FX here>"');
+  await expect(prompt).toContainText('https://ahlookah.com/docs/custom-scripts.html#api-image-input-fx-opt-in-graph-contract');
+  await expect(prompt).not.toContainText('script-based pattern');
+  await page.screenshot({ path: testInfo.outputPath('create-script.png') });
+  await page.keyboard.press('Escape');
+  await expect(modal).toHaveCount(0);
+  await expect(add).toBeFocused();
+  // Escape cancels the hand-off: the dialog itself writes no file into the folder.
+  expect(await page.evaluate(async () => {
+    const names = [];
+    for await (const [name] of (await (await navigator.storage.getDirectory()).getDirectoryHandle('scripts')).entries()) names.push(name);
+    return names;
+  })).toEqual(['demo.viz.js']);
 });
 
 test('Custom Scripts @core reload is all-or-nothing for malformed definitions, duplicates and storage errors', async ({ page }) => {

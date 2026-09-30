@@ -4,7 +4,7 @@ import { folderDetails } from './fixtures/folder-controls.js';
 const sections = [
   // `open` is the one control that opens the category picker; `buttons` is the
   // exact header action set, so a duplicated control fails the suite.
-  { key: 'scripts', label: 'Custom Scripts', panel: '.custom-scripts-panel', open: 'Open Script', title: 'Open Script', file: 'demo.viz.js', buttons: ['OPEN'] },
+  { key: 'scripts', label: 'Custom Scripts', panel: '.custom-scripts-panel', open: 'Open Script', title: 'Open Script', file: 'demo.viz.js', buttons: ['ADD', 'OPEN'] },
   { key: 'nodes', label: 'Node Patterns', panel: '.node-patterns-panel', open: 'Open Pattern', title: 'Open Pattern', file: 'demo.nodes.json', buttons: ['ADD', 'OPEN'] },
   { key: 'media', label: 'Media', panel: '.media-folder-panel', open: 'Add media', title: 'Open Media', file: 'demo.PNG', buttons: ['ADD'] },
 ];

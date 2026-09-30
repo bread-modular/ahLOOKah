@@ -182,13 +182,14 @@ test('folder support notice: a supported browser shows none and links normally @
   }
 });
 
-test('Scripts: no create control, explicit trusted open, untouched source and restore @core', async ({ page }) => {
+test('Scripts: explicit trusted open, untouched source and restore @core', async ({ page }) => {
   await page.goto('/'); await seed(page);
   const panel = page.locator('.custom-scripts-panel');
-  // Only Open exists: scripts are authored in an external editor, never created here.
+  // ADD is the external-agent hand-off and writes nothing itself; OPEN is the one
+  // script control that reads the linked folder, so it is the one that waits for it.
   await expect(panel.getByRole('button', { name: 'Open Script', exact: true })).toBeDisabled();
   await panel.getByRole('button', { name: 'Link Folder', exact: true }).click();
-  await expect(panel.locator('.library-add-btn')).toHaveText(['OPEN']);
+  await expect(panel.locator('.library-add-btn')).toHaveText(['ADD', 'OPEN']);
   await expect(panel.getByRole('button', { name: 'Open Script', exact: true })).toBeEnabled();
   const before = await page.evaluate(async () => {
     const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('scripts');
