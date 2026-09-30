@@ -16,15 +16,6 @@ import { ICON_RESET } from '../common/icons.jsx';
 
 const CORNER_HAND_CURSOR = { tl: 'nwse-resize', tr: 'nesw-resize', br: 'nwse-resize', bl: 'nesw-resize' };
 
-// Label anchor offsets (viewBox units) keep the TL/TR/BR/BL tags outside the
-// handle so they never block the drag.
-const LABEL_OFFSETS = {
-  0: { dx: 4, dy: -4, anchor: 'start' },
-  1: { dx: -4, dy: -4, anchor: 'end' },
-  2: { dx: -4, dy: 9, anchor: 'end' },
-  3: { dx: 4, dy: 9, anchor: 'start' },
-};
-
 export function ScreenMappingPanel() {
   const { runtime, store } = useRuntime();
   const quad = useVizStore(store, (s) => s.screenMappingQuad);
@@ -142,17 +133,6 @@ export function ScreenMappingPanel() {
         <span>Enable screen mapping</span>
       </label>
 
-      <div className="screen-mapping-meta">
-        <span>Output</span>
-        <b
-          id="screen-mapping-resolution"
-          className={resolution ? undefined : 'screen-offline'}
-          title="Resolution of the fullscreen output window"
-        >
-          {resolution ? `${resolution.width} × ${resolution.height}` : 'offline — 16:9 assumed'}
-        </b>
-      </div>
-
       <svg
         id="screen-mapping-editor"
         ref={svgRef}
@@ -176,7 +156,6 @@ export function ScreenMappingPanel() {
         {(points || []).map((pt, index) => {
           const cx = pt.x * 100;
           const cy = pt.y * 100;
-          const off = LABEL_OFFSETS[index];
           const key = SCREEN_MAPPING_CORNER_LABELS[index].toLowerCase();
           return (
             <g key={`corner-${index}`}>
@@ -187,9 +166,6 @@ export function ScreenMappingPanel() {
                 r="2.6"
                 style={{ pointerEvents: 'none' }}
               />
-              <text className="sm-label" x={cx + off.dx} y={cy + off.dy} textAnchor={off.anchor}>
-                {SCREEN_MAPPING_CORNER_LABELS[index]}
-              </text>
               <circle
                 className="sm-handle-hit"
                 data-corner={key}
