@@ -240,7 +240,10 @@ parameters, including across layout/source changes and CUE/TAKE. The **Alphas**
 library group is purpose-built for this mode: three grayscale-on-black mattes
 (Iris Diaphragm, Cellular Gate, Blinder Matrix) whose brightness
 reads as opacity once the black background keys out.
-Name a new mapping to create it; an unnamed mapping is not added. **Close** or
+Name a new mapping to create it; an unnamed mapping is not added. Until it has a
+name, the rest of the editor stays visibly locked — the source, **Edge smoothing**
+and the mapping box cannot be changed, so no edit is staged on a mapping that is
+never created. **Close** or
 Escape keeps your changes—there is no separate Save or Cancel. The popup contains no
 source parameters. In the sidebar, each mapping has **Edit** and **Remove** actions;
 click its title to reveal or hide its parameters (collapsed by default). **Drag a

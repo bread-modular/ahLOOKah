@@ -50,6 +50,21 @@
 .projection-quad-editor.is-invalid .sm-quad { stroke: #ff7676; fill: #ff767625; }
 .projection-other { fill: #ffffff08; stroke: #ffffff35; stroke-width: 0.2; stroke-dasharray: 2 2; pointer-events: none; }
 
+/* A new mapping is not created until it has a name, so every other control stays
+   locked and visibly muted instead of quietly staging edits that never apply. */
+.projection-lock-note {
+  display: flex; align-items: flex-start; gap: 8px; margin: -6px 0 0; padding: 9px 10px;
+  border: 1px dashed #6a6a6a; border-radius: 5px; background: #ffffff0a; color: #c9c9c9;
+  font-size: 11px; line-height: 1.5;
+}
+.projection-lock-note svg { flex: 0 0 auto; margin-top: 2px; }
+.projection-editor.is-awaiting-name .projection-editor-settings :is(input, select):disabled { opacity: .3; cursor: not-allowed; }
+.projection-editor.is-awaiting-name .projection-edge-control .param-head { opacity: .45; }
+.projection-editor.is-awaiting-name .projection-quad-editor.is-pending { cursor: not-allowed; }
+.projection-editor.is-awaiting-name .projection-quad-editor.is-pending .projection-other { opacity: .5; }
+.projection-canvas--pending { flex-direction: column; gap: 14px; }
+.projection-pending-help { max-width: 320px; margin: 0; text-align: center; }
+
 .projection-sources canvas { background: #000; }
 
 /* Override the panel's default full-width action buttons inside compact rows. */

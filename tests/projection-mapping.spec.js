@@ -785,7 +785,12 @@ test('mapping popup autosaves while sidebar parameters stay independently collap
   await control.getByRole('button', { name: 'Add mapping', exact: true }).click();
   editor = control.getByRole('dialog');
   await expect(editor.getByRole('button', { name: /Save mapping|Cancel/, exact: true })).toHaveCount(0);
-  await editor.getByLabel('Source pattern').selectOption('color-bars'); // Still unnamed: no phantom mapping.
+  // Unnamed: every other control is locked, so no phantom mapping can be staged.
+  await expect(editor.getByLabel('Source pattern')).toBeDisabled();
+  await expect(editor.getByRole('slider', { name: 'Edge smoothing' })).toBeDisabled();
+  await expect(editor.locator('[data-corner-index]')).toHaveCount(0);
+  await expect(editor.getByRole('button', { name: 'Reset mapping to full frame', exact: true })).toHaveCount(0);
+  await expect(editor.getByRole('spinbutton', { name: 'New mapping TL X', exact: true })).toHaveCount(0);
   await control.keyboard.press('Escape');
   await expect(control.locator('.projection-surface')).toHaveCount(2);
   await expect(control.getByRole('button', { name: 'Add mapping', exact: true })).toBeFocused();
@@ -1029,22 +1034,49 @@ test('rapid autosaved names and sources serialize while keeping the newest geome
   expect(await page.evaluate(() => window.__viz.params['sleft:mappingEdgeBlur'])).toBe(8.5);
 });
 
-test('unnamed geometry waits for a name, creates once, and flushes the latest edits on Close', async ({ context, page }) => {
+test('a new mapping stays locked until it is named, then creates once with the latest edits', async ({ context, page }, testInfo) => {
   await seed(context);
   const control = await open(context, page);
   await expectWalls(page);
+  const children = await page.evaluate(() => window.__viz.programs.live.children);
   await control.getByRole('button', { name: 'Add mapping', exact: true }).click();
   const editor = control.getByRole('dialog');
+  await expect(editor).toBeVisible();
+  // Only the name is usable; the source, smoothing and the whole mapping box stay
+  // locked and visibly muted so nothing can be edited into a mapping that will
+  // never exist.
   await expect(editor.getByLabel('Source pattern')).toHaveValue('checkerboard');
-  await smoothing(editor, 6);
-  await editor.locator('summary').click();
-  await editor.getByRole('spinbutton', { name: 'New mapping TL X', exact: true }).fill('12.35');
+  await expect(editor.getByLabel('Source pattern')).toBeDisabled();
+  await expect(editor.getByRole('slider', { name: 'Edge smoothing' })).toBeDisabled();
+  await expect(editor.locator('.projection-lock-note')).toContainText('Name this mapping to unlock');
+  await expect(editor.locator('.projection-quad-editor .sm-quad')).toHaveCount(0);
+  await expect(editor.locator('[data-corner-index]')).toHaveCount(0);
+  await expect(editor.getByRole('spinbutton', { name: 'New mapping TL X', exact: true })).toHaveCount(0);
+  await expect(editor.getByRole('button', { name: 'Reset mapping to full frame', exact: true })).toHaveCount(0);
+  await expect(editor.getByLabel('Mapping name', { exact: true })).toBeEnabled();
+  await expect(editor.getByLabel('Mapping name', { exact: true })).toBeFocused();
+  // Whitespace is not a name either.
+  await editor.getByLabel('Mapping name', { exact: true }).fill('   ');
+  await expect(editor.getByLabel('Source pattern')).toBeDisabled();
+  for (const width of [1280, 720, 420]) {
+    await control.setViewportSize({ width, height: 800 });
+    await expect(editor.locator('.projection-lock-note')).toBeVisible();
+    await expect(editor.getByRole('button', { name: 'Close', exact: true })).toBeInViewport();
+  }
+  await control.setViewportSize({ width: 1280, height: 800 });
+  await editor.screenshot({ path: testInfo.outputPath('mapping-editor-awaiting-name.png') });
   await control.waitForTimeout(5100); // An unnamed local mapping is not a failed autosave.
   await expect(editor.getByRole('alert')).toHaveCount(0);
   expect(await control.evaluate(() => JSON.parse(localStorage.getItem('viz2_projection_patterns'))[0].surfaces.length)).toBe(2);
+  expect(await page.evaluate(() => window.__viz.programs.live.children)).toEqual(children);
+  // Naming it unlocks the dialog; edits made before its ACK still land.
   await editor.getByLabel('Mapping name', { exact: true }).fill('Ceiling');
-  await editor.getByRole('spinbutton', { name: 'Ceiling TL X', exact: true }).fill('15.35');
+  await expect(editor.getByLabel('Source pattern')).toBeEnabled();
+  await expect(editor.getByRole('slider', { name: 'Edge smoothing' })).toBeEnabled();
+  await expect.poll(() => editor.locator('[data-corner-index]').count()).toBe(4);
   await smoothing(editor, 12.5);
+  await editor.locator('summary').click();
+  await editor.getByRole('spinbutton', { name: 'Ceiling TL X', exact: true }).fill('15.35');
   await control.keyboard.press('Escape'); // Also flushes a newly named surface before its ACK.
   await expect(control.getByRole('dialog')).toHaveCount(0);
   const row = control.getByRole('region', { name: 'Ceiling mapping', exact: true });
