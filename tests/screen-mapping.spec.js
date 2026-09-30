@@ -127,7 +127,7 @@ function expectedMappedPoint(quad, u, v, width, height) {
 }
 
 test.describe('screen mapping section', () => {
-  test('renders at the bottom of the controls pane with the output resolution', async ({ context }) => {
+  test('renders at the bottom of the controls pane as a text-free corner editor', async ({ context }) => {
     const screen = await context.newPage();
     await screen.goto(SCREEN_URL);
     await screen.waitForSelector('#screen-wrap canvas');
@@ -144,16 +144,21 @@ test.describe('screen mapping section', () => {
     );
     expect(order.at(-1)).toBe('screen-mapping');
 
-    // The reported resolution is the OUTPUT window's inner size (both windows
-    // share the context viewport, so it equals the control window's own size).
-    const viewport = control.viewportSize();
-    await expect(control.locator('#screen-mapping-resolution')).toHaveText(
-      `${viewport.width} × ${viewport.height}`,
-    );
+    // The editor carries no text of its own: the TL/TR/BR/BL corner tags and
+    // the Output/resolution meta line are gone, so the box is handles + grid.
+    await expect(section.locator('.sm-label')).toHaveCount(0);
+    await expect(section.locator('.screen-mapping-meta')).toHaveCount(0);
+    await expect(section).not.toContainText('offline — 16:9 assumed');
+
+    // The output resolution still feeds the editor's aspect ratio (16:9 while
+    // the output window is offline; both pages share the context viewport).
+    const editor = control.locator('#screen-mapping-editor');
+    const editorBox = await editor.boundingBox();
+    expect(editorBox.width / editorBox.height).toBeCloseTo(16 / 9, 1);
 
     // Editor + enable checkbox + four corner handles + reset are present.
     // The feature is opt-in: off by default (full-frame output), editor inert.
-    await expect(control.locator('#screen-mapping-editor')).toBeVisible();
+    await expect(editor).toBeVisible();
     await expect(control.locator('#screen-mapping-enabled')).not.toBeChecked();
     await expect(control.locator('#screen-mapping-editor [data-corner]')).toHaveCount(4);
     await expect(control.locator('#screen-mapping-reset-btn')).toBeDisabled(); // off + identity quad
