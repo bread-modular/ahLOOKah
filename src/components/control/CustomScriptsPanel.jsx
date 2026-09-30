@@ -1,6 +1,7 @@
 import { folderReference } from '../../platform/folderReferences.js';
 import { FolderControls, FolderSupportNotice, useFolderAction } from './FolderControls.jsx';
 import { DirectoryPicker } from './DirectoryPicker.jsx';
+import { CreateScriptModal } from './CreateScriptModal.jsx';
 import { useRef, useState } from 'react';
 import { useRuntime } from '../../app/RuntimeContext.jsx';
 import { useVizStore } from '../../state/useVizStore.js';
@@ -10,7 +11,9 @@ export function CustomScriptsPanel() {
   const status = useVizStore(store, (s) => s.customScripts) || runtime.customScripts.status;
   const { busy, message, run } = useFolderAction();
   const [picker, setPicker] = useState(false);
+  const [create, setCreate] = useState(false);
   const openButton = useRef(null);
+  const createButton = useRef(null);
   const scripts = runtime.customScripts;
   // Permission prompts must originate directly from the button's user gesture.
   const withAccess = async (action) => {
@@ -21,8 +24,10 @@ export function CustomScriptsPanel() {
     <FolderControls label="Custom Scripts" folder={status.folder} permission={status.permission} busy={busy || status.busy} run={run}
       link={() => scripts.choose()} refresh={() => withAccess(() => scripts.reload())} unlink={() => scripts.unlink()}
       note="Unlink removes loaded scripts, not source files.">
+      <button className="library-add-btn" ref={createButton} aria-label="Create Script" title={status.folder ? 'Create a script with a coding agent' : 'Link Folder before creating a script'} disabled={busy || status.busy || !status.folder} onClick={() => setCreate(true)}>ADD</button>
       <button className="library-add-btn" ref={openButton} aria-label="Open Script" title="Choose a trusted script from the linked folder" disabled={busy || status.busy || !status.folder} onClick={() => setPicker(withAccess(async () => { await scripts.browse(); return scripts.status.files.map(name => ({ name, disabled: scripts.status.opened.includes(name) })); }))}>OPEN</button>
     </FolderControls>
+    {!status.folder && <p className="script-hint">Link Folder before creating or opening a script.</p>}
     {(folderReference('scripts')?.files || []).filter(file => !status.opened.includes(file.fileName)).map(file => (
       <p className="script-hint" key={file.fileName}>
         Open trusted script: {file.fileName}
@@ -36,6 +41,7 @@ export function CustomScriptsPanel() {
     {message && <p role="status">{message}</p>}
     {status.errors.length > 0 && <div role="alert">{status.errors.map((error) => <p key={error}>{error}</p>)}<p>Fix the named file and retry. Validation failures keep last-good patterns.</p></div>}
     {picker && status.folder && <DirectoryPicker title="Open Script" label="Script" trust folder={status.folder} listing={picker} open={name => scripts.open(name)} opener={openButton} onClose={() => setPicker(false)} />}
+    {create && status.folder && <CreateScriptModal opener={createButton} onClose={() => setCreate(false)} />}
   </div>;
 }
 

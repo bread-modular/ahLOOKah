@@ -238,8 +238,8 @@ test('Node Patterns ADD matches shared Media and Projection action typography', 
   const add = page.getByRole('button', { name: 'New Node Pattern', exact: true }); await expect(add).toBeVisible();
   const style = el => { const s = getComputedStyle(el); return Object.fromEntries(['fontFamily', 'fontWeight', 'fontSize', 'letterSpacing', 'lineHeight', 'padding', 'borderRadius'].map(k => [k, s[k]])); };
   const themed = await add.evaluate(style);
-  // Media and Projection Mapping keep the shared library ADD action (Custom
-  // Scripts is Open-only now), so the three headers must still read identically.
+  // Media, Node Patterns, Custom Scripts and Projection Mapping all keep the shared
+  // library ADD action, so the headers must still read identically.
   expect(await page.locator('.media-add-btn').evaluate(style)).toEqual(themed);
   const projection = page.locator('.library-group').filter({ has: page.locator('.library-group-toggle', { hasText: 'Projection Mapping' }) }).locator('.library-add-btn');
   if (await projection.count()) expect(await projection.first().evaluate(style)).toEqual(themed);

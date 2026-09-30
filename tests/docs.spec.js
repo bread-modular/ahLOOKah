@@ -186,3 +186,23 @@ test('Custom Scripts reference and every complete example are inline with valid 
   expect(anchors.every((a) => a.href.startsWith('#') && a.exists)).toBe(true);
   expect(await page.evaluate(() => { const ids = [...document.querySelectorAll('[id]')].map((e) => e.id); return ids.length === new Set(ids).size; })).toBe(true);
 });
+
+// The page is the reference the ADD hand-off links for both kinds, so the FX
+// capability it points at has to be on the page itself — not only in the Markdown
+// edition. The inline tables and the section must carry the same contract.
+test('Custom Scripts page carries the image-input FX contract the ADD prompt links', async ({ page }) => {
+  await page.goto('/docs/custom-scripts.html');
+  const article = page.locator('article');
+  await expect(article.getByRole('heading', { name: 'Image-input FX (opt-in graph contract)', exact: true })).toHaveCount(1);
+  await expect(article.locator('#api-image-input-fx-opt-in-graph-contract')).toHaveCount(1);
+  const markdown = await (await page.request.get('/docs/custom-scripts-api.md')).text();
+  for (const contract of ['fx: { input: \'image\' }', 'ctx.imageInput', 'runtime.getImageInput()', 'graph-owned HTMLCanvasElement', 'generated sample clip, not real camera capture']) {
+    expect(markdown).toContain(contract);
+    await expect(article).toContainText(contract);
+  }
+  // The definition-schema and renderer-context tables name the same fields.
+  const html = await article.evaluate((node) => node.innerHTML);
+  for (const field of ['<code>fx</code>', '<code>inputMode</code>', '<code>imageInput</code>']) expect(html).toContain(field);
+  const anchors = await article.locator('nav[aria-label="On this page"] a').evaluateAll((links) => links.map((a) => ({ href: a.getAttribute('href'), exists: !!document.getElementById(a.hash.slice(1)) })));
+  expect(anchors.some((a) => a.href === '#api-image-input-fx-opt-in-graph-contract' && a.exists)).toBe(true);
+});

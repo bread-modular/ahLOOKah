@@ -680,13 +680,32 @@
 #config-panel .folder-actions .script-icon { flex: 0 0 28px; width: 28px; height: 28px; padding: 5px; }
 #config-panel .folder-linked { margin: 0; letter-spacing: normal; }
 
-.folder-details, .directory-picker, .folder-support { width: min(440px, 90vw); font-size: 13px; line-height: 1.5; }
-.folder-details h2, .directory-picker h2, .folder-support h2 { margin: 0 32px 16px 0; font-size: 18px; font-weight: 600; }
+.folder-details, .directory-picker, .folder-support, .create-script { width: min(440px, 90vw); font-size: 13px; line-height: 1.5; }
+.folder-details h2, .directory-picker h2, .folder-support h2, .create-script h2 { margin: 0 32px 16px 0; font-size: 18px; font-weight: 600; }
 .folder-details-name { margin: 0 0 12px; font-size: 14px; }
 .directory-picker .control-select { text-transform: none; }
-.folder-details .device-setup-modal-actions, .directory-picker .device-setup-modal-actions, .folder-support .device-setup-modal-actions { margin-top: 24px; flex-wrap: wrap; }
-.folder-details [role="alert"], .directory-picker [role="alert"], .folder-support [role="alert"] { color: #ffb5a4; overflow-wrap: anywhere; }
+.folder-details .device-setup-modal-actions, .directory-picker .device-setup-modal-actions, .folder-support .device-setup-modal-actions, .create-script .device-setup-modal-actions { margin-top: 24px; flex-wrap: wrap; }
+.folder-details [role="alert"], .directory-picker [role="alert"], .folder-support [role="alert"], .create-script [role="alert"] { color: #ffb5a4; overflow-wrap: anywhere; }
 #config-panel a.library-add-btn { text-decoration: none; line-height: normal; }
+
+/* The Custom Scripts ADD hand-off. Same native-dialog chrome as the other folder
+   dialogs, wider because the prompt is the payload: the operator copies it into a
+   coding agent that writes the file, and OPEN stays the explicit trust gesture. */
+.create-script { width: min(520px, 92vw); max-width: min(520px, 92vw); color: var(--text-main, #eee); }
+.create-script::backdrop { background: #0009; }
+.create-script .control-select { text-transform: none; }
+.create-script-steps { margin: 12px 0 0; padding-left: 18px; }
+.create-script-steps > li { margin-bottom: 12px; }
+.create-script-steps p { margin: 0 0 6px; }
+/* The three agent names are links, not commands: they open each vendor's own
+   desktop app page, and nothing here runs on the operator's machine. */
+.create-script-agents { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; padding: 0; list-style: none; }
+.create-script-agents a { color: var(--accent); text-decoration: underline; }
+.create-script-agents a:hover { color: #8fc4ff; }
+.create-script code { padding: 1px 4px; background: #0a0a0a; border: 1px solid var(--border-gray); border-radius: 3px; font-size: 12px; overflow-wrap: anywhere; }
+.create-script-prompt { margin: 0; padding: 8px; background: #0a0a0a; border: 1px solid var(--border-gray); border-radius: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.create-script-prompt code { font-size: 12px; }
+.create-script .script-hint { font-size: 12px; color: var(--text-dim); }
 
 /* ---------------------------------------------------------------------------
    Missing-file marking. A pattern whose source file this browser cannot reach
